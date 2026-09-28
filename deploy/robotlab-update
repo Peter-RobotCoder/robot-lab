@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Robot Lab: install a new release of the game on the class server.
+#
+#   sudo robotlab-update            the newest release on GitHub
+#   sudo robotlab-update v1.2.0     a particular release (also how to go back to an older one)
+#   add --yes to skip the questions (only after taking the IONOS snapshot)
+#
+# Learners' profiles, evidence and robots are kept. Restarting ends any lesson that is running,
+# so do it between lessons, after taking a snapshot of the VPS in the IONOS panel.
+set -euo pipefail
+
+APP=/opt/robotlab/app
+VENV=/opt/robotlab/venv
+BACKUPS=/var/backups/robotlab
+
+TAG=""
+YES=""
+for a in "$@"; do
+    case "$a" in
+        --yes|-y) YES="yes" ;;
+        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        *) TAG="$a" ;;
+    esac
+done
+
+[ "$(id -u)" -eq 0 ] || { echo "Please run this as root: sudo robotlab-update" >&2; exit 1; }
+[ -d "$APP/.git" ] || { echo "The game isn't installed in $APP: run setup.sh first." >&2; exit 1; }
+
+echo "Checking GitHub for releases..."
+git -C "$APP" fetch -q --tags --force origin
+if [ -z "$TAG" ]; then
+    TAG=$(git -C "$APP" tag --list 'v*' --sort=-v:refname | head -n1)
+    [ -n "$TAG" ] || { echo "There are no releases (v* tags) on GitHub yet." >&2; exit 1; }
+fi
+git -C "$APP" rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+    || { echo "There's no release called $TAG. Releases: $(git -C "$APP" tag --list 'v*' --sort=-v:refname | head -n5 | tr '\n' ' ')" >&2; exit 1; }
+CURRENT=$(git -C "$APP" describe --tags --always)
+echo "Installed now: $CURRENT     Will install: $TAG"
+if [ "$(git -C "$APP" rev-parse HEAD)" = "$(git -C "$APP" rev-parse "$TAG^{commit}")" ]; then
+    echo "That release is already installed. Nothing to do."
+    exit 0
+fi
+
+echo
+echo "Restarting the game server ends any lesson that is running: do this between lessons."
+if [ -z "$YES" ]; then
+    read -rp "Have you taken a snapshot of this VPS in the IONOS panel today? (yes/no) " answer
+    [ "$answer" = "yes" ] || { echo "Take a snapshot first (IONOS panel > Servers > Snapshots), then run this again."; exit 1; }
+fi
+
+# approved AI changes applied live (mods/arena.py, mods/rules.py) are replaced by the release's versions:
+# keep a copy first. Learners' own robot files aren't in git, so they stay as they are.
+changed=$(git -C "$APP" diff --name-only)
+if [ -n "$changed" ]; then
+    install -d -m 700 "$BACKUPS"
+    keep="$BACKUPS/changed-files-before-$TAG-$(date +%Y%m%d-%H%M).tar.gz"
+    (cd "$APP" && umask 077 && tar -czf "$keep" $changed)
+    chmod 600 "$keep"
+    echo "These files were changed on the server since $CURRENT (kept in $keep):"
+    printf '    %s\n' $changed
+fi
+
+echo "Installing $TAG..."
+git -C "$APP" -c advice.detachedHead=false checkout -q -f "$TAG"
+chown -R robotlab:robotlab "$APP/mods"
+"$VENV/bin/pip" install -q -r "$APP/deploy/requirements-server.txt"
+
+# the service files and tools may have changed with the release too
+install -m 644 "$APP/deploy/robotlab@.service" /etc/systemd/system/robotlab@.service
+install -m 644 "$APP/deploy/robotlab-backup.service" /etc/systemd/system/robotlab-backup.service
+install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-backup.timer
+install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
+install -m 755 "$APP/deploy/add-class.sh" /usr/local/bin/robotlab-add-class
+# (this script replaces itself last, as a new file, so the copy that's running isn't changed under it)
+cp "$APP/deploy/robotlab-update" /usr/local/bin/.robotlab-update.new
+chmod 755 /usr/local/bin/.robotlab-update.new
+mv /usr/local/bin/.robotlab-update.new /usr/local/bin/robotlab-update
+systemctl daemon-reload
+
+VERSION=$(cd "$APP" && "$VENV/bin/python" -c 'import lab_version; print(lab_version.VERSION)')
+[ "v$VERSION" = "$TAG" ] || echo "Warning: release $TAG says its version is $VERSION. Windows must match $VERSION."
+
+classes=$(systemctl list-units 'robotlab@*' --all --plain --no-legend | awk '$1 ~ /^robotlab@/ {print $1}')
+[ -n "$classes" ] || classes="robotlab@class1.service"
+failed=""
+for unit in $classes; do
+    if systemctl is-enabled -q "$unit" 2>/dev/null || [ "$unit" = "robotlab@class1.service" ]; then
+        systemctl restart "$unit"
+        sleep 3
+        if systemctl is-active -q "$unit"; then
+            echo "Restarted $unit"
+        else
+            echo "PROBLEM: $unit didn't start. Its last messages:"
+            journalctl -u "$unit" -n 15 --no-pager
+            failed="yes"
+        fi
+    fi
+done
+
+echo
+if [ -n "$failed" ]; then
+    echo "The update didn't start cleanly. To go back:  sudo robotlab-update ${CURRENT%%-*}"
+    echo "(or restore the IONOS snapshot you took)."
+    exit 1
+fi
+echo "Robot Lab $VERSION is running. Learners with an older download will be asked to get the new one."

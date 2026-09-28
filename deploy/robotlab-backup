@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Robot Lab nightly backup: learners' profiles, evidence, AI cards and robots, kept 14 days on this VPS.
+# Backups are children's data too: root-only here, and the weekly copy goes only to the teacher's
+# encrypted laptop (see deploy/README.md). Run by robotlab-backup.timer; can also be run by hand.
+set -euo pipefail
+umask 077
+
+DEST=/var/backups/robotlab
+DATA=/var/lib/robotlab
+APP=/opt/robotlab/app
+KEEP_DAYS=14
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Please run this as root (sudo robotlab-backup)." >&2
+    exit 1
+fi
+
+install -d -m 700 -o root -g root "$DEST"
+stamp=$(date +%Y-%m-%d-%H%M)
+file="$DEST/robotlab-$stamp.tar.gz"
+
+# the data folders (profiles, evidence, AI cards, learners' robots, per class) and the arena and rules mods
+parts=()
+if [ -d "$DATA" ]; then
+    parts+=(-C "$(dirname "$DATA")" "$(basename "$DATA")")
+fi
+if [ -d "$APP/mods" ]; then
+    parts+=(-C "$APP" mods)
+fi
+if [ -f "$APP/lesson_saved.json" ]; then
+    parts+=(-C "$APP" lesson_saved.json)
+fi
+if [ ${#parts[@]} -eq 0 ]; then
+    echo "Nothing to back up yet ($DATA and $APP/mods don't exist)."
+    exit 0
+fi
+tar -czf "$file.tmp" "${parts[@]}"
+mv "$file.tmp" "$file"
+chmod 600 "$file"
+ln -sfn "$file" "$DEST/latest.tar.gz"
+
+# delete backups older than 14 days
+find "$DEST" -maxdepth 1 -name 'robotlab-*.tar.gz' -type f -mtime +$((KEEP_DAYS - 1)) -delete
+
+echo "Backup saved: $file ($(du -h "$file" | cut -f1)). Backups kept: $(find "$DEST" -maxdepth 1 -name 'robotlab-*.tar.gz' | wc -l)."

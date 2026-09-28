@@ -1,0 +1,51 @@
+# Robot Lab class server, one per class: robotlab@class1 (port 8780), robotlab@class2 (port 8781), ...
+# The class's port (and its own class code, for a second class) is in /etc/robotlab/<class>.env;
+# the shared codes are in /etc/robotlab.env. Installed by setup.sh to /etc/systemd/system/.
+[Unit]
+Description=Robot Lab class server (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=robotlab
+Group=robotlab
+EnvironmentFile=/etc/robotlab.env
+EnvironmentFile=/etc/robotlab/%i.env
+Environment=ROBOTLAB_DATA=/var/lib/robotlab/%i
+Environment=HOME=/var/lib/robotlab/%i
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/robotlab/app
+ExecStart=/opt/robotlab/venv/bin/python lab_server.py --class-server --port ${PORT}
+# exit code 3 = the teacher pressed Restart server: start again straight away
+Restart=always
+RestartSec=2
+
+# Hardening: the server can only write its class's data and the arena/rules mod files.
+# (Brains run as child processes that lower their own limits, so fork/exec and setrlimit stay allowed.)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/mods
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=1G
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

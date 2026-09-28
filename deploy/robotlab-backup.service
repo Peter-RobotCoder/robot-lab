@@ -1,0 +1,6 @@
+[Unit]
+Description=Robot Lab nightly backup of learners' profiles, evidence and robots
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/robotlab-backup

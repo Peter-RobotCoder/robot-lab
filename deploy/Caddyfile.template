@@ -1,0 +1,27 @@
+# Robot Lab: Caddy gets and renews the certificate for {{DOMAIN}} and passes the game's secure
+# WebSocket (wss://) traffic to the class server, which only listens inside this VPS.
+# setup.sh fills in {{DOMAIN}} and installs this as /etc/caddy/Caddyfile.
+# No access log is kept (it would record learners' home IP addresses).
+
+{{DOMAIN}} {
+	# extra classes (add-class.sh): wss://{{DOMAIN}}/class2 and so on
+	import /etc/caddy/robotlab-classes/*.caddy
+
+	# the first class: wss://{{DOMAIN}}
+	@game header_regexp Upgrade (?i)^websocket$
+	handle @game {
+		reverse_proxy 127.0.0.1:8780
+	}
+
+	# anyone opening https://{{DOMAIN}} in a browser
+	handle {
+		header Content-Type "text/plain; charset=utf-8"
+		respond "Robot Lab server is running." 200
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+}

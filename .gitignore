@@ -1,0 +1,26 @@
+# Never in this public repository: learners' data, the real codes, and build output.
+profiles/
+evidence/
+ai_requests/
+ai_changes/
+lesson_saved.json
+teacher_settings.json
+release_config.json
+*.env
+*.log
+# learners' robots carry their usernames: only the two example robots are kept
+mods/robots/*.py
+!mods/robots/titan.py
+!mods/robots/razorback.py
+# made on each computer
+assets/
+build/
+dist/
+.venv/
+__pycache__/
+*.pyc
+*.check
+music/*.mp3
+music/*.ogg
+music/*.wav
+music/*.flac
