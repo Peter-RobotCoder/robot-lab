@@ -1,0 +1,44 @@
+# Club Coders front door: the app sends a class code, the door says which game and class it is for
+# (door/club_door.py, behind Caddy at wss://<domain>/door). It only reads the class files in /etc/robotlab.
+# Installed by setup.sh and robotlab-update to /etc/systemd/system/.
+[Unit]
+Description=Club Coders front door (which class and game a class code is for)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=robotlab
+Group=robotlab
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/robotlab/app
+ExecStart=/opt/robotlab/venv/bin/python door/club_door.py --port 8779
+Restart=always
+RestartSec=2
+
+# Hardening: it writes nothing at all.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=200M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

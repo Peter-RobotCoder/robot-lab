@@ -1,5 +1,5 @@
-# What the class server needs (lab_server.py and what it imports), pinned to the game's requirements.txt.
-# lab_sim imports panda3d (Bullet physics, no window); rw_sound imports numpy; lab_server imports websockets.
+# What the class server needs (both games' servers and the front door), pinned to the games' requirements.txt.
+# lab_sim imports panda3d (Bullet physics, no window); rw_sound imports numpy; the servers and door import websockets.
 # The windowed game's extras (panda3d-gltf, simplepbr, pillow, pygame-ce, ursina, psutil) aren't needed here.
 numpy==2.5.3
 panda3d==1.10.16

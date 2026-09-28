@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Robot Lab nightly backup: learners' profiles, evidence, AI cards and robots, kept 14 days on this VPS.
+# Club Coders nightly backup: learners' profiles, evidence, AI cards, robots and fighters, kept 14 days on this VPS.
 # Backups are children's data too: root-only here, and the weekly copy goes only to the teacher's
 # encrypted laptop (see deploy/README.md). Run by robotlab-backup.timer; can also be run by hand.
 set -euo pipefail
@@ -19,19 +19,19 @@ install -d -m 700 -o root -g root "$DEST"
 stamp=$(date +%Y-%m-%d-%H%M)
 file="$DEST/robotlab-$stamp.tar.gz"
 
-# the data folders (profiles, evidence, AI cards, learners' robots, per class) and the arena and rules mods
+# the data folders (profiles, evidence, AI cards, per class and game) and each game's mods (learners' robots and
+# fighters, and the arenas, stages and rules)
 parts=()
 if [ -d "$DATA" ]; then
     parts+=(-C "$(dirname "$DATA")" "$(basename "$DATA")")
 fi
-if [ -d "$APP/mods" ]; then
-    parts+=(-C "$APP" mods)
-fi
-if [ -f "$APP/lesson_saved.json" ]; then
-    parts+=(-C "$APP" lesson_saved.json)
-fi
+for m in "$APP"/games/*/mods "$APP/mods"; do  # ("$APP/mods": a server not yet moved to Club Coders)
+    if [ -d "$m" ]; then
+        parts+=(-C "$APP" "${m#"$APP"/}")
+    fi
+done
 if [ ${#parts[@]} -eq 0 ]; then
-    echo "Nothing to back up yet ($DATA and $APP/mods don't exist)."
+    echo "Nothing to back up yet ($DATA and the games' mods don't exist)."
     exit 0
 fi
 tar -czf "$file.tmp" "${parts[@]}"

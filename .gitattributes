@@ -1,0 +1,6 @@
+# Line endings: the server scripts must have Unix line endings, whatever computer they were committed from.
+* text=auto
+*.sh text eol=lf
+deploy/* text eol=lf
+*.bin binary
+*.png binary

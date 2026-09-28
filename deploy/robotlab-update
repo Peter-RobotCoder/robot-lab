@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Robot Lab: install a new release of the game on the class server.
+# Club Coders: install a new release of the games on the class server.
 #
 #   sudo robotlab-update            the newest release on GitHub
 #   sudo robotlab-update v1.2.0     a particular release (also how to go back to an older one)
 #   add --yes to skip the questions (only after taking the IONOS snapshot)
 #
-# Learners' profiles, evidence and robots are kept. Restarting ends any lesson that is running,
+# Learners' profiles, evidence, robots and fighters are kept. Restarting ends any lesson that is running,
 # so do it between lessons, after taking a snapshot of the VPS in the IONOS panel.
 set -euo pipefail
 
@@ -24,7 +24,7 @@ for a in "$@"; do
 done
 
 [ "$(id -u)" -eq 0 ] || { echo "Please run this as root: sudo robotlab-update" >&2; exit 1; }
-[ -d "$APP/.git" ] || { echo "The game isn't installed in $APP: run setup.sh first." >&2; exit 1; }
+[ -d "$APP/.git" ] || { echo "The games aren't installed in $APP: run setup.sh first." >&2; exit 1; }
 
 echo "Checking GitHub for releases..."
 git -C "$APP" fetch -q --tags --force origin
@@ -48,8 +48,8 @@ if [ -z "$YES" ]; then
     [ "$answer" = "yes" ] || { echo "Take a snapshot first (IONOS panel > Servers > Snapshots), then run this again."; exit 1; }
 fi
 
-# approved AI changes applied live (mods/arena.py, mods/rules.py) are replaced by the release's versions:
-# keep a copy first. Learners' own robot files aren't in git, so they stay as they are.
+# approved AI changes applied live (each game's mods/) are replaced by the release's versions:
+# keep a copy first. Learners' own robots and fighters aren't in git, so they stay as they are.
 changed=$(git -C "$APP" diff --name-only)
 if [ -n "$changed" ]; then
     install -d -m 700 "$BACKUPS"
@@ -62,11 +62,12 @@ fi
 
 echo "Installing $TAG..."
 git -C "$APP" -c advice.detachedHead=false checkout -q -f "$TAG"
-chown -R robotlab:robotlab "$APP/mods"
+for m in "$APP"/games/*/mods; do chown -R robotlab:robotlab "$m"; done
 "$VENV/bin/pip" install -q -r "$APP/deploy/requirements-server.txt"
 
 # the service files and tools may have changed with the release too
 install -m 644 "$APP/deploy/robotlab@.service" /etc/systemd/system/robotlab@.service
+install -m 644 "$APP/deploy/club-door.service" /etc/systemd/system/club-door.service
 install -m 644 "$APP/deploy/robotlab-backup.service" /etc/systemd/system/robotlab-backup.service
 install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-backup.timer
 install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
@@ -76,15 +77,27 @@ cp "$APP/deploy/robotlab-update" /usr/local/bin/.robotlab-update.new
 chmod 755 /usr/local/bin/.robotlab-update.new
 mv /usr/local/bin/.robotlab-update.new /usr/local/bin/robotlab-update
 systemctl daemon-reload
+systemctl enable -q club-door
 
-VERSION=$(cd "$APP" && "$VENV/bin/python" -c 'import lab_version; print(lab_version.VERSION)')
+# the web settings may have changed with the release too (for example the front door's address)
+DOMAIN=$(cat /etc/robotlab/domain)
+sed "s/{{DOMAIN}}/$DOMAIN/g" "$APP/deploy/Caddyfile.template" > /etc/caddy/Caddyfile.new
+if caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
+    mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+    systemctl reload caddy
+else
+    rm -f /etc/caddy/Caddyfile.new
+    echo "Warning: the release's Caddy settings didn't check out, so the old ones are kept."
+fi
+
+VERSION=$(cat "$APP/VERSION" 2>/dev/null || echo "unknown")
 [ "v$VERSION" = "$TAG" ] || echo "Warning: release $TAG says its version is $VERSION. Windows must match $VERSION."
 
 classes=$(systemctl list-units 'robotlab@*' --all --plain --no-legend | awk '$1 ~ /^robotlab@/ {print $1}')
 [ -n "$classes" ] || classes="robotlab@class1.service"
 failed=""
-for unit in $classes; do
-    if systemctl is-enabled -q "$unit" 2>/dev/null || [ "$unit" = "robotlab@class1.service" ]; then
+for unit in $classes club-door.service; do
+    if systemctl is-enabled -q "$unit" 2>/dev/null || [ "$unit" = "robotlab@class1.service" ] || [ "$unit" = "club-door.service" ]; then
         systemctl restart "$unit"
         sleep 3
         if systemctl is-active -q "$unit"; then
@@ -103,4 +116,4 @@ if [ -n "$failed" ]; then
     echo "(or restore the IONOS snapshot you took)."
     exit 1
 fi
-echo "Robot Lab $VERSION is running. Learners with an older download will be asked to get the new one."
+echo "Club Coders $VERSION is running. Learners with an older download will be asked to get the new one."

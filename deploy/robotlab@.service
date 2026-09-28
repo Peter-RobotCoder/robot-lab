@@ -1,8 +1,9 @@
-# Robot Lab class server, one per class: robotlab@class1 (port 8780), robotlab@class2 (port 8781), ...
-# The class's port (and its own class code, for a second class) is in /etc/robotlab/<class>.env;
-# the shared codes are in /etc/robotlab.env. Installed by setup.sh to /etc/systemd/system/.
+# Club Coders class server, one per class: robotlab@class1 (port 8780), robotlab@class2 (port 8781), ...
+# Each class runs one game (GAME=robotlab or fightlab, with its port and, for a second class, its own class code,
+# in /etc/robotlab/<class>.env); the shared codes are in /etc/robotlab.env. deploy/run-class.sh starts the
+# class's game. Installed by setup.sh and robotlab-update to /etc/systemd/system/.
 [Unit]
-Description=Robot Lab class server (%i)
+Description=Club Coders class server (%i)
 After=network-online.target
 Wants=network-online.target
 
@@ -12,21 +13,20 @@ User=robotlab
 Group=robotlab
 EnvironmentFile=/etc/robotlab.env
 EnvironmentFile=/etc/robotlab/%i.env
-Environment=ROBOTLAB_DATA=/var/lib/robotlab/%i
 Environment=HOME=/var/lib/robotlab/%i
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/opt/robotlab/app
-ExecStart=/opt/robotlab/venv/bin/python lab_server.py --class-server --port ${PORT}
+ExecStart=/bin/bash /opt/robotlab/app/deploy/run-class.sh %i
 # exit code 3 = the teacher pressed Restart server: start again straight away
 Restart=always
 RestartSec=2
 
-# Hardening: the server can only write its class's data and the arena/rules mod files.
+# Hardening: the server can only write its class's data and the games' mod files.
 # (Brains run as child processes that lower their own limits, so fork/exec and setrlimit stay allowed.)
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/mods
+ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/games/robotlab/mods -/opt/robotlab/app/games/fightlab/mods
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

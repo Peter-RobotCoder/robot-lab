@@ -19,8 +19,8 @@ import os
 import sys
 import urllib.request
 
-VERSION = "1.0.0"
-GITHUB_REPO = "Peter-RobotCoder/robot-lab"
+VERSION = "1.1.0"  # the Club Coders app's version (stamped by make_public_repo.py)
+GITHUB_REPO = "Peter-RobotCoder/robot-lab"  # (stamped: the Club Coders releases page)
 DOWNLOAD_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 LOCAL_SERVER = "ws://127.0.0.1:8780"
 CLUB_SERVER = "wss://play.clubcoders.co.uk"  # the club's class server (the IONOS VPS)

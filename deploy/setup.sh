@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Robot Lab class server: one-time setup for a fresh IONOS VPS running Ubuntu 24.04.
+# Club Coders class server: one-time setup for a fresh IONOS VPS running Ubuntu 24.04.
 #
 #   sudo bash setup.sh play.yourclub.org.uk
 #
 # What it does: locks down the server (SSH keys only, firewall, fail2ban, automatic security updates),
-# installs Caddy (the free, auto-renewing certificate for wss://), downloads the game from GitHub at its
-# latest release, makes the class codes, and starts the game server so it runs all the time.
-# Safe to run again: it keeps the existing codes and learners' data.
+# installs Caddy (the free, auto-renewing certificate for wss://), downloads the games from GitHub at their
+# latest release, makes the class codes, and starts the first class's game server (Robot Lab) and the front door
+# (which tells the Club Coders app which game and class a class code is for), so they run all the time.
+# Safe to run again: it keeps the existing codes, classes and learners' data. Run again on a server set up
+# before Club Coders (Robot Lab only), it moves it to the newest release and the games/ layout.
 set -euo pipefail
 
 REPO="${ROBOTLAB_REPO:-https://github.com/Peter-RobotCoder/robot-lab.git}"
@@ -131,9 +133,18 @@ install -d -m 700 -o robotlab -g robotlab "$DATA" "$DATA/class1"
 install -d -m 750 -o root -g robotlab "$ETC"
 printf '%s\n' "$DOMAIN" > "$ETC/domain"
 
-say "Downloading the game from $REPO"
-if [ -d "$APP/.git" ]; then  # run again: keep the version that's there (robotlab-update changes it)
-    echo "The game is already downloaded ($(git -C "$APP" describe --tags --always)); to change version use robotlab-update."
+say "Downloading the games from $REPO"
+if [ -d "$APP/.git" ] && [ ! -d "$APP/games" ]; then  # set up before Club Coders: move to the newest release
+    echo "This server has the Robot Lab-only version ($(git -C "$APP" describe --tags --always)): moving it to Club Coders."
+    git -C "$APP" remote set-url origin "$REPO"
+    git -C "$APP" fetch -q --tags --force origin
+    TAG=$(git -C "$APP" tag --list 'v*' --sort=-v:refname | head -n1)
+    [ -n "$TAG" ] || fail "no release (v* tag) on GitHub yet: publish the Club Coders release first"
+    git -C "$APP" -c advice.detachedHead=false checkout -q -f "$TAG"
+    [ -d "$APP/games" ] || fail "the newest release ($TAG) is still the Robot Lab-only version: publish the Club Coders release first"
+    echo "Using release $TAG"
+elif [ -d "$APP/.git" ]; then  # run again: keep the version that's there (robotlab-update changes it)
+    echo "The games are already downloaded ($(git -C "$APP" describe --tags --always)); to change version use robotlab-update."
 else
     git clone -q "$REPO" "$APP"
     TAG=$(git -C "$APP" tag --list 'v*' --sort=-v:refname | head -n1)
@@ -144,9 +155,9 @@ else
         echo "Warning: the repository has no release yet (no v* tag), so the newest code is used."
     fi
 fi
-[ -f "$APP/lab_server.py" ] || fail "lab_server.py isn't in $REPO: is that the right repository?"
-# approved AI changes to the arena and rules are saved in mods/ (learners' robots go in the class's data folder)
-chown -R robotlab:robotlab "$APP/mods"
+[ -f "$APP/games/robotlab/lab_server.py" ] || fail "games/robotlab/lab_server.py isn't in $REPO: is that the right repository?"
+# approved AI changes to the arenas, stages and rules are saved in each game's mods/ folder
+for m in "$APP"/games/*/mods; do chown -R robotlab:robotlab "$m"; done
 
 say "Python packages for the server"
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
@@ -181,14 +192,15 @@ fi
 chown root:robotlab "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 if [ ! -f "$ETC/class1.env" ]; then
-    printf '# The first class: wss://%s\nPORT=8780\n' "$DOMAIN" > "$ETC/class1.env"
+    printf '# The first class: wss://%s (GAME: robotlab or fightlab; robotlab-add-class changes it)\nPORT=8780\nGAME=robotlab\n' "$DOMAIN" > "$ETC/class1.env"
 fi
 chown root:robotlab "$ETC/class1.env"
 chmod 640 "$ETC/class1.env"
 
 # ---------- services ----------
-say "Starting the game server, Caddy and the nightly backup"
+say "Starting the game server, the front door, Caddy and the nightly backup"
 install -m 644 "$APP/deploy/robotlab@.service" /etc/systemd/system/robotlab@.service
+install -m 644 "$APP/deploy/club-door.service" /etc/systemd/system/club-door.service
 install -m 644 "$APP/deploy/robotlab-backup.service" /etc/systemd/system/robotlab-backup.service
 install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-backup.timer
 install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
@@ -204,9 +216,13 @@ caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 
 mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 
 systemctl daemon-reload
-systemctl enable -q caddy robotlab@class1 robotlab-backup.timer
+systemctl enable -q caddy robotlab@class1 club-door robotlab-backup.timer
 systemctl restart caddy
+for unit in $(systemctl list-units 'robotlab@*' --all --plain --no-legend | awk '$1 ~ /^robotlab@/ {print $1}'); do
+    systemctl restart "$unit"  # (every class, so a moved server runs the new release everywhere)
+done
 systemctl restart robotlab@class1
+systemctl restart club-door
 systemctl start robotlab-backup.timer
 
 # ---------- check it works ----------
@@ -227,7 +243,14 @@ else
     fail "see the messages above"
 fi
 systemctl is-active -q caddy && echo "Caddy is running." || fail "Caddy isn't running: journalctl -u caddy -n 30"
-if curl -fsS --max-time 20 "https://$DOMAIN" 2>/dev/null | grep -q "Robot Lab server is running"; then
+door=""
+for _ in $(seq 1 10); do
+    if timeout 2 bash -c '</dev/tcp/127.0.0.1/8779' 2>/dev/null; then door="yes"; break; fi
+    sleep 1
+done
+[ -n "$door" ] && echo "The front door is running (the app finds each class by its code)." \
+    || fail "the front door isn't answering: journalctl -u club-door -n 20"
+if curl -fsS --max-time 20 "https://$DOMAIN" 2>/dev/null | grep -q "Club Coders server is running"; then
     echo "https://$DOMAIN answers with a padlock."
 else
     echo "https://$DOMAIN doesn't answer yet. That's normal if the DNS record for $DOMAIN was only just added"
@@ -236,7 +259,7 @@ else
 fi
 
 say "Done"
-echo "Game address:  wss://$DOMAIN   (built into the downloaded game)"
+echo "Club Coders:   wss://$DOMAIN   (built into the downloaded app; class1 plays $(grep -h '^GAME=' "$ETC/class1.env" 2>/dev/null | cut -d= -f2 || echo robotlab))"
 if [ -n "$NEW_CODES" ]; then
     echo
     echo "  Class code (for learners' welcome letters):   $JOIN_CODE"
@@ -252,4 +275,5 @@ echo "  systemctl status robotlab@class1       is the game server running?"
 echo "  journalctl -u robotlab@class1 -f       its messages, live"
 echo "  sudo robotlab-update                   install a new release (between lessons, after a snapshot)"
 echo "  sudo robotlab-backup                   make a backup now"
-echo "  sudo robotlab-add-class class2         a second class at the same time (wss://$DOMAIN/class2)"
+echo "  sudo robotlab-add-class class2 --game fightlab   another class, playing Fight Lab (or robotlab)"
+echo "  sudo robotlab-add-class class1 --game fightlab   move a class to another game (same class code)"

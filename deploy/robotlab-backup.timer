@@ -1,5 +1,5 @@
 [Unit]
-Description=Robot Lab nightly backup (02:30)
+Description=Club Coders nightly backup (02:30)
 
 [Timer]
 OnCalendar=*-*-* 02:30:00

@@ -8,10 +8,15 @@ teacher_settings.json
 release_config.json
 *.env
 *.log
-# learners' robots carry their usernames: only the two example robots are kept
-mods/robots/*.py
-!mods/robots/titan.py
-!mods/robots/razorback.py
+# learners' robots and fighters carry their usernames: only the examples are kept
+games/robotlab/mods/robots/*.py
+!games/robotlab/mods/robots/titan.py
+!games/robotlab/mods/robots/razorback.py
+games/fightlab/mods/fighters/*.py
+!games/fightlab/mods/fighters/blaze.py
+!games/fightlab/mods/fighters/kaito.py
+!games/fightlab/mods/fighters/penthesilea.py
+!games/fightlab/mods/fighters/achilles.py
 # made on each computer
 assets/
 build/

@@ -1,0 +1,158 @@
+{
+ "fps": 30,
+ "moves": {
+  "idle": {
+   "frames": 77,
+   "peak": 62,
+   "play": "loop"
+  },
+  "walk_f": {
+   "frames": 34,
+   "peak": 31,
+   "play": "loop"
+  },
+  "walk_b": {
+   "frames": 38,
+   "peak": 15,
+   "play": "loop"
+  },
+  "side_l": {
+   "frames": 40,
+   "peak": 1,
+   "play": "loop"
+  },
+  "side_r": {
+   "frames": 35,
+   "peak": 18,
+   "play": "loop"
+  },
+  "crouch": {
+   "frames": 72,
+   "peak": 51,
+   "play": "loop"
+  },
+  "block": {
+   "frames": 42,
+   "peak": 38,
+   "play": "loop"
+  },
+  "low_block": {
+   "frames": 15,
+   "peak": 8,
+   "play": "loop"
+  },
+  "blockstun": {
+   "frames": 18,
+   "peak": 7,
+   "play": "once"
+  },
+  "hitstun": {
+   "frames": 22,
+   "peak": 4,
+   "play": "once"
+  },
+  "hit_low": {
+   "frames": 30,
+   "peak": 8,
+   "play": "once"
+  },
+  "punch": {
+   "frames": 46,
+   "peak": 19,
+   "play": "attack"
+  },
+  "kick": {
+   "frames": 37,
+   "peak": 12,
+   "play": "attack"
+  },
+  "low": {
+   "frames": 42,
+   "peak": 18,
+   "play": "attack"
+  },
+  "high": {
+   "frames": 48,
+   "peak": 27,
+   "play": "attack"
+  },
+  "jump_kick": {
+   "frames": 26,
+   "peak": 7,
+   "play": "attack"
+  },
+  "throw": {
+   "frames": 32,
+   "peak": 6,
+   "play": "attack"
+  },
+  "blast": {
+   "frames": 90,
+   "peak": 49,
+   "play": "attack"
+  },
+  "uppercut": {
+   "frames": 31,
+   "peak": 14,
+   "play": "attack"
+  },
+  "spin_kick": {
+   "frames": 107,
+   "peak": 6,
+   "play": "attack"
+  },
+  "slam": {
+   "frames": 71,
+   "peak": 31,
+   "play": "attack"
+  },
+  "jump": {
+   "frames": 30,
+   "peak": 23,
+   "play": "once"
+  },
+  "launched": {
+   "frames": 70,
+   "peak": 9,
+   "play": "hold"
+  },
+  "thrown": {
+   "frames": 118,
+   "peak": 9,
+   "play": "hold"
+  },
+  "knockdown": {
+   "frames": 70,
+   "peak": 9,
+   "play": "hold"
+  },
+  "ko": {
+   "frames": 118,
+   "peak": 9,
+   "play": "hold"
+  },
+  "ringout": {
+   "frames": 70,
+   "peak": 9,
+   "play": "hold"
+  },
+  "getup": {
+   "frames": 70,
+   "peak": 9,
+   "play": "reverse"
+  },
+  "win": {
+   "frames": 72,
+   "peak": 15,
+   "play": "hold"
+  }
+ },
+ "outfits": [
+  "hoplite",
+  "greek",
+  "commando",
+  "training",
+  "civilian"
+ ],
+ "credits": "Bodies and hair: MakeHuman (CC0). Outfits and weapons: made in art/fighterlib.py. Moves: Mixamo (Adobe) animations, used in this game under the Mixamo terms."
+}

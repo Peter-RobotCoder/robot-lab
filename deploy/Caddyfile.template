@@ -1,10 +1,19 @@
-# Robot Lab: Caddy gets and renews the certificate for {{DOMAIN}} and passes the game's secure
-# WebSocket (wss://) traffic to the class server, which only listens inside this VPS.
-# setup.sh fills in {{DOMAIN}} and installs this as /etc/caddy/Caddyfile.
+# Club Coders: Caddy gets and renews the certificate for {{DOMAIN}} and passes the games' secure
+# WebSocket (wss://) traffic to the class servers and the front door, which only listen inside this VPS.
+# setup.sh and robotlab-update fill in {{DOMAIN}} and install this as /etc/caddy/Caddyfile.
 # No access log is kept (it would record learners' home IP addresses).
 
 {{DOMAIN}} {
-	# extra classes (add-class.sh): wss://{{DOMAIN}}/class2 and so on
+	# the front door: the Club Coders app asks here which game and class a class code is for
+	@door {
+		path /door
+		header_regexp Upgrade (?i)^websocket$
+	}
+	handle @door {
+		reverse_proxy 127.0.0.1:8779
+	}
+
+	# extra classes (robotlab-add-class): wss://{{DOMAIN}}/class2 and so on
 	import /etc/caddy/robotlab-classes/*.caddy
 
 	# the first class: wss://{{DOMAIN}}
@@ -16,7 +25,7 @@
 	# anyone opening https://{{DOMAIN}} in a browser
 	handle {
 		header Content-Type "text/plain; charset=utf-8"
-		respond "Robot Lab server is running." 200
+		respond "Club Coders server is running." 200
 	}
 
 	header {

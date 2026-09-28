@@ -1,5 +1,5 @@
 [Unit]
-Description=Robot Lab nightly backup of learners' profiles, evidence and robots
+Description=Club Coders nightly backup of learners' profiles, evidence, robots and fighters
 
 [Service]
 Type=oneshot
