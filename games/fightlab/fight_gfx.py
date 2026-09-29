@@ -681,6 +681,7 @@ def lying(face_up=True, spread=0.0):
 
 def anim_pose(a, k):
     """The target pose for animation a at progress k (see the top of the file)."""
+    a = {"hit_body": "hitstun", "swept": "knockdown"}.get(a, a)  # (the detailed models have their own for these)
     if a == "idle":
         p = stance(0.015 * math.sin(k * 5.0))
         p["le"] = (0, 105 + 4 * math.sin(k * 5.0 + 1), 0)

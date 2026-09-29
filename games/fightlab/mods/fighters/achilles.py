@@ -8,7 +8,8 @@ Fighting style: kickboxer, boxer, capoeira, knives, swords or sticks. Weapon (ar
       knives: knife, dagger; swords: sword_shield, longsword, katana; sticks: stick, staff.
 Colour: his clothes' main colour.
 Look: outfit (hoplite, greek, commando, training, civilian), hair (short, classic, spiky, crop, afro, long),
-      hair_colour [r, g, b], shape (athletic, muscly, full), height (90-110 percent, just how he looks).
+      hair_colour [r, g, b], shape (athletic, muscly, full), win (victory, dance, bow, power_up),
+      height (90-110 percent, just how he looks).
 """
 
 FIGHTER = {

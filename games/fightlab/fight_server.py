@@ -413,6 +413,7 @@ class FightServer:
                 "bosses": {name: v[1] for name, v in sim.BOSS_BY_NAME.items()}, "cpu_levels": cpu_brains.LEVELS,
                 "model_bodies": list(sim.MODEL_BODIES), "outfits": sim.OUTFITS, "hair_styles": sim.HAIR_STYLES,
                 "shapes": sim.SHAPES, "height": [sim.HEIGHT_MIN, sim.HEIGHT_MAX], "styles": sim.STYLES,
+                "wins": sim.WINS,
                 "style_moves": {s: {m: v[0] for m, v in moves.items()} for s, moves in sim.STYLE_MOVES.items()},
                 "weapons": {w: [v[0], v[1]] for w, v in sim.WEAPONS.items()}}
 

@@ -22,9 +22,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(HERE, "models")
 FACING = 180.0      # the models face -y; the game's heading 0 faces +y
 BLEND_TIME = 0.12   # seconds to blend from one move into the next
-FALLBACK = {"intro": "idle", "dizzy": "hitstun"}  # (moves the models have no animation for)
+# a move a model has no animation for plays another (and in the end, idle)
+FALLBACK = {"intro": "idle", "dizzy": "hitstun", "hit_body": "hitstun", "swept": "knockdown", "idle_hurt": "idle",
+            "launched": "knockdown"}
+TWO_HANDED = ("longsword", "katana", "staff", "glaive")
+HURT = 0.25  # below this share of their health, they stand hurt
+
+
+def anim_sets(style, weapon):
+    """Where a fighter's moves come from, first choice first (art/build_fighters.py SETS), before the usual ones."""
+    sets = [weapon] if weapon else []
+    sets.append(style)
+    if weapon in TWO_HANDED:
+        sets.append("twohand")
+    if style in ("boxer", "kickboxer", "knives"):
+        sets.append("guard")
+    return sets
 WEAPON_PIECES = {"knife": ("knife",), "dagger": ("dagger",), "sword_shield": ("sword", "shield"),
-                 "longsword": ("longsword",), "katana": ("katana",), "stick": ("stick",), "staff": ("staff",)}
+                 "longsword": ("longsword",), "katana": ("katana",), "stick": ("stick",), "staff": ("staff",),
+                 "glaive": ("glaive",)}
 
 _moves = None
 
@@ -74,6 +90,8 @@ class ModelFighterVisual:
         self.pos, self.h = None, 0.0
         self.tag, self.flashing = None, False
         self.style, weapon = sim.style_of(design)
+        self.sets = anim_sets(self.style, weapon)
+        self.win = look.get("win", "victory")
         self.dress(look, design.get("colour"), weapon)
         self.head = self.actor.exposeJoint(None, "modelRoot", "mixamorig:Head")
         self.chest = self.actor.exposeJoint(None, "modelRoot", "mixamorig:Spine2")
@@ -110,16 +128,20 @@ class ModelFighterVisual:
 
     # ---------- which frame of which animation ----------
     def clip_for(self, a):
-        """Which of the model's animations plays the engine's anim a: this style's own, or the usual one."""
-        a = FALLBACK.get(a, a)
-        styled = f"{self.style}.{a}"
-        if styled in self.frames and styled in self.moves:
-            return styled
-        return a if a in self.frames and a in self.moves else "idle"
+        """Which of the model's animations plays the engine's anim a: this style's (or weapon's) own, else the
+        usual one, else a stand-in (FALLBACK)."""
+        seen = set()
+        while a and a not in seen:
+            seen.add(a)
+            for name in [f"{s}.{a}" for s in self.sets] + [a]:
+                if name in self.frames and name in self.moves:
+                    return name
+            a = FALLBACK.get(a, "idle")
+        return "idle"
 
     def frame_for(self, a, k):
-        """The animation and frame for the engine's anim a with progress k (see fight_sim.Fighter.anim)."""
-        a = self.clip_for(a)
+        """The frame of clip a (a model animation, from clip_for) for the engine's progress k (see
+        fight_sim.Fighter.anim)."""
         n = self.frames[a]
         m = self.moves[a]
         play = m["play"]
@@ -155,6 +177,10 @@ class ModelFighterVisual:
         self.root.setPos(self.pos)
         self.root.setH(self.h)
         a, k = s.get("a", "idle"), s.get("k", 0.0)
+        if a == "win":
+            a = f"win_{self.win}"
+        elif a == "idle" and s.get("hp", 1) < HURT * s.get("max", 1):
+            a = "idle_hurt"
         name = self.clip_for(a)
         if name != self.clip:  # a new move: blend from the old one over a moment
             self.prev, self.prev_frame = self.clip, self.frame
@@ -162,7 +188,7 @@ class ModelFighterVisual:
         else:
             self.clip_time += dt
         self.fade = min(1.0, self.fade + dt / BLEND_TIME)
-        anim, frame = self.frame_for(a, k)
+        anim, frame = self.frame_for(name, k)
         self.frame = frame
         self.actor.pose(anim, int(frame))
         self.actor.setControlEffect(anim, self.fade)

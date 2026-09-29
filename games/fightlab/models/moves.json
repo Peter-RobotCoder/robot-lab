@@ -3,148 +3,484 @@
  "moves": {
   "idle": {
    "frames": 77,
-   "peak": 62,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "walk_f": {
    "frames": 34,
-   "peak": 31,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "walk_b": {
    "frames": 38,
-   "peak": 15,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "side_l": {
    "frames": 40,
-   "peak": 1,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "side_r": {
    "frames": 35,
-   "peak": 18,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "crouch": {
    "frames": 72,
-   "peak": 51,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "block": {
    "frames": 42,
-   "peak": 38,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "low_block": {
    "frames": 15,
-   "peak": 8,
-   "play": "loop"
+   "play": "loop",
+   "set": ""
   },
   "blockstun": {
    "frames": 18,
-   "peak": 7,
-   "play": "once"
+   "play": "once",
+   "set": ""
   },
   "hitstun": {
    "frames": 22,
-   "peak": 4,
-   "play": "once"
+   "play": "once",
+   "set": ""
   },
   "hit_low": {
    "frames": 30,
-   "peak": 8,
-   "play": "once"
+   "play": "once",
+   "set": ""
   },
   "punch": {
    "frames": 46,
-   "peak": 19,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 16
   },
   "kick": {
    "frames": 37,
-   "peak": 12,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 7
   },
   "low": {
    "frames": 42,
-   "peak": 18,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 17
   },
   "high": {
    "frames": 48,
-   "peak": 27,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 26
   },
   "jump_kick": {
    "frames": 26,
-   "peak": 7,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 2
   },
   "throw": {
    "frames": 32,
-   "peak": 6,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 22
   },
   "blast": {
    "frames": 90,
-   "peak": 49,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 39
   },
   "uppercut": {
    "frames": 31,
-   "peak": 14,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 14
   },
   "spin_kick": {
    "frames": 107,
-   "peak": 6,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 21
   },
   "slam": {
    "frames": 71,
-   "peak": 31,
-   "play": "attack"
+   "play": "attack",
+   "set": "",
+   "peak": 22
   },
   "jump": {
    "frames": 30,
-   "peak": 23,
-   "play": "once"
-  },
-  "launched": {
-   "frames": 70,
-   "peak": 9,
-   "play": "hold"
+   "play": "once",
+   "set": ""
   },
   "thrown": {
    "frames": 118,
-   "peak": 9,
-   "play": "hold"
+   "play": "hold",
+   "set": ""
   },
   "knockdown": {
    "frames": 70,
-   "peak": 9,
-   "play": "hold"
+   "play": "hold",
+   "set": ""
   },
   "ko": {
    "frames": 118,
-   "peak": 9,
-   "play": "hold"
+   "play": "hold",
+   "set": ""
   },
   "ringout": {
    "frames": 70,
-   "peak": 9,
-   "play": "hold"
+   "play": "hold",
+   "set": ""
   },
   "getup": {
    "frames": 70,
-   "peak": 9,
-   "play": "reverse"
+   "play": "reverse",
+   "set": ""
+  },
+  "hit_body": {
+   "frames": 22,
+   "play": "once",
+   "set": ""
+  },
+  "launched": {
+   "frames": 22,
+   "play": "hold",
+   "set": ""
+  },
+  "swept": {
+   "frames": 76,
+   "play": "hold",
+   "set": ""
+  },
+  "idle_hurt": {
+   "frames": 281,
+   "play": "loop",
+   "set": ""
+  },
+  "intro": {
+   "frames": 83,
+   "play": "once",
+   "set": ""
   },
   "win": {
+   "frames": 257,
+   "play": "hold",
+   "set": ""
+  },
+  "win_victory": {
+   "frames": 257,
+   "play": "hold",
+   "set": ""
+  },
+  "win_dance": {
+   "frames": 148,
+   "play": "loop",
+   "set": ""
+  },
+  "win_bow": {
+   "frames": 83,
+   "play": "hold",
+   "set": ""
+  },
+  "win_power_up": {
    "frames": 72,
-   "peak": 15,
-   "play": "hold"
+   "play": "hold",
+   "set": ""
+  },
+  "guard.idle": {
+   "frames": 10,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.walk_f": {
+   "frames": 34,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.walk_b": {
+   "frames": 38,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.side_l": {
+   "frames": 40,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.side_r": {
+   "frames": 35,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.crouch": {
+   "frames": 72,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.block": {
+   "frames": 42,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.low_block": {
+   "frames": 15,
+   "play": "loop",
+   "set": "guard"
+  },
+  "guard.hitstun": {
+   "frames": 26,
+   "play": "once",
+   "set": "guard"
+  },
+  "guard.jump": {
+   "frames": 30,
+   "play": "once",
+   "set": "guard"
+  },
+  "boxer.punch": {
+   "frames": 46,
+   "play": "attack",
+   "set": "boxer",
+   "peak": 12
+  },
+  "boxer.kick": {
+   "frames": 40,
+   "play": "attack",
+   "set": "boxer",
+   "peak": 12
+  },
+  "boxer.low": {
+   "frames": 40,
+   "play": "attack",
+   "set": "boxer",
+   "peak": 12
+  },
+  "boxer.high": {
+   "frames": 41,
+   "play": "attack",
+   "set": "boxer",
+   "peak": 15
+  },
+  "kickboxer.punch": {
+   "frames": 46,
+   "play": "attack",
+   "set": "kickboxer",
+   "peak": 12
+  },
+  "kickboxer.kick": {
+   "frames": 66,
+   "play": "attack",
+   "set": "kickboxer",
+   "peak": 20
+  },
+  "kickboxer.low": {
+   "frames": 71,
+   "play": "attack",
+   "set": "kickboxer",
+   "peak": 20
+  },
+  "kickboxer.high": {
+   "frames": 40,
+   "play": "attack",
+   "set": "kickboxer",
+   "peak": 14
+  },
+  "knives.punch": {
+   "frames": 72,
+   "play": "attack",
+   "set": "knives",
+   "peak": 29
+  },
+  "knives.kick": {
+   "frames": 66,
+   "play": "attack",
+   "set": "knives",
+   "peak": 20
+  },
+  "knives.low": {
+   "frames": 91,
+   "play": "attack",
+   "set": "knives",
+   "peak": 15
+  },
+  "knives.high": {
+   "frames": 71,
+   "play": "attack",
+   "set": "knives",
+   "peak": 17
+  },
+  "capoeira.idle": {
+   "frames": 104,
+   "play": "loop",
+   "set": "capoeira"
+  },
+  "capoeira.walk_f": {
+   "frames": 38,
+   "play": "loop",
+   "set": "capoeira"
+  },
+  "capoeira.walk_b": {
+   "frames": 35,
+   "play": "loop",
+   "set": "capoeira"
+  },
+  "capoeira.side_l": {
+   "frames": 49,
+   "play": "loop",
+   "set": "capoeira"
+  },
+  "capoeira.side_r": {
+   "frames": 65,
+   "play": "loop",
+   "set": "capoeira"
+  },
+  "capoeira.punch": {
+   "frames": 40,
+   "play": "attack",
+   "set": "capoeira",
+   "peak": 14
+  },
+  "capoeira.kick": {
+   "frames": 42,
+   "play": "attack",
+   "set": "capoeira",
+   "peak": 18
+  },
+  "capoeira.low": {
+   "frames": 57,
+   "play": "attack",
+   "set": "capoeira",
+   "peak": 45
+  },
+  "capoeira.high": {
+   "frames": 49,
+   "play": "attack",
+   "set": "capoeira",
+   "peak": 39
+  },
+  "capoeira.spin_kick": {
+   "frames": 50,
+   "play": "attack",
+   "set": "capoeira",
+   "peak": 39
+  },
+  "capoeira.block": {
+   "frames": 49,
+   "play": "hold",
+   "set": "capoeira"
+  },
+  "capoeira.low_block": {
+   "frames": 21,
+   "play": "hold",
+   "set": "capoeira"
+  },
+  "twohand.idle": {
+   "frames": 88,
+   "play": "loop",
+   "set": "twohand"
+  },
+  "twohand.walk_f": {
+   "frames": 42,
+   "play": "loop",
+   "set": "twohand"
+  },
+  "twohand.walk_b": {
+   "frames": 40,
+   "play": "loop",
+   "set": "twohand"
+  },
+  "twohand.side_l": {
+   "frames": 34,
+   "play": "loop",
+   "set": "twohand"
+  },
+  "twohand.side_r": {
+   "frames": 36,
+   "play": "loop",
+   "set": "twohand"
+  },
+  "twohand.crouch": {
+   "frames": 56,
+   "play": "loop",
+   "set": "twohand"
+  },
+  "twohand.block": {
+   "frames": 30,
+   "play": "hold",
+   "set": "twohand"
+  },
+  "twohand.low_block": {
+   "frames": 12,
+   "play": "hold",
+   "set": "twohand"
+  },
+  "twohand.hitstun": {
+   "frames": 37,
+   "play": "once",
+   "set": "twohand"
+  },
+  "twohand.punch": {
+   "frames": 39,
+   "play": "attack",
+   "set": "twohand",
+   "peak": 17
+  },
+  "twohand.kick": {
+   "frames": 46,
+   "play": "attack",
+   "set": "twohand",
+   "peak": 19
+  },
+  "twohand.low": {
+   "frames": 44,
+   "play": "attack",
+   "set": "twohand",
+   "peak": 17
+  },
+  "twohand.high": {
+   "frames": 57,
+   "play": "attack",
+   "set": "twohand",
+   "peak": 9
+  },
+  "twohand.spin_kick": {
+   "frames": 107,
+   "play": "attack",
+   "set": "twohand",
+   "peak": 90
+  },
+  "twohand.jump_kick": {
+   "frames": 66,
+   "play": "attack",
+   "set": "twohand",
+   "peak": 25
+  },
+  "staff.punch": {
+   "frames": 91,
+   "play": "attack",
+   "set": "staff",
+   "peak": 30
+  },
+  "staff.high": {
+   "frames": 52,
+   "play": "attack",
+   "set": "staff",
+   "peak": 10
+  },
+  "stick.punch": {
+   "frames": 62,
+   "play": "attack",
+   "set": "stick",
+   "peak": 14
   }
  },
  "outfits": [
@@ -152,7 +488,8 @@
   "greek",
   "commando",
   "training",
-  "civilian"
+  "civilian",
+  "fantasy"
  ],
  "credits": "Bodies and hair: MakeHuman (CC0). Outfits and weapons: made in art/fighterlib.py. Moves: Mixamo (Adobe) animations, used in this game under the Mixamo terms."
 }

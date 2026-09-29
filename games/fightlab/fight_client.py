@@ -786,7 +786,8 @@ class Lab(ShowBase):
         look = d.setdefault("look", sim.default_look(d["body"]))
         rows = (("Outfit", "outfit", list(self.rules["outfits"])),
                 ("Hair", "hair", self.rules["hair_styles"][d["body"]]),
-                ("Shape", "shape", list(self.rules["shapes"])))
+                ("Shape", "shape", list(self.rules["shapes"])),
+                ("Win", "win", list(self.rules.get("wins", {}))))
         for text, key, options in rows:
             label(f, text, 0.84, y, 0.025)
             for i, opt in enumerate(options):

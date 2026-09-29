@@ -64,16 +64,19 @@ OUTFITS = {
     "commando": "army commando: camouflage, a tactical vest and boots",
     "training": "training kit: a fitted lycra top and leggings, trainers",
     "civilian": "everyday clothes: T-shirt, jeans and trainers",
+    "fantasy": "fantasy warrior armour: an armoured top, bare midriff, plated shorts, spiked pauldrons and boots",
 }
 HAIR_STYLES = {"woman": ["ponytail", "braid", "long", "bob", "short", "afro"],
                "man": ["short", "classic", "spiky", "crop", "afro", "long"]}
 SHAPES = {"athletic": "athletic", "muscly": "muscly", "full": "full-bodied"}
+WINS = {"victory": "a victory celebration", "dance": "a hip hop dance", "bow": "a formal bow",
+        "power_up": "a power-up roar"}  # what they do when they win
 HEIGHT_MIN, HEIGHT_MAX = 90, 110  # percent: taller or shorter to look at (the size setting changes the fight)
 
 
 def default_look(body):
     return {"outfit": "hoplite", "hair": HAIR_STYLES.get(body, ["short"])[0], "hair_colour": [70, 40, 25],
-            "shape": "athletic", "height": 100}
+            "shape": "athletic", "height": 100, "win": "victory"}
 
 
 def check_look(body, look):
@@ -94,6 +97,8 @@ def check_look(body, look):
     h = look.get("height")
     if not isinstance(h, (int, float)) or isinstance(h, bool) or not HEIGHT_MIN <= h <= HEIGHT_MAX:
         problems.append(f"look height must be from {HEIGHT_MIN} to {HEIGHT_MAX}")
+    if look.get("win", "victory") not in WINS:
+        problems.append(f"look win must be one of {', '.join(WINS)}")
     return problems
 SPECIALS = {
     "blast": "energy blast: a shot that flies across the ring (sidestep or jump it!)",
@@ -122,7 +127,7 @@ STYLE_MOVES = {  # style: {button move: (what it is, damage, reach, time)}
                   "low": ("low sweep", 1.0, 1.0, 1.0), "high": ("high kick", 1.0, 1.0, 1.0)},
     "boxer": {"punch": ("jab", 1.2, 0.95, 0.85), "kick": ("body hook", 1.05, 0.8, 0.8),
               "low": ("ducking body blow", 1.0, 0.8, 0.85), "high": ("uppercut", 1.1, 0.85, 0.9)},
-    "capoeira": {"punch": ("elbow", 0.95, 0.85, 0.92), "kick": ("martelo (round kick)", 1.05, 1.05, 1.04),
+    "capoeira": {"punch": ("martelo (round kick)", 0.95, 0.85, 0.92), "kick": ("bencao (push kick)", 1.05, 1.05, 1.04),
                  "low": ("rasteira (sweep)", 1.0, 1.06, 1.04), "high": ("meia lua (spinning kick)", 1.05, 1.06, 1.08)},
     "knives": {"punch": ("stab", 0.8, 1.04, 0.92), "kick": ("front kick", 0.95, 1.0, 1.0),
                "low": ("low slash", 0.8, 1.0, 0.95), "high": ("rising slash", 0.85, 1.0, 0.95)},
@@ -140,6 +145,7 @@ WEAPONS = {  # weapon: (style, what it is, damage, reach, time) for the moves ma
     "katana": ("swords", "katana, in both hands: quicker cuts, but lighter", 0.92, 1.0, 0.94),
     "stick": ("sticks", "escrima stick: quick", 1.0, 1.0, 1.0),
     "staff": ("sticks", "bo staff, in both hands: the longest reach, but slower", 0.96, 1.05, 1.1),
+    "glaive": ("sticks", "glaive, in both hands: a blade on a long pole, heavier and slower", 1.02, 1.05, 1.14),
 }
 WEAPON_MOVES = ("punch", "low", "high")  # the moves made with the weapon (a kick is still a kick)
 
@@ -305,6 +311,7 @@ ATTACKS = ("punch", "kick", "low", "high")      # what a brain or a key can ask 
 PRESSES = ATTACKS + ("special", "throw", "jump")  # one-off actions
 HOLDS = ("block", "low_block", "crouch")          # actions that last as long as they are asked for
 BLAST_SPEED, BLAST_LIFE = 7.0, 1.4
+INTRO_SECONDS = 1.6  # "ROUND 1" before "FIGHT!"
 
 # where the rings are in the stage (the rings are 16 m apart: room for the walkways and lights)
 RING_CENTRES = [(0.0, 0.0), (16.0, 0.0), (-16.0, 0.0), (0.0, 16.0), (16.0, 16.0), (-16.0, 16.0)]
@@ -370,6 +377,7 @@ class Fighter:
         self.from_combo = False         # this attack came from the combo list (the punch button)
         self.throw_anim = False         # flying from a throw (the windows show it differently)
         self.low_guard = False          # was crouching when a hit or block stunned it (it stays down)
+        self.hurt_how = "head"          # how the last clean hit landed: head, body, low, launch or trip
 
     @property
     def radius(self):
@@ -422,10 +430,14 @@ class Fighter:
             return self.move, k
         if st == "launched" and self.throw_anim:
             return "thrown", self.state_t
+        if st in ("launched", "knockdown") and self.hurt_how == "trip" and not self.knocked_out:
+            return "swept", self.state_t  # (swept off their feet: one fall, from the air to the floor)
         if st == "knockdown" and self.knocked_out:
             return "ko", self.state_t
         if st in ("hitstun", "blockstun", "knockdown", "getup"):
-            return (st if st != "hitstun" or not self.crouching else "hit_low"), min(1.0, self.state_t / max(self.state_len, 1e-3))
+            if st == "hitstun":
+                st = "hit_low" if self.crouching else "hit_body" if self.hurt_how == "body" else "hitstun"
+            return st, min(1.0, self.state_t / max(self.state_len, 1e-3))
         if st == "walk":
             return ("walk_f" if self.walk_dir >= 0 else "walk_b"), self.stride
         if st == "side":
@@ -555,7 +567,7 @@ class Ring:
     def step(self, dt, now):
         self.phase_t += dt
         if self.phase == "intro":
-            if self.phase_t > 1.6:
+            if self.phase_t > INTRO_SECONDS:
                 self.phase, self.banner = "fight", "FIGHT!"
                 self.round_started = now
                 self.banner_until = now + 0.8
@@ -872,6 +884,7 @@ class Ring:
         if not self.practice:
             v.health -= dmg
         effect = None if mid_combo else ("down" if finisher and m.effect is None else m.effect)
+        v.hurt_how = effect if effect in ("trip", "launch") else {"mid": "body", "low": "low"}.get(m.height, "head")
         v.move = None
         v.vx, v.vy = dirx * push, diry * push
         if v.health <= 0 and not self.practice:
@@ -1116,8 +1129,10 @@ class Stage:
 
 
 # ---------- what the windows are sent (plain data: the server and the showcase both use it) ----------
-def fighter_state(f, now):
+def fighter_state(f, now, ring=None):
     a, k = f.anim()
+    if ring is not None and ring.phase == "intro":  # (they bow as the round is announced)
+        a, k = "intro", min(1.0, ring.phase_t / INTRO_SECONDS)
     return {"id": f.id, "pos": [round(f.x, 3), round(f.y, 3), round(f.z, 3)], "h": round(f.heading, 1),
             "a": a, "k": round(k, 3), "hp": round(max(0.0, f.health), 1), "max": round(f.stats["health"]),
             "en": round(f.energy), "w": f.wins, "hu": round(min(9.0, now - f.last_hurt), 2), "hits": f.hits,
@@ -1128,7 +1143,7 @@ def ring_state(r, now):
     tl = r.time_left()
     return {"i": r.index, "c": list(r.centre), "ph": r.phase, "rd": r.round,
             "tl": None if tl is None else round(tl, 1), "bn": r.banner, "lb": r.label,
-            "hz": r.hazard_state(now), "f": [fighter_state(f, now) for f in r.fighters],
+            "hz": r.hazard_state(now), "f": [fighter_state(f, now, r) for f in r.fighters],
             "sh": [[round(p.x, 2), round(p.y, 2), round(p.z, 2), round(p.dx, 2), round(p.dy, 2), p.owner.id]
                    for p in r.projectiles],
             "lh": r.last_hit}

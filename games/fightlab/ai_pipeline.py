@@ -187,7 +187,8 @@ HOW THE MOD FILES WORK
   the chest, up to 10 characters), and optionally model (one of {', '.join(sim.BOSS_BY_NAME)}) to play as a boss.
   The detailed 3D bodies ("woman", "man") also have look: outfit ({', '.join(sim.OUTFITS)}), hair (woman:
   {', '.join(sim.HAIR_STYLES['woman'])}; man: {', '.join(sim.HAIR_STYLES['man'])}), hair_colour [r, g, b], shape
-  ({', '.join(sim.SHAPES)}) and height ({sim.HEIGHT_MIN}-{sim.HEIGHT_MAX}); their colour is their clothes' main colour.
+  ({', '.join(sim.SHAPES)}), height ({sim.HEIGHT_MIN}-{sim.HEIGHT_MAX}) and win (how they celebrate: {', '.join(sim.WINS)});
+  their colour is their clothes' main colour.
   fighting_style ({', '.join(sim.STYLES)}; left out = kickboxer) changes what the attack buttons do (fight_sim
   STYLE_MOVES); an armed style also needs weapon ({'; '.join(f"{s}: {', '.join(sim.weapons_for(s))}"
   for s in sim.STYLES if sim.weapons_for(s))}).
