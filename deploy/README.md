@@ -52,6 +52,20 @@ Accounts belong to the class's game: after moving a class, make its learners' ac
 
 Your teacher window for a class: in that game's folder on your laptop, `teacher_settings.json` with `{"server": "wss://play.<club domain>/class2", "teacher_code": "..."}` (class1 is `wss://play.<club domain>`). Then open the game's "teacher (class server)" launcher.
 
+## Live code updates (no new download)
+
+A kept AI change to a game's code can go live without a new release:
+
+1. On your laptop, review the change (Changes tab), try it on the laptop windows, then double-click **`club-coders\Make my changes live.bat`** and choose the game. It lists every changed file and every new risky line, asks you to confirm you've reviewed them, signs the update with your key (its passphrase), tests it, and sends it over `ssh robotlab`.
+2. Nothing changes for learners yet. Your teacher window says an update is ready. Warn the class, then press **Restart server** (Controls): everyone gets a 10-second warning, and their game reopens with the new code. Each learner's app checks your signature before running it.
+
+| Command (on the VPS) | What it does |
+| --- | --- |
+| `sudo robotlab-live status` | Which code each class runs, and which update is waiting |
+| `sudo robotlab-live back fightlab` | Go back to the previous update (or the release's code); then Restart server |
+
+The signing key is made once with `live\make_live.py --new-key` and lives only on your laptop, locked with its passphrase. If it might have leaked, make a new key (`--new-key --replace-key`) and a new release: the server only lets in the newest app, so the old key stops working for everyone. A new release (`robotlab-update`) includes the live changes made before it, once they're committed, and deletes the old live updates from the server.
+
 ## Every week: copy the backup to your laptop
 
 Backups are children's data. Keep them on the VPS and on your encrypted laptop only. From your laptop:

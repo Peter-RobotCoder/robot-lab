@@ -64,7 +64,7 @@ OUTFITS = {
     "commando": "army commando: camouflage, a tactical vest and boots",
     "training": "training kit: a fitted lycra top and leggings, trainers",
     "civilian": "everyday clothes: T-shirt, jeans and trainers",
-    "fantasy": "fantasy warrior armour: an armoured top, bare midriff, plated shorts, spiked pauldrons and boots",
+    "warrior": "warrior armour (fantasy style): an armoured top, bare midriff, plated shorts, spiked pauldrons and boots",
 }
 HAIR_STYLES = {"woman": ["ponytail", "braid", "long", "bob", "short", "afro"],
                "man": ["short", "classic", "spiky", "crop", "afro", "long"]}

@@ -73,8 +73,20 @@ def main():
                          "variable on GitHub, or use --server).")
 
     os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
+    config = {"server": args.server, "version": v}
+    if not args.tag:  # (a laptop test build: it may be pointed at test servers here; a release never is)
+        config["test_build"] = True
+    key_file = os.path.join(ROOT, "live", "live_key.pub")
+    if os.path.exists(key_file):  # the public half of the teacher's key: the app runs only live code signed with it
+        with open(key_file, encoding="utf-8") as f:
+            config["live_key"] = f.read().strip()
+    elif args.tag:
+        raise SystemExit("live/live_key.pub is missing, so this release couldn't take live updates. Make the key "
+                         "(live/make_live.py --new-key), commit live_key.pub, export again, then tag.")
+    else:
+        print("Note: no live/live_key.pub, so this build won't take live updates.")
     with open(os.path.join(ROOT, "build", "release_config.json"), "w", encoding="utf-8") as f:
-        json.dump({"server": args.server, "version": v}, f)
+        json.dump(config, f)
     for game, (_, _, _, make_assets) in GAMES.items():
         run([sys.executable, "-c", make_assets], cwd=os.path.join(ROOT, "games", game))
     shutil.rmtree(APP, ignore_errors=True)

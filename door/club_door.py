@@ -1,6 +1,7 @@
 """The club's front door: which class (and which game) is this class code for?
 
-The Club Coders app sends the class code a learner typed; the door answers with that class's game and address,
+The Club Coders app sends the class code a learner typed; the door answers with that class's game and address (and which code
+the class is running, so the app can fetch and check a live update before the game opens),
 and the app opens the right game there. So learners have one app and one code, and when the teacher moves a
 class to a different game, learners keep the same code and simply land in the new game.
 
@@ -26,6 +27,7 @@ import websockets
 GAMES = ("robotlab", "fightlab")
 ETC = "/etc/robotlab"          # the domain, and one <class>.env per class (PORT, GAME, its own JOIN_CODE)
 SHARED_ENV = "/etc/robotlab.env"  # the first class's JOIN_CODE (and the teacher code, which the door never uses)
+DATA = "/var/lib/robotlab"      # each class's data: its game server writes running_code there when it starts
 PORT = 8779
 
 
@@ -66,7 +68,7 @@ def read_env(path):
     return values
 
 
-def server_classes(etc=ETC, shared_env=SHARED_ENV):
+def server_classes(etc=ETC, shared_env=SHARED_ENV, data=DATA):
     """The classes on this server: class1 at wss://<domain>, the others at wss://<domain>/<class>."""
     try:
         with open(os.path.join(etc, "domain"), encoding="utf-8") as f:
@@ -83,7 +85,14 @@ def server_classes(etc=ETC, shared_env=SHARED_ENV):
         code = env.get("JOIN_CODE") or (shared.get("JOIN_CODE") if cls == "class1" else None)
         game = env.get("GAME", "robotlab")
         if code and game in GAMES:
-            classes.append({"name": cls, "game": game, "code": code,
+            running = None
+            try:
+                with open(os.path.join(data, cls, *(["fightlab"] if game == "fightlab" else []), "running_code"),
+                          encoding="utf-8") as f:
+                    running = f.read().strip() or None
+            except OSError:
+                pass
+            classes.append({"name": cls, "game": game, "code": code, "running": running,
                             "address": f"wss://{domain}" + ("" if cls == "class1" else f"/{cls}")})
     return classes
 
@@ -129,7 +138,8 @@ def make_handler(load_classes):
             await ws.send(json.dumps({"ok": False, "error": "That class code isn't right. Check your welcome "
                                                             "letter (it looks like abcd-efgh)."}))
             return
-        await ws.send(json.dumps({"ok": True, "game": cls["game"], "address": cls["address"]}))
+        await ws.send(json.dumps({"ok": True, "game": cls["game"], "address": cls["address"],
+                                  "code": cls.get("running")}))
     return handler
 
 

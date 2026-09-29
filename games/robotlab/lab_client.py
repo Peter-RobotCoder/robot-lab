@@ -335,7 +335,7 @@ class Lab(ShowBase):
         self.card_targets = {}   # teacher: card id -> what Claude may change (can differ from the learner's choice)
         self.view_name, self.view_tab = None, "garage"   # teacher's learner view
         self.change_view, self.change_page, self.change_msg = None, 0, ("", GREY)  # teacher's Changes tab
-        self.needs_restart = False  # a kept or rolled-back code change is waiting for a restart
+        self.needs_restart = bool(welcome.get("live_ready"))  # a code change (or a live update) waits for a restart
         self.view_drafts, self.view_missions = {}, {}
         self.code_shown, self.code_msg = None, ("", GREY)
         self.cam = GameCamera(self, "third")
@@ -519,6 +519,8 @@ class Lab(ShowBase):
         """The server runs the game's current code: if this window's code is different (a mod was switched, or
         the server restarted with changes), reopen with the new code. Returns True if the window is reopening."""
         if not welcome.get("code") or welcome["code"] == lab_version.CODE:
+            return False
+        if not lab_version.FROZEN and not LOCAL:  # the teacher's own windows on the class server run the teacher's code
             return False
         if os.environ.get("ROBOTLAB_REOPENED") == welcome["code"] or args.offscreen:  # tried already: don't loop
             self.banner_note("This window's game code doesn't match the server's. Restart the server "
@@ -1845,6 +1847,11 @@ class Lab(ShowBase):
                 with open(path, "w", encoding="utf-8", newline="") as f:
                     f.write(m["text"])
                 self.banner_note(f"Evidence saved on this computer: {path}", 6)
+            elif kind == "live_update":  # (teacher) a live code update is waiting on the class server
+                self.needs_restart = True
+                self.banner_note("A live update is ready on the class server. Warn the class, then press "
+                                 "Restart server (Controls).", 12)
+                rebuild = True
             elif kind == "notice":
                 self.banner_note(m["text"], 5)
                 if self.tab in ("learners", "accounts"):

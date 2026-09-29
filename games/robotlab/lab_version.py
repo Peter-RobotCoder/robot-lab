@@ -19,7 +19,7 @@ import os
 import sys
 import urllib.request
 
-VERSION = "1.2.0"  # the Club Coders app's version (stamped by make_public_repo.py)
+VERSION = "1.3.0"  # the Club Coders app's version (stamped by make_public_repo.py)
 GITHUB_REPO = "Peter-RobotCoder/robot-lab"  # (stamped: the Club Coders releases page)
 DOWNLOAD_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 LOCAL_SERVER = "ws://127.0.0.1:8780"
@@ -36,7 +36,7 @@ def fingerprint():
         if name.endswith(".py"):
             h.update(name.encode())
             with open(os.path.join(HERE, name), "rb") as f:
-                h.update(f.read())
+                h.update(f.read().replace(b"\r\n", b"\n"))  # (the same on Windows and on the server)
     return h.hexdigest()[:12]
 
 
@@ -50,7 +50,16 @@ def _release_config():
         return {}
 
 
-CODE = fingerprint()
+def live_id():
+    """A live update's id (its LIVE_ID file, made by club-coders/live/make_live.py), or None for a release's code."""
+    try:
+        with open(os.path.join(HERE, "LIVE_ID"), encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+CODE = live_id() or fingerprint()  # (a live update's code is known by its id; windows on other code reopen with it)
 SERVER = _release_config().get("server") or LOCAL_SERVER
 ONLINE_SERVER = _release_config().get("server") or CLUB_SERVER
 

@@ -72,6 +72,10 @@ install -m 644 "$APP/deploy/robotlab-backup.service" /etc/systemd/system/robotla
 install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-backup.timer
 install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
 install -m 755 "$APP/deploy/add-class.sh" /usr/local/bin/robotlab-add-class
+install -m 755 "$APP/deploy/robotlab-live" /usr/local/bin/robotlab-live
+install -d -m 755 -o root -g root /opt/robotlab/live /var/www /var/www/clubcoders-code
+# a new release includes the live updates made before it: every game goes back to the release's own code
+/usr/local/bin/robotlab-live clear
 # (this script replaces itself last, as a new file, so the copy that's running isn't changed under it)
 cp "$APP/deploy/robotlab-update" /usr/local/bin/.robotlab-update.new
 chmod 755 /usr/local/bin/.robotlab-update.new

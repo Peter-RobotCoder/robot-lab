@@ -387,7 +387,8 @@ class FightServer:
         await self.send(ws, {"type": "welcome", "role": role, "name": name, "lesson": self.lesson,
                              "design": p.design, "rules": self.rules(),
                              "prefs": (profile or {}).get("prefs", {}), "new_profile": bool(profile and is_new),
-                             "code": None if CLASS_SERVER else fight_version.CODE})
+                             "code": fight_version.CODE,
+                             "live_ready": getattr(self, "live_ready", None) if role == "teacher" else None})
         await self.broadcast_lesson()
         await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
         try:
@@ -529,6 +530,11 @@ class FightServer:
             for ws in list(self.players):
                 await self.send(ws, {"type": "notice", "text": "The server is restarting to load changes: "
                                                                "you'll reconnect in a few seconds."})
+            if CLASS_SERVER:  # the class server (a live update): everyone gets a warning, then it restarts
+                for ws in list(self.players):
+                    await self.send(ws, {"type": "notice", "text": "The game is updating: back in 10 seconds."})
+                asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), os._exit(3)))
+                return
             print("Restarting to load code changes...")
             os._exit(3)
         if kind == "restart_clients":  # everyone's window reopens itself with the new code
@@ -726,6 +732,25 @@ class FightServer:
             return True
         return False
 
+    async def watch_live(self):
+        """On the class server: a live code update installed for this game (robotlab-live) is offered to the teacher,
+        who restarts the class when they have warned it (see restart_server). Checked every 10 seconds."""
+        pointer = os.environ.get("CLUBCODERS_LIVE_POINTER")
+        self.live_ready = None
+        while pointer:
+            try:
+                with open(pointer, encoding="utf-8") as f:
+                    wanted = f.read().strip() or None
+            except OSError:
+                wanted = None
+            ready = wanted if wanted and wanted != fight_version.CODE else None
+            if ready != self.live_ready:
+                self.live_ready = ready
+                for ws, p in list(self.players.items()):
+                    if ready and p.role == "teacher":
+                        await self.send(ws, {"type": "live_update", "id": ready})
+            await asyncio.sleep(10)
+
     async def physics_loop(self):
         next_step, steps, next_round_at = time.perf_counter(), 0, None
         while True:
@@ -826,6 +851,9 @@ async def main():
             raise SystemExit("Fight Lab server not started: " + problem)
     OPEN_SIGNUP = os.environ.get("FIGHTLAB_OPEN_SIGNUP") == "1" or not CLASS_SERVER
     server = FightServer(args.lesson)
+    if CLASS_SERVER:  # (the front door tells the Club Coders app which code this class runs)
+        with open(os.path.join(fight_teaching.DATA, "running_code"), "w", encoding="utf-8") as f:
+            f.write(fight_version.CODE)
     async with websockets.serve(server.handler, args.bind, args.port):
         if CLASS_SERVER:
             print(f"Fight Lab class server {fight_version.VERSION} on {args.bind}:{args.port}. "
@@ -833,7 +861,7 @@ async def main():
         else:
             print(f"Fight Lab laptop test server on {args.bind}:{args.port}. "
                   f"Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username makes a profile.")
-        await asyncio.gather(server.physics_loop(), server.send_loop())
+        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live())
 
 
 if __name__ == "__main__":

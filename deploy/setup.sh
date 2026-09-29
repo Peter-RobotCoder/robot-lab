@@ -206,6 +206,8 @@ install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-
 install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
 install -m 755 "$APP/deploy/robotlab-update" /usr/local/bin/robotlab-update
 install -m 755 "$APP/deploy/add-class.sh" /usr/local/bin/robotlab-add-class
+install -m 755 "$APP/deploy/robotlab-live" /usr/local/bin/robotlab-live
+install -d -m 755 -o root -g root /opt/robotlab/live /var/www /var/www/clubcoders-code  # (live code updates)
 
 install -d -m 755 /etc/caddy/robotlab-classes
 [ -f /etc/caddy/robotlab-classes/00-note.caddy ] \

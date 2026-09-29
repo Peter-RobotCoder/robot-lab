@@ -1,7 +1,9 @@
-"""Fight Lab cameras: four views.
+"""Fight Lab cameras: five views.
 
     fight     - Fight camera: side-on to the two fighters, like a TV fighting game. It keeps both in shot and
                 stays on the same side as they circle round (it never jumps to the other side).
+    me        - My fighter: your own fighter in the middle of the picture, from the front and a little to the side,
+                with the other fighter behind
     shoulder  - Over the shoulder: behind you, looking past you at the other fighter
     ring      - Ring view: your ring from high up at the side
     all       - All rings: every ring from high up
@@ -15,8 +17,9 @@ import math
 
 from panda3d.core import MouseButton, Point3, Vec3
 
-MODES = ["fight", "shoulder", "ring", "all"]
-NAMES = {"fight": "Fight camera", "shoulder": "Over the shoulder", "ring": "Ring view", "all": "All rings"}
+MODES = ["fight", "me", "shoulder", "ring", "all"]
+NAMES = {"fight": "Fight camera", "me": "My fighter", "shoulder": "Over the shoulder", "ring": "Ring view",
+         "all": "All rings"}
 
 
 class FightCamera:
@@ -113,7 +116,7 @@ class FightCamera:
         cx, cy = ring_centre
         centre = Point3(cx, cy, 0)
         mode = self.mode
-        if mode == "shoulder" and (me is None or enemy is None):
+        if mode == "shoulder" and (me is None or enemy is None) or mode == "me" and me is None:
             mode = "fight"
         k, fov = 4.0, 45.0
         if mode == "fight":
@@ -141,6 +144,25 @@ class FightCamera:
             want.z += max(a.z, 0) * 0.5
             look = Point3(mid.x, mid.y, 1.0 + max(a.z, 0) * 0.5)
             k, fov = 5.0, 50.0
+        elif mode == "me":
+            to = Vec3(enemy - me) if enemy is not None else Vec3(0, 1, 0)
+            to.z = 0
+            if to.length() < 0.05:
+                to = Vec3(0, 1, 0)
+            to.normalize()
+            right = Vec3(to.y, -to.x, 0)
+            if self.side is None:
+                self.side = Vec3(right)
+            if right.dot(self.side) < 0:
+                right = -right  # (stay on the same side as the fighters circle)
+            self.side = Vec3(self.side + (right - self.side) * min(1.0, dt * 6))
+            self.side.normalize()
+            z = self.zoom["me"]
+            # in front of you and well to the side (so the other fighter doesn't get in the way), a little above
+            want = Point3(me.x, me.y, 0) + self.swing((to * 0.45 + self.side * 0.9) * 3.4 * z + Vec3(0, 0, 1.5))
+            want.z += max(me.z, 0)
+            look = Point3(me.x, me.y, 1.0 + max(me.z, 0))
+            k, fov = 6.0, 50.0
         elif mode == "shoulder":
             to = Vec3(enemy - me)
             to.z = 0
@@ -166,7 +188,7 @@ class FightCamera:
             want = mid + self.swing(Vec3(0, -span * 0.75 * z, span * 0.75 * z))
             look = mid + Vec3(0, 1, 0)
             k, fov = 2.5, 55.0
-        self.show_rig(mode in ("fight", "shoulder"))
+        self.show_rig(mode in ("fight", "me", "shoulder"))
         if self.pos is None:
             self.pos, self.look, self.fov = Point3(want), Point3(look), fov
         a = min(1.0, dt * k)

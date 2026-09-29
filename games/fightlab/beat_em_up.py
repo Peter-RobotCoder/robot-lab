@@ -30,7 +30,7 @@ ap.add_argument("--level", choices=["empty", "easy", "medium", "expert"], defaul
 ap.add_argument("--rounds", type=int, choices=[1, 2, 3], default=2, help="rounds to win the match")
 ap.add_argument("--music", choices=["off", "chip", "rock", "yours"], default="rock",
                 help="background music (M changes it): 8-bit, rock, or your own files in the music folder")
-ap.add_argument("--camera", choices=["fight", "shoulder", "ring"], default="fight")
+ap.add_argument("--camera", choices=["fight", "me", "shoulder", "ring"], default="fight")
 ap.add_argument("--autoplay", action="store_true", help="the computer fights for you too (demo)")
 ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=12)

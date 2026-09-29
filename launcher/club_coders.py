@@ -10,33 +10,49 @@ learners keep the same app and the same code.
     python launcher/club_coders.py           from the source files; "This computer (test)" opens a game on the
                                              laptop test servers (Robot Lab ws://127.0.0.1:8780, Fight Lab 8781)
 
+Live updates: the teacher can put new game code on the class server without a new download (live/make_live.py).
+A class running one says which (its id). The app downloads it once from https://<server>/code/<game>/<id>.zip and
+.sig, and before every use checks (live/live_format.py) that the teacher's key signed exactly that update of that
+game (the key's public half is built into the app), and that it unpacks safely. Anything that fails a check isn't
+run: the game runs the app's own code instead, and says it doesn't match the class.
+
 Test options: --server ws://127.0.0.1:8779 (a laptop front door), --code X --go (no clicking), --wait (wait for
 the game and exit with its result), and --offscreen / --screenshot / --after / --name / --password, which are
 passed on to the game.
 """
 import argparse
+import hashlib
 import json
 import os
 import queue
+import re
 import runpy
+import shutil
 import subprocess
 import sys
+import urllib.request
 import threading
 import time
 import traceback
 
 FROZEN = bool(getattr(sys, "frozen", False))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the repository (this file is in launcher/)
+if not FROZEN:
+    sys.path.insert(0, os.path.join(ROOT, "live"))
+import live_format  # noqa: E402  (the checks on live updates, shared with the server and the teacher's tool)
 BUNDLE = getattr(sys, "_MEIPASS", ROOT)
 CLUB_SERVER = "wss://play.clubcoders.co.uk"
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "ClubCoders")
+LIVE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or SETTINGS_DIR, "ClubCoders", "live")  # live updates
 
 # each game: its window's file, the environment variable it reopens itself with (see run_as_game), and its
 # laptop test server. dev: its folder in the club's development repository (next to club-coders/).
 GAMES = {
     "robotlab": {"title": "Robot Lab", "client": "lab_client.py", "login_env": "ROBOTLAB_LOGIN",
+                 "reopen_env": "ROBOTLAB_REOPENED",
                  "local": "ws://127.0.0.1:8780", "dev": "shared-world-demo"},
     "fightlab": {"title": "Fight Lab", "client": "fight_client.py", "login_env": "FIGHTLAB_LOGIN",
+                 "reopen_env": "FIGHTLAB_REOPENED",
                  "local": "ws://127.0.0.1:8781", "dev": "BeatEmUp"},
 }
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx")
@@ -77,6 +93,117 @@ def game_dir(game):
     raise SystemExit(f"{GAMES[game]['title']} isn't in this copy of Club Coders.")
 
 
+# ---------- live updates ----------
+def release_code_id(folder):
+    """The code the app came with: the same fingerprint the game's own version file makes (its CODE)."""
+    h = hashlib.sha1()
+    for name in sorted(os.listdir(folder)):
+        if name.endswith(".py"):
+            h.update(name.encode())
+            with open(os.path.join(folder, name), "rb") as f:
+                h.update(f.read().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:12]
+
+
+def test_build():
+    """The club's own test builds (made without a release tag) and the source files take test servers on this
+    laptop (ws://, CLUBCODERS_CODE_URL). The released app only ever talks to the club's server over wss/https."""
+    return not FROZEN or bool(release_config().get("test_build"))
+
+
+def code_url(address):
+    """Where a class server's live updates are: https://<its host>/code. (Test builds can be pointed at a laptop
+    test server with CLUBCODERS_CODE_URL; every update is checked the same way wherever it came from.)"""
+    if os.environ.get("CLUBCODERS_CODE_URL") and test_build():
+        return os.environ["CLUBCODERS_CODE_URL"].rstrip("/")
+    host = address.split("://", 1)[-1].split("/", 1)[0]
+    return f"https://{host}/code"
+
+
+def fetch(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "ClubCoders"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = r.read(live_format.MAX_ZIP + 1)
+    if len(data) > live_format.MAX_ZIP:
+        raise live_format.LiveError("the update is too big to be a code update")
+    return data
+
+
+def remove_folder(folder):
+    """Delete a live update's folder, taking its links out first (so nothing they point at is touched)."""
+    for d in live_format.LINK_DIRS:
+        p = os.path.join(folder, d)
+        if os.path.isjunction(p) or os.path.islink(p):
+            os.rmdir(p) if os.path.isjunction(p) else os.unlink(p)
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def link_big_files(folder, bundled):
+    """The update uses the app's own textures, sounds, models, mods and brains (links, remade if the app moved)."""
+    import _winapi
+    for d in live_format.LINK_DIRS:
+        target, link = os.path.join(bundled, d), os.path.join(folder, d)
+        if not os.path.isdir(target):
+            continue
+        if os.path.isjunction(link) and os.path.realpath(link) == os.path.realpath(target):
+            continue
+        if os.path.isjunction(link) or os.path.islink(link):
+            os.rmdir(link) if os.path.isjunction(link) else os.unlink(link)
+        elif os.path.exists(link):
+            raise live_format.LiveError(f"{d} in the live update's folder isn't a link")
+        _winapi.CreateJunction(target, link)
+
+
+def live_code(game, address, wanted):
+    """The folder with the class's live update, checked (and downloaded the first time), or None when the class runs
+    the code that came with this app. Raises LiveError if it can't be used safely."""
+    bundled = game_dir(game)
+    if not wanted or wanted == release_code_id(bundled):
+        return None
+    if not re.fullmatch(live_format.ID_PATTERN, wanted):
+        raise live_format.LiveError(f"'{wanted}' isn't a live update's id")
+    key, version = release_config().get("live_key"), release_config().get("version")
+    if not key:
+        raise live_format.LiveError("this copy of the app doesn't take live updates: download the newest Club Coders")
+    store = os.path.join(LIVE_DIR, game)
+    os.makedirs(store, exist_ok=True)
+    zip_path, sig_path, folder = (os.path.join(store, wanted + ".zip"), os.path.join(store, wanted + ".sig"),
+                                  os.path.join(store, wanted))
+    saved = os.path.exists(zip_path) and os.path.exists(sig_path)
+    if saved:
+        with open(zip_path, "rb") as f:
+            data = f.read()
+        with open(sig_path, "rb") as f:
+            signature = f.read()
+        try:
+            live_format.check_signature(key, game, wanted, version, data, signature)  # (a saved copy: every time)
+        except live_format.LiveError:  # damaged on this computer: fetched once more (and checked again)
+            for path in (zip_path, sig_path):
+                os.remove(path)
+            saved = False
+    if not saved:
+        base = code_url(address)
+        data, signature = fetch(f"{base}/{game}/{wanted}.zip"), fetch(f"{base}/{game}/{wanted}.sig")
+        live_format.check_signature(key, game, wanted, version, data, signature)
+        for path, content in ((zip_path, data), (sig_path, signature)):
+            with open(path + ".part", "wb") as f:
+                f.write(content)
+            os.replace(path + ".part", path)
+    if not os.path.isdir(folder) or live_format.content_id(folder) != wanted:
+        part = folder + ".part"
+        remove_folder(part)
+        live_format.safe_unpack(data, part)
+        with open(os.path.join(part, "LIVE_ID"), encoding="utf-8") as f:
+            marked = f.read().strip()
+        if live_format.content_id(part) != wanted or marked != wanted:
+            remove_folder(part)
+            raise live_format.LiveError("the update's files aren't the update that was signed")
+        remove_folder(folder)
+        os.replace(part, folder)
+    link_big_files(folder, bundled)
+    return folder
+
+
 # ---------- running a game ----------
 def which_game(argv):
     """In the downloaded app, is this process meant to run a game? (game, its arguments) or (None, None).
@@ -93,17 +220,32 @@ def which_game(argv):
 
 
 def run_as_game(game, argv):
-    """Become the game: its folder goes first on the import path and its window's file runs as the program."""
+    """Become the game: its folder goes first on the import path and its window's file runs as the program.
+    The class's code is the app's own, or a checked live update: the one the front door named (CLUBCODERS_CODE),
+    or the one the class server asked a window to reopen with (the game's REOPENED variable)."""
     sys.dont_write_bytecode = True  # (the app's folder may be read-only)
+    import tempfile
+    sys.pycache_prefix = tempfile.mkdtemp(prefix="clubcoders_pyc_")  # (so no compiled file in a game's folder runs)
     folder = game_dir(game)
+    wanted = os.environ.pop("CLUBCODERS_CODE", None) or os.environ.get(GAMES[game]["reopen_env"])
+    address = argv[argv.index("--host") + 1] if "--host" in argv[:-1] else ""
+    if wanted and address:
+        try:
+            live = live_code(game, address, wanted)
+            if live:
+                folder = live
+                print(f"Using live update {wanted} of {GAMES[game]['title']}", flush=True)
+        except Exception as e:  # (not used: the game runs the app's own code, and says it doesn't match the class)
+            print(f"Live update {wanted} not used: {e}", flush=True)
     script = os.path.join(folder, GAMES[game]["client"])
     sys.path.insert(0, folder)
     sys.argv = [script] + list(argv)
     runpy.run_path(script, run_name="__main__")
 
 
-def start_game(game, argv, wait=False):
-    """Open a game in its own window (its own process, so each game has its own files and settings)."""
+def start_game(game, argv, wait=False, code=None):
+    """Open a game in its own window (its own process, so each game has its own files and settings). code: the
+    code the class runs, from the front door (a live update is checked before it's used)."""
     if FROZEN:
         cmd, cwd = [sys.executable, "--game", game] + argv, os.path.dirname(sys.executable)
     else:
@@ -113,7 +255,8 @@ def start_game(game, argv, wait=False):
     shown = ["***" if i and argv[i - 1] == "--password" else a for i, a in enumerate(argv)]  # (never log a password)
     print(f"Opening {GAMES[game]['title']}: {' '.join(shown)}", flush=True)
     flags = 0 if wait else getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    proc = subprocess.Popen(cmd, cwd=cwd, creationflags=flags)
+    env = dict(os.environ, CLUBCODERS_CODE=code) if code else None
+    proc = subprocess.Popen(cmd, cwd=cwd, creationflags=flags, env=env)
     return proc.wait() if wait else 0
 
 
@@ -127,8 +270,9 @@ def ask_door(server, code, timeout=8.0):
     except Exception:
         return {"ok": False, "error": "Can't reach the club's server. Check your internet connection, then try "
                                       "again."}
+    secure = ("wss://", "ws://") if test_build() else ("wss://",)
     if answer.get("ok") and (answer.get("game") not in GAMES or
-                             not str(answer.get("address", "")).startswith(("wss://", "ws://"))):
+                             not str(answer.get("address", "")).startswith(secure)):
         return {"ok": False, "error": "The club's server gave an answer this app doesn't understand: download the "
                                       "newest Club Coders."}
     return answer
@@ -236,7 +380,8 @@ def launcher(args, passed_on):
             game = answer["game"]
             self.draw(f"Opening {GAMES[game]['title']}...", green)
             self.graphicsEngine.renderFrame()
-            result = start_game(game, ["--host", answer["address"], "--code", code] + passed_on, wait=args.wait)
+            result = start_game(game, ["--host", answer["address"], "--code", code] + passed_on, wait=args.wait,
+                                code=answer.get("code") if isinstance(answer.get("code"), str) else None)
             self.finish(result)
             return task.done
 

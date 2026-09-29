@@ -3,7 +3,8 @@
 Learner:  python fight_client.py                (log in with a username and password in the window)
 Teacher:  python fight_client.py --name "Mr P" --teacher
 Class server: add --host wss://... Learners type the class code once (it is remembered on that computer); the
-teacher's code comes from --code, FIGHTLAB_TEACHER_CODE or teacher_settings.json next to this file (never in git).
+teacher's code comes from --code or FIGHTLAB_TEACHER_CODE; on a laptop test server it is the demo code, and on the
+class server it comes from teacher_settings.json next to this file (never in git).
 
 Logging in: a new username makes a new profile. Everything is saved to it (fighter, missions, brain,
 camera view), so after a dropped connection the window reconnects by itself, and next lesson the
@@ -16,7 +17,7 @@ Fighting:  Arrow keys move (towards / away from the other fighter, and up / down
 Panels:    M missions   G garage   I AI request card   C your fighter as code (edit it, then Apply)
            T teacher panels   H help
 Brain:     U upload brains/my_brain.py   P autopilot on/off (your brain fights)
-Camera:    V change view (fight camera, over the shoulder, ring, all rings)   O all rings
+Camera:    V change view (fight camera, my fighter, over the shoulder, ring, all rings)   O all rings
            drag with the right mouse button (or Q / E) to swing round the ring and tilt   Home resets the view
            [ and ] watch another ring   mouse wheel or + / - zoom   B the rings list
 Typing:    while you type in a text box, keys go into the box (not the game). Click away or press Esc to stop.
@@ -95,8 +96,9 @@ LOCAL = args.host.startswith(("ws://127.0.0.1", "ws://localhost"))  # a laptop t
 if args.code:
     code = args.code
 elif TEACHER:
-    code = (os.environ.get("FIGHTLAB_TEACHER_CODE") or load_json(TEACHER_SETTINGS).get("teacher_code")
-            or ("TEACH99" if LOCAL else ""))
+    # the saved code is the class server's (saved with its address): a laptop test server has the demo code
+    code = (os.environ.get("FIGHTLAB_TEACHER_CODE") or ("TEACH99" if LOCAL else "")
+            or load_json(TEACHER_SETTINGS).get("teacher_code"))
     if not code:
         raise SystemExit("The teacher code is needed: put it in teacher_settings.json next to fight_client.py "
                          '(for example {"teacher_code": "..."}) or use --code.')
@@ -346,7 +348,7 @@ class Lab(ShowBase):
         self.view_name, self.view_tab = None, "garage"   # teacher's learner view
         self.change_view, self.change_page, self.change_msg = None, 0, ("", GREY)  # teacher's Changes tab
         self.match_pick = []     # teacher: the two names being put in a match
-        self.needs_restart = False  # a kept or rolled-back code change is waiting for a restart
+        self.needs_restart = bool(welcome.get("live_ready"))  # a code change (or a live update) waits for a restart
         self.view_drafts, self.view_missions = {}, {}
         self.code_shown, self.code_msg = None, ("", GREY)
         self.cam = FightCamera(self, "fight")
@@ -487,6 +489,8 @@ class Lab(ShowBase):
         """The server runs the game's current code: if this window's code is different (a mod was switched, or
         the server restarted with changes), reopen with the new code. Returns True if the window is reopening."""
         if not welcome.get("code") or welcome["code"] == fight_version.CODE:
+            return False
+        if not fight_version.FROZEN and not LOCAL:  # the teacher's own windows on the class server run the teacher's code
             return False
         if os.environ.get("FIGHTLAB_REOPENED") == welcome["code"] or args.offscreen:  # tried already: don't loop
             self.banner_note("This window's game code doesn't match the server's. Restart the server "
@@ -2047,6 +2051,11 @@ class Lab(ShowBase):
                 with open(path, "w", encoding="utf-8", newline="") as f:
                     f.write(m["text"])
                 self.banner_note(f"Evidence saved on this computer: {path}", 6)
+            elif kind == "live_update":  # (teacher) a live code update is waiting on the class server
+                self.needs_restart = True
+                self.banner_note("A live update is ready on the class server. Warn the class, then press "
+                                 "Restart server (Controls).", 12)
+                rebuild = True
             elif kind == "notice":
                 self.banner_note(m["text"], 5)
                 if self.tab in ("learners", "accounts"):
@@ -2219,7 +2228,7 @@ class Lab(ShowBase):
         self.fx_waiting = []
         self.fx.update(dt)
         self.event_sounds(st, now)
-        close_up = self.cam.mode in ("fight", "shoulder")
+        close_up = self.cam.mode in ("fight", "me", "shoulder")
         for r in st["rings"]:
             for s in r["f"]:
                 fv = self.fighters.get(s["id"])

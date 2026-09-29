@@ -132,7 +132,8 @@ def windows():
             raise RuntimeError("the server stopped: " + server.stderr.read().decode()[-400:])
         host = f"ws://127.0.0.1:{port}"
         for who, extra in (("learner", ["--name", "smoketest", "--password", "smoke123"]),
-                           ("teacher", ["--name", "Smoke", "--teacher"])):
+                           ("teacher", ["--name", "Smoke", "--teacher", "--code", "TEACH99"])):  # (the test
+            # server's demo code, not a real one saved in teacher_settings.json)
             shot = os.path.join(TMP, f"{who}.png")
             run([PY, "fight_client.py", "--host", host, "--offscreen", "--after", "6", "--screenshot", shot] + extra)
             if not os.path.exists(shot):

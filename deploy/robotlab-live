@@ -1,0 +1,216 @@
+#!/opt/robotlab/venv/bin/python
+"""Club Coders live code updates on the class server (installed by setup.sh as /usr/local/bin/robotlab-live).
+
+    sudo robotlab-live install <game> <id>   a signed update, sent as a tar on stdin by the teacher's make_live.py
+    sudo robotlab-live status                which code each game's classes run, and which update is waiting
+    sudo robotlab-live back <game>           go back to the update before (or to the release's own code)
+    sudo robotlab-live clear                 every game back to its release's own code (robotlab-update does this)
+
+An update is checked here before anything else happens: the signature (the teacher's key, live/live_key.pub in the
+installed release), that it's for this game and exactly this update, that it unpacks safely, and that it's made
+for the version of the games installed here. Then it's unpacked into /opt/robotlab/live/<game>/<id> (read-only
+for the game servers), its zip and signature go in /var/www/clubcoders-code for learners' apps to download (they
+check the signature again themselves), and it's marked as the game's next code. Nothing changes for learners until
+the teacher presses Restart server in their teacher window (the classes get a 10-second warning first).
+"""
+import io
+import os
+import re
+import shutil
+import sys
+import tarfile
+
+APP = "/opt/robotlab/app"
+LIVE = "/opt/robotlab/live"
+WEB = "/var/www/clubcoders-code"
+DATA = "/var/lib/robotlab"
+sys.path.insert(0, os.path.join(APP, "live"))
+import live_format as lf  # noqa: E402
+
+VERSION_FILES = {"robotlab": "lab_version.py", "fightlab": "fight_version.py"}
+ID = re.compile(lf.ID_PATTERN)
+
+
+def fail(text):
+    sys.stderr.write(f"STOPPED: {text}\n")
+    sys.exit(1)
+
+
+def game_arg(value):
+    if value not in lf.GAMES:
+        fail(f"'{value}' isn't one of the games ({', '.join(lf.GAMES)})")
+    return value
+
+
+def pointer(game):
+    return os.path.join(LIVE, game, "current")
+
+
+def current(game):
+    try:
+        with open(pointer(game), encoding="utf-8") as f:
+            value = f.read().strip()
+        return value if ID.fullmatch(value) else None
+    except OSError:
+        return None
+
+
+def set_current(game, update_id):
+    os.makedirs(os.path.join(LIVE, game), mode=0o755, exist_ok=True)
+    if update_id is None:
+        if os.path.exists(pointer(game)):
+            os.remove(pointer(game))
+        return
+    tmp = pointer(game) + ".new"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(update_id + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, pointer(game))
+    with open(os.path.join(LIVE, game, "history"), "a", encoding="utf-8") as f:
+        f.write(update_id + "\n")
+
+
+def release_version():
+    with open(os.path.join(APP, "VERSION"), encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def install(game, update_id):
+    if not ID.fullmatch(update_id):
+        fail(f"'{update_id}' isn't a live update's id")
+    raw = sys.stdin.buffer.read(lf.MAX_ZIP * 2 + 1)
+    if len(raw) > lf.MAX_ZIP * 2:
+        fail("what was sent is too big to be a code update")
+    files = {}
+    with tarfile.open(fileobj=io.BytesIO(raw)) as t:
+        for m in t.getmembers():
+            if m.isfile() and m.name in (update_id + ".zip", update_id + ".sig"):
+                files[m.name[-3:]] = t.extractfile(m).read()
+    if set(files) != {"zip", "sig"}:
+        fail("the update's zip and signature weren't both sent")
+    with open(os.path.join(APP, "live", "live_key.pub"), encoding="utf-8") as f:
+        key = f.read()
+    try:
+        lf.check_signature(key, game, update_id, release_version(), files["zip"], files["sig"])
+    except lf.LiveError as e:
+        fail(str(e))
+    dest = os.path.join(LIVE, game, update_id)
+    part = dest + ".part"
+    shutil.rmtree(part, ignore_errors=True)
+    try:
+        lf.safe_unpack(files["zip"], part)
+    except lf.LiveError as e:
+        shutil.rmtree(part, ignore_errors=True)
+        fail(str(e))
+    with open(os.path.join(part, "LIVE_ID"), encoding="utf-8") as f:
+        marked = f.read().strip()
+    if lf.content_id(part) != update_id or marked != update_id:
+        shutil.rmtree(part, ignore_errors=True)
+        fail("the update's files aren't the update that was signed")
+    with open(os.path.join(part, VERSION_FILES[game]), encoding="utf-8") as f:
+        made_for = re.search(r'^VERSION = "([^"]*)"', f.read(), flags=re.M)
+    if not made_for or made_for.group(1) != release_version():
+        shutil.rmtree(part, ignore_errors=True)
+        fail(f"the update is for Club Coders {made_for and made_for.group(1)}, but {release_version()} is installed "
+             "here: learners' apps would be turned away. Make it from the same version (or install that release).")
+    for d in lf.LINK_DIRS:  # the installed game's big files, mods and brains: the update uses those
+        target = os.path.join(APP, "games", game, d)
+        if os.path.isdir(target):
+            os.symlink(target, os.path.join(part, d))
+    for root, dirs, names in os.walk(part):  # read-only for the game servers
+        os.chmod(root, 0o755)
+        for n in names:
+            os.chmod(os.path.join(root, n), 0o644)
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    os.replace(part, dest)
+    web = os.path.join(WEB, game)
+    os.makedirs(web, mode=0o755, exist_ok=True)
+    for ext in ("zip", "sig"):
+        path = os.path.join(web, f"{update_id}.{ext}")
+        with open(path + ".new", "wb") as f:
+            f.write(files[ext])
+        os.chmod(path + ".new", 0o644)
+        os.replace(path + ".new", path)
+    set_current(game, update_id)
+    print(f"Live update {update_id} of {game} is checked and ready ({len(files['zip']) // 1024} KB).")
+    print("Nothing has changed for learners yet. When you've warned the class, press Restart server in your teacher")
+    print("window: the class gets a 10-second warning, then everyone's game reopens with the new code.")
+
+
+def running(game):
+    """{class: the code its server runs} for the classes playing this game."""
+    out = {}
+    for name in sorted(os.listdir("/etc/robotlab")):
+        if not (name.startswith("class") and name.endswith(".env")):
+            continue
+        with open(os.path.join("/etc/robotlab", name), encoding="utf-8") as f:
+            plays = re.search(r"^GAME=(\w+)", f.read(), flags=re.M)
+        if (plays.group(1) if plays else "robotlab") != game:
+            continue
+        cls = name[:-4]
+        path = os.path.join(DATA, cls, *(["fightlab"] if game == "fightlab" else []), "running_code")
+        try:
+            with open(path, encoding="utf-8") as f:
+                out[cls] = f.read().strip()
+        except OSError:
+            out[cls] = "?"
+    return out
+
+
+def status():
+    print(f"Release installed: Club Coders {release_version()}")
+    for game in lf.GAMES:
+        waiting = current(game)
+        print(f"{game}: next code = {waiting or 'the release'}")
+        for cls, code in running(game).items():
+            behind = waiting and code != waiting
+            print(f"    {cls} runs {code}" + ("   (Restart server in the teacher window to use the waiting update)"
+                                             if behind else ""))
+
+
+def back(game):
+    history = []
+    try:
+        with open(os.path.join(LIVE, game, "history"), encoding="utf-8") as f:
+            history = [line.strip() for line in f if ID.fullmatch(line.strip())]
+    except OSError:
+        pass
+    now = current(game)
+    earlier = [h for h in history if h != now and os.path.isdir(os.path.join(LIVE, game, h))]
+    previous = earlier[-1] if earlier else None
+    if previous:
+        tmp = pointer(game) + ".new"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(previous + "\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, pointer(game))
+    else:
+        set_current(game, None)
+    print(f"{game}'s next code is {previous or 'the release'}: press Restart server in your teacher window to use it.")
+
+
+def main():
+    if os.geteuid() != 0:
+        fail("please run this as root: sudo robotlab-live ...")
+    args = sys.argv[1:]
+    if args[:1] == ["install"] and len(args) == 3:
+        install(game_arg(args[1]), args[2])
+    elif args == ["status"]:
+        status()
+    elif args[:1] == ["back"] and len(args) == 2:
+        back(game_arg(args[1]))
+    elif args == ["clear"]:  # (a new release: its code includes the live updates made before it)
+        for game in lf.GAMES:
+            set_current(game, None)
+            for folder in (os.path.join(LIVE, game), os.path.join(WEB, game)):  # old updates can't be sent again
+                if os.path.isdir(folder):
+                    shutil.rmtree(folder)
+        print("Every game will run its release's own code from its next restart; old live updates are deleted.")
+    else:
+        print(__doc__.split("\n\n")[1])
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

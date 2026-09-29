@@ -4,3 +4,4 @@
 numpy==2.5.3
 panda3d==1.10.16
 websockets==17.1
+cryptography==46.0.2  # (checking the signatures on live code updates)

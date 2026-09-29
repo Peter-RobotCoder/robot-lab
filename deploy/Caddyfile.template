@@ -13,6 +13,15 @@
 		reverse_proxy 127.0.0.1:8779
 	}
 
+	# live code updates the teacher signed (robotlab-live): only their .zip and .sig files, no folder listings.
+	# Learners' apps download them and check the signature before running anything.
+	handle_path /code/* {
+		@not_update not path_regexp ^/(robotlab|fightlab)/[0-9a-f]{24}\.(zip|sig)$
+		respond @not_update 404
+		root * /var/www/clubcoders-code
+		file_server
+	}
+
 	# extra classes (robotlab-add-class): wss://{{DOMAIN}}/class2 and so on
 	import /etc/caddy/robotlab-classes/*.caddy
 
