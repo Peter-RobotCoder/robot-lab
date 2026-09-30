@@ -34,6 +34,7 @@ import websockets
 import cpu_brains
 import fight_brain
 import fight_mods
+import club_ticket
 import fight_profiles
 import fight_sim as sim
 import fight_teaching
@@ -46,6 +47,21 @@ TEACHER_CODE = os.environ.get("TEACHER_CODE", DEMO_CODES["teacher"])
 CLASS_SERVER = False   # set by --class-server in main()
 OPEN_SIGNUP = False    # a new username makes a profile (laptop test servers only, unless FIGHTLAB_OPEN_SIGNUP=1)
 BAD_LOGINS = fight_profiles.RateLimit(10)  # wrong codes or passwords: 10 a minute per computer
+GAME_ID = "fightlab"  # (the club desk's name for this game)
+# the club desk (club-coders/desk): run-class.sh sets these on the class server
+TICKET_KEY = os.environ.get("CLUBCODERS_TICKET_KEY")
+LIVE_FILE = os.environ.get("CLUBCODERS_LIVE_FILE")
+DESK_INBOX = os.environ.get("CLUBCODERS_DESK_INBOX")
+
+
+def read_live():
+    """The launched group, from the club desk: {"id", "group", "game", "lesson", "learners"} or None."""
+    try:
+        with open(LIVE_FILE, encoding="utf-8") as f:
+            live = json.load(f)
+        return live if isinstance(live, dict) and live.get("id") else None
+    except (OSError, ValueError, TypeError):
+        return None
 BRAIN_UPLOAD_GAP = 3.0                     # seconds between one learner's brain uploads
 MAX_LEARNERS = 4
 SEND_RATE = 1 / 20
@@ -66,7 +82,8 @@ WEEK1_LESSON = {
     "teacher_fighter": False,      # the teacher's own fighter gets a ring too (and can be put in matches)
     "designs_locked": False,       # stop design changes (e.g. during a tournament)
     "matches": [],                 # pairs of names the teacher has put in the same ring
-    "hazards": {"ring_out": True, "electric_ropes": False, "fire_jets": False, "slippery": False},
+    "hazards": {"ring_out": True, "electric_ropes": False, "fire_jets": False, "slippery": False, "spikes": False},
+    "user_mods": {},               # features learners asked for (fight_sim.USER_MODS): the teacher switches them on
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd and hit sounds
     "tools": {                     # the learner's garage: what is shown and changeable
         "points_table": True,
@@ -79,7 +96,7 @@ WEEK1_LESSON = {
 }
 
 HAZARD_WORDS = {"ring_out": "Ring-outs", "electric_ropes": "Electric ropes", "fire_jets": "Fire jets",
-                "slippery": "Slippery ice"}
+                "slippery": "Slippery ice", "spikes": "Spikes"}
 
 
 class Player:
@@ -139,9 +156,16 @@ class Tournament:
 class FightServer:
     def __init__(self, lesson_file=None):
         self.lesson = copy.deepcopy(WEEK1_LESSON)
+        carried = os.path.join(fight_teaching.DATA, "lesson_carried.json")  # (left by a restart for code changes)
+        if not lesson_file and os.path.exists(carried):
+            lesson_file = carried
         if lesson_file and os.path.exists(lesson_file):
             with open(lesson_file) as f:
                 self.lesson.update(json.load(f))
+            if lesson_file == carried:
+                os.remove(carried)
+            for k, v in WEEK1_LESSON["hazards"].items():  # (a hazard added by a code change starts off)
+                self.lesson["hazards"].setdefault(k, v)
         self.players = {}        # websocket -> Player
         self.teacher_design = sim.default_design("Sensei", TEACHER_COLOUR, "spin_kick", "human")
         self.paused = False
@@ -188,7 +212,8 @@ class FightServer:
         """New rings (the mode, matches or hazards may have changed), then put everyone's fighter back in."""
         L = self.lesson
         self.stage = sim.Stage(hazards=L["hazards"], practice=L["mode"] == "practice",
-                               rounds_to_win=L["rounds_to_win"], round_seconds=L["round_time"])
+                               rounds_to_win=L["rounds_to_win"], round_seconds=L["round_time"],
+                               user_mods=L.get("user_mods"))
         wanted = self.fighters_wanted()
         by_name = {n: (n, d, p) for n, d, p in wanted}
         pairs = []
@@ -343,7 +368,25 @@ class FightServer:
         if CLASS_SERVER and hello.get("version") != fight_version.VERSION:
             await ws.close(4006, f"Out of date: get Fight Lab {fight_version.VERSION} from your teacher")
             return
-        role = code_role(str(hello.get("code", "")))
+        ticket = None
+        if hello.get("ticket") and TICKET_KEY:  # from the club desk, which has checked who this is
+            with open(TICKET_KEY, encoding="utf-8") as f:
+                ticket = club_ticket.verify(f.read().strip(), hello["ticket"], GAME_ID)
+            if ticket is None:
+                BAD_LOGINS.failed(where)
+                await ws.close(4011, "Your login has run out: open Club Coders and log in again.")
+                return
+            role = ticket["role"]
+            if role == "learner":
+                live = read_live()
+                if not live or live.get("game") != GAME_ID or ticket["name"] not in live.get("learners", []):
+                    await ws.close(4010, "Your group hasn't started yet: wait for your teacher.")
+                    return
+        else:
+            role = code_role(str(hello.get("code", "")))
+            if role == "learner" and TICKET_KEY:  # with the club desk on, learners come in only through it
+                await ws.close(4010, "Log in through the Club Coders app: your teacher launches your group there.")
+                return
         if role is None:
             BAD_LOGINS.failed(where)
             await ws.close(4001, "wrong class code")
@@ -354,8 +397,11 @@ class FightServer:
         profile, is_new = None, False
         if role == "learner":  # username and password (slow on purpose, so it's checked away from the game loop)
             try:
-                profile, is_new = await asyncio.to_thread(fight_profiles.login, hello.get("name", ""),
-                                                          hello.get("password", ""), OPEN_SIGNUP)
+                if ticket:
+                    profile, is_new = fight_profiles.ticket_profile(ticket["name"]), False
+                else:
+                    profile, is_new = await asyncio.to_thread(fight_profiles.login, hello.get("name", ""),
+                                                              hello.get("password", ""), OPEN_SIGNUP)
             except fight_profiles.LoginError as e:
                 BAD_LOGINS.failed(where)
                 await ws.close(4004, str(e)[:120])  # (a close reason can be at most 123 bytes)
@@ -369,7 +415,7 @@ class FightServer:
                 await ws.close(4003, "the class is full (4 learners)")
                 return
         else:
-            name = re.sub(r"[^A-Za-z0-9 ]", "", str(hello.get("name", "")))[:12] or "Teacher"
+            name = re.sub(r"[^A-Za-z0-9 ]", "", str(ticket["name"] if ticket else hello.get("name", "")))[:12] or "Teacher"
         colour = COLOURS[len(self.learners()) % len(COLOURS)] if role == "learner" else TEACHER_COLOUR
         p = Player(ws, role, name, colour)
         p.profile = profile
@@ -513,27 +559,18 @@ class FightServer:
     async def teacher_command(self, m):
         kind = m.get("type")
         if kind == "delete_learner":  # everything the server keeps about them goes (they're disconnected first)
-            name = fight_profiles.clean_name(m.get("learner", ""))
-            for ws, q in list(self.players.items()):
-                if q.role == "learner" and fight_profiles.slug(q.name) == fight_profiles.slug(name):
-                    del self.players[ws]
-                    await ws.close(4007, "Your account has been deleted by the teacher.")
-            text = self.teaching.delete_learner(name)
-            self.rebuild_stage()
-            t = self.teacher()
-            if t:
-                await self.deliver([(t.ws, {"type": "notice", "text": text})] + self.teaching.teacher_update())
-            await self.broadcast_lesson()
+            await self.delete_learner(m.get("learner", ""))
             return
         if kind == "restart_server":  # load code changes ("3 Fight Lab server.bat" starts it again)
             self.teaching.save()
+            self.carry_lesson()  # (the lesson carries on as it was: hazards, mode, matches, tools)
             for ws in list(self.players):
                 await self.send(ws, {"type": "notice", "text": "The server is restarting to load changes: "
                                                                "you'll reconnect in a few seconds."})
             if CLASS_SERVER:  # the class server (a live update): everyone gets a warning, then it restarts
                 for ws in list(self.players):
                     await self.send(ws, {"type": "notice", "text": "The game is updating: back in 10 seconds."})
-                asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), os._exit(3)))
+                asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), self.carry_lesson(), os._exit(3)))
                 return
             print("Restarting to load code changes...")
             os._exit(3)
@@ -606,6 +643,14 @@ class FightServer:
                     if f.owner == "Computer":
                         f.brain = self.cpu_brain()
                 self.stage_event(f"Computer fighters: {cpu_brains.LEVELS[update['cpu_level']]}")
+            if isinstance(update.get("user_mods"), dict):  # straight away, no restart: the windows redraw the stage
+                switched = {k: bool(v) for k, v in update["user_mods"].items() if k in sim.USER_MODS}
+                self.lesson["user_mods"] = {**self.lesson.get("user_mods", {}), **switched}
+                self.stage.set_user_mods(self.lesson["user_mods"])
+                self.roster_version += 1
+                if switched:
+                    self.stage_event(", ".join(f"{sim.USER_MODS[k][0]} {'on' if v else 'off'}"
+                                               for k, v in switched.items()))
             if update.get("cpu_fighter") in ["sparring"] + list(sim.BOSS_BY_NAME):
                 rebuild |= update["cpu_fighter"] != self.lesson["cpu_fighter"]
                 self.lesson["cpu_fighter"] = update["cpu_fighter"]
@@ -663,6 +708,11 @@ class FightServer:
                 json.dump(self.lesson, f, indent=2)
             self.stage_event("Lesson settings saved")
 
+    def carry_lesson(self):
+        """Save the lesson for the server that starts after a restart for code changes."""
+        with open(os.path.join(fight_teaching.DATA, "lesson_carried.json"), "w") as f:
+            json.dump(self.lesson, f, indent=2)
+
     def stage_event(self, text):
         self.stage.events.append((self.stage.time, text))
 
@@ -707,6 +757,7 @@ class FightServer:
                 "fighters": [{"id": f.id, "owner": f.owner, "design": f.design, "ring": f.ring.index, "slot": f.slot}
                              for f in self.stage.fighters()],
                 "rings": [r.index for r in self.stage.rings], "hazards": self.stage.hazards, "look": self.look,
+                "user_mods": self.stage.user_mods,
                 "rs": sim.RULES["ring_size"],
                 "mine": {p.name: (p.fighter.id if p.fighter else None) for p in self.players.values()}}
 
@@ -731,6 +782,79 @@ class FightServer:
                 self.stage_event(f"Next: the {self.tournament.title()}")
             return True
         return False
+
+    async def delete_learner(self, username):
+        name = fight_profiles.clean_name(username)
+        for ws, q in list(self.players.items()):
+            if q.role == "learner" and fight_profiles.slug(q.name) == fight_profiles.slug(name):
+                del self.players[ws]
+                await ws.close(4007, "Your account has been deleted by the teacher.")
+        text = self.teaching.delete_learner(name)
+        self.rebuild_stage()
+        t = self.teacher()
+        if t:
+            await self.deliver([(t.ws, {"type": "notice", "text": text})] + self.teaching.teacher_update())
+        await self.broadcast_lesson()
+
+    async def watch_desk(self):
+        """On the class server: follow the club desk. When a group is launched for this game, start its lesson and
+        let only its learners in; when it's stopped, the learners' windows are closed. Requests in the desk's inbox
+        (delete a learner's data) are carried out. Checked every 2 seconds."""
+        if not LIVE_FILE:
+            return
+        seen, presence = None, {}
+        report_file = os.path.join(os.path.dirname(LIVE_FILE), "reports", f"{GAME_ID}.json")
+        while True:
+            live = read_live()
+            mine = live if live and live.get("game") == GAME_ID else None
+            key = mine["id"] if mine else None
+            if key != seen:
+                seen, presence = key, {}
+                allowed = set(mine.get("learners", [])) if mine else set()
+                for ws, p in list(self.players.items()):
+                    if p.role == "learner" and p.name not in allowed:
+                        self.players.pop(ws, None)
+                        await ws.close(4009, "The session has ended." if not mine else "You aren't in this group.")
+                if mine:
+                    self.teaching.apply_lesson(int(mine.get("lesson", 1)))
+                    self.rebuild_stage()
+                    self.stage_event(f"Session started: {mine.get('group', '')}, lesson {mine.get('lesson', 1)}")
+                else:
+                    self.rebuild_stage()
+                    self.stage_event("The session has ended")
+                await self.broadcast_lesson()
+            if mine:  # the session so far, for the desk (who is here, what they've completed, AI cards)
+                stamp = time.strftime("%Y-%m-%d %H:%M")
+                for p in self.learners():
+                    presence.setdefault(p.name, {"first": stamp})["last"] = stamp
+                try:
+                    os.makedirs(os.path.dirname(report_file), exist_ok=True)
+                    report = {"live_id": mine["id"], "game": GAME_ID,
+                              **self.teaching.session_report(str(mine.get("started", "")), presence)}
+                    with open(report_file + ".tmp", "w", encoding="utf-8") as f:
+                        json.dump(report, f)
+                    os.replace(report_file + ".tmp", report_file)
+                except OSError:
+                    pass
+            if DESK_INBOX and os.path.isdir(DESK_INBOX):
+                for entry in sorted(os.listdir(DESK_INBOX)):
+                    if not entry.endswith(".json"):
+                        continue
+                    path = os.path.join(DESK_INBOX, entry)
+                    try:
+                        with open(path, encoding="utf-8") as f:
+                            request = json.load(f)
+                    except (OSError, ValueError):
+                        request = {}
+                    try:
+                        if request.get("delete_learner"):
+                            await self.delete_learner(request["delete_learner"])
+                    finally:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+            await asyncio.sleep(2)
 
     async def watch_live(self):
         """On the class server: a live code update installed for this game (robotlab-live) is offered to the teacher,
@@ -861,7 +985,7 @@ async def main():
         else:
             print(f"Fight Lab laptop test server on {args.bind}:{args.port}. "
                   f"Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username makes a profile.")
-        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live())
+        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk())
 
 
 if __name__ == "__main__":

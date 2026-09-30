@@ -59,8 +59,9 @@ datas += collect_data_files("panda3d")                   # etc/Config.prc: which
 datas += copy_metadata("panda3d-gltf")                   # (Panda3D finds the glTF model loader through this)
 binaries = collect_dynamic_libs("panda3d")               # Panda3D loads its display and audio DLLs by name
 hiddenimports = (collect_submodules("panda3d") + collect_submodules("direct") + collect_submodules("websockets")
-                 + collect_submodules("gltf") + ["simplepbr", "live_format",
-                                                  "cryptography.hazmat.primitives.asymmetric.ed25519"] + game_imports())
+                 + collect_submodules("gltf") + collect_submodules("reportlab")  # (reportlab: the PDFs after Stop)
+                 + ["simplepbr", "live_format", "records",
+                    "cryptography.hazmat.primitives.asymmetric.ed25519"] + game_imports())
 
 a = Analysis(  # noqa: F821
     [os.path.join(ROOT, "launcher", "club_coders.py")],

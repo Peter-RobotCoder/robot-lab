@@ -18,7 +18,7 @@ RULE_LIMITS = {
     "combo_scaling": (0.3, 1.0), "knockback": (0.2, 3.0), "gravity": (2.0, 20.0), "special_cost": (10, 100),
     "energy_gain": (0.1, 5.0), "ring_size": (3.0, 6.5), "hazard_damage": (0.0, 5.0), "fire_jet_every": (2.0, 20.0),
 }
-HAZARDS = ("ring_out", "electric_ropes", "fire_jets", "slippery")
+HAZARDS = ("ring_out", "electric_ropes", "fire_jets", "slippery", "spikes")
 STYLE_COLOURS = ("trim", "lights", "skin")
 
 

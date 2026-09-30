@@ -149,7 +149,20 @@ RULES FOR A GAME CHANGE
 - Don't add new packages. Don't touch files outside the game folder."""
 
 
-def build_prompt(card, learner, target, files):
+USER_MOD_GUIDE = """MAKE IT A SWITCHABLE USER MOD (the teacher switches it on and off in Controls)
+- Add ONE entry to USER_MODS in lab_sim.py: a short key (lower case letters and _), a name for the teacher's
+  Controls (up to 20 characters) and one sentence saying what it does. Never put anyone's name in it.
+- It is OFF by default, and while it's off the game must work exactly as it did before. Only do anything new
+  while it's switched on: arena.user_mods["<key>"] in the physics (lab_sim.py; a robot can read
+  self.arena.user_mods), and user_mods_on(user_mods)["<key>"] in ArenaVisual (rw_gfx.py) for how it looks.
+- The teacher can switch it mid-round. Arena.set_user_mods() is called with the new switches: if your mod changes
+  something already built (like the arena's edge in Arena.build_edge), rebuild it there. The windows redraw the
+  arena by themselves when a mod is switched.
+- Nothing else is needed for the switch: the Controls tab lists every entry in USER_MODS, and the server and
+  windows pass the switches on already."""
+
+
+def build_prompt(card, learner, target, files, as_user_mod=False):
     import lab_sim as sim
     import rw_mods
     limits = "\n".join(f"  - {k}: {lo} to {hi}" for k, (lo, hi) in rw_mods.RULE_LIMITS.items())
@@ -158,7 +171,7 @@ def build_prompt(card, learner, target, files):
         scope = f"""The teacher has checked and approved this request, and allows you to change {files[0]},
 {files[1]}.
 
-{GAME_GUIDE}"""
+{GAME_GUIDE}""" + (f"\n\n{USER_MOD_GUIDE}" if as_user_mod else "")
     else:
         scope = f"""The teacher has checked and approved this request. Make the change by editing ONLY these files:
 {chr(10).join('  - ' + f for f in files)}
@@ -210,10 +223,11 @@ def run_tests(changed):
 class AIChange:
     """One learner request going through Claude. Call run(), then keep() or undo()."""
 
-    def __init__(self, card_id, learner, card, target, design=None, allow_engine=True):
+    def __init__(self, card_id, learner, card, target, design=None, allow_engine=True, as_user_mod=False):
         if target not in TARGET_NAMES:
             raise ValueError(f"Unknown target: {target}")
         self.id, self.learner, self.card, self.target = card_id, learner, card, target
+        self.as_user_mod = as_user_mod and target == "game"  # a feature the teacher switches on and off
         self.design = design
         self.files = allowed_files(target, learner)
         self.before, self.after = {}, {}
@@ -235,7 +249,7 @@ class AIChange:
                     f.write(stub)
         progress("Claude is working on it...")
         whole = self.target == "game"
-        prompt = build_prompt(self.card, self.learner, self.target, self.files)
+        prompt = build_prompt(self.card, self.learner, self.target, self.files, self.as_user_mod)
         tools = "Read,Edit,Write,Glob,Grep" + (",Bash(.venv/Scripts/python smoke_test.py)" if whole else "")
         cmd = CLAUDE + ["-p", prompt, "--allowedTools", tools,
                         "--permission-mode", "acceptEdits", "--max-turns", "60" if whole else "15",

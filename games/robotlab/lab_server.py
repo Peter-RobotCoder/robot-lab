@@ -29,6 +29,7 @@ import websockets
 
 import cpu_brains
 import lab_brain
+import club_ticket
 import lab_profiles
 import lab_sim as sim
 import lab_version
@@ -42,6 +43,21 @@ TEACHER_CODE = os.environ.get("TEACHER_CODE", DEMO_CODES["teacher"])
 CLASS_SERVER = False   # set by --class-server in main()
 OPEN_SIGNUP = False    # a new username makes a profile (laptop test servers only, unless ROBOTLAB_OPEN_SIGNUP=1)
 BAD_LOGINS = lab_profiles.RateLimit(10)  # wrong codes or passwords: 10 a minute per computer
+GAME_ID = "robotlab"  # (the club desk's name for this game)
+# the club desk (club-coders/desk): run-class.sh sets these on the class server
+TICKET_KEY = os.environ.get("CLUBCODERS_TICKET_KEY")
+LIVE_FILE = os.environ.get("CLUBCODERS_LIVE_FILE")
+DESK_INBOX = os.environ.get("CLUBCODERS_DESK_INBOX")
+
+
+def read_live():
+    """The launched group, from the club desk: {"id", "group", "game", "lesson", "learners"} or None."""
+    try:
+        with open(LIVE_FILE, encoding="utf-8") as f:
+            live = json.load(f)
+        return live if isinstance(live, dict) and live.get("id") else None
+    except (OSError, ValueError, TypeError):
+        return None
 BRAIN_UPLOAD_GAP = 3.0                   # seconds between one learner's brain uploads
 MAX_LEARNERS = 4
 SEND_RATE = 1 / 20
@@ -58,6 +74,7 @@ WEEK1_LESSON = {
     "teacher_robot": True,
     "designs_locked": False,       # stop design changes (e.g. during a battle)
     "real_damage": False,          # each part (wheels, weapon, armour, body) has hit points and comes off at zero
+    "user_mods": {},               # features learners asked for (lab_sim.USER_MODS): the teacher switches them on
     "hazards": {"pit": True, "floor_flipper": False, "saws": False, "spikes": False, "house_robots": []},
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd, arena hum and hit sounds
     "tools": {                     # the learner's garage: what is shown and changeable
@@ -113,7 +130,7 @@ class LabServer:
     # ---------- the arena and who is in it ----------
     def rebuild_arena(self):
         """New arena (hazards may have changed), then put everyone's robot back in."""
-        self.arena = sim.Arena(hazards=self.lesson["hazards"])
+        self.arena = sim.Arena(hazards=self.lesson["hazards"], user_mods=self.lesson.get("user_mods"))
         self.arena.practice = self.lesson["mode"] == "practice"
         self.arena.real_damage = bool(self.lesson.get("real_damage"))
         start = 0
@@ -224,7 +241,25 @@ class LabServer:
         if CLASS_SERVER and hello.get("version") != lab_version.VERSION:
             await ws.close(4006, f"Out of date: get Robot Lab {lab_version.VERSION} from {lab_version.DOWNLOAD_PAGE}")
             return
-        role = code_role(str(hello.get("code", "")))
+        ticket = None
+        if hello.get("ticket") and TICKET_KEY:  # from the club desk, which has checked who this is
+            with open(TICKET_KEY, encoding="utf-8") as f:
+                ticket = club_ticket.verify(f.read().strip(), hello["ticket"], GAME_ID)
+            if ticket is None:
+                BAD_LOGINS.failed(where)
+                await ws.close(4011, "Your login has run out: open Club Coders and log in again.")
+                return
+            role = ticket["role"]
+            if role == "learner":
+                live = read_live()
+                if not live or live.get("game") != GAME_ID or ticket["name"] not in live.get("learners", []):
+                    await ws.close(4010, "Your group hasn't started yet: wait for your teacher.")
+                    return
+        else:
+            role = code_role(str(hello.get("code", "")))
+            if role == "learner" and TICKET_KEY:  # with the club desk on, learners come in only through it
+                await ws.close(4010, "Log in through the Club Coders app: your teacher launches your group there.")
+                return
         if role is None:
             BAD_LOGINS.failed(where)
             await ws.close(4001, "wrong class code")
@@ -235,8 +270,11 @@ class LabServer:
         profile = None
         if role == "learner":  # username and password (slow on purpose, so it's checked away from the game loop)
             try:
-                profile, is_new = await asyncio.to_thread(lab_profiles.login, hello.get("name", ""),
-                                                          hello.get("password", ""), OPEN_SIGNUP)
+                if ticket:
+                    profile, is_new = lab_profiles.ticket_profile(ticket["name"]), False
+                else:
+                    profile, is_new = await asyncio.to_thread(lab_profiles.login, hello.get("name", ""),
+                                                              hello.get("password", ""), OPEN_SIGNUP)
             except lab_profiles.LoginError as e:
                 BAD_LOGINS.failed(where)
                 await ws.close(4004, str(e)[:120])  # (a close reason can be at most 123 bytes)
@@ -250,7 +288,7 @@ class LabServer:
                 await ws.close(4003, "the class is full (4 learners)")
                 return
         else:
-            name = re.sub(r"[^A-Za-z0-9 ]", "", str(hello.get("name", "")))[:12] or "Teacher"
+            name = re.sub(r"[^A-Za-z0-9 ]", "", str(ticket["name"] if ticket else hello.get("name", "")))[:12] or "Teacher"
         colour = COLOURS[len(self.learners()) % len(COLOURS)] if role == "learner" else (180, 90, 230)
         p = Player(ws, role, name, colour)
         p.profile = profile
@@ -368,17 +406,7 @@ class LabServer:
     async def teacher_command(self, m):
         kind = m.get("type")
         if kind == "delete_learner":  # everything the server keeps about them goes (they're disconnected first)
-            name = lab_profiles.clean_name(m.get("learner", ""))
-            for ws, q in list(self.players.items()):
-                if q.role == "learner" and lab_profiles.slug(q.name) == lab_profiles.slug(name):
-                    del self.players[ws]
-                    await ws.close(4007, "Your account has been deleted by the teacher.")
-            text = self.teaching.delete_learner(name)
-            self.rebuild_arena()
-            t = self.teacher()
-            if t:
-                await self.deliver([(t.ws, {"type": "notice", "text": text})] + self.teaching.teacher_update())
-            await self.broadcast_lesson()
+            await self.delete_learner(m.get("learner", ""))
             return
         if kind == "restart_server":  # load code changes (13 Robot Lab server.bat starts it again)
             self.teaching.save()
@@ -462,6 +490,14 @@ class LabServer:
                     if r.owner == "Computer":
                         r.brain = self.cpu_brain()
                 self.arena.events.append((self.arena.time, f"Computer robots: {cpu_brains.LEVELS[update['cpu_level']]}"))
+            if isinstance(update.get("user_mods"), dict):  # straight away, no restart: the windows redraw the arena
+                switched = {k: bool(v) for k, v in update["user_mods"].items() if k in sim.USER_MODS}
+                self.lesson["user_mods"] = {**self.lesson.get("user_mods", {}), **switched}
+                self.arena.set_user_mods(self.lesson["user_mods"])
+                self.roster_version += 1
+                if switched:
+                    self.arena.events.append((self.arena.time, ", ".join(
+                        f"{sim.USER_MODS[k][0]} {'on' if v else 'off'}" for k, v in switched.items())))
             for key in ("mode", "time_limit", "cpu_robots", "teacher_robot", "designs_locked"):
                 if key in update:
                     rebuild |= key in ("mode", "cpu_robots", "teacher_robot") and update[key] != self.lesson[key]
@@ -576,8 +612,81 @@ class LabServer:
     def roster(self):
         return {"type": "roster", "version": self.roster_version,
                 "robots": [{"id": r.id, "owner": r.owner, "design": r.design} for r in self.arena.robots],
-                "hazards": self.lesson["hazards"], "look": self.look,
+                "hazards": self.lesson["hazards"], "look": self.look, "user_mods": self.arena.user_mods,
                 "mine": {p.name: (p.robot.id if p.robot else None) for p in self.players.values()}}
+
+    async def delete_learner(self, username):
+        name = lab_profiles.clean_name(username)
+        for ws, q in list(self.players.items()):
+            if q.role == "learner" and lab_profiles.slug(q.name) == lab_profiles.slug(name):
+                del self.players[ws]
+                await ws.close(4007, "Your account has been deleted by the teacher.")
+        text = self.teaching.delete_learner(name)
+        self.rebuild_arena()
+        t = self.teacher()
+        if t:
+            await self.deliver([(t.ws, {"type": "notice", "text": text})] + self.teaching.teacher_update())
+        await self.broadcast_lesson()
+
+    async def watch_desk(self):
+        """On the class server: follow the club desk. When a group is launched for this game, start its lesson and
+        let only its learners in; when it's stopped, the learners' windows are closed. Requests in the desk's inbox
+        (delete a learner's data) are carried out. Checked every 2 seconds."""
+        if not LIVE_FILE:
+            return
+        seen, presence = None, {}
+        report_file = os.path.join(os.path.dirname(LIVE_FILE), "reports", f"{GAME_ID}.json")
+        while True:
+            live = read_live()
+            mine = live if live and live.get("game") == GAME_ID else None
+            key = mine["id"] if mine else None
+            if key != seen:
+                seen, presence = key, {}
+                allowed = set(mine.get("learners", [])) if mine else set()
+                for ws, p in list(self.players.items()):
+                    if p.role == "learner" and p.name not in allowed:
+                        self.players.pop(ws, None)
+                        await ws.close(4009, "The session has ended." if not mine else "You aren't in this group.")
+                if mine:
+                    self.teaching.apply_lesson(int(mine.get("lesson", 1)))
+                    self.rebuild_arena()
+                    self.arena.events.append((self.arena.time, f"Session started: {mine.get('group', '')}, lesson {mine.get('lesson', 1)}"))
+                else:
+                    self.rebuild_arena()
+                    self.arena.events.append((self.arena.time, "The session has ended"))
+                await self.broadcast_lesson()
+            if mine:  # the session so far, for the desk (who is here, what they've completed, AI cards)
+                stamp = time.strftime("%Y-%m-%d %H:%M")
+                for p in self.learners():
+                    presence.setdefault(p.name, {"first": stamp})["last"] = stamp
+                try:
+                    os.makedirs(os.path.dirname(report_file), exist_ok=True)
+                    report = {"live_id": mine["id"], "game": GAME_ID,
+                              **self.teaching.session_report(str(mine.get("started", "")), presence)}
+                    with open(report_file + ".tmp", "w", encoding="utf-8") as f:
+                        json.dump(report, f)
+                    os.replace(report_file + ".tmp", report_file)
+                except OSError:
+                    pass
+            if DESK_INBOX and os.path.isdir(DESK_INBOX):
+                for entry in sorted(os.listdir(DESK_INBOX)):
+                    if not entry.endswith(".json"):
+                        continue
+                    path = os.path.join(DESK_INBOX, entry)
+                    try:
+                        with open(path, encoding="utf-8") as f:
+                            request = json.load(f)
+                    except (OSError, ValueError):
+                        request = {}
+                    try:
+                        if request.get("delete_learner"):
+                            await self.delete_learner(request["delete_learner"])
+                    finally:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+            await asyncio.sleep(2)
 
     async def watch_live(self):
         """On the class server: a live code update installed for this game (robotlab-live) is offered to the teacher,
@@ -690,7 +799,7 @@ async def main():
         else:
             print(f"Robot Lab laptop test server on {args.bind}:{args.port}. "
                   f"Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username makes a profile.")
-        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live())
+        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk())
 
 
 if __name__ == "__main__":

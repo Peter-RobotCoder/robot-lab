@@ -9,8 +9,8 @@ variable ROBOTLAB_SERVER). It can also be run on the teacher's laptop to try a b
   3. makes each game's textures and sounds, so the first start is quick
   4. runs PyInstaller (release/clubcoders.spec) and adds each game's starter brain (brains/<game>/my_brain.py)
      and a short read-me next to the app
-  5. zips it; --check also starts a laptop front door and a test server for each game, and has the built app
-     find each class by its code and log in to the right game
+  5. zips it; --check also starts a laptop club desk and a class server for each game, has a teacher make a
+     learner and launch a group for each game in turn, and has the built app log the learner in to it
 """
 import argparse
 import json
@@ -118,35 +118,62 @@ def free_port():
 
 
 def check():
-    """A laptop front door and a test server for each game; the built app must find each class by its code,
-    open the right game and log in (offscreen), as a learner would."""
+    """A laptop club desk and a class server for each game. A teacher makes a learner and launches a group for
+    each game in turn; the built app must log the learner in and open that game (offscreen), as a learner would."""
+    from websockets.sync.client import connect
     tmp = tempfile.mkdtemp(prefix="clubcoders_build_check_")
-    door_port, procs, classes = free_port(), [], []
+    desk_port, procs = free_port(), []
+    desk_data = os.path.join(tmp, "desk")
+    env = dict(os.environ, CLUBCODERS_DESK_DATA=desk_data, TEACHER_CODE="build-check-teacher-code",
+               JOIN_CODE="build-check-join", CLUBCODERS_TICKET_KEY=os.path.join(desk_data, "ticket_key"),
+               CLUBCODERS_LIVE_FILE=os.path.join(desk_data, "live.json"))
+
+    def ask(ws, msg, want="ok"):
+        ws.send(json.dumps(msg))
+        for _ in range(20):
+            m = json.loads(ws.recv(timeout=15))
+            if want in m or "error" in m:
+                return m
     try:
+        games = {}
         for game, (title, server, data_env, _) in GAMES.items():
-            port, code = free_port(), f"{game}-check"
+            port = free_port()
+            games[game] = f"ws://127.0.0.1:{port}"
             procs.append(subprocess.Popen(
-                [sys.executable, server, "--port", str(port)], cwd=os.path.join(ROOT, "games", game),
-                env=dict(os.environ, **{data_env: os.path.join(tmp, game)}, JOIN_CODE=code,
-                         TEACHER_CODE="build-check-teacher-code"),
+                [sys.executable, server, "--class-server", "--port", str(port)], cwd=os.path.join(ROOT, "games", game),
+                env=dict(env, **{data_env: os.path.join(tmp, game)},
+                         CLUBCODERS_DESK_INBOX=os.path.join(desk_data, "inbox", game)),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            classes.append({"name": game, "game": game, "address": f"ws://127.0.0.1:{port}", "code": code})
-        with open(os.path.join(tmp, "classes.json"), "w", encoding="utf-8") as f:
-            json.dump(classes, f)
-        procs.append(subprocess.Popen([sys.executable, os.path.join("door", "club_door.py"), "--port", str(door_port),
-                                       "--classes", os.path.join(tmp, "classes.json")], cwd=ROOT,
+        with open(os.path.join(tmp, "games.json"), "w", encoding="utf-8") as f:
+            json.dump(games, f)
+        procs.append(subprocess.Popen([sys.executable, os.path.join("desk", "club_desk.py"), "--port", str(desk_port),
+                                       "--games", os.path.join(tmp, "games.json")], cwd=ROOT, env=env,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         time.sleep(8)
-        for c in classes:
-            shot = os.path.join(tmp, f"{c['game']}.png")
-            subprocess.run([os.path.join(APP, "Club Coders.exe"), "--server", f"ws://127.0.0.1:{door_port}",
-                            "--code", c["code"], "--go", "--wait", "--offscreen", "--name", "buildcheck",
-                            "--password", "check12345", "--after", "10", "--screenshot", shot],
-                           env=dict(os.environ, APPDATA=os.path.join(tmp, "appdata")), timeout=240)
-            if not os.path.exists(shot):
-                raise SystemExit(f"The built app didn't open {GAMES[c['game']][0]} from its class code "
-                                 "(no screenshot).")
-            print(f"Check passed: the class code opened {GAMES[c['game']][0]}, logged in and drew it: {shot}")
+        with connect(f"ws://127.0.0.1:{desk_port}") as t:
+            ask(t, {"type": "teacher", "password": "build-check-teacher-code"})
+            ask(t, {"type": "add_learner", "name": "buildcheck", "starter": "check-starter"})
+        with connect(f"ws://127.0.0.1:{desk_port}") as s:
+            ask(s, {"type": "login", "name": "buildcheck", "password": "check-starter"})
+            ask(s, {"type": "set_password", "name": "buildcheck", "password": "check-starter", "new": "check12345"},
+                want="changed")
+        for game, (title, *_) in GAMES.items():
+            with connect(f"ws://127.0.0.1:{desk_port}") as t:
+                ask(t, {"type": "teacher", "password": "build-check-teacher-code"})
+                ask(t, {"type": "set_group", "name": f"{game} group", "game": game, "learners": ["buildcheck"]})
+                m = ask(t, {"type": "launch", "group": f"{game} group", "lesson": 1})
+                if not m.get("ok"):
+                    raise SystemExit(f"The desk couldn't launch {title}: {m.get('error')}")
+                time.sleep(4)
+                shot = os.path.join(tmp, f"{game}.png")
+                subprocess.run([os.path.join(APP, "Club Coders.exe"), "--server", f"ws://127.0.0.1:{desk_port}",
+                                "--login", "buildcheck", "check12345", "--wait", "--offscreen", "--after", "10",
+                                "--screenshot", shot],
+                               env=dict(os.environ, APPDATA=os.path.join(tmp, "appdata")), timeout=240)
+                if not os.path.exists(shot):
+                    raise SystemExit(f"The built app didn't open {title} for the launched group (no screenshot).")
+                print(f"Check passed: the learner's login opened {title}, logged in and drew it: {shot}")
+                ask(t, {"type": "stop"})
     finally:
         for p in procs:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)

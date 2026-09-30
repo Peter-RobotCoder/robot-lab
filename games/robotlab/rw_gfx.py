@@ -126,8 +126,10 @@ PAINT_RED, PAINT_YELLOW = (0.6, 0.08, 0.06), (0.95, 0.7, 0.05)
 
 
 class ArenaVisual:
-    def __init__(self, parent, hazards, look=None):
+    def __init__(self, parent, hazards, look=None, user_mods=None):
+        """user_mods: the teacher's user mods (lab_sim.USER_MODS), e.g. no_cage."""
         look = look or {}
+        no_cage = sim.user_mods_on(user_mods)["no_cage"]
         wall_colour = tuple(v / 255 for v in look.get("wall_colour", (155, 25, 20)))
         arena_name = str(look.get("name", "ROBOT LAB"))
         self.root = parent.attachNewNode("arena_visual")
@@ -167,28 +169,40 @@ class ArenaVisual:
         logo_np.setScale(1.2)
         mats().apply(logo_np, None, PAINT_YELLOW, 0.5, 0)
 
-        # walls: red kick-plates, steel rail and posts, clear screens
-        wall = Mesh(tile=0.5)
-        rail = Mesh(tile=1.0)
-        for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.25), (0, -h - 0.25, h + 0.5, 0.25),
-                               (h + 0.25, 0, 0.25, h), (-h - 0.25, 0, 0.25, h)):
-            bevel_box(hx, hy, 0.6, 0.04, mesh=wall, offset=Vec3(cx, cy, 0.6))
-            bevel_box(hx + 0.03, hy + 0.03, 0.05, 0.02, mesh=rail, offset=Vec3(cx, cy, 1.25))
-        for k in range(-5, 6):
-            for x, y in ((k * 2, h + 0.25), (k * 2, -h - 0.25), (h + 0.25, k * 2), (-h - 0.25, k * 2)):
-                cylinder(0.07, 1.65, mesh=rail, offset=Vec3(x, y, 2.9), seg=12)
-        part(static, wall, "paint", colour=wall_colour, rough=1.0, metal=1.0)
-        part(static, rail, "steel", rough=1.0, metal=1.0)
-        screens = self.root.attachNewNode("screens")
-        glass = Mesh()
-        for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.02), (0, -h - 0.25, h + 0.5, 0.02),
-                               (h + 0.25, 0, 0.02, h), (-h - 0.25, 0, 0.02, h)):
-            bevel_box(hx, hy, 1.6, 0.0, mesh=glass, offset=Vec3(cx, cy, 2.9))
-        g = part(screens, glass, None, colour=(0.6, 0.75, 0.9), rough=0.05, metal=0.0)
-        g.setTransparency(TransparencyAttrib.MAlpha)
-        g.setAlphaScale(0.1)
-        screens.setBin("transparent", 10)
-        screens.setDepthWrite(False)
+        gw, deep = A.GUTTER, -A.PIT_OPEN_Z
+        edge = gw if no_cage else 0.5  # (how far the arena's edge reaches beyond the floor)
+        if no_cage:  # the No cage user mod: a drop all around the edge (painted sides, a dark gutter floor)
+            sides, gutter = Mesh(tile=0.5), Mesh(tile=0.6)
+            for cx, cy, hx, hy in ((0, h + 0.05, h + 0.1, 0.05), (0, -h - 0.05, h + 0.1, 0.05),
+                                   (h + 0.05, 0, 0.05, h), (-h - 0.05, 0, 0.05, h)):
+                bevel_box(hx, hy, deep / 2, 0.0, mesh=sides, offset=Vec3(cx, cy, -deep / 2))
+            for cx, cy, hx, hy in ((0, h + gw / 2, h + gw, gw / 2), (0, -h - gw / 2, h + gw, gw / 2),
+                                   (h + gw / 2, 0, gw / 2, h), (-h - gw / 2, 0, gw / 2, h)):
+                bevel_box(hx, hy, 0.05, 0.0, mesh=gutter, offset=Vec3(cx, cy, -deep - 0.05))
+            part(static, sides, "paint", colour=wall_colour, rough=1.0, metal=1.0)
+            part(static, gutter, "steel", colour=(0.12, 0.12, 0.13), rough=1.0, metal=1.0)
+        else:  # walls: red kick-plates, steel rail and posts, clear screens
+            wall = Mesh(tile=0.5)
+            rail = Mesh(tile=1.0)
+            for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.25), (0, -h - 0.25, h + 0.5, 0.25),
+                                   (h + 0.25, 0, 0.25, h), (-h - 0.25, 0, 0.25, h)):
+                bevel_box(hx, hy, 0.6, 0.04, mesh=wall, offset=Vec3(cx, cy, 0.6))
+                bevel_box(hx + 0.03, hy + 0.03, 0.05, 0.02, mesh=rail, offset=Vec3(cx, cy, 1.25))
+            for k in range(-5, 6):
+                for x, y in ((k * 2, h + 0.25), (k * 2, -h - 0.25), (h + 0.25, k * 2), (-h - 0.25, k * 2)):
+                    cylinder(0.07, 1.65, mesh=rail, offset=Vec3(x, y, 2.9), seg=12)
+            part(static, wall, "paint", colour=wall_colour, rough=1.0, metal=1.0)
+            part(static, rail, "steel", rough=1.0, metal=1.0)
+            screens = self.root.attachNewNode("screens")
+            glass = Mesh()
+            for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.02), (0, -h - 0.25, h + 0.5, 0.02),
+                                   (h + 0.25, 0, 0.02, h), (-h - 0.25, 0, 0.02, h)):
+                bevel_box(hx, hy, 1.6, 0.0, mesh=glass, offset=Vec3(cx, cy, 2.9))
+            g = part(screens, glass, None, colour=(0.6, 0.75, 0.9), rough=0.05, metal=0.0)
+            g.setTransparency(TransparencyAttrib.MAlpha)
+            g.setAlphaScale(0.1)
+            screens.setBin("transparent", 10)
+            screens.setDepthWrite(False)
 
         # corner towers with lamps, and an overhead lighting rig
         towers, lamps = Mesh(), Mesh()
@@ -217,9 +231,13 @@ class ArenaVisual:
         # outside: concrete floor, tiered stands and a crowd (one mesh, coloured per person)
         outside = Mesh(tile=0.3)
         far = 30
-        for cx, cy, hx, hy in ((0, h + 0.5 + far / 2, h + far, far / 2), (0, -h - 0.5 - far / 2, h + far, far / 2),
-                               (h + 0.5 + far / 2, 0, far / 2, h + 0.5), (-h - 0.5 - far / 2, 0, far / 2, h + 0.5)):
+        for cx, cy, hx, hy in ((0, h + edge + far / 2, h + far, far / 2), (0, -h - edge - far / 2, h + far, far / 2),
+                               (h + edge + far / 2, 0, far / 2, h + edge), (-h - edge - far / 2, 0, far / 2, h + edge)):
             bevel_box(hx, hy, 0.05, 0.0, mesh=outside, offset=Vec3(cx, cy, -0.05))
+        if no_cage:
+            for cx, cy, hx, hy in ((0, h + gw, h + gw, 0.02), (0, -h - gw, h + gw, 0.02),
+                                   (h + gw, 0, 0.02, h + gw), (-h - gw, 0, 0.02, h + gw)):  # the gutter's outer side
+                bevel_box(hx, hy, deep / 2, 0.0, mesh=outside, offset=Vec3(cx, cy, -deep / 2))
         stands = Mesh(tile=0.5)
         crowd = Mesh(colours=True)
         shirt = [(0.8, 0.1, 0.1), (0.1, 0.3, 0.8), (0.9, 0.8, 0.2), (0.2, 0.6, 0.3), (0.9, 0.9, 0.9),
@@ -286,9 +304,12 @@ class ArenaVisual:
         self.pit_lid.flattenStrong()
         self.pit_lid.setPos(px, py, 0)
         self.spikes = None
-        # a bank of spikes that shoots out of the wall and back in (rests inside the wall when off)
+        # a bank of spikes that shoots out of the wall and back in (rests inside the wall when off; with the
+        # No cage user mod there's no wall, so no spikes)
         wx, y0, y1 = A.SPIKES
         self.spikes = self.root.attachNewNode("spikes")
+        if no_cage:
+            self.spikes.hide()
         part(self.spikes, bevel_box(0.3, (y1 - y0) / 2 + 0.1, 0.42, 0.03, tile=1.0), "steel",
              (0.35, 0.36, 0.38), rough=1.0, metal=1.0)
         spikes = Mesh()
@@ -301,8 +322,9 @@ class ArenaVisual:
         part(self.spikes, spikes, "steel", (0.85, 0.85, 0.9), rough=1.0, metal=1.0)
         self.spikes.flattenStrong()  # (flattening bakes in the node's position, so it is placed after)
         self.spikes.setPos(A.spike_x(0.0), (y0 + y1) / 2, 0.45)
-        part(static, bevel_box(0.02, (y1 - y0) / 2 + 0.3, 0.45, 0.0, tile=0.8), "hazard", rough=1, metal=0,
-             pos=(wx + 0.01, (y0 + y1) / 2, 0.55))
+        if not no_cage:
+            part(static, bevel_box(0.02, (y1 - y0) / 2 + 0.3, 0.45, 0.0, tile=0.8), "hazard", rough=1, metal=0,
+                 pos=(wx + 0.01, (y0 + y1) / 2, 0.55))
         self.saws = []
         # floor saws (rest down in their slots when off)
         for sx, sy in A.SAWS:

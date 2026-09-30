@@ -337,7 +337,38 @@ class Teaching:
                 "text": r.text, "brain": bool(r.brain), "autopilot": r.autopilot,
                 "brain_error": r.brain.error if r.brain else None,
                 "cards": [c for c in self.cards if c["learner"] == p.name],
-                "review_questions": lm.REVIEW_QUESTIONS}
+                "review_questions": lm.REVIEW_QUESTIONS, "card": self.card_data(p.name)}
+
+    def card_data(self, name):
+        """A learner's own card: the outcomes they've shown so far in this game, and what they did each day."""
+        done = self.record(name).done
+        outcomes = {o: sum(1 for mid in done if o in lm.MISSIONS[mid][3]) for o in lm.OUTCOMES}
+        days = {}
+        for mid, info in done.items():
+            if mid not in lm.MISSIONS:
+                continue
+            day = str(info.get("time", ""))[:10] or "earlier"
+            days.setdefault(day, []).append({"id": mid, "title": lm.MISSIONS[mid][1], "outcomes": lm.MISSIONS[mid][3],
+                                             "lesson": lm.MISSIONS[mid][0], "time": info.get("time", "")})
+        history = [{"date": day, "missions": sorted(ms, key=lambda m: m["time"])} for day, ms in sorted(days.items(),
+                                                                                                        reverse=True)]
+        return {"outcomes": outcomes, "outcome_names": {o: v[0] for o, v in lm.OUTCOMES.items()}, "history": history}
+
+    def session_report(self, since, present):
+        """What happened in the live session, for the club desk: who was here, what each learner completed
+        (missions and their outcomes) since it started, and the AI cards handled."""
+        done = {}
+        for name, r in self.records.items():
+            new = {mid: {"time": info.get("time", ""), "detail": info.get("detail", ""), "title": lm.MISSIONS[mid][1],
+                         "outcomes": lm.MISSIONS[mid][3], "check": lm.MISSIONS[mid][4]}
+                   for mid, info in r.done.items() if mid in lm.MISSIONS and str(info.get("time", "")) >= since}
+            if new:
+                done[name] = new
+        cards = [{"id": c["id"], "learner": c["learner"], "status": c["status"], "time": c["time"],
+                  "goal": str(c["card"].get("goal", ""))[:120]} for c in self.cards if str(c.get("time", "")) >= since]
+        totals = {name: self.card_data(name)["outcomes"] for name in self.records}  # (each learner so far, this game)
+        return {"since": since, "present": present, "done": done, "cards": cards, "lesson": self.lesson_number,
+                "totals": totals}
 
     def teacher_update(self):
         t = self.server.teacher()

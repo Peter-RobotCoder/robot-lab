@@ -1,8 +1,9 @@
-# Club Coders front door: the app sends a class code, the door says which game and class it is for
-# (door/club_door.py, behind Caddy at wss://<domain>/door). It only reads the class files in /etc/robotlab.
+# Club Coders desk: the club's learners, groups and the live session, and every login (desk/club_desk.py, behind
+# Caddy at wss://<domain>/desk). It keeps usernames, scrambled passwords and groups in /var/lib/robotlab/desk, reads
+# the games' addresses from /etc/robotlab and the teacher password (TEACHER_CODE) from /etc/robotlab.env.
 # Installed by setup.sh and robotlab-update to /etc/systemd/system/.
 [Unit]
-Description=Club Coders front door (which class and game a class code is for)
+Description=Club Coders desk (learners, groups, the live session, logins)
 After=network-online.target
 Wants=network-online.target
 
@@ -10,16 +11,19 @@ Wants=network-online.target
 Type=simple
 User=robotlab
 Group=robotlab
+EnvironmentFile=/etc/robotlab.env
+Environment=CLUBCODERS_DESK_DATA=/var/lib/robotlab/desk
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/opt/robotlab/app
-ExecStart=/opt/robotlab/venv/bin/python door/club_door.py --port 8779
+ExecStart=/opt/robotlab/venv/bin/python desk/club_desk.py --port 8779
 Restart=always
 RestartSec=2
 
-# Hardening: it writes nothing at all.
+# Hardening: it writes only its own data folder.
 NoNewPrivileges=yes
 ProtectSystem=strict
+ReadWritePaths=/var/lib/robotlab/desk
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

@@ -67,7 +67,12 @@ for m in "$APP"/games/*/mods; do chown -R robotlab:robotlab "$m"; done
 
 # the service files and tools may have changed with the release too
 install -m 644 "$APP/deploy/robotlab@.service" /etc/systemd/system/robotlab@.service
-install -m 644 "$APP/deploy/club-door.service" /etc/systemd/system/club-door.service
+install -m 644 "$APP/deploy/club-desk.service" /etc/systemd/system/club-desk.service
+install -d -m 700 -o robotlab -g robotlab /var/lib/robotlab/desk  # (the club desk's learners and groups)
+if systemctl is-enabled -q club-door 2>/dev/null; then  # (the front door became the desk)
+    systemctl disable -q --now club-door
+    rm -f /etc/systemd/system/club-door.service
+fi
 install -m 644 "$APP/deploy/robotlab-backup.service" /etc/systemd/system/robotlab-backup.service
 install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-backup.timer
 install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
@@ -81,9 +86,9 @@ cp "$APP/deploy/robotlab-update" /usr/local/bin/.robotlab-update.new
 chmod 755 /usr/local/bin/.robotlab-update.new
 mv /usr/local/bin/.robotlab-update.new /usr/local/bin/robotlab-update
 systemctl daemon-reload
-systemctl enable -q club-door
+systemctl enable -q club-desk
 
-# the web settings may have changed with the release too (for example the front door's address)
+# the web settings may have changed with the release too (for example the desk's address)
 DOMAIN=$(cat /etc/robotlab/domain)
 sed "s/{{DOMAIN}}/$DOMAIN/g" "$APP/deploy/Caddyfile.template" > /etc/caddy/Caddyfile.new
 if caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
@@ -100,8 +105,8 @@ VERSION=$(cat "$APP/VERSION" 2>/dev/null || echo "unknown")
 classes=$(systemctl list-units 'robotlab@*' --all --plain --no-legend | awk '$1 ~ /^robotlab@/ {print $1}')
 [ -n "$classes" ] || classes="robotlab@class1.service"
 failed=""
-for unit in $classes club-door.service; do
-    if systemctl is-enabled -q "$unit" 2>/dev/null || [ "$unit" = "robotlab@class1.service" ] || [ "$unit" = "club-door.service" ]; then
+for unit in $classes club-desk.service; do
+    if systemctl is-enabled -q "$unit" 2>/dev/null || [ "$unit" = "robotlab@class1.service" ] || [ "$unit" = "club-desk.service" ]; then
         systemctl restart "$unit"
         sleep 3
         if systemctl is-active -q "$unit"; then

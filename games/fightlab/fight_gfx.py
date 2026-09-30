@@ -209,9 +209,11 @@ ROPE_COLOURS = [(0.85, 0.1, 0.1), (0.95, 0.95, 0.95), (0.1, 0.25, 0.85)]
 class StageVisual:
     """The hall: rings on raised platforms, ropes or an open edge, fire jets, ice, stands and a crowd."""
 
-    def __init__(self, parent, ring_indices, hazards, look=None):
+    def __init__(self, parent, ring_indices, hazards, look=None, user_mods=None):
+        """user_mods: the teacher's user mods (fight_sim.USER_MODS); a mod draws its part only while it's on."""
         look = look or {}
         self.hazards = dict(hazards or {})
+        self.user_mods = sim.user_mods_on(user_mods)
         self.root = parent.attachNewNode("stage_visual")
         self.name = str(look.get("name", "FIGHT LAB"))[:16]
         self.rings = {}
@@ -420,6 +422,17 @@ class StageVisual:
                 flame.setBin("fixed", 24)
                 flame.hide()
                 ring["jets"].append(flame)
+        if hz.get("spikes"):  # a striped plate with steel spikes sticking up
+            spikes = Mesh()
+            for a in sim.SPIKE_ANGLES:
+                x = cx + math.cos(math.radians(a)) * R * 0.78
+                y = cy + math.sin(math.radians(a)) * R * 0.78
+                part(static, cylinder(sim.SPIKE_RADIUS, 0.01, seg=24), "hazard", (1, 1, 1), 1.0, 0.0, pos=(x, y, 0.005))
+                for k in range(7):
+                    r = 0.0 if k == 0 else sim.SPIKE_RADIUS * 0.6
+                    sx, sy = x + math.cos(k * math.pi / 3) * r, y + math.sin(k * math.pi / 3) * r
+                    cylinder(0.06, 0.12, seg=8, r_top=0, mesh=spikes, offset=Vec3(sx, sy, 0.14))
+            part(static, spikes, "steel", (0.8, 0.8, 0.85), 0.4, 1.0)
         if hz.get("slippery"):
             part(static, cylinder(R * 0.45, 0.006, seg=48), None, (0.55, 0.75, 0.92), 0.06, 0.3,
                  pos=(cx, cy, 0.002))

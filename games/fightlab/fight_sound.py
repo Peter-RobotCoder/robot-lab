@@ -175,7 +175,7 @@ HIT_SOUNDS = {"punch": [("punch", 1.0)], "kick": [("kick", 1.0)], "low": [("kick
               "high": [("heavy", 1.0)], "special": [("heavy", 1.0)], "blast": [("blast_hit", 1.0)],
               "counter": [("counter", 1.0), ("heavy", 0.8)], "block": [("block", 1.0)],
               "throw": [("slam", 0.8)], "zap": [("zap", 1.0)], "fire": [("fire", 1.0)],
-              "wall": [("wall", 0.9)], "land": [("land", 1.0)], "ringout": [("slam", 0.7)]}
+              "wall": [("wall", 0.9)], "spikes": [("heavy", 0.9), ("wall", 0.6)], "land": [("land", 1.0)], "ringout": [("slam", 0.7)]}
 METAL = {"punch": 0.5, "kick": 0.6, "low": 0.5, "high": 0.7, "special": 0.8, "blast": 0.5, "counter": 0.8,
          "block": 0.3, "throw": 0.6, "wall": 0.5, "land": 0.4}  # how much clang a robot adds
 SWINGS = {"punch": ("whoosh", 0.45, 1.25), "kick": ("whoosh", 0.6, 0.9), "low": ("whoosh", 0.5, 0.85),

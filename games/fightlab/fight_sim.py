@@ -317,6 +317,8 @@ INTRO_SECONDS = 1.6  # "ROUND 1" before "FIGHT!"
 RING_CENTRES = [(0.0, 0.0), (16.0, 0.0), (-16.0, 0.0), (0.0, 16.0), (16.0, 16.0), (-16.0, 16.0)]
 MAX_RINGS = len(RING_CENTRES)
 JET_ANGLES = (45, 135, 225, 315)
+SPIKE_ANGLES = (0, 90, 180, 270)  # spike patches near the edge, between the fire jets
+SPIKE_RADIUS = 0.45               # how big each spike patch is (m)
 
 
 def length(x, y):
@@ -370,7 +372,7 @@ class Fighter:
         self.jumped_attack = False
         self.invincible_until = -1.0
         self.last_hurt = -9.0
-        self.last_zap = self.last_burn = -9.0
+        self.last_zap = self.last_burn = self.last_spiked = -9.0
         self.knocked_out = False
         self.ko_reason = ""
         self.stride, self.walk_dir = 0.0, 0.0
@@ -553,6 +555,14 @@ class Ring:
         every = RULES["fire_jet_every"]
         t = (now + (i % 2) * every / 2) % every
         return max(0.0, 1 - abs(t - 0.5) / 0.5) if t < 1.0 else 0.0
+
+    def spikes(self):
+        """Where the spike patches are (none if spikes are off)."""
+        if not self.stage.hazards.get("spikes"):
+            return []
+        cx, cy = self.centre
+        return [(cx + math.cos(math.radians(a)) * self.size * 0.78, cy + math.sin(math.radians(a)) * self.size * 0.78)
+                for a in SPIKE_ANGLES]
 
     def on_ice(self, f):
         if not self.stage.hazards.get("slippery"):
@@ -1012,6 +1022,19 @@ class Ring:
                 f.z, f.vz = max(f.z, 0.03), 3.0
                 self.stage.impacts.append(((jx, jy, 0.5), dmg, "fire"))
                 self.check_hazard_ko(f, "burned")
+        for sx, sy in self.spikes():  # standing on spikes hurts and throws you back towards the middle
+            if length(f.x - sx, f.y - sy) < SPIKE_RADIUS and f.z < 0.2 and now - f.last_spiked > 0.8:
+                f.last_spiked = now
+                dmg = 5 * RULES["hazard_damage"] * f.stats["taken"]
+                if not self.practice:
+                    f.health -= dmg
+                cx, cy = self.centre
+                d = max(length(cx - f.x, cy - f.y), 1e-4)
+                f.set_state("launched")
+                f.z, f.vz = max(f.z, 0.03), 3.0
+                f.vx, f.vy = (cx - f.x) / d * 2.5, (cy - f.y) / d * 2.5
+                self.stage.impacts.append(((f.x, f.y, 0.3), dmg, "spikes"))
+                self.check_hazard_ko(f, "spiked")
 
     def check_hazard_ko(self, f, how):
         if f.health <= 0 and not self.practice:
@@ -1084,12 +1107,29 @@ class Ring:
         return {"jets": [round(self.jet_power(i, now), 2) for i in range(4)]}
 
 
+# ---------- user mods: features learners asked for, switched on and off by the teacher ----------
+# key: (the name in the teacher's Controls, what it does). Every user mod is OFF unless the teacher switches it on,
+# and the game works exactly as before while it's off. The fighting reads stage.user_mods (a ring: self.stage.user_mods);
+# the graphics get the same switches (StageVisual(..., user_mods)). The teacher can switch one mid-match: the rings
+# and windows follow at once. A learner's AI request can be made as a new user mod (AI cards: "Make it a switchable
+# User Mod"). None yet: the first one a class asks for goes here.
+USER_MODS = {}
+
+
+def user_mods_on(values):
+    """Every user mod's switch (off unless switched on)."""
+    values = values or {}
+    return {k: bool(values.get(k)) for k in USER_MODS}
+
+
 class Stage:
     """All the rings, stepped together."""
 
-    def __init__(self, hazards=None, practice=True, rounds_to_win=2, round_seconds=None):
-        self.hazards = {"ring_out": True, "electric_ropes": False, "fire_jets": False, "slippery": False}
+    def __init__(self, hazards=None, practice=True, rounds_to_win=2, round_seconds=None, user_mods=None):
+        self.hazards = {"ring_out": True, "electric_ropes": False, "fire_jets": False, "slippery": False,
+                        "spikes": False}
         self.hazards.update(hazards or {})
+        self.user_mods = user_mods_on(user_mods)  # the teacher's user mods (see USER_MODS)
         self.practice = practice
         self.rounds_to_win = rounds_to_win
         self.round_seconds = round_seconds or RULES["round_seconds"]
@@ -1115,6 +1155,11 @@ class Stage:
 
     def set_hazards(self, hz):
         self.hazards.update({k: bool(v) for k, v in hz.items() if k in self.hazards})
+
+    def set_user_mods(self, values):
+        """Switch user mods on or off mid-match. A mod that changes something already built (a ring's shape, say)
+        rebuilds it here when its switch changes."""
+        self.user_mods = user_mods_on({**self.user_mods, **(values or {})})
 
     def step(self):
         self.time += STEP

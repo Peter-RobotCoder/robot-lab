@@ -4,12 +4,12 @@
 # No access log is kept (it would record learners' home IP addresses).
 
 {{DOMAIN}} {
-	# the front door: the Club Coders app asks here which game and class a class code is for
-	@door {
-		path /door
+	# the club desk: every login, the teacher's learners and groups, and the live session
+	@desk {
+		path /desk /door
 		header_regexp Upgrade (?i)^websocket$
 	}
-	handle @door {
+	handle @desk {
 		reverse_proxy 127.0.0.1:8779
 	}
 

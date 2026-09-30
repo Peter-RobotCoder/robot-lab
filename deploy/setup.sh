@@ -5,7 +5,7 @@
 #
 # What it does: locks down the server (SSH keys only, firewall, fail2ban, automatic security updates),
 # installs Caddy (the free, auto-renewing certificate for wss://), downloads the games from GitHub at their
-# latest release, makes the class codes, and starts the first class's game server (Robot Lab) and the front door
+# latest release, makes the class codes, and starts the first class's game server (Robot Lab) and the club desk
 # (which tells the Club Coders app which game and class a class code is for), so they run all the time.
 # Safe to run again: it keeps the existing codes, classes and learners' data. Run again on a server set up
 # before Club Coders (Robot Lab only), it moves it to the newest release and the games/ layout.
@@ -198,9 +198,14 @@ chown root:robotlab "$ETC/class1.env"
 chmod 640 "$ETC/class1.env"
 
 # ---------- services ----------
-say "Starting the game server, the front door, Caddy and the nightly backup"
+say "Starting the game server, the club desk, Caddy and the nightly backup"
 install -m 644 "$APP/deploy/robotlab@.service" /etc/systemd/system/robotlab@.service
-install -m 644 "$APP/deploy/club-door.service" /etc/systemd/system/club-door.service
+install -m 644 "$APP/deploy/club-desk.service" /etc/systemd/system/club-desk.service
+install -d -m 700 -o robotlab -g robotlab /var/lib/robotlab/desk  # (the club desk's learners and groups)
+if systemctl is-enabled -q club-door 2>/dev/null; then  # (the front door became the desk)
+    systemctl disable -q --now club-door
+    rm -f /etc/systemd/system/club-door.service
+fi
 install -m 644 "$APP/deploy/robotlab-backup.service" /etc/systemd/system/robotlab-backup.service
 install -m 644 "$APP/deploy/robotlab-backup.timer" /etc/systemd/system/robotlab-backup.timer
 install -m 755 "$APP/deploy/robotlab-backup" /usr/local/bin/robotlab-backup
@@ -218,13 +223,13 @@ caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 
 mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 
 systemctl daemon-reload
-systemctl enable -q caddy robotlab@class1 club-door robotlab-backup.timer
+systemctl enable -q caddy robotlab@class1 club-desk robotlab-backup.timer
 systemctl restart caddy
 for unit in $(systemctl list-units 'robotlab@*' --all --plain --no-legend | awk '$1 ~ /^robotlab@/ {print $1}'); do
     systemctl restart "$unit"  # (every class, so a moved server runs the new release everywhere)
 done
 systemctl restart robotlab@class1
-systemctl restart club-door
+systemctl restart club-desk
 systemctl start robotlab-backup.timer
 
 # ---------- check it works ----------
@@ -250,8 +255,8 @@ for _ in $(seq 1 10); do
     if timeout 2 bash -c '</dev/tcp/127.0.0.1/8779' 2>/dev/null; then door="yes"; break; fi
     sleep 1
 done
-[ -n "$door" ] && echo "The front door is running (the app finds each class by its code)." \
-    || fail "the front door isn't answering: journalctl -u club-door -n 20"
+[ -n "$door" ] && echo "The club desk is running (logins, learners, groups)." \
+    || fail "the club desk isn't answering: journalctl -u club-desk -n 20"
 if curl -fsS --max-time 20 "https://$DOMAIN" 2>/dev/null | grep -q "Club Coders server is running"; then
     echo "https://$DOMAIN answers with a padlock."
 else
@@ -264,12 +269,11 @@ say "Done"
 echo "Club Coders:   wss://$DOMAIN   (built into the downloaded app; class1 plays $(grep -h '^GAME=' "$ETC/class1.env" 2>/dev/null | cut -d= -f2 || echo robotlab))"
 if [ -n "$NEW_CODES" ]; then
     echo
-    echo "  Class code (for learners' welcome letters):   $JOIN_CODE"
-    echo "  Teacher code (your laptop only):             $TEACHER_CODE"
+    echo "  Teacher code (your laptop only):   $TEACHER_CODE"
     echo
-    echo "Write these down now. On your laptop, save this as teacher_settings.json next to lab_client.py:"
-    echo "  {\"server\": \"wss://$DOMAIN\", \"teacher_code\": \"$TEACHER_CODE\"}"
-    echo "They are also in $ENV_FILE on this server (sudo cat $ENV_FILE)."
+    echo "Write it down now: it is the password for the Teacher screen in the Club Coders app."
+    echo "Learners don't get a code: add them (username and starter password) on the Teacher screen."
+    echo "It is also in $ENV_FILE on this server (sudo cat $ENV_FILE)."
 fi
 echo
 echo "Useful commands:"
@@ -277,5 +281,5 @@ echo "  systemctl status robotlab@class1       is the game server running?"
 echo "  journalctl -u robotlab@class1 -f       its messages, live"
 echo "  sudo robotlab-update                   install a new release (between lessons, after a snapshot)"
 echo "  sudo robotlab-backup                   make a backup now"
-echo "  sudo robotlab-add-class class2 --game fightlab   another class, playing Fight Lab (or robotlab)"
-echo "  sudo robotlab-add-class class1 --game fightlab   move a class to another game (same class code)"
+echo "  sudo robotlab-add-class class2 --game fightlab   Fight Lab's game server (once)"
+echo "  journalctl -u club-desk -f             the club desk's messages, live"

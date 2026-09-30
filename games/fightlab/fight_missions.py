@@ -53,7 +53,7 @@ OUTCOMES = {
 ALL_TOOLS = ["points_table", "walk_speed", "sidestep_speed", "jump_height", "attack_speed", "size",
              "choose_special", "combo_editor", "name_and_colour", "body_choice", "code_view", "stats_readout",
              "fighting_style"]
-NO_HAZARDS = {"ring_out": False, "electric_ropes": False, "fire_jets": False, "slippery": False}
+NO_HAZARDS = {"ring_out": False, "electric_ropes": False, "fire_jets": False, "slippery": False, "spikes": False}
 
 
 def tools(*on, specials=("blast", "uppercut", "spin_kick", "slam")):

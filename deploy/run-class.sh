@@ -20,6 +20,11 @@ case "$GAME" in
         ;;
 esac
 
+# the club desk: who may join (the launched group), the tickets' key, and the desk's requests for this game
+export CLUBCODERS_LIVE_FILE=/var/lib/robotlab/desk/live.json
+export CLUBCODERS_TICKET_KEY=/var/lib/robotlab/desk/ticket_key
+export CLUBCODERS_DESK_INBOX="/var/lib/robotlab/desk/inbox/$GAME"
+
 CODE="$APP/games/$GAME"
 export CLUBCODERS_LIVE_POINTER="/opt/robotlab/live/$GAME/current"  # (the server tells the teacher when it changes)
 if [ -f "$CLUBCODERS_LIVE_POINTER" ]; then

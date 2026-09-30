@@ -147,6 +147,21 @@ def login(username, password, allow_new=False):
     return profile, False
 
 
+def ticket_profile(username):
+    """The profile of a learner the club desk has already checked (a ticket): made on their first visit, with no
+    password of its own (the desk holds the password, so the game never asks for one)."""
+    name = clean_name(username)
+    if not name:
+        raise LoginError("That ticket has no username.")
+    profile = load(name)
+    if profile is None:
+        profile = _new_profile(name, secrets.token_hex(16))
+        profile["hash"] = "desk$"  # (no password login: the desk is the only way in)
+    profile["last_login"] = _now()
+    save(profile)
+    return profile
+
+
 def create(username, password):
     """For the teacher: make a learner's account. Returns the profile."""
     name = clean_name(username)

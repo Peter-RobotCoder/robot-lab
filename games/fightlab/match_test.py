@@ -1,5 +1,6 @@
 """Checks that matches work: the teacher puts two learners in a match, then fights a learner, and both sides of each
-fight land hits. Also that a learner's fighting style and weapon are kept (and a weapon only goes with its style).
+fight land hits. Also that a learner's fighting style and weapon are kept (and a weapon only goes with its style),
+and that a restart for code changes keeps the lesson as it was.
 
     python match_test.py
 
@@ -137,6 +138,20 @@ def main():
         d = build(fighting_style="knives", weapon="katana")
         check("Fighting styles: the style and weapon are kept, and a weapon only goes with its own style",
               ok and d.get("fighting_style") == "knives" and d.get("weapon") == "knife", str(d))
+        # 4. a restart for code changes (Restart server) keeps the lesson: hazards, mode and matches
+        t.send(type="lesson", lesson={"hazards": {"spikes": True, "slippery": True}, "mode": "battle"})
+        t.wait(lambda: t.last.get("lesson", {}).get("lesson", {}).get("hazards", {}).get("spikes") is True)
+        t.send(type="restart_server")
+        code = server.wait(timeout=15)
+        server = subprocess.Popen([PY, "fight_server.py", "--port", str(port)], cwd=GAME,  # (as the .bat does)
+                                  env=dict(os.environ, FIGHTLAB_DATA=data), stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.STDOUT)
+        time.sleep(4)
+        t2 = Client(port, name="MrP", code="TEACH99")
+        hz = t2.last.get("lesson", {}).get("lesson", {}).get("hazards", {})
+        check("A restart for code changes keeps the lesson (spikes and ice still on, still a battle)",
+              code == 3 and hz.get("spikes") is True and hz.get("slippery") is True and
+              t2.last["lesson"]["lesson"].get("mode") == "battle", f"exit {code}, hazards {hz}")
     finally:
         server.kill()
     print(f"{sum(results)}/{len(results)} passed")

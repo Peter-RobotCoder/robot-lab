@@ -129,6 +129,22 @@ def part_hit_points(armour):
     return {"armour": 0.5 * armour, "weapon": 0.5 * armour, **{f"wheel{i}": 0.25 * armour for i in range(4)}}
 
 
+# ---------- user mods: features learners asked for, switched on and off by the teacher ----------
+# key: (the name in the teacher's Controls, what it does). Every user mod is OFF unless the teacher switches it on,
+# and the game works exactly as before while it's off. The physics reads arena.user_mods; the graphics get the same
+# switches (ArenaVisual(..., user_mods)). The teacher can switch one mid-round: the arena and windows follow at once.
+# A learner's AI request can be made as a new user mod (AI cards: "Make it a switchable User Mod").
+USER_MODS = {
+    "no_cage": ("No cage", "No walls round the arena: a drop into a gutter all the way round (the wall spikes rest)"),
+}
+
+
+def user_mods_on(values):
+    """Every user mod's switch (off unless switched on)."""
+    values = values or {}
+    return {k: bool(values.get(k)) for k in USER_MODS}
+
+
 # ---------- house robots: heavy, slow, and they guard the corners ----------
 
 HOUSE_SIZE = 1.6
@@ -595,10 +611,13 @@ class Arena:
     SAW_R, SAW_HALF_T = 1.0, 0.03                # blade radius and half thickness
     SAW_SPIN = 1.0                               # blade turns this way round (the top edge moves towards -x)
     SPIKES = (-ARENA / 2, -2.5, 2.5)            # west wall, from y to y
+    GUTTER = 3.0                                 # width of the drop all around the arena edge
     STARTS = ((-7.5, 0, -90), (7.5, 0, 90), (-3.5, -7.5, 0), (0, -7.5, 0), (3.5, 7.5, 180), (0, 7.5, 180))
 
-    def __init__(self, root=None, hazards=None, seed=1):
+    def __init__(self, root=None, hazards=None, seed=1, user_mods=None):
         self.world = BulletWorld()
+        self.user_mods = user_mods_on(user_mods)  # the teacher's user mods (see USER_MODS)
+        self.edge, self.spikes_in = [], True
         self.world.setGravity(Vec3(0, 0, -RULES["gravity"]))
         self.root = root if root is not None else NodePath("arena")
         self.rnd = random.Random(seed)
@@ -629,6 +648,13 @@ class Arena:
         self.pit_open = bool(self.hazards["pit"])
         self.set_house_robots(self.hazards.get("house_robots"))
 
+    def set_user_mods(self, values):
+        """Switch user mods on or off mid-round (the robots carry on where they are)."""
+        before = dict(self.user_mods)
+        self.user_mods = user_mods_on({**self.user_mods, **(values or {})})
+        if self.user_mods["no_cage"] != before["no_cage"]:
+            self.build_edge()
+
     def set_house_robots(self, value):
         """Add or remove house robots one by one (True = all, False = none, or a list of names)."""
         wanted = house_list(value)
@@ -641,10 +667,6 @@ class Arena:
         h = ARENA / 2
         for i, (x0, y0, x1, y1) in enumerate(floor_rects(self.hazards)):
             self.add_static(f"floor{i}", Vec3((x1 - x0) / 2, (y1 - y0) / 2, 0.25), Point3((x0 + x1) / 2, (y0 + y1) / 2, -0.25))
-        for i, (cx, cy, hx, hy) in enumerate(((0, h + 0.25, h + 0.5, 0.25), (0, -h - 0.25, h + 0.5, 0.25),
-                                              (h + 0.25, 0, 0.25, h), (-h - 0.25, 0, 0.25, h))):
-            self.add_static(f"wall{i}", Vec3(hx, hy, 0.6), Point3(cx, cy, 0.6))
-            self.add_static(f"screen{i}", Vec3(hx, hy, 3.0), Point3(cx, cy, 4.2))  # clear screens above the walls
 
         # the drop zone: a floor that lowers into the pit (kinematic: it moves, nothing can move it)
         px, py, ps = self.PIT
@@ -684,6 +706,37 @@ class Arena:
         wx, y0, y1 = self.SPIKES
         self.spikes = self.add_kinematic("spikes", BulletBoxShape(Vec3(0.3, (y1 - y0) / 2 + 0.1, 0.42)),
                                          Point3(self.spike_x(0.0), (y0 + y1) / 2, 0.45))
+        self.build_edge()
+
+    def build_edge(self):
+        """The arena's edge: walls with clear screens above them or, with the No cage user mod, a drop all round
+        into a gutter as deep as the pit. Built again when the mod is switched, so it can change mid-round."""
+        for np_ in self.edge:
+            self.world.removeRigidBody(np_.node())
+            self.bodies.remove(np_)
+            np_.removeNode()
+        h, g = ARENA / 2, self.GUTTER
+        first = len(self.bodies)
+        if self.user_mods["no_cage"]:
+            for i, (cx, cy, hx, hy) in enumerate(((0, h + g / 2, h + g, g / 2), (0, -h - g / 2, h + g, g / 2),
+                                                  (h + g / 2, 0, g / 2, h), (-h - g / 2, 0, g / 2, h))):
+                self.add_static(f"gutter{i}", Vec3(hx, hy, 0.25), Point3(cx, cy, self.PIT_OPEN_Z - 0.25))
+            for i, (cx, cy, hx, hy) in enumerate(((0, h + g + 0.25, h + g + 0.5, 0.25), (0, -h - g - 0.25, h + g + 0.5, 0.25),
+                                                  (h + g + 0.25, 0, 0.25, h + g), (-h - g - 0.25, 0, 0.25, h + g))):
+                self.add_static(f"outer{i}", Vec3(hx, hy, 1.6), Point3(cx, cy, -1.5))  # the gutter's outer side
+            for i, (cx, cy, hx, hy) in enumerate(((0, h + g + 5, h + g + 10, 5), (0, -h - g - 5, h + g + 10, 5),
+                                                  (h + g + 5, 0, 5, h + g), (-h - g - 5, 0, 5, h + g))):
+                self.add_static(f"outside{i}", Vec3(hx, hy, 0.25), Point3(cx, cy, -0.25))  # the floor beyond it
+        else:
+            for i, (cx, cy, hx, hy) in enumerate(((0, h + 0.25, h + 0.5, 0.25), (0, -h - 0.25, h + 0.5, 0.25),
+                                                  (h + 0.25, 0, 0.25, h), (-h - 0.25, 0, 0.25, h))):
+                self.add_static(f"wall{i}", Vec3(hx, hy, 0.6), Point3(cx, cy, 0.6))
+                self.add_static(f"screen{i}", Vec3(hx, hy, 3.0), Point3(cx, cy, 4.2))  # clear screens above the walls
+        self.edge = self.bodies[first:]
+        cage = not self.user_mods["no_cage"]  # the wall spikes live in the wall: with no cage they're taken out
+        if cage != self.spikes_in:
+            (self.world.attachRigidBody if cage else self.world.removeRigidBody)(self.spikes.node())
+            self.spikes_in = cage
 
     def set_pit(self, open_, instant=False):
         """Open or close the drop zone (instant: no lowering or rising, e.g. when the arena is rebuilt)."""
@@ -785,7 +838,7 @@ class Arena:
             self.saw_height[i] += (target - self.saw_height[i]) * 0.15
             saw.setZ(self.saw_z(self.saw_height[i]))
         if self.spikes is not None:  # out fast, back slowly
-            target = 1.0 if on["spikes"] and now % RULES["spike_cycle"] < 1.2 else 0.0
+            target = 1.0 if on["spikes"] and self.spikes_in and now % RULES["spike_cycle"] < 1.2 else 0.0
             self.spike_out += (target - self.spike_out) * (0.35 if target > self.spike_out else 0.08)
             self.spikes.setX(self.spike_x(self.spike_out))
         if self.pit_lid is not None:  # the drop zone floor lowers (open) or rises (closed) at 1.2 m/s

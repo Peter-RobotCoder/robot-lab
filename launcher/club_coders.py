@@ -1,9 +1,12 @@
 """Club Coders: one download for all the club's games.
 
-Learners type their class code once. The front door on the class server (door/club_door.py) says which game
-their class is playing and where, and this app opens that game there, with the class code filled in: the game's
-own login then asks for the username and password as usual. When the teacher moves a class to another game,
-learners keep the same app and the same code.
+Learners log in with their username and password. The club desk on the class server (desk/club_desk.py) checks
+them and says which game their launched group is playing and where; this app opens that game there, already
+logged in (a signed ticket). If their group hasn't been launched, the app waits and opens the game the moment it
+is. A starter password works once: the learner chooses their own first.
+
+The teacher logs in with the teacher password and gets the teacher desk: learners (add, reset a password,
+remove), groups (name, game, learners) and Launch / Stop. Launch opens the teacher window in that game.
 
     Club Coders.exe                          the downloaded app: this window
     Club Coders.exe --game robotlab ...      the app running one game (how this window starts a game)
@@ -16,9 +19,9 @@ A class running one says which (its id). The app downloads it once from https://
 game (the key's public half is built into the app), and that it unpacks safely. Anything that fails a check isn't
 run: the game runs the app's own code instead, and says it doesn't match the class.
 
-Test options: --server ws://127.0.0.1:8779 (a laptop front door), --code X --go (no clicking), --wait (wait for
-the game and exit with its result), and --offscreen / --screenshot / --after / --name / --password, which are
-passed on to the game.
+Test options: --server ws://127.0.0.1:8779 (a laptop desk), --login USER PASS or --teacher-password X (no
+clicking), --wait (wait for the game and exit with its result), and --offscreen / --screenshot / --after / --name /
+--password, which are passed on to the game.
 """
 import argparse
 import hashlib
@@ -260,92 +263,458 @@ def start_game(game, argv, wait=False, code=None):
     return proc.wait() if wait else 0
 
 
-def ask_door(server, code, timeout=8.0):
-    """Ask the club's front door which game and address this class code is for: the door's answer as a dict."""
-    from websockets.sync.client import connect
-    try:
-        with connect(server.rstrip("/") + "/door", open_timeout=timeout, close_timeout=2, max_size=4096) as ws:
-            ws.send(json.dumps({"type": "find", "code": code}))
-            answer = json.loads(ws.recv(timeout=timeout))
-    except Exception:
-        return {"ok": False, "error": "Can't reach the club's server. Check your internet connection, then try "
-                                      "again."}
+# ---------- the club desk connection ----------
+class DeskLink:
+    """A connection to the club desk, kept open: what the desk sends arrives in a queue the window reads each frame."""
+
+    def __init__(self, server):
+        self.url = server.rstrip("/") + "/desk"
+        self.inbox = queue.Queue()
+        self.ws = None
+        self.open = False
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        from websockets.sync.client import connect
+        try:
+            with connect(self.url, open_timeout=10, close_timeout=2, max_size=64 * 1024) as ws:
+                self.ws, self.open = ws, True
+                self.inbox.put({"_open": True})
+                while True:
+                    self.inbox.put(json.loads(ws.recv()))
+        except Exception as e:
+            self.open = False
+            self.inbox.put({"_closed": True, "_why": str(e)})
+
+    def send(self, msg):
+        try:
+            self.ws.send(json.dumps(msg))
+            return True
+        except Exception:
+            return False
+
+    def close(self):
+        try:
+            self.ws.close()
+        except Exception:
+            pass
+
+
+def esc_text(text):
+    return str(text)
+
+
+def address_ok(address):
     secure = ("wss://", "ws://") if test_build() else ("wss://",)
-    if answer.get("ok") and (answer.get("game") not in GAMES or
-                             not str(answer.get("address", "")).startswith(secure)):
-        return {"ok": False, "error": "The club's server gave an answer this app doesn't understand: download the "
-                                      "newest Club Coders."}
-    return answer
+    return isinstance(address, str) and address.startswith(secure)
 
 
 # ---------- the window ----------
 def launcher(args, passed_on):
     from panda3d.core import loadPrcFileData
-    loadPrcFileData("", "win-size 960 600\nwindow-title Club Coders\nframebuffer-multisample 1\nmultisamples 4\n")
+    loadPrcFileData("", "win-size 1100 700\nwindow-title Club Coders\nframebuffer-multisample 1\nmultisamples 4\n")
     if args.offscreen:
         loadPrcFileData("", "window-type offscreen\naudio-library-name null\n")
-    from direct.gui.DirectGui import DGG, DirectButton, DirectEntry, DirectFrame
+    from direct.gui.DirectGui import DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame
     from direct.gui.OnscreenText import OnscreenText
     from direct.showbase.ShowBase import ShowBase
     from panda3d.core import Filename, TextNode
 
     yellow, white, grey, red, green = (1, .9, .35, 1), (1, 1, 1, 1), (.75, .8, .9, 1), (1, .45, .4, 1), (.5, .95, .55, 1)
-    on, off = (0.85, 0.65, 0.1, 1), (0.2, 0.25, 0.35, 1)
+    blue = (.55, .85, 1, 1)
+    on, off, go_col, warn_col = (0.85, 0.65, 0.1, 1), (0.2, 0.25, 0.35, 1), (0.15, 0.55, 0.25, 1), (0.6, 0.2, 0.15, 1)
     server = args.server or release_config().get("server") or CLUB_SERVER
     version = release_config().get("version", "source files")
     saved = load_json(os.path.join(SETTINGS_DIR, "settings.json"))
+    teacher_file = os.path.join(SETTINGS_DIR, "teacher.json")
 
-    def label(parent, text, x, y, scale=0.05, fg=white, align=TextNode.ACenter, wrap=None):
+    def label(parent, text, x, y, scale=0.045, fg=white, align=TextNode.ACenter, wrap=None):
         return OnscreenText(text, pos=(x, y), scale=scale, fg=fg, align=align, parent=parent, mayChange=True,
                             wordwrap=wrap)
 
-    def button(parent, text, x, y, command, extra=(), scale=0.06, colour=off):
+    def button(parent, text, x, y, command, extra=(), scale=0.05, colour=off):
         return DirectButton(parent=parent, text=text, scale=scale, pos=(x, 0, y), command=command,
                             extraArgs=list(extra), frameColor=colour, text_fg=white, relief=DGG.FLAT, pad=(0.5, 0.25))
+
+    def entry(parent, x, y, width, initial="", secret=False, scale=0.05, command=None):
+        return DirectEntry(parent=parent, scale=scale, pos=(x, 0, y), width=width, initialText=initial, numLines=1,
+                           obscured=1 if secret else 0, frameColor=(0.12, 0.14, 0.2, 1), text_fg=white,
+                           command=command)
+
+    def check(parent, text, x, y, value, command, scale=0.04):
+        return DirectCheckButton(parent=parent, text=text, scale=scale, pos=(x, 0, y), indicatorValue=1 if value else 0,
+                                 command=command, text_align=TextNode.ALeft, text_fg=white, frameColor=(0, 0, 0, 0),
+                                 boxPlacement="left")
 
     class Launcher(ShowBase):
         def __init__(self):
             super().__init__()
             self.setBackgroundColor(0.05, 0.06, 0.09)
-            if args.code or args.server:  # (given a code or a server to ask: that's the online class)
+            self.local = (saved.get("where") == "local") if "where" in saved else not FROZEN
+            if args.login or args.teacher_password:
                 self.local = False
-            else:
-                self.local = (saved.get("where") == "local") if "where" in saved else not FROZEN
-            self.results = queue.Queue()
-            self.busy = False
+            self.link = None
             self.panel = None
-            self.code_entry = None
+            self.screen = "home"
+            self.message = ("", grey)
+            self.me = None            # the learner's username once the desk knows them
+            self.password = ""        # (kept only until the game opens: a starter password change needs it)
+            self.state = {}           # the desk's state, for the teacher screen
+            self.editing = None       # the group being edited on the teacher screen
+            self.pending_record = None  # a session just stopped, waiting for "make the PDFs?"
+            self.sessions = []        # past sessions' records, from the desk
+            self.page = 0
+            self.fields = {}
             self.draw()
-            self.taskMgr.add(self.check_results, "results")
-            if args.go:
-                self.taskMgr.doMethodLater(0.5, lambda t: self.go(), "go")
+            self.taskMgr.add(self.read_desk, "desk")
+            if args.snap:  # (tests: a picture of this window after a few seconds, then close)
+                self.taskMgr.doMethodLater(args.snap, lambda t: self.finish(), "snap")
+            if args.login:
+                self.taskMgr.doMethodLater(0.5, lambda t: self.log_in(*args.login), "auto")
+            elif args.teacher_password:
+                self.taskMgr.doMethodLater(0.5, lambda t: self.teacher_login(args.teacher_password), "auto")
+                if args.test_stop:  # (tests: stop the live group and make its PDFs, then close)
+                    self.taskMgr.doMethodLater(3, lambda t: self.stop(), "test_stop")
 
-        def draw(self, message="", colour=grey):
-            typed = self.code_entry.get() if self.code_entry is not None else (args.code or saved.get("class_code", ""))
+        # ---------- drawing ----------
+        def say(self, text, colour=grey):
+            self.message = (text, colour)
+            self.draw()
+
+        def field(self, key):
+            e = self.fields.get(key)
+            return e.get().strip() if e is not None else ""
+
+        def draw(self):
+            keep = {k: e.get() for k, e in self.fields.items()}
             if self.panel is not None:
                 self.panel.destroy()
-            self.panel = DirectFrame(frameColor=(0.05, 0.06, 0.09, 1), frameSize=(-3, 3, -1.2, 1.2))  # backdrop
-            f = DirectFrame(parent=self.panel, frameColor=(0.08, 0.1, 0.15, 1), frameSize=(-0.95, 0.95, -0.72, 0.72))
-            label(f, "CLUB CODERS", 0, 0.52, 0.11, yellow)
-            label(f, "The club's games: type your class code and your class's game opens", 0, 0.42, 0.04, grey)
-            label(f, "Play on", -0.62, 0.26, 0.045, grey)
-            for i, (local, text) in enumerate(((False, "Online class"), (True, "This computer (test)"))):
-                button(f, text, -0.14 + i * 0.5, 0.265, self.set_where, [local], 0.045, on if self.local == local else off)
-            self.code_entry = None
-            if self.local:
-                label(f, "Open a game on this computer's test server:", 0, 0.08, 0.045)
-                for i, (game, g) in enumerate(GAMES.items()):
-                    button(f, g["title"], -0.3 + i * 0.6, -0.08, self.open_local, [game], 0.075, (0.15, 0.45, 0.65, 1))
-            else:
-                label(f, "Class code", -0.52, 0.06, 0.055)
-                self.code_entry = DirectEntry(parent=f, scale=0.06, pos=(-0.25, 0, 0.06), width=11, initialText=typed,
-                                              numLines=1, focus=1, command=lambda t: self.go(),
-                                              frameColor=(0.12, 0.14, 0.2, 1), text_fg=white)
-                button(f, "GO", 0, -0.14, self.go, (), 0.08, (0.15, 0.55, 0.25, 1))
-                label(f, "It's in your welcome letter, and it's remembered after the first time.", 0, -0.3, 0.035, grey)
-            label(f, message, 0, -0.45, 0.042, colour, wrap=40)
-            label(f, f"Club Coders {version}", 0.9, -0.68, 0.03, grey, TextNode.ARight)
+            self.fields = {}
+            self.panel = DirectFrame(frameColor=(0.05, 0.06, 0.09, 1), frameSize=(-3, 3, -1.2, 1.2))
+            f = DirectFrame(parent=self.panel, frameColor=(0.08, 0.1, 0.15, 1), frameSize=(-1.5, 1.5, -0.92, 0.92))
+            getattr(self, "draw_" + self.screen)(f, keep)
+            label(f, self.message[0], 0, -0.8, 0.04, self.message[1], wrap=60)
+            label(f, f"Club Coders {version}", 1.46, -0.89, 0.028, grey, TextNode.ARight)
 
+        def draw_home(self, f, keep):
+            label(f, "CLUB CODERS", 0, 0.7, 0.11, yellow)
+            label(f, "Play on", -0.62, 0.5, 0.04, grey)
+            for i, (local, text) in enumerate(((False, "Online class"), (True, "This computer (test)"))):
+                button(f, text, -0.2 + i * 0.5, 0.505, self.set_where, [local], 0.042, on if self.local == local else off)
+            if self.local:
+                label(f, "Open a game on this computer's test server:", 0, 0.25, 0.045)
+                for i, (game, g) in enumerate(GAMES.items()):
+                    button(f, g["title"], -0.3 + i * 0.6, 0.08, self.open_local, [game], 0.07, (0.15, 0.45, 0.65, 1))
+            else:
+                label(f, "Username", -0.55, 0.27, 0.05)
+                self.fields["user"] = entry(f, -0.25, 0.27, 12, keep.get("user", saved.get("username", "")),
+                                            command=lambda t: self.fields["pass"].setFocus())
+                label(f, "Password", -0.55, 0.12, 0.05)
+                self.fields["pass"] = entry(f, -0.25, 0.12, 12, keep.get("pass", ""), secret=True,
+                                            command=lambda t: self.log_in())
+                button(f, "LOG IN", 0, -0.08, self.log_in, (), 0.07, go_col)
+                label(f, "Use the username and password from your welcome letter. Your class's game opens by itself.",
+                      0, -0.25, 0.033, grey, wrap=55)
+            button(f, "Teacher", 1.3, -0.72, self.show, ["teacher_login"], 0.035)
+            if "user" in self.fields and not keep.get("user"):
+                self.fields["user"].setFocus()
+
+        def draw_change_password(self, f, keep):
+            label(f, "CHOOSE YOUR OWN PASSWORD", 0, 0.6, 0.07, yellow)
+            label(f, f"Hello {self.me}. Your starter password only works once: choose your own now (at least 6 "
+                     "characters). Keep it to yourself.", 0, 0.42, 0.036, grey, wrap=50)
+            label(f, "New password", -0.6, 0.15, 0.05)
+            self.fields["new1"] = entry(f, -0.2, 0.15, 12, keep.get("new1", ""), secret=True,
+                                        command=lambda t: self.fields["new2"].setFocus())
+            label(f, "Type it again", -0.6, 0.0, 0.05)
+            self.fields["new2"] = entry(f, -0.2, 0.0, 12, keep.get("new2", ""), secret=True,
+                                        command=lambda t: self.change_password())
+            button(f, "SAVE MY PASSWORD", 0, -0.22, self.change_password, (), 0.06, go_col)
+
+        def draw_waiting(self, f, keep):
+            label(f, "NOT STARTED YET", 0, 0.55, 0.08, yellow)
+            label(f, f"Hello {self.me}. Your group hasn't started yet: wait for your teacher.\n"
+                     "The game will open by itself as soon as it does.", 0, 0.25, 0.045, white, wrap=45)
+            button(f, "Log out", 0, -0.3, self.log_out, (), 0.045)
+
+        def draw_teacher_login(self, f, keep):
+            label(f, "TEACHER", 0, 0.6, 0.09, yellow)
+            label(f, "Teacher password", -0.62, 0.25, 0.05)
+            remembered = load_json(teacher_file).get("password", "")
+            self.fields["tpass"] = entry(f, -0.2, 0.25, 14, keep.get("tpass", remembered), secret=True,
+                                         command=lambda t: self.teacher_login())
+            self.remember_teacher = check(f, " Remember it on this computer", -0.62, 0.1,
+                                          bool(remembered) or getattr(self, "_remember", True),
+                                          lambda v: setattr(self, "_remember", bool(v)))
+            button(f, "LOG IN", 0, -0.1, self.teacher_login, (), 0.07, go_col)
+            button(f, "Back", -1.3, -0.72, self.show, ["home"], 0.035)
+            self.fields["tpass"].setFocus()
+
+        def draw_teacher(self, f, keep):
+            st, live = self.state, self.state.get("live")
+            games = st.get("games", {})
+            # the live session
+            label(f, "TEACHER DESK", -1.44, 0.82, 0.06, yellow, TextNode.ALeft)
+            if live:
+                label(f, f"LIVE: {live['group']}  ({games.get(live['game'], {}).get('title', live['game'])}, "
+                         f"lesson {live['lesson']}, since {live['started'][-5:]})", -1.44, 0.72, 0.042, green,
+                      TextNode.ALeft)
+                button(f, "Open teacher window", 0.55, 0.735, self.open_teacher_window, (), 0.038, (0.15, 0.45, 0.65, 1))
+                button(f, "Stop", 1.05, 0.735, self.stop, (), 0.038, warn_col)
+            else:
+                label(f, "Nothing is live. Launch a group when the session starts.", -1.44, 0.72, 0.042, grey,
+                      TextNode.ALeft)
+            button(f, "Log out", 1.32, 0.82, self.teacher_logout, (), 0.032)
+            button(f, "Records", 1.1, 0.82, self.open_records, (), 0.032)
+            if live:
+                return self.draw_session(f, keep)
+            # learners (left)
+            label(f, "LEARNERS", -1.44, 0.6, 0.045, yellow, TextNode.ALeft)
+            learners = st.get("learners", [])
+            per_page = 12
+            pages = max(1, (len(learners) + per_page - 1) // per_page)
+            self.page = min(self.page, pages - 1)
+            y = 0.52
+            for L in learners[self.page * per_page:(self.page + 1) * per_page]:
+                label(f, L["name"], -1.44, y, 0.04, white, TextNode.ALeft)
+                status = "password changed" if L["changed"] else f"starter: {L['starter']}"
+                label(f, status, -1.05, y, 0.03, grey if L["changed"] else blue, TextNode.ALeft)
+                button(f, "Reset", -0.35, y + 0.008, self.reset_password, [L["name"]], 0.028)
+                button(f, "Remove", -0.18, y + 0.008, self.remove_learner, [L["name"]], 0.028, warn_col)
+                y -= 0.075
+            if pages > 1:
+                button(f, "<", -1.4, -0.4, self.turn_page, [-1], 0.03)
+                label(f, f"{self.page + 1} / {pages}", -1.25, -0.41, 0.03, grey)
+                button(f, ">", -1.1, -0.4, self.turn_page, [1], 0.03)
+            label(f, "Add a learner", -1.44, -0.5, 0.04, yellow, TextNode.ALeft)
+            label(f, "Username", -1.44, -0.58, 0.035, grey, TextNode.ALeft)
+            self.fields["new_user"] = entry(f, -1.2, -0.58, 10, keep.get("new_user", ""), scale=0.04)
+            label(f, "Starter password (blank = made up)", -1.44, -0.66, 0.03, grey, TextNode.ALeft)
+            self.fields["new_starter"] = entry(f, -0.78, -0.66, 10, keep.get("new_starter", ""), scale=0.04,
+                                               command=lambda t: self.add_learner())
+            button(f, "Add", -0.15, -0.65, self.add_learner, (), 0.036, go_col)
+            # groups (right)
+            label(f, "GROUPS", 0.05, 0.6, 0.045, yellow, TextNode.ALeft)
+            y = 0.52
+            for g in st.get("groups", []):
+                title = games.get(g["game"], {}).get("title", g["game"])
+                label(f, f"{g['name']}  ({title}, {len(g['learners'])} learners)", 0.05, y, 0.038, white, TextNode.ALeft)
+                if not live:
+                    label(f, "lesson", 0.72, y - 0.001, 0.028, grey, TextNode.ALeft)
+                    for n in st.get("lessons", [1, 2, 3, 4, 5]):
+                        button(f, str(n), 0.86 + (n - 1) * 0.065, y + 0.007, self.launch, [g["name"], n], 0.028,
+                               go_col if n == 1 else off)
+                button(f, "Edit", 1.2, y + 0.007, self.edit_group, [g["name"]], 0.028)
+                button(f, "Delete", 1.36, y + 0.007, self.delete_group, [g["name"]], 0.028, warn_col)
+                y -= 0.075
+            if not live:
+                label(f, "(a number launches the group on that lesson)", 0.05, y, 0.028, grey, TextNode.ALeft)
+                y -= 0.06
+            button(f, "New group", 0.2, y - 0.01, self.edit_group, [None], 0.036, (0.15, 0.45, 0.65, 1))
+
+        def draw_session(self, f, keep):
+            """While a group is live: who is here, what they've completed, and a note for each."""
+            st, live = self.state, self.state["live"]
+            ses = st.get("session") or {}
+            present, done, notes = ses.get("present", []), ses.get("done", {}), ses.get("notes", {})
+            label(f, "THIS SESSION", -1.44, 0.6, 0.045, yellow, TextNode.ALeft)
+            label(f, f"{len(present)} of {len(live['learners'])} learners here   -   "
+                     f"{sum(done.values())} missions completed   -   {ses.get('cards', 0)} AI cards", -1.44, 0.52,
+                  0.036, white, TextNode.ALeft)
+            label(f, "Learner", -1.44, 0.44, 0.03, grey, TextNode.ALeft)
+            label(f, "Completed", -0.95, 0.44, 0.03, grey, TextNode.ALeft)
+            label(f, "Note for this session (saved with the record when you press Stop)", -0.55, 0.44, 0.03, grey,
+                  TextNode.ALeft)
+            y = 0.37
+            for name in live["learners"][:14]:
+                here = name in present
+                label(f, name, -1.44, y, 0.038, white if here else grey, TextNode.ALeft)
+                label(f, str(done.get(name, 0)) if here else "away", -0.95, y, 0.036, green if done.get(name) else grey,
+                      TextNode.ALeft)
+                self.fields[f"note_{name}"] = entry(f, -0.55, y, 34, keep.get(f"note_{name}", notes.get(name, "")),
+                                                    scale=0.034, command=lambda t, n=name: self.save_note(n))
+                button(f, "Save", 1.33, y + 0.007, self.save_note, [name], 0.028)
+                y -= 0.065
+            label(f, "Press Enter or Save after typing a note. Stop ends the session and files its record.", -1.44,
+                  y - 0.02, 0.03, grey, TextNode.ALeft)
+
+        def save_note(self, name):
+            self.ask_desk({"type": "note", "name": name, "text": self.field(f"note_{name}")})
+
+        def draw_make_pdfs(self, f, keep):
+            r = self.pending_record or {}
+            if args.test_stop:
+                self.taskMgr.doMethodLater(0.5, lambda t: (self.make_pdfs(r), self.finish()) and None, "test_pdfs")
+            report = r.get("report") or {}
+            changed = sorted(set((report.get("done") or {}).keys()) | set((r.get("notes") or {}).keys()))
+            label(f, "SESSION STOPPED", 0, 0.6, 0.08, yellow)
+            label(f, f"{esc_text(r.get('group', ''))}  ({GAMES.get(r.get('game'), {}).get('title', '')}, lesson "
+                     f"{r.get('lesson', '')}): {len((report.get('present') or {}))} learners were here.", 0, 0.42, 0.045)
+            label(f, "Make the PDFs for this session? A card for each of: " + (", ".join(changed) or "nobody (no "
+                     "achievements or notes)") + ", and the session summary.", 0, 0.28, 0.038, grey, wrap=50)
+            label(f, "They go in Documents\\Club Coders records.", 0, 0.14, 0.036, grey)
+            button(f, "Yes, make them", -0.35, -0.05, self.make_pdfs, [r], 0.055, go_col)
+            button(f, "Not now", 0.35, -0.05, self.skip_pdfs, (), 0.055)
+            label(f, "Not now keeps the record: the PDFs can be made later from Records.", 0, -0.25, 0.033, grey)
+
+        def draw_records(self, f, keep):
+            label(f, "RECORDS", -1.44, 0.82, 0.06, yellow, TextNode.ALeft)
+            label(f, "Past sessions (newest first). PDFs go in Documents\\Club Coders records.", -1.44, 0.72, 0.036,
+                  grey, TextNode.ALeft)
+            for i, game in enumerate(GAMES):
+                button(f, f"Print scheme of work: {GAMES[game]['title']}", 0.3 + i * 0.62, 0.82, self.print_scheme, [game],
+                       0.032, (0.15, 0.45, 0.65, 1))
+            y = 0.6
+            for s in self.sessions[:12]:
+                report = s.get("report") or {}
+                label(f, f"{s.get('started', '')[:16]}  {s.get('group', '')}  ({GAMES.get(s.get('game'), {}).get('title', '')}, "
+                         f"lesson {s.get('lesson', '')}, {len(report.get('present') or {})} here)", -1.44, y, 0.036, white,
+                      TextNode.ALeft)
+                button(f, "Make PDFs", 1.25, y + 0.007, self.make_pdfs, [s], 0.03)
+                y -= 0.07
+            if not self.sessions:
+                label(f, "No sessions yet.", -1.44, y, 0.036, grey, TextNode.ALeft)
+            button(f, "Back", -1.3, -0.72, self.show, ["teacher"], 0.035)
+
+        def open_records(self):
+            self.ask_desk({"type": "sessions"})
+            self.show("records")
+
+        def make_pdfs(self, record):
+            import records
+            self.pending_record = None
+            try:
+                folder = game_dir(record["game"])
+                made = records.make_all(record, self.sessions, folder)
+                self.show("teacher")
+                self.say(f"Made {len(made)} PDFs in Documents\\Club Coders records", green)
+            except Exception as e:
+                self.show("teacher")
+                self.say(f"The PDFs couldn't be made: {e}", red)
+
+        def skip_pdfs(self):
+            self.pending_record = None
+            self.show("teacher")
+            self.say("The record is kept: make its PDFs later from Records.", grey)
+
+        def print_scheme(self, game):
+            import records
+            try:
+                folder = game_dir(game)
+                path = records.scheme_of_work(game, records.lesson_module(game, folder))
+                self.say(f"Printed: {path}", green)
+            except Exception as e:
+                self.say(f"The scheme of work couldn't be made: {e}", red)
+
+        def draw_group(self, f, keep):
+            g = self.editing
+            label(f, "GROUP", -1.44, 0.82, 0.06, yellow, TextNode.ALeft)
+            label(f, "Name", -1.44, 0.64, 0.045, white, TextNode.ALeft)
+            self.fields["gname"] = entry(f, -1.15, 0.64, 14, keep.get("gname", g["name"]), scale=0.045)
+            label(f, "Game", -1.44, 0.5, 0.045, white, TextNode.ALeft)
+            for i, (game, info) in enumerate(self.state.get("games", {}).items()):
+                button(f, info["title"], -1.0 + i * 0.4, 0.51, self.pick_game, [game], 0.04, on if g["game"] == game else off)
+            label(f, "Learners in this group (tick them)", -1.44, 0.36, 0.045, white, TextNode.ALeft)
+            names = [L["name"] for L in self.state.get("learners", [])]
+            for i, name in enumerate(names[:48]):
+                col, row = i % 4, i // 4
+                check(f, " " + name, -1.44 + col * 0.72, 0.27 - row * 0.07, name in g["learners"],
+                      lambda v, n=name: self.tick(n, bool(v)), 0.038)
+            button(f, "Save group", -0.3, -0.75, self.save_group, (), 0.05, go_col)
+            button(f, "Cancel", 0.3, -0.75, self.show, ["teacher"], 0.05)
+
+        # ---------- the desk ----------
+        def link_up(self):
+            if self.link is None or not self.link.open:
+                self.link = DeskLink(server)
+            return self.link
+
+        def read_desk(self, task):
+            if self.link is None:
+                return task.cont
+            try:
+                while True:
+                    m = self.link.inbox.get_nowait()
+                    self.on_desk(m)
+            except queue.Empty:
+                pass
+            return task.cont
+
+        def on_desk(self, m):
+            if m.get("_open"):
+                if self.pending:
+                    self.link.send(self.pending)
+                    self.pending = None
+                return
+            if m.get("_closed"):
+                if self.screen in ("waiting", "teacher", "group"):
+                    self.say("Lost the connection to the club's server: log in again.", red)
+                    self.show("home")
+                elif self.pending:
+                    self.pending = None
+                    self.say("Can't reach the club's server. Check your internet connection, then try again.", red)
+                self.link = None
+                return
+            if "error" in m and not m.get("ok"):
+                self.say(m["error"], red)
+                if self.screen == "group":
+                    return
+                if self.screen not in ("teacher",):
+                    self.show("home" if self.screen == "waiting" else self.screen)
+                return
+            if "state" in m:
+                self.state = m["state"]
+                if self.message[0] == "Logging in...":
+                    self.message = ("", grey)
+                if self.screen in ("teacher", "group"):
+                    self.draw()
+            if m.get("session_record"):  # Stop: the record is filed; ask about the PDFs once the sessions arrive
+                self.pending_record = m["session_record"]
+                self.ask_desk({"type": "sessions"})
+            if m.get("sessions") is not None:
+                self.sessions = m["sessions"]
+                if self.pending_record:
+                    self.show("make_pdfs")
+                elif self.screen == "records":
+                    self.draw()
+            if m.get("done"):
+                self.say(m["done"], green)
+            if m.get("teacher_window"):
+                w = m["teacher_window"]
+                if address_ok(w.get("address")):
+                    start_game(w["game"], ["--host", w["address"], "--teacher", "--name", "Teacher", "--ticket",
+                                           w["ticket"]] + passed_on, wait=False, code=w.get("code"))
+            if m.get("change_password"):
+                self.me = m.get("name", self.me)
+                self.show("change_password")
+            elif m.get("waiting"):
+                self.me = m.get("name", self.me)
+                self.show("waiting")
+            elif m.get("go"):
+                g = m["go"]
+                if g.get("game") in GAMES and address_ok(g.get("address")):
+                    self.say(f"Opening {GAMES[g['game']]['title']}...", green)
+                    self.graphicsEngine.renderFrame()
+                    result = start_game(g["game"], ["--host", g["address"], "--ticket", g["ticket"]] + passed_on,
+                                        wait=args.wait, code=g.get("code"))
+                    self.finish(result)
+                else:
+                    self.say("The club's server gave an answer this app doesn't understand: download the newest "
+                             "Club Coders.", red)
+            elif m.get("ok") and m.get("name") and self.screen == "home":
+                self.me = m["name"]
+
+        pending = None
+
+        def ask_desk(self, msg):
+            """Send to the desk, connecting first if needed."""
+            link = self.link_up()
+            if link.open:
+                link.send(msg)
+            else:
+                self.pending = msg
+
+        # ---------- learners ----------
         def set_where(self, local):
             self.local = local
             remember("where", "local" if local else "online")
@@ -355,35 +724,112 @@ def launcher(args, passed_on):
             start_game(game, ["--host", GAMES[game]["local"]] + passed_on, wait=args.wait)
             self.finish()
 
-        def go(self):
-            if self.busy or self.code_entry is None:
-                return
-            code = self.code_entry.get().strip()
-            if not code:
-                return self.draw("Type the class code from your welcome letter.", red)
-            self.busy = True
-            self.draw("Finding your class...", grey)
-            threading.Thread(target=lambda: self.results.put((code, ask_door(server, code))), daemon=True).start()
+        def log_in(self, user=None, password=None):
+            user = user or self.field("user")
+            password = password or self.field("pass")
+            if not user or not password:
+                return self.say("Type your username and your password.", red)
+            self.password = password
+            remember("username", user)
+            self.say("Logging in...", grey)
+            self.ask_desk({"type": "login", "name": user, "password": password})
 
-        def check_results(self, task):
-            try:
-                code, answer = self.results.get_nowait()
-            except queue.Empty:
-                return task.cont
-            self.busy = False
-            if not answer.get("ok"):
-                self.draw(answer.get("error", "Something went wrong: try again."), red)
-                if args.go and args.offscreen:  # (a test with no one to read it: show it, then stop)
-                    self.finish(1)
-                return task.cont
-            remember("class_code", code)
-            game = answer["game"]
-            self.draw(f"Opening {GAMES[game]['title']}...", green)
-            self.graphicsEngine.renderFrame()
-            result = start_game(game, ["--host", answer["address"], "--code", code] + passed_on, wait=args.wait,
-                                code=answer.get("code") if isinstance(answer.get("code"), str) else None)
-            self.finish(result)
-            return task.done
+        def change_password(self):
+            a, b = self.field("new1"), self.field("new2")
+            if len(a) < 6:
+                return self.say("Passwords need at least 6 characters.", red)
+            if a != b:
+                return self.say("The two passwords were different: type them again.", red)
+            self.ask_desk({"type": "set_password", "name": self.me, "password": self.password, "new": a})
+            self.password = a
+
+        def log_out(self):
+            if self.link:
+                self.link.close()
+            self.link, self.me, self.password = None, None, ""
+            self.show("home")
+
+        # ---------- the teacher ----------
+        def teacher_login(self, password=None):
+            password = password or self.field("tpass")
+            if not password:
+                return self.say("Type the teacher password.", red)
+            if getattr(self, "_remember", True):
+                try:
+                    os.makedirs(SETTINGS_DIR, exist_ok=True)
+                    with open(teacher_file, "w", encoding="utf-8") as fh:
+                        json.dump({"password": password}, fh)
+                except OSError:
+                    pass
+            self.screen = "teacher"
+            self.say("Logging in...", grey)
+            self.ask_desk({"type": "teacher", "password": password})
+
+        def teacher_logout(self):
+            if self.link:
+                self.link.close()
+            self.link, self.state = None, {}
+            self.show("home")
+
+        def add_learner(self):
+            self.ask_desk({"type": "add_learner", "name": self.field("new_user"), "starter": self.field("new_starter")})
+
+        def reset_password(self, name):
+            self.ask_desk({"type": "reset_password", "name": name})
+
+        def remove_learner(self, name):
+            if getattr(self, "confirm_remove", None) != name:
+                self.confirm_remove = name
+                return self.say(f"Remove {name} and delete everything the games keep about them? Press Remove again "
+                                "to confirm.", red)
+            self.confirm_remove = None
+            self.ask_desk({"type": "remove_learner", "name": name})
+
+        def turn_page(self, step):
+            self.page = max(0, self.page + step)
+            self.draw()
+
+        def edit_group(self, name):
+            g = next((g for g in self.state.get("groups", []) if g["name"] == name), None)
+            self.editing = {"name": g["name"] if g else "", "game": g["game"] if g else "robotlab",
+                            "learners": list(g["learners"]) if g else [], "rename_from": g["name"] if g else None}
+            self.show("group")
+
+        def pick_game(self, game):
+            self.editing["game"] = game
+            self.draw()
+
+        def tick(self, name, on_):
+            L = self.editing["learners"]
+            if on_ and name not in L:
+                L.append(name)
+            elif not on_ and name in L:
+                L.remove(name)
+
+        def save_group(self):
+            g = self.editing
+            self.ask_desk({"type": "set_group", "name": self.field("gname"), "game": g["game"], "learners": g["learners"],
+                           "rename_from": g["rename_from"]})
+            self.show("teacher")
+
+        def delete_group(self, name):
+            self.ask_desk({"type": "delete_group", "name": name})
+
+        def launch(self, group, lesson):
+            self.say(f"Launching {group}...", grey)
+            self.ask_desk({"type": "launch", "group": group, "lesson": lesson})
+
+        def open_teacher_window(self):
+            self.ask_desk({"type": "teacher_window"})
+
+        def stop(self):
+            self.ask_desk({"type": "stop"})
+
+        # ---------- screens ----------
+        def show(self, screen):
+            self.screen = screen
+            self.message = ("", grey)
+            self.draw()
 
         def finish(self, result=0):
             if args.screenshot_launcher:
@@ -433,10 +879,12 @@ def _main():
         return run_as_game(game, argv)
     ap = argparse.ArgumentParser(description="Club Coders: opens your class's game.", allow_abbrev=False)
     ap.add_argument("--server", help=f"the club's server (default: {CLUB_SERVER})")
-    ap.add_argument("--code", help="class code (normally typed in the window)")
-    ap.add_argument("--go", action="store_true", help="look the code up straight away")
+    ap.add_argument("--login", nargs=2, metavar=("USERNAME", "PASSWORD"), help="log in straight away (tests)")
+    ap.add_argument("--teacher-password", help="open the teacher desk straight away (tests)")
     ap.add_argument("--wait", action="store_true", help="wait for the game, then exit with its result (tests)")
     ap.add_argument("--screenshot-launcher", help="save a picture of this window before it closes (tests)")
+    ap.add_argument("--snap", type=float, help="close this window after this many seconds (tests)")
+    ap.add_argument("--test-stop", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--offscreen", action="store_true")
     args, rest = ap.parse_known_args()
     passed_on, i = [], 0

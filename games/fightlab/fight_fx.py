@@ -27,6 +27,7 @@ KINDS = {
     "zap": (30, "blue", (0.4, 0.7, 1.0), 0.9, False),
     "fire": (8, "hot", (1.0, 0.5, 0.1), 0.8, False),
     "wall": (10, "white", (1.0, 1.0, 1.0), 0.6, False),
+    "spikes": (16, "white", (1.0, 0.4, 0.3), 0.8, True),
     "land": (0, "white", None, 0.0, False),
     "ringout": (0, "white", (1.0, 0.6, 0.2), 1.0, True),
 }

@@ -53,10 +53,12 @@ ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
 ap.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
+ap.add_argument("--ticket", help=argparse.SUPPRESS)  # (from the club desk: the app has logged this person in)
 args = ap.parse_args()
 if os.environ.get("FIGHTLAB_LOGIN") and not args.name:  # reopened by itself (to load code changes): same login
     try:
-        args.name, args.password = json.loads(os.environ.pop("FIGHTLAB_LOGIN"))
+        args.name, args.password, *rest = json.loads(os.environ.pop("FIGHTLAB_LOGIN"))
+        args.ticket = rest[0] if rest and rest[0] else args.ticket
     except ValueError:
         pass
 TEACHER = args.teacher
@@ -93,8 +95,11 @@ elif args.host is None:  # a learner's last choice on the login screen, or this 
     args.host = {"local": fight_version.LOCAL_SERVER, "online": fight_version.ONLINE_SERVER}.get(
         where if not TEACHER else None) or fight_version.SERVER
 LOCAL = args.host.startswith(("ws://127.0.0.1", "ws://localhost"))  # a laptop test server
-if args.code:
-    code = args.code
+import club_ticket  # noqa: E402
+if args.ticket:  # the club desk has logged this person in: their name is in the ticket (the server checks it)
+    args.name = (club_ticket.peek(args.ticket) or {}).get("name") or args.name
+if args.code or args.ticket:
+    code = args.code or ""
 elif TEACHER:
     # the saved code is the class server's (saved with its address): a laptop test server has the demo code
     code = (os.environ.get("FIGHTLAB_TEACHER_CODE") or ("TEACH99" if LOCAL else "")
@@ -103,7 +108,8 @@ elif TEACHER:
         raise SystemExit("The teacher code is needed: put it in teacher_settings.json next to fight_client.py "
                          '(for example {"teacher_code": "..."}) or use --code.')
 else:
-    code = load_json(os.path.join(SETTINGS_DIR, "settings.json")).get("class_code") or ("CLUB42" if LOCAL else "")
+    # (the remembered code is the online class server's; a laptop test server has the demo code)
+    code = "CLUB42" if LOCAL else load_json(os.path.join(SETTINGS_DIR, "settings.json")).get("class_code", "")
 name = args.name or ("Teacher" if TEACHER else "")
 net = None  # the connection to the server, made when you log in
 
@@ -147,11 +153,12 @@ PRETTY = {"walk_speed": "Walk speed", "sidestep_speed": "Sidestep speed", "jump_
           "body_choice": "Robot or human", "code_view": "Code view", "stats_readout": "Stats readout",
           "bosses": "Play as a boss", "fighting_style": "Fighting style"}
 HAZARD_NAMES = {"ring_out": "Ring-outs (no ropes)", "electric_ropes": "Electric ropes", "fire_jets": "Fire jets",
-                "slippery": "Slippery ice"}
-LEARNER_TABS = [("missions", "Missions (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)")]
+                "slippery": "Slippery ice", "spikes": "Spikes"}
+LEARNER_TABS = [("missions", "Missions (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)")]
 TEACHER_TABS = [("teacher", "Controls"), ("matches", "Matches"), ("learners", "Learners"), ("accounts", "Accounts"),
                 ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"), ("garage", "My fighter")]
-STOP_CODES = (4001, 4004, 4006, 4007, 4008)  # the server said no: wrong code or password, old version, deleted
+STOP_CODES = (4001, 4004, 4006, 4007, 4008, 4009, 4010, 4011)  # the server said no: wrong code or password,
+# old version, deleted, the session ended, the group hasn't started, a ticket that ran out
 TARGETS = {"fighter": "Their fighter", "stage": "The stage", "rules": "The rules", "game": "The whole game"}
 APP = None  # the window (so any button click can end typing in a text box)
 AI_RULES = ("Only the teacher uses the AI.  Never put personal information in a request.\n"
@@ -209,8 +216,8 @@ class Lab(ShowBase):
         self.accept("escape", self.escape)
         self.accept("mouse1", self.stop_typing)  # clicking the ring (not a panel) stops typing
         self.start = self.last = time.perf_counter()
-        if TEACHER or (args.name and args.password):
-            error = self.connect(name, args.password)
+        if TEACHER or args.ticket or (args.name and args.password):
+            error = self.connect(name, args.password or "")
             if error:
                 if TEACHER:
                     raise SystemExit(error)
@@ -224,7 +231,8 @@ class Lab(ShowBase):
         """Connect and log in. Returns None if it worked, or a message saying what went wrong."""
         global net, name
         try:
-            net = Net(args.host, username, code, password=password, version=fight_version.VERSION)
+            net = Net(args.host, username, code, password=password, version=fight_version.VERSION,
+                      **({"ticket": args.ticket} if args.ticket else {}))
         except OSError:
             net = None
             return f"Can't reach the Fight Lab server ({args.host}). Is it running?"
@@ -239,7 +247,7 @@ class Lab(ShowBase):
             return problem
         name = welcome["name"]
         self.password = password
-        if not TEACHER and not LOCAL:
+        if not TEACHER and not LOCAL and code:
             remember("class_code", code)
         self.start_game(welcome)
         return None
@@ -291,7 +299,7 @@ class Lab(ShowBase):
         if local == LOCAL:
             return
         args.host = fight_version.LOCAL_SERVER if local else fight_version.ONLINE_SERVER
-        LOCAL = local
+        code = "CLUB42" if LOCAL else load_json(os.path.join(SETTINGS_DIR, "settings.json")).get("class_code", "")
         code = load_json(os.path.join(SETTINGS_DIR, "settings.json")).get("class_code") or ("CLUB42" if LOCAL else "")
         remember("where", "local" if local else "online")
         self.keep_typing()  # (keeps the username and password typed so far)
@@ -345,6 +353,7 @@ class Lab(ShowBase):
         self.card_target = "fighter"
         self.ai_jobs = {}        # teacher: card id -> {"status", "result", "change"}
         self.card_targets = {}   # teacher: card id -> what Claude may change (can differ from the learner's choice)
+        self.card_user_mod = {}  # teacher: card id -> make a whole-game change as a switchable user mod
         self.view_name, self.view_tab = None, "garage"   # teacher's learner view
         self.change_view, self.change_page, self.change_msg = None, 0, ("", GREY)  # teacher's Changes tab
         self.match_pick = []     # teacher: the two names being put in a match
@@ -392,6 +401,7 @@ class Lab(ShowBase):
             self.key("t", self.cycle_teacher_tabs)
         else:
             self.key("m", self.open_tab, "missions")
+            self.key("k", self.open_tab, "card")
             self.key("i", self.open_tab, "ai")
         self.accept("arrow_up", self.code_line_move, [-1])  # only does anything while typing in the code
         self.accept("arrow_down", self.code_line_move, [1])
@@ -501,7 +511,7 @@ class Lab(ShowBase):
 
     def restart_window(self, reopen_for=None):
         """Reopen this window (to load code changes), logged in as the same person."""
-        env = dict(os.environ, FIGHTLAB_LOGIN=json.dumps([name, getattr(self, "password", "")]))
+        env = dict(os.environ, FIGHTLAB_LOGIN=json.dumps([name, getattr(self, "password", ""), args.ticket or ""]))
         if reopen_for:  # remember which server code this reopen was for, so it only happens once
             env["FIGHTLAB_REOPENED"] = reopen_for
         else:
@@ -585,6 +595,7 @@ class Lab(ShowBase):
                        0.022 if TEACHER else 0.03, ON if key == self.tab else OFF)
             {"garage": self.build_garage, "teacher": self.build_teacher_panel, "missions": self.build_missions,
              "ai": self.build_ai_card, "outcomes": self.build_outcomes, "cards": self.build_cards,
+             "card": self.build_card,
              "learners": self.build_learner_view, "changes": self.build_changes,
              "accounts": self.build_accounts, "matches": self.build_matches}[self.tab](f, 0.84)
         if self.show_code and (TEACHER or self.lesson["tools"]["code_view"]):
@@ -1116,6 +1127,41 @@ class Lab(ShowBase):
         self.rebuild_panels()
 
     # ---------- missions (learner) ----------
+    def build_card(self, f, y):
+        """The learner's own card: the outcomes they've shown so far, and what they did each session."""
+        card = (self.missions or {}).get("card")
+        label(f, f"MY CARD  -  {name}", 0.82, y, 0.036, YELLOW)
+        if not card:
+            label(f, "Waiting for your card...", 0.82, y - 0.06, 0.028, GREY)
+            return
+        y -= 0.06
+        label(f, "Outcomes I've shown so far", 0.82, y, 0.03, YELLOW)
+        y -= 0.045
+        shown = [(card["outcome_names"].get(o, o), n) for o, n in card["outcomes"].items() if n]
+        if not shown:
+            label(f, "None yet: complete a mission to start your card.", 0.84, y, 0.026, GREY)
+            y -= 0.04
+        for i, (title, n) in enumerate(shown):
+            label(f, f"{title}: {n}", 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.038, 0.026, GREEN)
+        y -= 0.038 * ((len(shown) + 1) // 2) + 0.02
+        label(f, "What I did", 0.82, y, 0.03, YELLOW)
+        y -= 0.045
+        for day in card["history"]:
+            if y < -0.75:
+                label(f, "...", 0.84, y, 0.026, GREY)
+                break
+            label(f, day["date"], 0.84, y, 0.028, WHITE)
+            y -= 0.038
+            for m in day["missions"]:
+                if y < -0.75:
+                    break
+                label(f, f"Lesson {m['lesson']}: {m['title']}", 0.88, y, 0.025, GREY)
+                label(f, " ".join(m["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
+                y -= 0.034
+            y -= 0.012
+        if not card["history"]:
+            label(f, "Nothing yet.", 0.84, y, 0.026, GREY)
+
     def build_missions(self, f, y, m=None, preview=False):
         m = m or self.missions
         self.punch_text = None
@@ -1295,9 +1341,19 @@ class Lab(ShowBase):
         for i, hz in enumerate(HAZARD_NAMES):
             check(f, HAZARD_NAMES[hz], 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.043, L["hazards"].get(hz),
                   lambda v, hz=hz: self.set_lesson({"hazards": {hz: bool(v)}}), 0.026)
-        y -= 0.043 * 2
+        y -= 0.043 * 3
         label(f, "(electric ropes only work with ring-outs off: then the ring has ropes)", 0.84, y + 0.01, 0.019, GREY)
         y -= 0.04
+        label(f, "User mods  (learners' ideas: on or off at any time)", 0.82, y, 0.028, YELLOW)
+        y -= 0.043
+        mods_on = L.get("user_mods", {})
+        if not sim.USER_MODS:
+            label(f, "None yet. An AI card sent as 'The whole game' can be made a switchable User Mod.", 0.84, y + 0.01,
+                  0.019, GREY)
+        for i, (key, (mod_name, _)) in enumerate(sim.USER_MODS.items()):
+            check(f, " " + mod_name, 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.043, mods_on.get(key),
+                  lambda v, k=key: self.set_lesson({"user_mods": {k: bool(v)}}), 0.026)
+        y -= 0.043 * max(1, (len(sim.USER_MODS) + 1) // 2)
         snd = rw_sound.sound_settings(L.get("sound"))
         label(f, "Sound", 0.82, y, 0.028, YELLOW)
         for i, (key, text) in enumerate(rw_sound.MUSIC.items()):
@@ -1778,8 +1834,8 @@ class Lab(ShowBase):
                     button(f, "Reject", 1.2, y, self.card_status, [c["id"], "rejected"], 0.026)
                     y -= 0.07
                 elif job.get("status") == "Kept" and res.get("code_changed"):
-                    label(f, "Kept. It changed the game's code: restart the server (Controls or Changes tab).", 0.84, y,
-                          0.022, ORANGE)
+                    label(f, "Kept on this laptop. For the online class: Make my changes live.bat (then Restart\n"
+                             "server). A user mod then appears in Controls, ready to switch on.", 0.84, y, 0.022, ORANGE)
                     y -= 0.05
             elif c["status"] in ("waiting", "sent", "working"):
                 y = self.card_targets_row(f, y, c, target)
@@ -1795,6 +1851,11 @@ class Lab(ShowBase):
         for i, (key, text) in enumerate(TARGETS.items()):
             button(f, text, 0.93 + i * 0.2, y, self.set_card_target_for, [c["id"], key],
                    0.022, ON if key == target else OFF)
+        if target == "game":  # (a user mod is off until the teacher switches it on in Controls)
+            y -= 0.05
+            check(f, " Make it a switchable User Mod (off until you switch it on in Controls)", 0.86, y + 0.008,
+                  self.card_user_mod.get(c["id"], True), lambda v, cid=c["id"]: self.card_user_mod.__setitem__(
+                      cid, bool(v)), 0.024)
         return y - 0.06
 
     def set_card_target_for(self, cid, key):
@@ -1813,7 +1874,8 @@ class Lab(ShowBase):
         learner_design = next((p["design"] for p in self.class_list if p["name"] == c["learner"]), None)
         target = self.card_targets.get(c["id"], c["card"].get("target", "fighter"))
         try:
-            change = ai_pipeline.AIChange(c["id"], c["learner"], c["card"], target, design=learner_design)
+            change = ai_pipeline.AIChange(c["id"], c["learner"], c["card"], target, design=learner_design,
+                                          as_user_mod=target == "game" and self.card_user_mod.get(c["id"], True))
         except ValueError as e:
             self.banner_note(str(e), 5)
             return
@@ -2003,7 +2065,7 @@ class Lab(ShowBase):
                 sig = json.dumps({k: v for k, v in m.items() if k != "punches"}, sort_keys=True)
                 if sig != self.sig.get("missions"):
                     self.sig["missions"] = sig
-                    rebuild = rebuild or self.tab in ("missions", "ai")
+                    rebuild = rebuild or self.tab in ("missions", "ai", "card")
                 elif self.tab == "missions" and getattr(self, "punch_text", None):
                     self.punch_text.setText(f"punches landed {m.get('punches', 0)}")
             elif kind == "teaching":
@@ -2090,12 +2152,13 @@ class Lab(ShowBase):
 
     def apply_roster(self, m):
         self.roster = m
-        drawn = json.dumps([m.get("look", {}), m.get("rings"), m.get("hazards"), m.get("rs")], sort_keys=True)
+        drawn = json.dumps([m.get("look", {}), m.get("rings"), m.get("hazards"), m.get("rs"), m.get("user_mods")],
+                           sort_keys=True)
         if drawn != self.stage_drawn:
             if self.stage_vis:
                 self.stage_vis.destroy()
             sim.RULES["ring_size"] = m.get("rs", sim.RULES["ring_size"])
-            self.stage_vis = StageVisual(self.render, m["rings"], m["hazards"], m.get("look"))
+            self.stage_vis = StageVisual(self.render, m["rings"], m["hazards"], m.get("look"), m.get("user_mods"))
             self.stage_drawn = drawn
         for fv in self.fighters.values():
             fv.destroy()
