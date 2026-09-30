@@ -361,6 +361,7 @@ def launcher(args, passed_on):
             self.password = ""        # (kept only until the game opens: a starter password change needs it)
             self.state = {}           # the desk's state, for the teacher screen
             self.editing = None       # the group being edited on the teacher screen
+            self.trying_password = None  # a teacher password sent to the desk, not yet accepted
             self.pending_record = None  # a session just stopped, waiting for "make the PDFs?"
             self.sessions = []        # past sessions' records, from the desk
             self.page = 0
@@ -440,6 +441,7 @@ def launcher(args, passed_on):
         def draw_teacher_login(self, f, keep):
             label(f, "TEACHER", 0, 0.6, 0.09, yellow)
             label(f, "Teacher password", -0.62, 0.25, 0.05)
+            label(f, "(the teacher code the server setup printed: sudo cat /etc/robotlab.env)", 0, 0.42, 0.035, grey)
             remembered = load_json(teacher_file).get("password", "")
             self.fields["tpass"] = entry(f, -0.2, 0.25, 14, keep.get("tpass", remembered), secret=True,
                                          command=lambda t: self.teacher_login())
@@ -656,17 +658,17 @@ def launcher(args, passed_on):
                 self.link = None
                 return
             if "error" in m and not m.get("ok"):
-                self.say(m["error"], red)
-                if self.screen == "group":
-                    return
-                if self.screen not in ("teacher",):
-                    self.show("home" if self.screen == "waiting" else self.screen)
+                if self.screen == "teacher_login" and getattr(self, "trying_password", None):
+                    self.teacher_refused()
+                if self.screen == "waiting":
+                    self.screen = "home"
+                self.say(m["error"], red)  # (say redraws the screen with the message; show would wipe it)
                 return
             if "state" in m:
                 self.state = m["state"]
-                if self.message[0] == "Logging in...":
-                    self.message = ("", grey)
-                if self.screen in ("teacher", "group"):
+                if getattr(self, "trying_password", None):
+                    self.teacher_accepted()
+                elif self.screen in ("teacher", "group"):
                     self.draw()
             if m.get("session_record"):  # Stop: the record is filed; ask about the PDFs once the sessions arrive
                 self.pending_record = m["session_record"]
@@ -754,16 +756,28 @@ def launcher(args, passed_on):
             password = password or self.field("tpass")
             if not password:
                 return self.say("Type the teacher password.", red)
-            if getattr(self, "_remember", True):
-                try:
+            self.trying_password = password  # (remembered, and the Teacher screen shown, once the desk says yes)
+            self.screen = "teacher_login"
+            self.say("Logging in...", grey)
+            self.ask_desk({"type": "teacher", "password": password})
+
+        def teacher_accepted(self):
+            password, self.trying_password = self.trying_password, None
+            try:
+                if getattr(self, "_remember", True):
                     os.makedirs(SETTINGS_DIR, exist_ok=True)
                     with open(teacher_file, "w", encoding="utf-8") as fh:
                         json.dump({"password": password}, fh)
-                except OSError:
-                    pass
-            self.screen = "teacher"
-            self.say("Logging in...", grey)
-            self.ask_desk({"type": "teacher", "password": password})
+            except OSError:
+                pass
+            self.show("teacher")
+
+        def teacher_refused(self):
+            self.trying_password = None
+            try:  # (a remembered password the desk refuses is forgotten, so it isn't offered again)
+                os.remove(teacher_file)
+            except OSError:
+                pass
 
         def teacher_logout(self):
             if self.link:
