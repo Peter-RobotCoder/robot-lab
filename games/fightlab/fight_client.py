@@ -2137,6 +2137,9 @@ class Lab(ShowBase):
             self.banner_note(m.get("reason") or "The server closed the connection.", 3600)
             if m.get("code") == 4006:
                 self.offer_download()
+            if m.get("code") == 4009:  # the teacher pressed Stop: this window closes in a few seconds
+                self.banner_note("The session has ended. This window will close.", 3600)
+                self.taskMgr.doMethodLater(5, lambda t: self.userExit(), "session_over")
             return
         self.banner_note("Lost the connection: reconnecting...", 3600)
         self.reconnecting = True

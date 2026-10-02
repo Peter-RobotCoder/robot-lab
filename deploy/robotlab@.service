@@ -22,11 +22,12 @@ ExecStart=/bin/bash /opt/robotlab/app/deploy/run-class.sh %i
 Restart=always
 RestartSec=2
 
-# Hardening: the server can only write its class's data and the games' mod files.
+# Hardening: the server can only write its class's data, the games' mod files, and the desk's reports and inbox
+# (the session it reports to the desk; the desk's requests, deleted once done).
 # (Brains run as child processes that lower their own limits, so fork/exec and setrlimit stay allowed.)
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/games/robotlab/mods -/opt/robotlab/app/games/fightlab/mods
+ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/games/robotlab/mods -/opt/robotlab/app/games/fightlab/mods -/var/lib/robotlab/desk/reports -/var/lib/robotlab/desk/inbox
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

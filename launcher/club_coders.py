@@ -260,7 +260,7 @@ def start_game(game, argv, wait=False, code=None):
     flags = 0 if wait else getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     env = dict(os.environ, CLUBCODERS_CODE=code) if code else None
     proc = subprocess.Popen(cmd, cwd=cwd, creationflags=flags, env=env)
-    return proc.wait() if wait else 0
+    return proc.wait() if wait else proc
 
 
 # ---------- the club desk connection ----------
@@ -362,6 +362,8 @@ def launcher(args, passed_on):
             self.state = {}           # the desk's state, for the teacher screen
             self.editing = None       # the group being edited on the teacher screen
             self.trying_password = None  # a teacher password sent to the desk, not yet accepted
+            self.teacher_proc = None  # the teacher's game window, while the app has one open
+            self.teacher_view = "session"  # while a group is live: "session" or "desk" (learners and groups)
             self.pending_record = None  # a session just stopped, waiting for "make the PDFs?"
             self.sessions = []        # past sessions' records, from the desk
             self.page = 0
@@ -468,8 +470,14 @@ def launcher(args, passed_on):
                       TextNode.ALeft)
             button(f, "Log out", 1.32, 0.82, self.teacher_logout, (), 0.032)
             button(f, "Records", 1.1, 0.82, self.open_records, (), 0.032)
-            if live:
-                return self.draw_session(f, keep)
+            if live:  # (the session, or the learners and groups, e.g. to reset a password mid-session)
+                chosen, other = (0.2, 0.5, 0.75, 1), (0.16, 0.2, 0.28, 1)
+                button(f, "This session", -0.27, 0.735, self.set_view, ["session"], 0.032,
+                       chosen if self.teacher_view == "session" else other)
+                button(f, "Learners & groups", 0.08, 0.735, self.set_view, ["desk"], 0.032,
+                       chosen if self.teacher_view == "desk" else other)
+                if self.teacher_view == "session":
+                    return self.draw_session(f, keep)
             # learners (left)
             label(f, "LEARNERS", -1.44, 0.6, 0.045, yellow, TextNode.ALeft)
             learners = st.get("learners", [])
@@ -683,9 +691,12 @@ def launcher(args, passed_on):
                 self.say(m["done"], green)
             if m.get("teacher_window"):
                 w = m["teacher_window"]
-                if address_ok(w.get("address")):
-                    start_game(w["game"], ["--host", w["address"], "--teacher", "--name", "Teacher", "--ticket",
-                                           w["ticket"]] + passed_on, wait=False, code=w.get("code"))
+                if self.teacher_proc is not None and self.teacher_proc.poll() is None:
+                    self.say("Your teacher window is already open.", grey)
+                elif address_ok(w.get("address")):
+                    self.teacher_proc = start_game(w["game"], ["--host", w["address"], "--teacher", "--name", "Teacher",
+                                                              "--ticket", w["ticket"]] + passed_on, wait=False,
+                                                   code=w.get("code"))
             if m.get("change_password"):
                 self.me = m.get("name", self.me)
                 self.show("change_password")
@@ -837,7 +848,14 @@ def launcher(args, passed_on):
             self.ask_desk({"type": "teacher_window"})
 
         def stop(self):
+            if self.teacher_proc is not None and self.teacher_proc.poll() is None:  # (the learners' windows close
+                self.teacher_proc.terminate()                                       # from the server's side)
+            self.teacher_proc = None
             self.ask_desk({"type": "stop"})
+
+        def set_view(self, view):
+            self.teacher_view = view
+            self.draw()
 
         # ---------- screens ----------
         def show(self, screen):

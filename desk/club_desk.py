@@ -490,7 +490,7 @@ class Desk:
             if live["game"] not in self.games:
                 s.stop()
                 raise DeskError(f"{GAMES[live['game']]} isn't set up on this server yet.")
-            reply = {"ok": True, "done": f"{live['group']} is live", "teacher_window": self.teacher_window()}
+            reply = {"ok": True, "done": f"{live['group']} is live: press Open teacher window when you're ready"}
         elif kind == "teacher_window":  # (open the live group's teacher window again)
             if not s.live:
                 raise DeskError("Nothing is live: launch a group first.")

@@ -202,6 +202,8 @@ say "Starting the game server, the club desk, Caddy and the nightly backup"
 install -m 644 "$APP/deploy/robotlab@.service" /etc/systemd/system/robotlab@.service
 install -m 644 "$APP/deploy/club-desk.service" /etc/systemd/system/club-desk.service
 install -d -m 700 -o robotlab -g robotlab /var/lib/robotlab/desk  # (the club desk's learners and groups)
+install -d -m 700 -o robotlab -g robotlab /var/lib/robotlab/desk/reports /var/lib/robotlab/desk/inbox \
+    /var/lib/robotlab/desk/inbox/robotlab /var/lib/robotlab/desk/inbox/fightlab  # (the game servers write here)
 if systemctl is-enabled -q club-door 2>/dev/null; then  # (the front door became the desk)
     systemctl disable -q --now club-door
     rm -f /etc/systemd/system/club-door.service

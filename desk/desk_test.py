@@ -147,6 +147,8 @@ try:
 
     def launch():
         m = ask(teacher, {"type": "launch", "group": "Tuesday", "lesson": 3})
+        assert m.get("ok") and "teacher_window" not in m, m  # (the teacher opens their window when ready)
+        m = ask(teacher, {"type": "teacher_window"})
         assert m.get("ok") and m["teacher_window"]["game"] == "robotlab", m
         launched.update(m["teacher_window"])
         m = ask(teacher, {"type": "launch", "group": "Thursday", "lesson": 1})
