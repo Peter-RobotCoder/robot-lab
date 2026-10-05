@@ -1,20 +1,24 @@
-"""Game cameras for Robot Wars and Robot Lab: four views.
+"""Game cameras for Robot Wars and Robot Lab: five views.
 
     third  - Third person: behind your robot, following it
     fpv    - First person: from the front of your robot, looking where it's going
     zoom   - Zoomed arena follow: a TV camera on the arena rail that turns and zooms to keep the action in frame
     arena  - Full arena: the whole arena from above
+    centre - Centre camera: a fixed camera, lower down, aimed at the middle of the arena (it never follows)
 
 Every view zooms in and out (mouse wheel, or + and -): wheel(factor) with factor < 1 zooms in.
+Every view also swings round and tilts: drag with the right mouse button (or turn(degrees) for keys such as Q and E);
+reset_view() puts it back.
 
 Call update() every frame with your robot's chassis node and the positions of the robots to keep in shot.
 """
 import math
 
-from panda3d.core import Point3, Vec3
+from panda3d.core import MouseButton, Point3, Vec3
 
-MODES = ["third", "fpv", "zoom", "arena"]
-NAMES = {"third": "Third person", "fpv": "First person", "zoom": "Zoomed arena follow", "arena": "Full arena"}
+MODES = ["third", "fpv", "zoom", "arena", "centre"]
+NAMES = {"third": "Third person", "fpv": "First person", "zoom": "Zoomed arena follow", "arena": "Full arena",
+         "centre": "Centre camera"}
 HALF = 10.0  # half the arena size (metres)
 
 
@@ -28,7 +32,43 @@ class GameCamera:
         self.fpv_scale = 1.0     # first person: lens zoom (0.3 = telephoto, 1.3 = very wide)
         self.zoom_scale = 1.0    # zoomed follow: tighter or wider framing (0.2 to 4)
         self.arena_scale = 1.0   # full arena: closer or further away (0.35 to 2)
+        self.centre_scale = 1.0  # centre camera: closer or further away (0.35 to 2)
+        self.orbit, self.tilt = 0.0, 0.0  # your own view: degrees swung round, and tilted up (or down)
+        self.drag_from = None
         self.rig_shown, self.rig_check = True, 0
+        self.look_z = 0.0        # (the height of what the view looks at: a swung camera stays above the floor)
+
+    def turn(self, degrees):
+        """Swing the view round (keys)."""
+        self.orbit = (self.orbit + degrees) % 360
+
+    def reset_view(self):
+        self.orbit, self.tilt = 0.0, 0.0
+
+    def mouse_drag(self):
+        """Dragging with the right mouse button swings the view round (left and right) and tilts it (up and down)."""
+        mw = self.base.mouseWatcherNode
+        if mw is None or not mw.hasMouse() or not mw.isButtonDown(MouseButton.three()):
+            self.drag_from = None
+            return
+        x, y = mw.getMouseX(), mw.getMouseY()
+        if self.drag_from is not None:
+            self.orbit = (self.orbit - (x - self.drag_from[0]) * 150) % 360
+            self.tilt = max(-12.0, min(55.0, self.tilt - (y - self.drag_from[1]) * 60))
+        self.drag_from = (x, y)
+
+    def swing(self, offset):
+        """An offset from what the camera looks at, swung round by orbit and tilted up by tilt (degrees)."""
+        if not (self.orbit or self.tilt):
+            return Vec3(offset)
+        a, t = math.radians(self.orbit), math.radians(self.tilt)
+        x = offset.x * math.cos(a) - offset.y * math.sin(a)  # swung round (about the vertical)
+        y = offset.x * math.sin(a) + offset.y * math.cos(a)
+        across = math.hypot(x, y)
+        if across < 1e-6:
+            return Vec3(offset)
+        keep = math.cos(t)  # tilting up: less across, more height
+        return Vec3(x * keep, y * keep, max(0.3 - self.look_z, offset.z + across * math.sin(t)))
 
     @property
     def name(self):
@@ -38,8 +78,9 @@ class GameCamera:
         self.set_mode(MODES[(MODES.index(self.mode) + 1) % len(MODES)])
 
     def set_mode(self, mode):
-        self.mode = mode
-        self.pos = None  # cut straight to the new view
+        if mode in MODES:
+            self.mode = mode
+            self.pos = None  # cut straight to the new view
 
     def wheel(self, factor):
         """Zoom the current view in (factor < 1) or out (factor > 1)."""
@@ -49,12 +90,15 @@ class GameCamera:
             self.fpv_scale = max(0.3, min(1.3, self.fpv_scale * factor))
         elif self.mode == "zoom":
             self.zoom_scale = max(0.2, min(4.0, self.zoom_scale * factor))
-        else:
+        elif self.mode == "arena":
             self.arena_scale = max(0.35, min(2.0, self.arena_scale * factor))
+        else:
+            self.centre_scale = max(0.35, min(2.0, self.centre_scale * factor))
 
     def settings(self):
         return {"mode": self.mode, "dist": round(self.dist, 2), "fpv": round(self.fpv_scale, 2),
-                "zoom": round(self.zoom_scale, 2), "arena": round(self.arena_scale, 2)}
+                "zoom": round(self.zoom_scale, 2), "arena": round(self.arena_scale, 2),
+                "centre": round(self.centre_scale, 2), "orbit": round(self.orbit, 1), "tilt": round(self.tilt, 1)}
 
     def restore(self, saved):
         """Put back a view and zoom levels saved earlier (e.g. in a learner's profile)."""
@@ -65,6 +109,9 @@ class GameCamera:
             self.fpv_scale = max(0.3, min(1.3, float(saved.get("fpv", self.fpv_scale))))
             self.zoom_scale = max(0.2, min(4.0, float(saved.get("zoom", self.zoom_scale))))
             self.arena_scale = max(0.35, min(2.0, float(saved.get("arena", self.arena_scale))))
+            self.centre_scale = max(0.35, min(2.0, float(saved.get("centre", self.centre_scale))))
+            self.orbit = float(saved.get("orbit", 0.0)) % 360
+            self.tilt = max(-12.0, min(55.0, float(saved.get("tilt", 0.0))))
         except (TypeError, ValueError, AttributeError):
             pass
 
@@ -81,6 +128,7 @@ class GameCamera:
     def update(self, dt, me=None, front=0.8, targets=(), shake=Vec3(0)):
         """me: your robot's chassis node (or None); front: how far its nose is from its middle;
         targets: positions of the robots still fighting, for the arena views."""
+        self.mouse_drag()
         render = self.base.render
         live = [Point3(p) for p in targets if p.z > -1.0]
         centre = sum(live, Point3(0)) / len(live) if live else Point3(0, 0, 0)
@@ -99,14 +147,15 @@ class GameCamera:
             if flat.length() < 0.1:
                 flat = Vec3(0, 1, 0)
             flat.normalize()
-            want = Point3(mine.x, mine.y, 0) - flat * self.dist + Vec3(0, 0, self.dist * 0.55)
+            self.look_z = 0.0
+            want = Point3(mine.x, mine.y, 0) + self.swing(Vec3(0, 0, self.dist * 0.55) - flat * self.dist)
             if self.dist < 9:  # low down: stay inside the arena, in front of the wall posts (higher up clears them)
                 inside = HALF - 0.6
                 back = Vec3(want.x - mine.x, want.y - mine.y, 0).length()
                 want.x, want.y = max(-inside, min(inside, want.x)), max(-inside, min(inside, want.y))
                 lost = back - Vec3(want.x - mine.x, want.y - mine.y, 0).length()
                 want.z += max(0.0, lost) * 1.1  # squeezed by a wall: go up instead of back
-            look = Point3(mine.x, mine.y, 0.4) + flat * 2.0
+            look = Point3(mine.x, mine.y, 0.4) + (flat * 2.0 if not (self.orbit or self.tilt) else Vec3(0))
         elif focus_mode == "fpv":
             q = me.getQuat(render)
             fwd, up = q.getForward(), q.getUp()
@@ -116,7 +165,8 @@ class GameCamera:
                 flat.z = 0
             flat.normalize()
             want = Point3(mine.x, mine.y, max(0.35, mine.z + 0.45)) + flat * (front + 0.15)
-            look = want + flat * 6.0 - Vec3(0, 0, 0.35)
+            self.look_z = 50.0  # (looking round from the robot: up and down are both fine)
+            look = want - self.swing(Vec3(0, 0, 0.35) - flat * 6.0)
             k, fov = 14.0, 95.0 * self.fpv_scale
         elif focus_mode == "zoom":
             target = Point3(mine.x, mine.y, 0.3) if (mine is not None and self.mode != "zoom") else centre
@@ -125,13 +175,20 @@ class GameCamera:
             # a TV camera sliding along the south rail, turning and zooming to fit the robots
             want = Point3(max(-8.0, min(8.0, target.x * 0.7)), -HALF - 1.2, 5.4)  # above the screen posts
             spread = max([(p - target).length() for p in live] + [1.5])
+            self.look_z = target.z
+            want = target + self.swing(want - target)
             dist = (want - target).length()
             fov = max(4.0, min(100.0, math.degrees(2 * math.atan((spread + 1.3) * self.zoom_scale / dist))))
             look = target
             k = 2.5
-        else:  # full arena
+        elif focus_mode == "arena":  # full arena
             look = Point3(0, -2.0, 0)  # high and steep: all the floor (zoom moves the camera along its line)
-            want, fov, k = look + (Point3(0, -HALF + 1.0, 17.0) - look) * self.arena_scale, 90.0, 3.0
+            self.look_z = 0.0
+            want, fov, k = look + self.swing((Point3(0, -HALF + 1.0, 17.0) - look) * self.arena_scale), 90.0, 3.0
+        else:  # centre camera: fixed, lower down, aimed at the middle (it doesn't follow anyone)
+            look = Point3(0, 0, 0.3)
+            self.look_z = look.z
+            want, fov, k = look + self.swing(Vec3(0, -HALF - 3.5, 6.5) * self.centre_scale), 62.0, 3.0
         self.show_rig(focus_mode != "arena")
         if self.pos is None:
             self.pos, self.look, self.fov = Point3(want), Point3(look), fov

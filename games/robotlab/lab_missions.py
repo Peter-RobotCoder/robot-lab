@@ -54,7 +54,7 @@ ALL_TOOLS = ["points_table", "forward_speed", "reverse_speed", "turn_speed", "ac
 
 
 def tools(*on, weapons=("wedge", "spinner", "drum", "hammer")):
-    t = {k: k in on for k in ALL_TOOLS + ["house_robots"]}  # (house robots in the garage: the teacher turns it on)
+    t = {k: k in on for k in ALL_TOOLS + ["house_robots"]}  # (Resident Robots in the garage: the teacher turns it on)
     t["weapons"] = list(weapons)
     return t
 
@@ -81,7 +81,7 @@ LESSONS = {
 # ---------- missions ----------
 # id: (lesson, title, what to do, outcome codes, how it is checked)
 MISSIONS = {
-    "1a": (1, "Change a variable", "Move one of the % sliders and press BUILD MY ROBOT.", ["VAR"], "auto"),
+    "1a": (1, "Change a variable", "Move one of the % sliders and press REBUILD MY ROBOT.", ["VAR"], "auto"),
     "1b": (1, "Predict, then test", "Type how fast you think you will go (km/h) in the box, press Save, "
                                    "then drive flat out in a straight line.", ["VAR", "TEST", "ABS"], "auto"),
     "1c": (1, "Text, numbers and lists", "Change your robot's name and colour, build it, then press C to see "
@@ -125,6 +125,18 @@ MISSIONS = {
 }
 
 
+def points_words(text, limits):
+    """A mission's words with the teacher's own numbers in them: the missions are written for 100 points to share
+    and 5 to 50 for each (the standard limits), and the teacher can change both (the Limits tab)."""
+    total = limits["points_total"]
+    lo, hi = min(v[0] for v in limits["points"].values()), max(v[1] for v in limits["points"].values())
+    if (total, lo, hi) == (100, 5, 50):
+        return text
+    text = re.sub(r"\b100(?=[ -]points?\b)", str(total), text)
+    text = re.sub(r"(?<=more than )100\b", str(total), text)
+    return re.sub(r"\b5 to 50\b", f"{lo} to {hi}", text)
+
+
 def missions_for(lesson):
     return {k: v for k, v in MISSIONS.items() if v[0] == lesson}
 
@@ -155,7 +167,7 @@ GUIDE = {  # lesson: {outcome: lesson piece}
     1: {
         "VAR": dict(
             task="Change a variable and see what it does",
-            do=["Open the Garage (G). Move Forward speed from 80 to 100 and press BUILD MY ROBOT.",
+            do=["Open the Garage (G). Move Forward speed from 80 to 100 and press REBUILD MY ROBOT.",
                 "Drive in a straight line: is it faster?",
                 "Press C. Find the line  \"forward_speed\": 100  - that is the variable you changed."],
             teach="A variable is a name that stores a value. Changing the value changes how the program behaves "
@@ -179,7 +191,7 @@ GUIDE = {  # lesson: {outcome: lesson piece}
             success="They can name one real thing the model leaves out and explain why it is still useful."),
         "DATA": dict(
             task="Text, numbers and lists",
-            do=["Change your robot's name and colour, then press BUILD MY ROBOT.",
+            do=["Change your robot's name and colour, then press REBUILD MY ROBOT.",
                 "Press C. Find a string (the name), whole numbers (the points), a list (the colour) and a "
                 "dictionary (points: the part in { }).",
                 "Change the colour in the code to [0, 200, 255] and press APPLY CODE."],
@@ -211,7 +223,7 @@ GUIDE = {  # lesson: {outcome: lesson piece}
                 "In \"points\" change the four numbers so they add up to exactly 100 "
                 "(e.g. speed 30, attack 30, armour 25, control 15).",
                 "Press APPLY CODE. The last line must say: points used: 100 of 100.",
-                "Press BUILD MY ROBOT and test it."],
+                "Press REBUILD MY ROBOT and test it."],
             teach="The points dictionary holds four variables. The program adds them up to check the total. "
                   "Raising one value means lowering another: every choice is a trade-off.",
             success="Their code shows a total of 100, and they can say which value they raised and which they lowered."),
@@ -427,8 +439,8 @@ def check_ai_card(card):
         if not card.get(key):
             problems.append(f"Tick the box: {label}.")
     words = lambda k: len(str(card.get(k, "")).split())
-    if words("goal") < 6:
-        problems.append("Describe the goal in a full sentence (at least 6 words).")
+    if words("goal") < 1:  # (a few words can be enough for an idea)
+        problems.append("Type your idea in the My idea box.")
     if words("test") < 6:
         problems.append("Say how you will test it (at least 6 words).")
     if words("predict") < 3:

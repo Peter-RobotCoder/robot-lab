@@ -13,7 +13,8 @@ enemies  - a list of the other robots (same information, no memory)
 Return three things:
     throttle  -1 (full reverse) to 1 (full speed ahead)
     steer     -1 (turn right) to 1 (turn left)
-    attack    True to fire your weapon
+    attack    True to fire your weapon (a spinner or drum is switched on while this is True, and off while
+              it's False: every robot starts with its weapon off)
 
 Missions: use if / elif / else (3b), write your own function (3c), use me.memory (3d).
 """

@@ -42,8 +42,10 @@ DATA = os.environ.get("CLUBCODERS_DESK_DATA", "/var/lib/robotlab/desk")
 PORT = 8779
 MAX_LEARNERS = 200
 MIN_PASSWORD = 6
+MIN_TEACHER_PASSWORD = 12  # (the teacher's own password: three words is good)
 SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}  # (as the games' profiles)
 LESSONS = (1, 2, 3, 4, 5)
+DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
 class DeskError(Exception):
@@ -82,6 +84,19 @@ def now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+def clean_time(text):
+    """A group's proposed time: a day and a time each week, written "Tuesday 16:00" (Tue 4.00 is read too).
+    Returns it tidied, or "" for none."""
+    text = " ".join(str(text or "").split())
+    if not text:
+        return ""
+    m = re.fullmatch(r"([A-Za-z]{3,9})\.? (\d{1,2})[:.](\d{2})", text)
+    day = next((d for d in DAYS if m and d.lower().startswith(m.group(1).lower())), None)
+    if not day or int(m.group(2)) > 23 or int(m.group(3)) > 59:
+        raise DeskError("Write the proposed time as a day and a time, like Tuesday 16:00 (or leave it empty).")
+    return f"{day} {int(m.group(2)):02d}:{m.group(3)}"
+
+
 def starter_password():
     """Three short words: easy to type from a letter, changed on first login."""
     words = ("red", "blue", "gold", "fox", "owl", "cat", "bee", "sun", "moon", "star", "oak", "elm", "jet", "sky",
@@ -116,6 +131,61 @@ class Store:
         self._write("learners.json", self.learners)
         self._write("groups.json", self.groups)
         self._write("live.json", self.live)
+
+    # ---------- the teacher's password ----------
+    def check_teacher(self, password, code):
+        """Is this the teacher password? Until the teacher chooses one, it is the teacher code the server's setup
+        made (code). Once one is chosen (teacher.json: scrambled, as the learners' are), only that one works.
+        (Read each time, so removing teacher.json on the server brings the code back without a restart.)"""
+        own = self._read("teacher.json", None)
+        if isinstance(own, dict) and own.get("salt") and own.get("hash"):
+            return hmac.compare_digest(self._hash(str(own["salt"]), str(password or "")), str(own["hash"]))
+        return hmac.compare_digest(str(password or "").encode(), code.encode())
+
+    def set_teacher_password(self, new):
+        new = str(new or "")
+        if len(new) < MIN_TEACHER_PASSWORD:
+            raise DeskError(f"The teacher password needs at least {MIN_TEACHER_PASSWORD} characters: three words "
+                            "you'll remember is good.")
+        if len(new) > 200:
+            raise DeskError("That password is too long.")
+        salt = secrets.token_hex(16)
+        self._write("teacher.json", {"salt": salt, "hash": self._hash(salt, new), "changed": now()})
+
+    def from_games(self):
+        """What the games' servers have asked the desk to do (each leaves a file in inbox/desk/, as the desk leaves
+        its requests to a game in inbox/<game>/): read, then removed."""
+        folder = os.path.join(self.data, "inbox", "desk")
+        asked = []
+        for entry in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            if not entry.endswith(".json"):
+                continue
+            path = os.path.join(folder, entry)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    what = json.load(f)
+                if isinstance(what, dict):
+                    asked.append(what)
+            except (OSError, ValueError):
+                pass
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return asked
+
+    def session_learner(self, username, allowed, live_id, game):
+        """The teacher's tick in the game's Accounts tab: a learner is let into the live session, or taken out
+        of it (the session only: the group is as it was). True if anything changed."""
+        name, rec = self.find(username)
+        live = self.live
+        if rec is None or not live or live.get("id") != live_id or live.get("game") != game:
+            return False
+        if bool(allowed) == (name in live["learners"]):
+            return False
+        live["learners"] = live["learners"] + [name] if allowed else [n for n in live["learners"] if n != name]
+        self.save()
+        return True
 
     def request(self, game, what):
         """Something for a game's server to do (it reads its inbox every couple of seconds)."""
@@ -199,16 +269,19 @@ class Store:
         return name, rec
 
     # ---------- groups ----------
-    def set_group(self, name, game, learners, rename_from=None):
+    def set_group(self, name, game, learners, rename_from=None, time=None):
+        """time: the group's proposed time ("Tuesday 16:00", or "" for none). Left out (None), it stays as it was."""
         name = re.sub(r"[^A-Za-z0-9 \-]", "", str(name)).strip()[:24]
         if not name:
             raise DeskError("Give the group a name (letters and numbers).")
         if game not in GAMES:
             raise DeskError("Choose a game.")
+        old = self.groups.get(rename_from) or self.groups.get(name) or {}
+        time = old.get("time", "") if time is None else clean_time(time)
         if rename_from and rename_from in self.groups and rename_from != name:
             del self.groups[rename_from]
         known = [n for n in self.learners if n in (learners or [])]
-        self.groups[name] = {"game": game, "learners": known}
+        self.groups[name] = {"game": game, "learners": known, "time": time}
         self.save()
         return name
 
@@ -298,7 +371,7 @@ class Store:
                        "cards": len(report.get("cards", [])), "notes": dict(getattr(self, "session_notes", {}))}
         return {"learners": [{"name": n, "changed": r["changed"], "starter": r["starter"], "created": r["created"],
                               "last_login": r["last_login"]} for n, r in sorted(self.learners.items())],
-                "groups": [{"name": n, "game": g["game"], "learners": g["learners"]}
+                "groups": [{"name": n, "game": g["game"], "learners": g["learners"], "time": g.get("time", "")}
                            for n, g in sorted(self.groups.items())],
                 "games": {k: {"title": v} for k, v in GAMES.items()}, "live": self.live, "lessons": list(LESSONS),
                 "session": session}
@@ -393,6 +466,17 @@ class Desk:
                     pass
                 self.waiting.pop(ws, None)
 
+    async def game_requests(self):
+        """Carry out what the games' servers have asked for (checked every second)."""
+        changed = False
+        for what in self.store.from_games():
+            if "session_learner" in what:
+                changed |= self.store.session_learner(what["session_learner"], what.get("in"), what.get("live_id"),
+                                                      what.get("game"))
+        if changed:
+            await self.tell_teachers()
+            await self.send_waiting()  # (a learner just let in, who was waiting, goes straight to the game)
+
     async def handler(self, ws):
         where = client_address(ws)
         role = None
@@ -406,19 +490,26 @@ class Desk:
                     await ws.send(json.dumps({"ok": False, "error": "The desk didn't understand that."}))
                     continue
                 kind = m.get("type")
-                if kind in ("login", "set_password", "teacher"):
+                if kind in ("login", "set_password", "teacher", "change_teacher_password"):
                     if BAD_LOGINS.blocked(where):
                         await ws.send(json.dumps({"ok": False, "error": "Too many wrong tries from this computer. "
                                                                         "Wait a minute, then try again."}))
                         continue
                 try:
                     if kind == "teacher":
-                        if not hmac.compare_digest(str(m.get("password", "")).encode(), self.teacher_password.encode()):
+                        if not self.store.check_teacher(m.get("password", ""), self.teacher_password):
                             BAD_LOGINS.failed(where)
                             raise DeskError("That isn't the teacher password.")
                         role = "teacher"
                         self.teachers.add(ws)
                         await ws.send(json.dumps({"ok": True, "state": self.store.state()}))
+                    elif kind == "change_teacher_password":  # (from the login screen: it needs the password as it is now)
+                        if not self.store.check_teacher(m.get("password", ""), self.teacher_password):
+                            BAD_LOGINS.failed(where)
+                            raise DeskError("That isn't the teacher password as it is now: nothing was changed.")
+                        self.store.set_teacher_password(m.get("new", ""))
+                        print("The teacher password was changed", flush=True)
+                        await ws.send(json.dumps({"ok": True, "teacher_password_changed": True}))
                     elif kind == "login":
                         await self.learner_login(ws, where, m)
                     elif kind == "set_password":
@@ -479,7 +570,8 @@ class Desk:
             name = s.remove_learner(m.get("name", ""))
             reply = {"ok": True, "done": f"{name} removed: the games are deleting their data"}
         elif kind == "set_group":
-            name = s.set_group(m.get("name", ""), m.get("game", ""), m.get("learners", []), m.get("rename_from"))
+            name = s.set_group(m.get("name", ""), m.get("game", ""), m.get("learners", []), m.get("rename_from"),
+                               m.get("time"))
             reply = {"ok": True, "done": f"Group {name} saved"}
         elif kind == "delete_group":
             s.delete_group(m.get("name", ""))
@@ -530,9 +622,12 @@ async def main():
         games = server_games()
     desk = Desk(Store(DATA), games, teacher_password)
     async def refresh():  # (the teacher's screen follows the live session: who's here, what they've completed)
+        seconds = 0
         while True:
-            await asyncio.sleep(5)
-            if desk.store.live and desk.teachers:
+            await asyncio.sleep(1)
+            seconds += 1
+            await desk.game_requests()
+            if seconds % 5 == 0 and desk.store.live and desk.teachers:
                 await desk.tell_teachers()
     async with websockets.serve(desk.handler, args.bind, args.port, max_size=16 * 1024):
         print(f"Club desk on {args.bind}:{args.port}: {len(desk.store.learners)} learners, "

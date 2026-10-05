@@ -9,6 +9,9 @@ A learner's AI request card, once the teacher approves it, goes to Claude Code o
   6. every kept change becomes a mod in the change history (ai_changes/): it can be looked at, switched off
      and on again (only the mod's own lines change, so later work is kept), and finally merged into the game
      as a permanent update. Nothing is committed to git automatically: commit when you choose to.
+  7. a change that adds a user mod (lab_sim.USER_MODS) is named after the learner who asked for it, when it is
+     kept and again when it is merged: "Sam's Spike pit". The name is kept in ai_changes/user_mod_makers.json
+     (with the class's data, never in the code) and the teacher's window passes it on to the class server.
 
 What Claude may change:
   "robot"  the learner's file in mods/robots        "arena"  mods/arena.py        "rules"  mods/rules.py
@@ -19,6 +22,7 @@ If a smaller request needs more than it was given, Claude says so and the teache
 
 Try it from a terminal:  python ai_pipeline.py robot Sam "Make my robot blue with yellow lights"
 """
+import ast
 import datetime
 import difflib
 import json
@@ -32,6 +36,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.environ.get("ROBOTLAB_DATA", HERE)          # where profiles, evidence and the change history live
 CHANGES = os.path.join(DATA, "ai_changes")
+MAKERS = os.path.join(CHANGES, "user_mod_makers.json")  # who made each user mod: {"spike_pit": "Sam"}
 # the safety parts: logins, the brain sandbox, where updates come from, and the tests (never changed by Claude)
 PROTECTED = {"ai_pipeline.py", "lab_profiles.py", "robot_loader.py", "lab_brain.py", "brain_rules.py",
              "brain_worker.py", "lab_version.py", "smoke_test.py", "security_test.py"}
@@ -126,7 +131,7 @@ def robot_file_text(design, learner):
 
 GAME_GUIDE = """HOW THE GAME IS BUILT (Python 3, Panda3D with Bullet physics)
 - lab_sim.py: all the physics, run by the server: robots built from designs (points, settings, weapons), weapon
-  hits, the arena, hazards (drop zone, floor flipper, saws, wall spikes) and the house robots (BLAZE, CRUSHER,
+  hits, the arena, hazards (drop zone, floor flipper, saws, wall spikes) and the Resident Robots (BLAZE, CRUSHER,
   RIPSAW, VORTEX). shapes() gives each weapon's sizes, and the graphics use the same numbers.
 - lab_server.py: the class server (logins, lessons, the teacher's controls, sending the state 20 times a second).
   lab_teaching.py: missions and evidence. lab_missions.py: lesson presets, missions, curriculum outcomes.
@@ -151,15 +156,16 @@ RULES FOR A GAME CHANGE
 
 USER_MOD_GUIDE = """MAKE IT A SWITCHABLE USER MOD (the teacher switches it on and off in Controls)
 - Add ONE entry to USER_MODS in lab_sim.py: a short key (lower case letters and _), a name for the teacher's
-  Controls (up to 20 characters) and one sentence saying what it does. Never put anyone's name in it.
+  Controls (up to 20 characters) and one sentence saying what it does. Never put anyone's name in it: the game
+  puts the learner's first name in front by itself ("Sam's Spike pit").
 - It is OFF by default, and while it's off the game must work exactly as it did before. Only do anything new
   while it's switched on: arena.user_mods["<key>"] in the physics (lab_sim.py; a robot can read
   self.arena.user_mods), and user_mods_on(user_mods)["<key>"] in ArenaVisual (rw_gfx.py) for how it looks.
 - The teacher can switch it mid-round. Arena.set_user_mods() is called with the new switches: if your mod changes
   something already built (like the arena's edge in Arena.build_edge), rebuild it there. The windows redraw the
   arena by themselves when a mod is switched.
-- Nothing else is needed for the switch: the Controls tab lists every entry in USER_MODS, and the server and
-  windows pass the switches on already."""
+- Nothing else is needed for the switch: the teacher's Controls and everyone's User mods tab list every entry in
+  USER_MODS, and the server and windows pass the switches on already."""
 
 
 def build_prompt(card, learner, target, files, as_user_mod=False):
@@ -193,7 +199,7 @@ HOW THE MOD FILES WORK
   settings (percent):
 {settings}
   style: trim [r, g, b], lights [r, g, b], number (text on the deck, up to 10 characters), and optionally
-  model (one of {', '.join(sim.HOUSE_BY_NAME)}) to drive a house robot.
+  model (one of {', '.join(sim.HOUSE_BY_NAME)}) to drive a Resident Robot.
 - mods/arena.py holds ARENA = {{...}}: hazards (pit, floor_flipper, saws, spikes: True/False; house_robots: True,
   False or a list of names) and look (name up to 16 characters, wall_colour [r, g, b], crowd True/False).
 - mods/rules.py holds RULES = {{...}} with these numbers and limits:
@@ -206,6 +212,18 @@ RULES FOR YOUR CHANGE
 - Finish with 3-5 short bullet points: what you changed (file, what, old -> new) and one thing the learner should
   check when they test it. Don't include any personal information.
 """
+
+
+def save_prompt(card_id, learner, target, prompt):
+    """Keep a prompt that goes to Claude, whole, with the card's number: ai_requests/003_sam_game_<when>_prompt.md
+    (on the teacher's laptop, with the class's other data). Returns the file's name."""
+    folder = os.path.join(DATA, "ai_requests")
+    os.makedirs(folder, exist_ok=True)
+    when = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    name = f"{int(card_id):03d}_{slug(learner)}_{target}_{when}_prompt.md"
+    with open(os.path.join(folder, name), "w", encoding="utf-8") as f:
+        f.write(prompt)
+    return name
 
 
 def run_tests(changed):
@@ -232,6 +250,8 @@ class AIChange:
         self.files = allowed_files(target, learner)
         self.before, self.after = {}, {}
         self.changed = []
+        self.user_mods = []  # the user mods this change added (known once it's kept)
+        self.prompt, self.prompt_file = "", ""  # exactly what was sent to Claude, and the file it is kept in
         self.result = {}
 
     def run(self, progress=print, timeout=None):
@@ -249,7 +269,11 @@ class AIChange:
                     f.write(stub)
         progress("Claude is working on it...")
         whole = self.target == "game"
-        prompt = build_prompt(self.card, self.learner, self.target, self.files, self.as_user_mod)
+        prompt = self.prompt = build_prompt(self.card, self.learner, self.target, self.files, self.as_user_mod)
+        try:
+            self.prompt_file = save_prompt(self.id, self.learner, self.target, prompt)  # every sent prompt is kept
+        except OSError:
+            pass
         tools = "Read,Edit,Write,Glob,Grep" + (",Bash(.venv/Scripts/python smoke_test.py)" if whole else "")
         cmd = CLAUDE + ["-p", prompt, "--allowedTools", tools,
                         "--permission-mode", "acceptEdits", "--max-turns", "60" if whole else "15",
@@ -375,12 +399,69 @@ def record_change(change):
     n = max([e["n"] for e in log], default=0) + 1
     _store(n, "before", {f: change.before.get(f) for f in change.changed})
     _store(n, "after", {f: change.after.get(f) for f in change.changed})
+    change.user_mods = sorted(user_mod_keys(change.after.get("lab_sim.py")) -
+                              user_mod_keys(change.before.get("lab_sim.py")))
     log.append({"n": n, "card": change.id, "learner": change.learner, "goal": change.card.get("goal", "")[:200],
                 "target": change.target, "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "files": change.changed, "summary": change.result.get("summary", "")[:600], "status": "kept",
-                "new_files": [f for f in change.changed if change.before.get(f) is None]})
+                "new_files": [f for f in change.changed if change.before.get(f) is None],
+                "user_mods": change.user_mods, "prompt": getattr(change, "prompt_file", "")})
     _save_history(log)
+    name_user_mods(change.user_mods, change.learner)
     return n
+
+
+# ---------- who made each user mod: its maker's name goes in front ("Sam's Spike pit") ----------
+
+def user_mod_keys(source):
+    """The user mods in a copy of lab_sim.py (its bytes, or None): the keys of USER_MODS."""
+    try:
+        tree = ast.parse(source or b"")
+    except (SyntaxError, ValueError):
+        return set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict) and any(
+                isinstance(t, ast.Name) and t.id == "USER_MODS" for t in node.targets):
+            return {k.value for k in node.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    return set()
+
+
+def maker_name(text):
+    """A maker's name as it's kept and shown: a learner's username (letters, numbers and spaces)."""
+    return re.sub(r"[^A-Za-z0-9 ]", "", str(text)).strip()[:12]
+
+
+def user_mod_makers():
+    """Who made each user mod: {key: name}. ("" = the maker's data was deleted: the mod stays, without a name.)"""
+    try:
+        with open(MAKERS, encoding="utf-8") as f:
+            makers = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(makers, dict):
+        return {}
+    return {k: maker_name(v) for k, v in makers.items() if isinstance(v, str)}
+
+
+def save_user_mod_makers(makers):
+    os.makedirs(CHANGES, exist_ok=True)
+    with open(MAKERS + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(makers, f, indent=2, sort_keys=True)
+    os.replace(MAKERS + ".tmp", MAKERS)
+
+
+def name_user_mods(keys, learner):
+    """These user mods were made for this learner: remember it, so their name goes in front of each one."""
+    who = maker_name(learner)
+    if keys and who:
+        save_user_mod_makers(user_mod_makers() | {k: who for k in keys})
+
+
+def forget_user_mod_makers(keys):
+    """Take the maker's name off these user mods (their data was deleted on the class server)."""
+    makers = user_mod_makers()
+    if any(k in makers for k in keys):
+        save_user_mod_makers({k: v for k, v in makers.items() if k not in keys})
 
 
 def change_diff(n):
@@ -463,8 +544,12 @@ def merge(n):
     e["status"] = "merged"
     e["merged"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     e.setdefault("events", []).append(f"{e['merged']} merged into the game")
+    if "user_mods" not in e:  # (kept before user mods were named after their makers)
+        e["user_mods"] = sorted(user_mod_keys(_stored(n, "after", "lab_sim.py")) -
+                                user_mod_keys(_stored(n, "before", "lab_sim.py")))
     _save_history(log)
-    return {"ok": True, "message": ""}
+    name_user_mods(e["user_mods"], e["learner"])  # the learner's name goes in front of the user mods it added
+    return {"ok": True, "message": "", "user_mods": e["user_mods"]}
 
 
 def open_in_editor(n):

@@ -147,6 +147,10 @@ SWATCHES = [(220, 60, 50), (240, 140, 30), (240, 200, 40), (60, 190, 90), (60, 1
             (230, 90, 170), (230, 230, 230)]
 HAIR_SWATCHES = [(20, 16, 14), (60, 36, 22), (110, 62, 32), (140, 50, 25), (190, 95, 40), (215, 180, 110),
                  (230, 225, 210), (60, 110, 200)]  # black, dark brown, chestnut, auburn, ginger, blonde, platinum, blue
+TRIM_SWATCHES = [(30, 30, 36), (140, 145, 155), (220, 220, 225), (200, 160, 60), (160, 90, 40), (60, 60, 140),
+                 (120, 30, 30), (40, 100, 60)]   # Robin's trim: gunmetal, steel, chrome, brass, copper, blue, red, green
+LIGHT_SWATCHES = [(255, 90, 25), (255, 40, 40), (90, 230, 255), (60, 255, 120), (255, 230, 80), (200, 120, 255),
+                  (255, 255, 255), (255, 0, 160)]
 PRETTY = {"walk_speed": "Walk speed", "sidestep_speed": "Sidestep speed", "jump_height": "Jump height",
           "attack_speed": "Attack speed", "size": "Size", "points_table": "Points table",
           "choose_special": "Choose special", "combo_editor": "Combo editor", "name_and_colour": "Name and colour",
@@ -215,6 +219,8 @@ class Lab(ShowBase):
             self.check_for_update()
         self.accept("escape", self.escape)
         self.accept("mouse1", self.stop_typing)  # clicking the ring (not a panel) stops typing
+        self.accept("tab", self.tab_key, [1])           # Tab: on to the next text box
+        self.accept("shift-tab", self.tab_key, [-1])    # ...and Shift+Tab: back to the one before
         self.start = self.last = time.perf_counter()
         if TEACHER or args.ticket or (args.name and args.password):
             error = self.connect(name, args.password or "")
@@ -443,6 +449,28 @@ class Lab(ShowBase):
             self.stop_typing()
         else:
             self.userExit()
+
+    def tab_key(self, step):
+        """Tab moves the typing from one text box to the next (Shift+Tab: to the one before), on the login screen
+        and every other screen; from the last box it goes round to the first. Text boxes only, in the order they
+        are on the screen (the order they were made): not buttons or tick boxes, and not the lines of the code
+        view (the up and down arrows move between those)."""
+        keys = [k for k in self.entries if not k.startswith("code_")]
+        if not keys or str(self.typing or "").startswith("code_"):
+            return
+        if self.typing in keys:
+            to = keys[(keys.index(self.typing) + step) % len(keys)]
+        elif self.started:
+            return  # (not typing: Tab is not a game key)
+        else:
+            to = keys[0 if step > 0 else -1]  # the login screen, with no box chosen yet
+        was = self.entries.get(self.typing)
+        if was is not None:
+            was["focus"] = 0
+        e = self.entries[to]
+        e["focus"] = 1
+        e.setCursorPosition(len(e.get()))
+        self.typing = to
 
     def start_typing(self, key):
         self.typing = key
@@ -797,11 +825,13 @@ class Lab(ShowBase):
         self.rebuild_panels()
 
     def build_look(self, f, y, d):
-        """A detailed body's look: outfit, hairstyle, hair colour, shape and height (it doesn't change the fight)."""
+        """A detailed body's look: outfit, hairstyle, hair colour, shape and height (it doesn't change the fight).
+        Robin has a frame (shape) and height instead, with trim and light colours."""
         look = d.setdefault("look", sim.default_look(d["body"]))
-        rows = (("Outfit", "outfit", list(self.rules["outfits"])),
-                ("Hair", "hair", self.rules["hair_styles"][d["body"]]),
-                ("Shape", "shape", list(self.rules["shapes"])),
+        human = d["body"] in self.rules.get("human_bodies", ["woman", "man"])
+        rows = ((("Outfit", "outfit", list(self.rules["outfits"])),
+                 ("Hair", "hair", self.rules["hair_styles"][d["body"]])) if human else ()) + (
+                ("Shape" if human else "Frame", "shape", list(self.rules["shapes"])),
                 ("Win", "win", list(self.rules.get("wins", {}))))
         for text, key, options in rows:
             label(f, text, 0.84, y, 0.025)
@@ -809,19 +839,36 @@ class Lab(ShowBase):
                 button(f, opt, 1.02 + (i % 5) * 0.145, y + 0.008 - (i // 5) * 0.045, self.set_look, [key, opt], 0.021,
                        ON if look.get(key) == opt else OFF)
             y -= 0.045 * (1 + (len(options) - 1) // 5) + 0.005
-        label(f, "Hair colour", 0.84, y, 0.025)
-        for i, c in enumerate(HAIR_SWATCHES):
-            big = 0.95 if list(c) == list(look.get("hair_colour", [])) else 0.6
-            DirectButton(parent=f, text="", scale=0.026, pos=(1.05 + i * 0.075, 0, y + 0.008), relief=DGG.FLAT,
-                         frameColor=(*(v / 255 for v in c), 1), frameSize=(-0.9, 0.9, -big, big),
-                         command=self.set_look, extraArgs=["hair_colour", list(c)])
-        y -= 0.05
+        if human:
+            label(f, "Hair colour", 0.84, y, 0.025)
+            for i, c in enumerate(HAIR_SWATCHES):
+                big = 0.95 if list(c) == list(look.get("hair_colour", [])) else 0.6
+                DirectButton(parent=f, text="", scale=0.026, pos=(1.05 + i * 0.075, 0, y + 0.008), relief=DGG.FLAT,
+                             frameColor=(*(v / 255 for v in c), 1), frameSize=(-0.9, 0.9, -big, big),
+                             command=self.set_look, extraArgs=["hair_colour", list(c)])
+            y -= 0.05
+        else:  # Robin: trim and light colours (the design's style, as the built robot's)
+            style = d.setdefault("style", {})
+            for text, key, swatches in (("Trim", "trim", TRIM_SWATCHES), ("Lights", "lights", LIGHT_SWATCHES)):
+                label(f, text, 0.84, y, 0.025)
+                current = list(style.get(key) or self.rules.get("robin_style", {}).get(key, []))
+                for i, c in enumerate(swatches):
+                    big = 0.95 if list(c) == current else 0.6
+                    DirectButton(parent=f, text="", scale=0.026, pos=(1.05 + i * 0.075, 0, y + 0.008), relief=DGG.FLAT,
+                                 frameColor=(*(v / 255 for v in c), 1), frameSize=(-0.9, 0.9, -big, big),
+                                 command=self.set_style_colour, extraArgs=[key, list(c)])
+                y -= 0.05
         label(f, "Height", 0.84, y, 0.025)
         lo, hi = self.rules["height"]
         s = DirectSlider(parent=f, range=(lo, hi), value=look.get("height", 100), pageSize=2, scale=0.18,
                          pos=(1.28, 0, y + 0.008), command=self.height_moved, thumb_frameSize=(-0.04, 0.04, -0.12, 0.12))
         self.height_slider = (s, label(f, f"{look.get('height', 100):.0f}%", 1.5, y, 0.025, WHITE))
         return y - 0.055
+
+    def set_style_colour(self, key, colour):
+        self.cur().setdefault("style", {})[key] = colour
+        self.code_shown = None
+        self.rebuild_panels()
 
     def set_look(self, key, value):
         self.cur().setdefault("look", sim.default_look(self.cur()["body"]))[key] = value
@@ -854,11 +901,12 @@ class Lab(ShowBase):
     def set_body(self, body):
         d = self.cur()
         d["body"] = body
-        if body in self.rules.get("model_bodies", []):
-            look = d.get("look") if isinstance(d.get("look"), dict) else {}
-            if look.get("hair") not in self.rules["hair_styles"][body]:
-                look = dict(sim.default_look(body), **{k: v for k, v in look.items() if k != "hair"})
-            d["look"] = look
+        if body in self.rules.get("model_bodies", []):  # a complete look for this body (keeping what carries over)
+            base = sim.default_look(body)
+            look = {k: v for k, v in (d.get("look") if isinstance(d.get("look"), dict) else {}).items() if k in base}
+            if look.get("hair") not in self.rules["hair_styles"].get(body, []):
+                look.pop("hair", None)
+            d["look"] = dict(base, **look)
         self.code_shown = None
         self.rebuild_panels()
 
@@ -946,6 +994,12 @@ class Lab(ShowBase):
             look = d.get("look") or sim.default_look(d["body"])
             lines += ['    "look": {                   # how the detailed body looks']
             lines += [f'        "{k}": {json.dumps(v)},' for k, v in look.items()]
+            lines += ["    },"]
+        if d.get("body") == "robin" or (d.get("style") and d.get("body") == "robot"):
+            style = d.get("style") or {}
+            lines += ['    "style": {                  # trim and light colours [red, green, blue], the chest number']
+            lines += [f'        "{k}": {json.dumps(style.get(k, v))},' for k, v in
+                      (("trim", sim.ROBIN_STYLE["trim"]), ("lights", sim.ROBIN_STYLE["lights"]), ("number", d["name"][:10]))]
             lines += ["    },"]
         lines += ["}",
                   f"# points used: {sum(d['points'].values())} of {self.rules['points_total']}"]
@@ -1091,6 +1145,17 @@ class Lab(ShowBase):
                 d["combo"] = combo[:12]
             else:
                 locked.append("combo")
+        if "style" in new and new["style"] != d.get("style"):
+            st = new["style"]
+            if not isinstance(st, dict):
+                problems.append("style must be a dictionary")
+            elif any(k in st and not (isinstance(st[k], list) and len(st[k]) == 3 and
+                                      all(isinstance(v, int) and 0 <= v <= 255 for v in st[k])) for k in ("trim", "lights")):
+                problems.append("style trim and lights must each be three whole numbers from 0 to 255")
+            elif "number" in st and (not isinstance(st["number"], str) or len(st["number"]) > 10):
+                problems.append("style number must be text, up to 10 characters")
+            else:
+                d["style"] = {k: v for k, v in st.items() if k in ("trim", "lights", "number")}
         if "look" in new and new["look"] != d.get("look") and d.get("body") in self.rules.get("model_bodies", []):
             if not tools.get("body_choice"):
                 locked.append("look")
@@ -1641,7 +1706,7 @@ class Lab(ShowBase):
 
     def offer_download(self):
         if self.download_button is None and fight_version.DOWNLOAD_PAGE:
-            self.download_button = button(self.aspect2d, "Download the new Fight Lab", 1.2, 0.86,
+            self.download_button = button(self.aspect2d, "Download the new Club Coders", 1.2, 0.86,
                                           webbrowser.open, [fight_version.DOWNLOAD_PAGE], 0.035, (0.15, 0.55, 0.25, 1))
 
     # ---------- teacher: mods (changes made with Claude): switch on and off, then merge into the game ----------
@@ -2008,7 +2073,7 @@ class Lab(ShowBase):
         else:
             self.snd.layers(snd["music"], snd["music_volume"], snd["crowd"], snd["crowd_volume"], False, 0)
         if self.newer and self.download_button is None:  # a newer release is out
-            self.banner_note(f"Fight Lab {self.newer} is out: press the green button to download it", 8)
+            self.banner_note(f"Club Coders {self.newer} is out: press the green button to download it", 8)
             self.offer_download()
         if self.pending_rebuild and not self.typing:  # typing stopped: now do the redraw that waited
             self.rebuild_panels()

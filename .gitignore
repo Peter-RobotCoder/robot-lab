@@ -17,6 +17,7 @@ games/fightlab/mods/fighters/*.py
 !games/fightlab/mods/fighters/kaito.py
 !games/fightlab/mods/fighters/penthesilea.py
 !games/fightlab/mods/fighters/achilles.py
+!games/fightlab/mods/fighters/robin.py
 # made on each computer
 assets/
 build/

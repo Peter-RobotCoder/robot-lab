@@ -323,6 +323,11 @@ class FightServer:
                 new["look"] = dict(look) if isinstance(look, dict) else sim.default_look(new["body"])
             else:
                 new.pop("look", None)
+        if tools.get("body_choice") and isinstance(d.get("style"), dict):  # a robot's trim, lights and number
+            st = {k: v for k, v in d["style"].items() if k in ("trim", "lights") and fight_mods.colour_ok(v)}
+            if isinstance(d["style"].get("number"), str):
+                st["number"] = re.sub(r"[^A-Za-z0-9 ]", "", d["style"]["number"])[:10]
+            new["style"] = dict(old.get("style") or {}, **st)
         if tools.get("fighting_style") and d.get("fighting_style") in sim.STYLES:
             new["fighting_style"] = d["fighting_style"]
             weapons = sim.weapons_for(d["fighting_style"])
@@ -366,7 +371,9 @@ class FightServer:
             await ws.close(4008, "Too many wrong tries from this computer. Wait a minute, then try again.")
             return
         if CLASS_SERVER and hello.get("version") != fight_version.VERSION:
-            await ws.close(4006, f"Out of date: get Fight Lab {fight_version.VERSION} from your teacher")
+            # (the window shows this, with a button to the download page. A close reason can be at most 123 bytes)
+            where = fight_version.DOWNLOAD_PAGE or "your teacher"
+            await ws.close(4006, f"Out of date: download Club Coders {fight_version.VERSION} from {where}"[:120])
             return
         ticket = None
         if hello.get("ticket") and TICKET_KEY:  # from the club desk, which has checked who this is
@@ -458,7 +465,8 @@ class FightServer:
                 "stat_max": sim.STAT_MAX, "settings": sim.SETTINGS, "specials": sim.SPECIALS, "bodies": sim.BODIES,
                 "combo_moves": sim.COMBO_MOVES, "combo_min": sim.COMBO_MIN, "combo_max": sim.COMBO_MAX,
                 "bosses": {name: v[1] for name, v in sim.BOSS_BY_NAME.items()}, "cpu_levels": cpu_brains.LEVELS,
-                "model_bodies": list(sim.MODEL_BODIES), "outfits": sim.OUTFITS, "hair_styles": sim.HAIR_STYLES,
+                "model_bodies": list(sim.MODEL_BODIES), "human_bodies": list(sim.HUMAN_BODIES),
+                "robin_style": sim.ROBIN_STYLE, "outfits": sim.OUTFITS, "hair_styles": sim.HAIR_STYLES,
                 "shapes": sim.SHAPES, "height": [sim.HEIGHT_MIN, sim.HEIGHT_MAX], "styles": sim.STYLES,
                 "wins": sim.WINS,
                 "style_moves": {s: {m: v[0] for m, v in moves.items()} for s, moves in sim.STYLE_MOVES.items()},

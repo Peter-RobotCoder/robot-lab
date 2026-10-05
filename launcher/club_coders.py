@@ -37,6 +37,7 @@ import urllib.request
 import threading
 import time
 import traceback
+import webbrowser
 
 FROZEN = bool(getattr(sys, "frozen", False))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the repository (this file is in launcher/)
@@ -45,6 +46,9 @@ if not FROZEN:
 import live_format  # noqa: E402  (the checks on live updates, shared with the server and the teacher's tool)
 BUNDLE = getattr(sys, "_MEIPASS", ROOT)
 CLUB_SERVER = "wss://play.clubcoders.co.uk"
+MIN_TEACHER_PASSWORD = 12  # (the desk's rule for the teacher's own password: checked here too, to say so at once)
+GITHUB_REPO = "Peter-RobotCoder/robot-lab"  # where the app's releases are
+DOWNLOAD_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "ClubCoders")
 LIVE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or SETTINGS_DIR, "ClubCoders", "live")  # live updates
 
@@ -79,6 +83,25 @@ def remember(key, value):
             json.dump(data, f)
     except OSError:
         pass
+
+
+def newer_release(mine, timeout=5):
+    """The newest release's version if it is newer than this app's (mine, "1.4.2"), else None: also None if GitHub
+    can't be reached, or this isn't a downloaded app (the source files have no version number)."""
+    def parse(v):
+        try:
+            return tuple(int(x) for x in str(v).lstrip("v").split("."))
+        except ValueError:
+            return None
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+                                     headers={"Accept": "application/vnd.github+json", "User-Agent": "ClubCoders"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            tag = str(json.load(r).get("tag_name", ""))
+    except Exception:
+        return None
+    latest, mine = parse(tag), parse(mine)
+    return tag.lstrip("v") if latest and mine and latest > mine else None
 
 
 def release_config():
@@ -362,6 +385,12 @@ def launcher(args, passed_on):
             self.state = {}           # the desk's state, for the teacher screen
             self.editing = None       # the group being edited on the teacher screen
             self.trying_password = None  # a teacher password sent to the desk, not yet accepted
+            self.new_teacher_password = None  # a new teacher password sent to the desk, not yet accepted
+            self.newer, self.newer_shown = args.test_newer, False  # a newer release of the app is out (its version)
+            if FROZEN:  # (asked in the background: the window doesn't wait for GitHub)
+                threading.Thread(target=lambda: setattr(self, "newer", newer_release(version)), daemon=True).start()
+            if args.test_screen:
+                self.screen = args.test_screen
             self.teacher_proc = None  # the teacher's game window, while the app has one open
             self.teacher_view = "session"  # while a group is live: "session" or "desk" (learners and groups)
             self.pending_record = None  # a session just stopped, waiting for "make the PDFs?"
@@ -419,6 +448,11 @@ def launcher(args, passed_on):
                 label(f, "Use the username and password from your welcome letter. Your class's game opens by itself.",
                       0, -0.25, 0.033, grey, wrap=55)
             button(f, "Teacher", 1.3, -0.72, self.show, ["teacher_login"], 0.035)
+            if self.newer:  # this app is out of date: say so here, before anyone logs in, with the way to the new one
+                self.newer_shown = True
+                label(f, f"Club Coders {self.newer} is out. This is {version}: download the new one to play with "
+                         "your class.", 0, -0.43, 0.04, yellow, wrap=50)
+                button(f, "Download the new Club Coders", 0, -0.58, webbrowser.open, [DOWNLOAD_PAGE], 0.045, go_col)
             if "user" in self.fields and not keep.get("user"):
                 self.fields["user"].setFocus()
 
@@ -443,7 +477,8 @@ def launcher(args, passed_on):
         def draw_teacher_login(self, f, keep):
             label(f, "TEACHER", 0, 0.6, 0.09, yellow)
             label(f, "Teacher password", -0.62, 0.25, 0.05)
-            label(f, "(the teacher code the server setup printed: sudo cat /etc/robotlab.env)", 0, 0.42, 0.035, grey)
+            label(f, "(the password you chose; or, until you choose one, the teacher code the server setup printed)",
+                  0, 0.42, 0.035, grey)
             remembered = load_json(teacher_file).get("password", "")
             self.fields["tpass"] = entry(f, -0.2, 0.25, 14, keep.get("tpass", remembered), secret=True,
                                          command=lambda t: self.teacher_login())
@@ -451,8 +486,28 @@ def launcher(args, passed_on):
                                           bool(remembered) or getattr(self, "_remember", True),
                                           lambda v: setattr(self, "_remember", bool(v)))
             button(f, "LOG IN", 0, -0.1, self.teacher_login, (), 0.07, go_col)
+            button(f, "Change teacher password", 0.75, -0.1, self.show, ["teacher_password"], 0.04)
             button(f, "Back", -1.3, -0.72, self.show, ["home"], 0.035)
             self.fields["tpass"].setFocus()
+
+        def draw_teacher_password(self, f, keep):
+            label(f, "CHANGE THE TEACHER PASSWORD", 0, 0.62, 0.075, yellow)
+            label(f, f"Choose one you'll remember: at least {MIN_TEACHER_PASSWORD} characters (three words is good). "
+                     "Once it is changed, only the new password opens the Teacher screen: the old one, and the "
+                     "server's teacher code, stop working.", 0, 0.47, 0.034, grey, wrap=62)
+            remembered = load_json(teacher_file).get("password", "")
+            label(f, "Password now", -0.62, 0.2, 0.05)
+            self.fields["tnow"] = entry(f, -0.2, 0.2, 16, keep.get("tnow", keep.get("tpass", remembered)), secret=True,
+                                        command=lambda t: self.fields["tnew1"].setFocus())
+            label(f, "New password", -0.62, 0.06, 0.05)
+            self.fields["tnew1"] = entry(f, -0.2, 0.06, 16, keep.get("tnew1", ""), secret=True,
+                                         command=lambda t: self.fields["tnew2"].setFocus())
+            label(f, "Type it again", -0.62, -0.08, 0.05)
+            self.fields["tnew2"] = entry(f, -0.2, -0.08, 16, keep.get("tnew2", ""), secret=True,
+                                         command=lambda t: self.change_teacher_password())
+            button(f, "CHANGE IT", -0.2, -0.3, self.change_teacher_password, (), 0.06, go_col)
+            button(f, "Cancel", 0.4, -0.3, self.show, ["teacher_login"], 0.045)
+            self.fields["tnew1" if self.fields["tnow"].get() else "tnow"].setFocus()
 
         def draw_teacher(self, f, keep):
             st, live = self.state, self.state.get("live")
@@ -508,7 +563,9 @@ def launcher(args, passed_on):
             y = 0.52
             for g in st.get("groups", []):
                 title = games.get(g["game"], {}).get("title", g["game"])
-                label(f, f"{g['name']}  ({title}, {len(g['learners'])} learners)", 0.05, y, 0.038, white, TextNode.ALeft)
+                when = f", {g['time']}" if g.get("time") else ""
+                label(f, f"{g['name']}  ({title}, {len(g['learners'])} learners{when})", 0.05, y, 0.038, white,
+                      TextNode.ALeft)
                 if not live:
                     label(f, "lesson", 0.72, y - 0.001, 0.028, grey, TextNode.ALeft)
                     for n in st.get("lessons", [1, 2, 3, 4, 5]):
@@ -621,6 +678,9 @@ def launcher(args, passed_on):
             label(f, "GROUP", -1.44, 0.82, 0.06, yellow, TextNode.ALeft)
             label(f, "Name", -1.44, 0.64, 0.045, white, TextNode.ALeft)
             self.fields["gname"] = entry(f, -1.15, 0.64, 14, keep.get("gname", g["name"]), scale=0.045)
+            label(f, "Proposed time", -0.38, 0.64, 0.045, white, TextNode.ALeft)
+            self.fields["gtime"] = entry(f, 0.02, 0.64, 10, keep.get("gtime", g.get("time", "")), scale=0.045)
+            label(f, "a day and a time each week, like Tuesday 16:00 (or empty)", 0.02, 0.575, 0.03, grey, TextNode.ALeft)
             label(f, "Game", -1.44, 0.5, 0.045, white, TextNode.ALeft)
             for i, (game, info) in enumerate(self.state.get("games", {}).items()):
                 button(f, info["title"], -1.0 + i * 0.4, 0.51, self.pick_game, [game], 0.04, on if g["game"] == game else off)
@@ -640,6 +700,8 @@ def launcher(args, passed_on):
             return self.link
 
         def read_desk(self, task):
+            if self.newer and not self.newer_shown and self.screen == "home":  # (GitHub has answered: say so)
+                self.draw()
             if self.link is None:
                 return task.cont
             try:
@@ -672,6 +734,8 @@ def launcher(args, passed_on):
                     self.screen = "home"
                 self.say(m["error"], red)  # (say redraws the screen with the message; show would wipe it)
                 return
+            if m.get("teacher_password_changed"):
+                return self.teacher_password_changed()
             if "state" in m:
                 self.state = m["state"]
                 if getattr(self, "trying_password", None):
@@ -772,6 +836,35 @@ def launcher(args, passed_on):
             self.say("Logging in...", grey)
             self.ask_desk({"type": "teacher", "password": password})
 
+        def change_teacher_password(self):
+            now_, new, again = (self.fields[k].get() if k in self.fields else "" for k in ("tnow", "tnew1", "tnew2"))
+            if not now_:
+                return self.say("Type the teacher password as it is now.", red)
+            if len(new) < MIN_TEACHER_PASSWORD:
+                return self.say(f"The new password needs at least {MIN_TEACHER_PASSWORD} characters: three words "
+                                "you'll remember is good.", red)
+            if new != again:
+                return self.say("The two new passwords were different: type them again.", red)
+            if new == now_:
+                return self.say("That is the password now: choose a different one.", red)
+            self.new_teacher_password = new
+            self.say("Changing it...", grey)
+            self.ask_desk({"type": "change_teacher_password", "password": now_, "new": new})
+
+        def teacher_password_changed(self):
+            """The desk has changed it. If this computer remembers the teacher password, it now remembers the new one."""
+            new, self.new_teacher_password = self.new_teacher_password, None
+            try:
+                if new and load_json(teacher_file).get("password"):
+                    with open(teacher_file, "w", encoding="utf-8") as fh:
+                        json.dump({"password": new}, fh)
+            except OSError:
+                pass
+            for e in self.fields.values():  # (nothing typed on that screen is carried to the next)
+                e.enterText("")
+            self.screen = "teacher_login"
+            self.say("The teacher password is changed. Log in with the new one.", green)
+
         def teacher_accepted(self):
             password, self.trying_password = self.trying_password, None
             try:
@@ -817,7 +910,8 @@ def launcher(args, passed_on):
         def edit_group(self, name):
             g = next((g for g in self.state.get("groups", []) if g["name"] == name), None)
             self.editing = {"name": g["name"] if g else "", "game": g["game"] if g else "robotlab",
-                            "learners": list(g["learners"]) if g else [], "rename_from": g["name"] if g else None}
+                            "learners": list(g["learners"]) if g else [], "rename_from": g["name"] if g else None,
+                            "time": g.get("time", "") if g else ""}
             self.show("group")
 
         def pick_game(self, game):
@@ -834,7 +928,7 @@ def launcher(args, passed_on):
         def save_group(self):
             g = self.editing
             self.ask_desk({"type": "set_group", "name": self.field("gname"), "game": g["game"], "learners": g["learners"],
-                           "rename_from": g["rename_from"]})
+                           "rename_from": g["rename_from"], "time": self.field("gtime")})
             self.show("teacher")
 
         def delete_group(self, name):
@@ -917,6 +1011,8 @@ def _main():
     ap.add_argument("--screenshot-launcher", help="save a picture of this window before it closes (tests)")
     ap.add_argument("--snap", type=float, help="close this window after this many seconds (tests)")
     ap.add_argument("--test-stop", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--test-screen", help=argparse.SUPPRESS)  # (tests: start on this screen, e.g. teacher_password)
+    ap.add_argument("--test-newer", help=argparse.SUPPRESS)   # (tests: as if this newer version were out)
     ap.add_argument("--offscreen", action="store_true")
     args, rest = ap.parse_known_args()
     passed_on, i = [], 0

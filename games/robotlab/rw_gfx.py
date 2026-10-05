@@ -129,7 +129,8 @@ class ArenaVisual:
     def __init__(self, parent, hazards, look=None, user_mods=None):
         """user_mods: the teacher's user mods (lab_sim.USER_MODS), e.g. no_cage."""
         look = look or {}
-        no_cage = sim.user_mods_on(user_mods)["no_cage"]
+        mods = sim.user_mods_on(user_mods)
+        no_cage = mods["no_cage"]
         wall_colour = tuple(v / 255 for v in look.get("wall_colour", (155, 25, 20)))
         arena_name = str(look.get("name", "ROBOT LAB"))
         self.root = parent.attachNewNode("arena_visual")
@@ -140,10 +141,10 @@ class ArenaVisual:
 
         # floor: diamond plate, with holes for the pit and the floor flipper (the same rectangles as the physics)
         floor = Mesh(tile=0.6)
-        for x0, y0, x1, y1 in sim.floor_rects(hazards):
+        for x0, y0, x1, y1 in sim.floor_rects(hazards, user_mods):
             bevel_box((x1 - x0) / 2, (y1 - y0) / 2, 0.25, 0.01, mesh=floor, offset=Vec3((x0 + x1) / 2, (y0 + y1) / 2, -0.25))
         part(static, floor, "diamond", rough=1.0, metal=1.0)
-        # painted markings: the corner patrol zones (house robots), start squares, centre circle
+        # painted markings: the corner patrol zones (Resident Robots), start squares, centre circle
         cz = sim.CPZ / 2
         for sx in (-1, 1):
             for sy in (-1, 1):
@@ -168,6 +169,8 @@ class ArenaVisual:
         logo_np.setHpr(0, -90, 0)
         logo_np.setScale(1.2)
         mats().apply(logo_np, None, PAINT_YELLOW, 0.5, 0)
+        if mods["flame_pit"]:  # (the Flame pit user mod is in the middle: no name painted across it)
+            logo_np.removeNode()
 
         gw, deep = A.GUTTER, -A.PIT_OPEN_Z
         edge = gw if no_cage else 0.5  # (how far the arena's edge reaches beyond the floor)
@@ -303,6 +306,79 @@ class ArenaVisual:
         part(self.pit_lid, border, "hazard", rough=1.0, metal=0.0)
         self.pit_lid.flattenStrong()
         self.pit_lid.setPos(px, py, 0)
+        if mods["spike_pit"]:  # the Spike pit user mod: a square hole with dark sides and a bed of steel spikes
+            kx, ky, ks = A.SPIKE_PIT
+            kd = A.SPIKE_PIT_DEPTH
+            hole = Mesh(tile=0.6)
+            for dx, dy, hx, hy in ((0, ks / 2 - 0.01, ks / 2, 0.01), (0, -ks / 2 + 0.01, ks / 2, 0.01),
+                                   (ks / 2 - 0.01, 0, 0.01, ks / 2), (-ks / 2 + 0.01, 0, 0.01, ks / 2)):
+                bevel_box(hx, hy, kd / 2, 0.0, mesh=hole, offset=Vec3(kx + dx, ky + dy, -kd / 2))
+            bevel_box(ks / 2, ks / 2, 0.05, 0.0, mesh=hole, offset=Vec3(kx, ky, -kd - 0.05))
+            part(static, hole, "steel", colour=(0.12, 0.12, 0.13), rough=1.0, metal=1.0)
+            pit_rim = Mesh(tile=0.8)
+            for dx, dy, hx, hy in ((0, ks / 2 + 0.2, ks / 2 + 0.35, 0.15), (0, -ks / 2 - 0.2, ks / 2 + 0.35, 0.15),
+                                   (ks / 2 + 0.2, 0, 0.15, ks / 2 + 0.05), (-ks / 2 - 0.2, 0, 0.15, ks / 2 + 0.05)):
+                bevel_box(hx, hy, 0.006, 0.0, mesh=pit_rim, offset=Vec3(kx + dx, ky + dy, 0.006))
+            part(static, pit_rim, "hazard", rough=1.0, metal=0.0)
+            pit_spikes = Mesh()
+            n = round(ks / 0.4)  # a spike every 0.4 m
+            for i in range(n):
+                for j in range(n):
+                    cylinder(0.1, 0.15, mesh=pit_spikes, seg=10, r_top=0.0,
+                             offset=Vec3(kx + (i - (n - 1) / 2) * 0.4, ky + (j - (n - 1) / 2) * 0.4, -kd + 0.15))
+            part(static, pit_spikes, "steel", (0.85, 0.85, 0.9), rough=1.0, metal=1.0)
+        self.flames = []
+        if mods["flame_pit"]:  # the Flame pit user mod: a square hole with dark sides, glowing embers and flames
+            kx, ky, ks = A.FLAME_PIT
+            kd = A.FLAME_PIT_DEPTH
+            hole = Mesh(tile=0.6)
+            for dx, dy, hx, hy in ((0, ks / 2 - 0.01, ks / 2, 0.01), (0, -ks / 2 + 0.01, ks / 2, 0.01),
+                                   (ks / 2 - 0.01, 0, 0.01, ks / 2), (-ks / 2 + 0.01, 0, 0.01, ks / 2)):
+                bevel_box(hx, hy, kd / 2, 0.0, mesh=hole, offset=Vec3(kx + dx, ky + dy, -kd / 2))
+            part(static, hole, "steel", colour=(0.12, 0.12, 0.13), rough=1.0, metal=1.0)
+            part(static, bevel_box(ks / 2, ks / 2, 0.05, 0.0), None, (0, 0, 0), 1, 0, emission=(1.6, 0.35, 0.04),
+                 pos=(kx, ky, -kd - 0.05))
+            pit_rim = Mesh(tile=0.8)
+            for dx, dy, hx, hy in ((0, ks / 2 + 0.2, ks / 2 + 0.35, 0.15), (0, -ks / 2 - 0.2, ks / 2 + 0.35, 0.15),
+                                   (ks / 2 + 0.2, 0, 0.15, ks / 2 + 0.05), (-ks / 2 - 0.2, 0, 0.15, ks / 2 + 0.05)):
+                bevel_box(hx, hy, 0.006, 0.0, mesh=pit_rim, offset=Vec3(kx + dx, ky + dy, 0.006))
+            part(static, pit_rim, "hazard", rough=1.0, metal=0.0)
+            # the flames: clumps of cones 1 m tall (orange, with a yellow heart), stretched to the flames' height
+            # in update(). Each clump flickers on its own
+            fire = random.Random(5)
+            for clump in range(6):
+                outer, heart = Mesh(), Mesh()
+                for _ in range(6):
+                    x, y = fire.uniform(-1, 1) * (ks / 2 - 0.25), fire.uniform(-1, 1) * (ks / 2 - 0.25)
+                    tall, r = fire.uniform(0.65, 1.0), fire.uniform(0.14, 0.22)
+                    cylinder(r, tall / 2, mesh=outer, seg=8, r_top=0.0, caps=False, offset=Vec3(x, y, tall / 2))
+                    cylinder(r * 0.5, tall * 0.3, mesh=heart, seg=8, r_top=0.0, caps=False,
+                             offset=Vec3(x, y, tall * 0.3))
+                node = self.root.attachNewNode("flames")
+                node.setPos(kx, ky, -kd)
+                glow = part(node, outer, None, (0, 0, 0), 1, 0, emission=(5, 1.3, 0.1))
+                glow.setTransparency(TransparencyAttrib.MAlpha)
+                glow.setAlphaScale(0.7)
+                glow.setDepthWrite(False)
+                glow.setBin("transparent", 5)
+                part(node, heart, None, (0, 0, 0), 1, 0, emission=(8, 5, 1))
+                self.flames.append((node, clump * 1.7))
+        self.boost = None
+        if mods["boost_pad"]:  # the boost button user mod: a lit pad on the floor by the east wall, and (with a
+            bx, by, bs = A.BOOST_PAD  # cage) a lit panel on the wall above it. Green: it works. Dim red: it is resting
+            pad_rim = Mesh(tile=0.8)
+            for dx, dy, hx, hy in ((0, bs / 2 + 0.08, bs / 2 + 0.16, 0.08), (0, -bs / 2 - 0.08, bs / 2 + 0.16, 0.08),
+                                   (bs / 2 + 0.08, 0, 0.08, bs / 2), (-bs / 2 - 0.08, 0, 0.08, bs / 2)):
+                bevel_box(hx, hy, 0.006, 0.0, mesh=pad_rim, offset=Vec3(bx + dx, by + dy, 0.006))
+            part(static, pad_rim, "hazard", rough=1.0, metal=0.0)
+            self.boost = self.root.attachNewNode("boost")
+            lit = Mesh()
+            bevel_box(bs / 2, bs / 2, 0.008, 0.0, mesh=lit, offset=Vec3(bx, by, 0.008))
+            for i in range(3):  # three arrow bars across the pad
+                bevel_box(bs * 0.3, 0.07, 0.006, 0.0, mesh=lit, offset=Vec3(bx, by + (i - 1) * 0.42, 0.022))
+            if not no_cage:
+                bevel_box(0.03, 0.55, 0.3, 0.02, mesh=lit, offset=Vec3(h - 0.04, by, 0.75))
+            self.boost_light = part(self.boost, lit, None, (0.02, 0.05, 0.02), 0.5, 0, emission=(0.2, 0.9, 0.3))
         self.spikes = None
         # a bank of spikes that shoots out of the wall and back in (rests inside the wall when off; with the
         # No cage user mod there's no wall, so no spikes)
@@ -432,6 +508,13 @@ class ArenaVisual:
                 m.setEmission((pulse * 1.6, pulse * 0.12, pulse * 0.04, 1))
             else:
                 m.setEmission((0.05, 0.3, 0.08, 1))  # closed: a calm green
+        if self.boost is not None:  # the boost button user mod: green (pulsing) while it works, dim red while it rests
+            glow = 0.9 + 0.35 * math.sin(t * 5)
+            self.boost_light.getMaterial().setEmission((0.25 * glow, glow, 0.35 * glow, 1) if hz.get("boost", 1)
+                                                       else (0.45, 0.06, 0.04, 1))
+        for node, phase in self.flames:  # the Flame pit user mod: from the pit's floor to the flames' height above it
+            flicker = 0.88 + 0.12 * math.sin(t * 11 + phase) * math.sin(t * 6.3 + phase * 2)
+            node.setSz(max(0.01, (sim.Arena.FLAME_PIT_DEPTH + hz.get("flames", 0.0)) * flicker))
 
     def set_score(self, text):
         self.scoreboard.setText(text)
@@ -491,19 +574,23 @@ class RobotVisual:
         size = sim.design_size(design)
         model = design.get("model") if design.get("model") in sim.HOUSE_BY_NAME else None
         weapon = sim.HOUSE_BY_NAME[model][0] if model else design["weapon"]
-        sh = sim.shapes(weapon, size)
+        self.house = bool(design.get("house")) or model is not None  # Resident Robot styling and big wheels
+        # A robot outside the standard sizes is drawn as the nearest standard robot, made bigger or smaller all
+        # over (k times), exactly as the physics builds it (sim.shapes).
+        self.k = sim.shapes(weapon, size, self.house)["k"]
+        size = size / self.k
+        sh = sim.shapes(weapon, size, self.house)
         style = design.get("style", {})
         colour = tuple(v / 255 for v in design["colour"])
         trim = tuple(v / 255 for v in style.get("trim", (30, 30, 34)))
         lights = tuple(v / 255 * 6 for v in style.get("lights", (255, 60, 30)))
         self.root = parent.attachNewNode("robot")
         self.chassis = self.root.attachNewNode("chassis")
-        self.house = bool(design.get("house")) or model is not None  # house robot styling and big wheels
         self.weapon_kind = weapon
         self.shape = sh
         self.wheel_r = sim.HOUSE_WHEEL_R if self.house else sim.WHEEL_R
         h = sh["half"]
-        self.front = h.y  # how far the nose is from the middle (for the first person camera)
+        self.front = h.y * self.k  # how far the nose is from the middle (for the first person camera)
         z0, top = sim.CHASSIS_Z, sim.CHASSIS_Z + h.z
         # body: a chunky bevelled hull, a raised armour deck and side skirts
         part(self.chassis, bevel_box(h.x, h.y, h.z, 0.06, tile=1.2), "paint", colour, pos=(0, 0, z0))
@@ -540,7 +627,7 @@ class RobotVisual:
         part(self.chassis, cylinder(0.022, 0.022, seg=10), None, (0, 0, 0), 0.3, 0, emission=lights,
              pos=(-h.x * 0.6, -h.y * 0.7, top + 0.43))
         self.beacon = None
-        if self.house:  # house robots: armour plates, warning stripes, grab handles and a flashing beacon
+        if self.house:  # Resident Robots: armour plates, warning stripes, grab handles and a flashing beacon
             for sx_ in (-1, 1):
                 part(self.chassis, bevel_box(0.03, 0.03, 0.12, 0.01), "steel", (0.3, 0.3, 0.32),
                      pos=(sx_ * h.x * 0.5, -h.y - 0.04, top - 0.05))
@@ -691,10 +778,14 @@ class RobotVisual:
                  (0.8, 0.8, 0.84), rough=1.0, metal=1.0, pos=(0, a.y * 2, -hd.z * 0.6))
             part(self.chassis, cylinder(0.08, h.x * 0.5, axis="x", seg=16), "steel", trim,
                  pos=(0, -0.2 * size, top + 0.1))
+        if self.k != 1.0:  # (built at a standard size above: now the whole robot is made k times bigger)
+            for np_ in [self.chassis, self.weapon] + [w for w, *_ in self.wheels] + ([self.blur] if self.blur else []):
+                np_.setScale(self.k)
+        self.rear = None  # (see update)
         self.tag = None
         self.spin_angle = 0.0
         self.chain_pos = 0.0
-        self.top = top
+        self.top = top * self.k
         # real damage: how healthy each part is (0..1), parts that have come off, bits flying off, the hit bars
         self.health = {}
         self.gone = set()
@@ -735,7 +826,18 @@ class RobotVisual:
         self.chassis.setQuat(Quat(*s["quat"]))
         self.weapon.setPos(*s["wpos"])
         self.weapon.setQuat(Quat(*s["wquat"]))
-        self.spin_angle += s["speed"] / self.wheel_r * dt * 57.3
+        rear = s.get("w2")  # the Flipper on both ends user mod: the back plate is a copy of the front one
+        if rear and self.weapon_kind == "wedge":
+            if self.rear is None:
+                self.rear = self.weapon.copyTo(self.root)
+            self.rear.show()
+            self.rear.setPos(*rear[:3])
+            self.rear.setQuat(Quat(*rear[3:]))
+            self.rear.setH(self.rear, 180)  # (the front plate's shape, pointing backwards)
+            self.rear.setColorScale(self.weapon.getColorScale())
+        elif self.rear is not None:
+            self.rear.hide()
+        self.spin_angle += s["speed"] / (self.wheel_r * self.k) * dt * 57.3
         for i, (w, spin, x, y) in enumerate(self.wheels):
             if f"wheel{i}" in self.gone:
                 continue
@@ -762,7 +864,7 @@ class RobotVisual:
         """Where a flame thrower's flame comes out, and which way it points (world space)."""
         n = self.shape["nozzle"]
         fwd = self.chassis.getQuat().getForward()
-        return self.weapon.getPos() + fwd * (n.y * 2 + 0.05), fwd
+        return self.weapon.getPos() + fwd * (n.y * 2 + 0.05) * self.k, fwd
 
     def flash(self, on):
         d = self.scorch

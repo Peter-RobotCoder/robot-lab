@@ -14,7 +14,7 @@ import json
 import os
 
 from direct.actor.Actor import Actor
-from panda3d.core import Filename, Point3, TextNode
+from panda3d.core import Filename, LColor, Material, Point3, TextNode
 
 import fight_sim as sim
 
@@ -92,18 +92,23 @@ class ModelFighterVisual:
         self.style, weapon = sim.style_of(design)
         self.sets = anim_sets(self.style, weapon)
         self.win = look.get("win", "victory")
-        self.dress(look, design.get("colour"), weapon)
+        self.dress(look, design.get("colour"), weapon, design.get("style") or {})
         self.head = self.actor.exposeJoint(None, "modelRoot", "mixamorig:Head")
         self.chest = self.actor.exposeJoint(None, "modelRoot", "mixamorig:Spine2")
+        if body == "robin":
+            self.number_plate(design)
 
-    def dress(self, look, colour, weapon):
-        """Show the chosen outfit, hairstyle and weapon (hide the rest), and colour the clothes and the hair."""
-        outfit, hair = look["outfit"], look["hair"]
+    def dress(self, look, colour, weapon, style):
+        """Show the chosen outfit, hairstyle and weapon (hide the rest), and colour the clothes and the hair (or
+        Robin's plating, trim and lights)."""
+        outfit, hair = look.get("outfit"), look.get("hair")
         weapons = WEAPON_PIECES.get(weapon, ())
         # the tint multiplies the lighting's linear colours: screen colour -> linear, divided by the grey the
         # main pieces (0.85 on screen) and the hair (about 0.8) already are
         main = tuple(min(2.0, (c / 255) ** 2.2 / 0.7) for c in (colour or (200, 200, 200))) + (1,)
-        hair_tint = tuple(min(2.5, 0.02 + (c / 255) ** 2.2 / 0.6) for c in look["hair_colour"]) + (1,)
+        hair_tint = tuple(min(2.5, 0.02 + (c / 255) ** 2.2 / 0.6) for c in look.get("hair_colour", [70, 40, 25])) + (1,)
+        trim = tuple(min(2.0, (c / 255) ** 2.2 / 0.7) for c in style.get("trim") or sim.ROBIN_STYLE["trim"]) + (1,)
+        lights = LColor(*((c / 255) ** 2.2 * 2.5 for c in style.get("lights") or sim.ROBIN_STYLE["lights"]), 1)
         order = moves_info().get("outfits", [])
         bit = 1 << order.index(outfit) if outfit in order else 0
         for np_ in self.actor.findAllMatches("**/+GeomNode"):
@@ -123,6 +128,14 @@ class ModelFighterVisual:
                 continue
             if ".main_" in name:
                 np_.setColorScale(*main)
+            elif ".trim_" in name:
+                np_.setColorScale(*trim)
+            elif ".light_" in name:  # glows in the light colour: its own copy of the material, with that emission
+                mat = np_.findMaterial("*")
+                if mat is not None:
+                    mat = Material(mat)
+                    mat.setEmission(lights)
+                    np_.setMaterial(mat, 1)
             elif name.startswith("hair."):
                 np_.setColorScale(*hair_tint)
 
@@ -203,6 +216,23 @@ class ModelFighterVisual:
         if hurt != self.flashing:
             self.flashing = hurt
             self.actor.setColorScale((2.6, 2.3, 2.1, 1) if hurt else (1, 1, 1, 1))
+
+    def number_plate(self, design):
+        """Robin's number (or name) on the chest, in the light colour."""
+        text = str((design.get("style") or {}).get("number") or design.get("name", ""))[:8]
+        if not text:
+            return
+        t = TextNode("number")
+        t.setText(text)
+        t.setAlign(TextNode.ACenter)
+        tn = self.chest.attachNewNode(t)
+        tn.setPos(0, -0.145, 0.07)  # (just in front of the chest plate, above the core light)
+        tn.setHpr(180, 0, 0)
+        tn.setScale(0.045)
+        c = (design.get("style") or {}).get("lights") or sim.ROBIN_STYLE["lights"]
+        tn.setColor(*(v / 255 for v in c), 1)
+        tn.setLightOff(1)
+        tn.setShaderOff(1)
 
     # ---------- the name tag ----------
     def show_label(self, on):

@@ -1,6 +1,8 @@
-"""The computer robots' drivers, from Empty to Expert. Each is a brain: given its robot, the other robots and the
+"""The computer robots' drivers, from No brain to Expert. Each is a brain: given its robot, the other robots and the
 arena, it returns (throttle, steer, attack) 60 times a second.
 
+    none    no brain: it sits still. Every game starts like this, so nothing attacks until the teacher chooses
+            a level
     empty   stands still, unless the teacher uploads brains/demo_cpu.py (a brain written like a learner's, for
             coding demos in front of the class)
     easy    slow to react (it decides about once a second), wobbly aim, fires wildly, knows nothing about hazards
@@ -14,7 +16,8 @@ import math
 
 import lab_sim as sim
 
-LEVELS = {"empty": "Empty", "easy": "Easy", "medium": "Medium", "expert": "Expert"}
+LEVELS = {"none": "No brain", "empty": "Empty", "easy": "Easy", "medium": "Medium", "expert": "Expert"}
+START_LEVEL = "none"  # every game starts with the computer robots still: the teacher switches their brains on
 FLANK = False  # (tested: circling round made expert wedges and hammers worse, so it's off)
 USE = {"spin_wait": True, "retreat": True, "avoid": True, "pit_escape": True, "side_aim": True, "herd": True}
 
@@ -63,7 +66,7 @@ def dangers(me, arena):
         wx, y0, y1 = arena.SPIKES
         out.append((wx, (y0 + y1) / 2, 1.8))
     h = sim.ARENA / 2
-    for r in arena.robots:  # the house robots' corners
+    for r in arena.robots:  # the Resident Robots' corners
         if r.house:
             out.append((r.corner[0] * h, r.corner[1] * h, sim.CPZ * 1.3))
     return out
@@ -159,13 +162,23 @@ def expert_brain(me, enemies, arena):
     return throttle, steer, attack
 
 
+def armed(brain):
+    """Every robot starts with its weapon off. A computer robot with a weapon that toggles (a spinner, drum or
+    disc) switches it on as soon as it has someone to fight, and off again when it hasn't."""
+    def drive(me, enemies, arena):
+        throttle, steer, attack = brain(me, enemies, arena)
+        return throttle, steer, (bool(enemies) if me.weapon in sim.TOGGLE_WEAPONS else attack)
+    drive.__name__ = brain.__name__
+    return drive
+
+
 # reaction times (tested in headless leagues): medium decides every 0.45 s, easy every 0.8 s, expert every tick
-BRAINS = {"empty": empty_brain, "easy": slow(easy_brain, 0.8), "medium": slow(medium_brain, 0.45),
-          "expert": expert_brain}
+BRAINS = {"none": empty_brain, "empty": empty_brain, "easy": armed(slow(easy_brain, 0.8)),
+          "medium": armed(slow(medium_brain, 0.45)), "expert": armed(expert_brain)}
 
 
 def for_level(level, demo=None):
     """The brain for a computer robot at this level (demo: the teacher's uploaded demo brain, for "empty")."""
     if level == "empty":
         return demo or empty_brain
-    return BRAINS.get(level, medium_brain)
+    return BRAINS.get(level, empty_brain)

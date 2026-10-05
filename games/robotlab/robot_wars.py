@@ -3,7 +3,7 @@
 The robots, arena and rules come from the mods folder (mods/robots, mods/arena.py, mods/rules.py),
 so learners' AI requests can change them.
 
-Drive:   Arrow keys   Space fire the flipper / hammer   F weapon on/off
+Drive:   Arrow keys   Space is the weapon key: it fires a flipper or hammer, and switches a spinner or drum on and off
 Camera:  C or V change view (third person, first person, zoomed arena follow, full arena)
          mouse wheel or + / - zoom in and out (every view)
 Other:   R rematch   P pause   M music (8-bit, rock, your own, off)   H hide help   Esc quit
@@ -25,7 +25,7 @@ ap.add_argument("--level", choices=["empty", "easy", "medium", "expert"], defaul
                 help="how well the computer drives")
 ap.add_argument("--music", choices=["off", "chip", "rock", "yours"], default="rock",
                 help="background music (M changes it): 8-bit, rock, or your own files in the music folder")
-ap.add_argument("--camera", choices=["third", "fpv", "zoom", "arena"], default="third")
+ap.add_argument("--camera", choices=["third", "fpv", "zoom", "arena", "centre"], default="third")
 ap.add_argument("--autoplay", action="store_true", help="the computer drives your robot too (demo)")
 ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=12)
@@ -72,7 +72,6 @@ class RobotWars(ShowBase):
             self.accept(key, self.cam.wheel, [factor])
         self.accept("c", self.cam.cycle)
         self.accept("v", self.cam.cycle)
-        self.accept("f", self.toggle_weapon)
         self.accept("r", self.rematch)
         self.accept("p", self.toggle_pause)
         self.accept("h", self.toggle_help)
@@ -93,10 +92,10 @@ class RobotWars(ShowBase):
         self.player = self.arena.add_robot(self.designs[0], brain=None, owner="YOU", start=3)
         self.cpu = self.arena.add_robot(self.designs[1], brain=None, owner="CPU", start=5)
         self.vis = {}
-        for r in self.arena.robots:  # the two fighters and any house robots
+        for r in self.arena.robots:  # the two fighters and any Resident Robots
             self.vis[r.id] = rw_gfx.RobotVisual(self.render, r.design)
             if r.house:
-                self.vis[r.id].set_label(f"{r.name}\nHouse robot", (1, 0.75, 0.3, 1))
+                self.vis[r.id].set_label(f"{r.name}\nResident Robot", (1, 0.75, 0.3, 1))
         self.visuals = [self.vis[self.player.id], self.vis[self.cpu.id]]
         self.last_hp = [r.health for r in (self.player, self.cpu)]
         self.flash = [0.0, 0.0]
@@ -115,7 +114,7 @@ class RobotWars(ShowBase):
 
     def activate(self):
         self.cpu.brain = cpu_brains.for_level(args.level)
-        self.player.brain = cpu_brains.expert_brain if args.autoplay else None
+        self.player.brain = cpu_brains.for_level("expert") if args.autoplay else None
         self.stage, self.stage_time = "fight", 0.0
 
     def rematch(self):
@@ -124,9 +123,6 @@ class RobotWars(ShowBase):
 
     def toggle_pause(self):
         self.paused = not self.paused
-
-    def toggle_weapon(self):
-        self.player.weapon_on = not self.player.weapon_on
 
     def next_music(self):
         order = list(rw_sound.MUSIC)
@@ -157,7 +153,7 @@ class RobotWars(ShowBase):
         self.small = OnscreenText("", pos=(0, -0.05), scale=0.06, fg=WHITE, shadow=(0, 0, 0, 0.9), mayChange=True)
         self.ticker = OnscreenText("", pos=(0, -0.86), scale=0.045, fg=YELLOW, shadow=(0, 0, 0, 0.9), mayChange=True)
         self.cam_text = OnscreenText("", pos=(1.74, -0.95), scale=0.03, fg=GREY, align=TextNode.ARight, mayChange=True)
-        self.help = OnscreenText("Arrows drive   Space fire   F weapon on/off   C view   wheel or +/- zoom   R rematch   "
+        self.help = OnscreenText("Arrows drive   Space weapon (fire, or on/off)   C view   wheel or +/- zoom   R rematch   "
                                  "P pause   H hide", pos=(-1.74, -0.95), scale=0.03, fg=GREY, align=TextNode.ALeft)
 
     def update_hud(self, now):
@@ -166,7 +162,7 @@ class RobotWars(ShowBase):
             name.setText(("YOU  " if i == 0 else "CPU  ") + r.name)
             name.setFg(tuple(c / 255 for c in r.design["colour"]) + (1,))
             sub.setText({"wedge": "Wedge with flipper", "spinner": "Horizontal spinner", "drum": "Drum spinner",
-                         "hammer": "Hammer"}[r.weapon] + ("   (weapon OFF)" if not r.weapon_on else ""))
+                         "hammer": "Hammer"}[r.weapon] + ("   (weapon OFF: Space)" if r.weapon in sim.TOGGLE_WEAPONS and not r.weapon_on else ""))
             pct = max(0.0, r.health) / r.stats["armour"]
             armour["frameSize"] = (0, 0.82 * pct, 0, 0.035)
             armour["frameColor"] = GREEN if pct > 0.5 else (YELLOW if pct > 0.25 else RED)
@@ -219,7 +215,7 @@ class RobotWars(ShowBase):
         self.stage_time += dt
         t = self.stage_time
         self.accum += dt
-        while self.accum >= sim.STEP:  # robots settle and spinners spin up during the intro
+        while self.accum >= sim.STEP:  # robots settle during the intro (every weapon starts off)
             self.arena.step()
             self.accum -= sim.STEP
         if t < 2.5:
@@ -248,9 +244,9 @@ class RobotWars(ShowBase):
                 self.player.control = (0.0, 0.0, False)
             return
         down = self.mouseWatcherNode.is_button_down
-        self.player.control = ((down(KeyboardButton.up()) - down(KeyboardButton.down())) * 1.0,
-                               (down(KeyboardButton.left()) - down(KeyboardButton.right())) * 1.0,
-                               bool(down(KeyboardButton.space())))
+        self.player.drive((down(KeyboardButton.up()) - down(KeyboardButton.down())) * 1.0,
+                          (down(KeyboardButton.left()) - down(KeyboardButton.right())) * 1.0,
+                          bool(down(KeyboardButton.space())))
 
     def check_end(self):
         if self.stage_time < 1.2:
@@ -288,7 +284,7 @@ class RobotWars(ShowBase):
             damage = 1 - max(0.0, r.health) / r.stats["armour"]
             if damage > 0.55 and not r.pos.z < -1:
                 self.fx.smoke(tuple(r.pos), (damage - 0.55) / 0.45 + (1.0 if r.knocked_out else 0))
-        for r in a.robots:  # house robots move too
+        for r in a.robots:  # Resident Robots move too
             if r.house:
                 self.vis[r.id].update({"pos": list(r.pos), "quat": list(r.np.getQuat()), "wpos": list(r.weapon_np.getPos()),
                                        "wquat": list(r.weapon_np.getQuat()), "speed": r.speed, "rpm": r.weapon_rpm,

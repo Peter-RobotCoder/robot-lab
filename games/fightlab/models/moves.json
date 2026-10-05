@@ -60,13 +60,13 @@
    "frames": 46,
    "play": "attack",
    "set": "",
-   "peak": 16
+   "peak": 18
   },
   "kick": {
    "frames": 37,
    "play": "attack",
    "set": "",
-   "peak": 7
+   "peak": 18
   },
   "low": {
    "frames": 42,
@@ -78,7 +78,7 @@
    "frames": 48,
    "play": "attack",
    "set": "",
-   "peak": 26
+   "peak": 32
   },
   "jump_kick": {
    "frames": 26,
@@ -90,13 +90,13 @@
    "frames": 32,
    "play": "attack",
    "set": "",
-   "peak": 22
+   "peak": 12
   },
   "blast": {
    "frames": 90,
    "play": "attack",
    "set": "",
-   "peak": 39
+   "peak": 40
   },
   "uppercut": {
    "frames": 31,
@@ -108,13 +108,13 @@
    "frames": 107,
    "play": "attack",
    "set": "",
-   "peak": 21
+   "peak": 20
   },
   "slam": {
    "frames": 71,
    "play": "attack",
    "set": "",
-   "peak": 22
+   "peak": 23
   },
   "jump": {
    "frames": 30,
@@ -250,19 +250,19 @@
    "frames": 46,
    "play": "attack",
    "set": "boxer",
-   "peak": 12
+   "peak": 11
   },
   "boxer.kick": {
    "frames": 40,
    "play": "attack",
    "set": "boxer",
-   "peak": 12
+   "peak": 39
   },
   "boxer.low": {
    "frames": 40,
    "play": "attack",
    "set": "boxer",
-   "peak": 12
+   "peak": 39
   },
   "boxer.high": {
    "frames": 41,
@@ -274,7 +274,7 @@
    "frames": 46,
    "play": "attack",
    "set": "kickboxer",
-   "peak": 12
+   "peak": 11
   },
   "kickboxer.kick": {
    "frames": 66,
@@ -286,7 +286,7 @@
    "frames": 71,
    "play": "attack",
    "set": "kickboxer",
-   "peak": 20
+   "peak": 21
   },
   "kickboxer.high": {
    "frames": 40,
@@ -316,7 +316,7 @@
    "frames": 71,
    "play": "attack",
    "set": "knives",
-   "peak": 17
+   "peak": 10
   },
   "capoeira.idle": {
    "frames": 104,
@@ -468,7 +468,7 @@
    "frames": 91,
    "play": "attack",
    "set": "staff",
-   "peak": 30
+   "peak": 29
   },
   "staff.high": {
    "frames": 52,

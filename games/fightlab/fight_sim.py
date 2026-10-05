@@ -55,9 +55,12 @@ SETTINGS = {  # name: (lowest, highest, default, what it means)
 BODIES = {"robot": "a fighting robot: metal armour and glowing eyes",
           "human": "a martial artist: quick hands and a headband",
           "woman": "a detailed 3D woman (Penthesilea's model): choose her outfit, hair, shape and height",
-          "man": "a detailed 3D man (Achilles' model): choose his outfit, hair, shape and height"}
+          "man": "a detailed 3D man (Achilles' model): choose his outfit, hair, shape and height",
+          "robin": "Robin, a detailed 3D robot: metal plating in your colour, with trim and light colours"}
 # how the detailed 3D bodies look (it changes nothing about how they fight): the design's "look" dictionary
-MODEL_BODIES = ("woman", "man")
+MODEL_BODIES = ("woman", "man", "robin")
+HUMAN_BODIES = ("woman", "man")  # (the detailed bodies with outfits and hair; Robin has plating)
+ROBIN_STYLE = {"trim": [140, 145, 155], "lights": [255, 90, 25]}  # Robin's trim and lights unless the design says
 OUTFITS = {
     "hoplite": "Greek hoplite: bronze armour over a tunic, with leather strips and sandals",
     "greek": "light Greek warrior: a short tunic, bracers and sandals",
@@ -75,6 +78,8 @@ HEIGHT_MIN, HEIGHT_MAX = 90, 110  # percent: taller or shorter to look at (the s
 
 
 def default_look(body):
+    if body not in HUMAN_BODIES:  # Robin: a frame and a height, no clothes or hair
+        return {"shape": "athletic", "height": 100, "win": "victory"}
     return {"outfit": "hoplite", "hair": HAIR_STYLES.get(body, ["short"])[0], "hair_colour": [70, 40, 25],
             "shape": "athletic", "height": 100, "win": "victory"}
 
@@ -84,14 +89,15 @@ def check_look(body, look):
     if not isinstance(look, dict):
         return ["look must be a dictionary"]
     problems = []
-    if look.get("outfit") not in OUTFITS:
-        problems.append(f"look outfit must be one of {', '.join(OUTFITS)}")
-    if look.get("hair") not in HAIR_STYLES.get(body, []):
-        problems.append(f"look hair must be one of {', '.join(HAIR_STYLES.get(body, []))}")
-    c = look.get("hair_colour")
-    if not (isinstance(c, list) and len(c) == 3 and all(isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255
-                                                        for v in c)):
-        problems.append("look hair_colour must be three whole numbers from 0 to 255")
+    if body in HUMAN_BODIES:
+        if look.get("outfit") not in OUTFITS:
+            problems.append(f"look outfit must be one of {', '.join(OUTFITS)}")
+        if look.get("hair") not in HAIR_STYLES.get(body, []):
+            problems.append(f"look hair must be one of {', '.join(HAIR_STYLES.get(body, []))}")
+        c = look.get("hair_colour")
+        if not (isinstance(c, list) and len(c) == 3 and all(isinstance(v, int) and not isinstance(v, bool)
+                                                            and 0 <= v <= 255 for v in c)):
+            problems.append("look hair_colour must be three whole numbers from 0 to 255")
     if look.get("shape") not in SHAPES:
         problems.append(f"look shape must be one of {', '.join(SHAPES)}")
     h = look.get("height")
@@ -196,6 +202,8 @@ def default_design(name="Fighter", colour=(200, 120, 40), special="blast", body=
          "combo": ["punch", "punch", "kick"], "fighting_style": "kickboxer"}
     if body in MODEL_BODIES:
         d["look"] = default_look(body)
+    if body == "robin":
+        d["style"] = {k: list(v) for k, v in ROBIN_STYLE.items()}
     return d
 
 

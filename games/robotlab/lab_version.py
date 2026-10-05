@@ -19,7 +19,7 @@ import os
 import sys
 import urllib.request
 
-VERSION = "1.4.2"  # the Club Coders app's version (stamped by make_public_repo.py)
+VERSION = "1.5.0"  # the Club Coders app's version (stamped by make_public_repo.py)
 GITHUB_REPO = "Peter-RobotCoder/robot-lab"  # (stamped: the Club Coders releases page)
 DOWNLOAD_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 LOCAL_SERVER = "ws://127.0.0.1:8780"

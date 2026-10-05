@@ -140,9 +140,10 @@ class Teaching:
             self.complete(p.name, "1a", "Changed " + ", ".join(f"{k} to {new['settings'][k]}%" for k in changed))
         if new["name"] != p.name and new["colour"] != p.start_colour and r.code_viewed:
             self.complete(p.name, "1c", f"Name '{new['name']}' (text), colour {new['colour']} (list)")
-        if sum(new["points"].values()) == sim.POINTS_TOTAL:
+        limits = self.server.lesson["limits"]  # (the points to share and each point's range are the teacher's)
+        if sum(new["points"].values()) == limits["points_total"]:
             self.complete(p.name, "2a", "Points " + ", ".join(f"{k} {v}" for k, v in new["points"].items()))
-        edge = [k for k, v in new["points"].items() if v in (sim.STAT_MIN, sim.STAT_MAX)]
+        edge = [k for k, v in new["points"].items() if v in limits["points"][k]]
         if edge:
             self.complete(p.name, "2c", "Boundary value accepted: " + ", ".join(f"{k} = {new['points'][k]}" for k in edge))
 
@@ -329,10 +330,12 @@ class Teaching:
     # ---------- what each screen is sent ----------
     def missions_msg(self, p):
         r = self.record(p.name)
-        missions = [{"id": k, "title": v[1], "text": v[2], "outcomes": v[3], "check": v[4],
+        words = lambda text: lm.points_words(text, self.server.lesson["limits"])  # noqa: E731
+        missions = [{"id": k, "title": words(v[1]), "text": words(v[2]), "outcomes": v[3], "check": v[4],
                      "done": k in r.done, "detail": r.done.get(k, {}).get("detail", "")}
                     for k, v in lm.missions_for(self.lesson_number).items()]
-        return {"type": "missions", "lesson": self.lesson_number, "title": lm.LESSONS[self.lesson_number]["title"],
+        return {"type": "missions", "lesson": self.lesson_number,
+                "title": words(lm.LESSONS[self.lesson_number]["title"]),
                 "missions": missions, "prediction": r.prediction, "top_speed": round(r.top_speed, 1),
                 "text": r.text, "brain": bool(r.brain), "autopilot": r.autopilot,
                 "brain_error": r.brain.error if r.brain else None,
@@ -487,8 +490,9 @@ class Teaching:
     def save(self):
         data = {"learners": {n: {"done": r.done, "text": r.text} for n, r in self.records.items()},
                 "cards": self.cards}
-        with open(self.evidence_file, "w") as f:
-            json.dump(data, f, indent=2)
+        with open(self.evidence_file + ".tmp", "w") as f:  # (written whole, then swapped in: a server stopped
+            json.dump(data, f, indent=2)                    # part-way through can't leave half a file behind)
+        os.replace(self.evidence_file + ".tmp", self.evidence_file)
         for name in self.profiles:
             self.save_profile(name)
 

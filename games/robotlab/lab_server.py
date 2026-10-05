@@ -18,6 +18,7 @@ Two ways to run it:
 import argparse
 import asyncio
 import copy
+import datetime
 import hmac
 import ipaddress
 import json
@@ -27,6 +28,7 @@ import time
 
 import websockets
 
+import ai_pipeline
 import cpu_brains
 import lab_brain
 import club_ticket
@@ -58,8 +60,45 @@ def read_live():
         return live if isinstance(live, dict) and live.get("id") else None
     except (OSError, ValueError, TypeError):
         return None
+
+
+DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def desk_json(name, default):
+    """One of the club desk's own files (next to its live session's file): its groups, its learners."""
+    try:
+        with open(os.path.join(os.path.dirname(LIVE_FILE), name), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError, TypeError):
+        return default
+
+
+def next_group(groups, live_group=None, now=None):
+    """The group whose proposed time (a day and a time each week, "Tuesday 16:00") comes next after now, leaving
+    out the one that is live: (its name, its group) or (None, None). Only this game's groups count."""
+    now = now or datetime.datetime.now()
+    best = (None, None, None)
+    for name, g in (groups or {}).items():
+        when = str((g or {}).get("time") or "").lower().split()
+        if name == live_group or g.get("game") != GAME_ID or len(when) != 2 or when[0] not in DAYS:
+            continue
+        try:
+            hour, minute = (int(v) for v in when[1].split(":"))
+        except ValueError:
+            continue
+        days = (DAYS.index(when[0]) - now.weekday()) % 7
+        start = now.replace(hour=hour % 24, minute=minute % 60, second=0, microsecond=0) + datetime.timedelta(days=days)
+        if start <= now:
+            start += datetime.timedelta(days=7)
+        if best[0] is None or start < best[0]:
+            best = (start, name, g)
+    return best[1], best[2]
+
+
 BRAIN_UPLOAD_GAP = 3.0                   # seconds between one learner's brain uploads
 MAX_LEARNERS = 4
+INTRO_SECONDS = 8.0  # the countdown before a battle: the arena's name, who is fighting, then 3, 2, 1, ACTIVATE!
 SEND_RATE = 1 / 20
 HERE = os.path.dirname(os.path.abspath(__file__))
 COLOURS = [(220, 60, 50), (60, 130, 230), (60, 190, 90), (240, 190, 40), (180, 90, 230)]
@@ -70,24 +109,49 @@ WEEK1_LESSON = {
     "mode": "practice",            # practice = no damage, robots come back; battle = real fight
     "time_limit": 120,             # seconds per battle
     "cpu_robots": 1,               # computer-driven sparring robots
-    "cpu_level": "medium",         # how well they drive: empty (the teacher's demo brain), easy, medium, expert
+    "cpu_level": cpu_brains.START_LEVEL,  # their brains: none (still, as every game starts), empty (the teacher's
+                                   # demo brain), easy, medium, expert
     "teacher_robot": True,
     "designs_locked": False,       # stop design changes (e.g. during a battle)
     "real_damage": False,          # each part (wheels, weapon, armour, body) has hit points and comes off at zero
     "user_mods": {},               # features learners asked for (lab_sim.USER_MODS): the teacher switches them on
+    "flame_pit_cm": sim.FLAME_PIT_CM,  # the Flame pit user mod: how high its flames stand with nobody in (cm)
     "hazards": {"pit": True, "floor_flipper": False, "saws": False, "spikes": False, "house_robots": []},
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd, arena hum and hit sounds
+    "limits": sim.default_limits(),  # the learners' ranges for every setting and point (the teacher's Limits tab)
+    "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
     "tools": {                     # the learner's garage: what is shown and changeable
         "points_table": True,
         "forward_speed": True, "reverse_speed": True, "turn_speed": True, "acceleration": True, "size": True,
         "choose_weapon": False, "weapons": ["wedge", "spinner", "drum", "hammer"],
         "name_and_colour": True, "code_view": True, "stats_readout": True, "weapon_toggle": True,
-        "house_robots": False,     # learners may drive a house robot
+        "house_robots": False,     # learners may drive a Resident Robot
     },
 }
 
 
 HAZARD_WORDS = {"pit": "Drop zone", "floor_flipper": "Floor flipper", "saws": "Floor saws", "spikes": "Wall spikes"}
+ARENA_ITEMS = tuple(HAZARD_WORDS) + tuple(sim.HOUSE_BY_NAME)  # what learners can vote for: hazards, Resident Robots
+SOUND_FILE = os.path.join(lab_teaching.DATA, "sound_saved.json")  # the teacher's sound settings, kept between sessions
+
+
+LIMITS_FILE = os.path.join(lab_teaching.DATA, "limits_saved.json")  # ...and the learners' ranges, kept the same way
+CARD_NOTE_FILE = os.path.join(lab_teaching.DATA, "card_note_saved.json")  # ...and the teacher's words on the AI card
+CPU_FILE = os.path.join(lab_teaching.DATA, "computer_robot.json")  # ...and the first computer robot, as the teacher set it up
+CPU_NAME = "Computer robot"  # the first computer robot's name in the teacher's Learner view (its robot is Sparky 1)
+
+
+def load_saved(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            saved = json.load(f)
+        return saved if isinstance(saved, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def load_sound():
+    return load_saved(SOUND_FILE)
 
 
 class Player:
@@ -97,6 +161,7 @@ class Player:
                                          "wedge" if role == "learner" else "spinner")
         self.robot = None
         self.start_colour = list(colour)
+        self.default = copy.deepcopy(self.design)  # the starting robot (the code panel's RESET CODE goes back to it)
         self.profile = None
 
 
@@ -106,10 +171,35 @@ class LabServer:
         if lesson_file and os.path.exists(lesson_file):
             with open(lesson_file) as f:
                 self.lesson.update(json.load(f))
+        self.lesson["cpu_level"] = cpu_brains.START_LEVEL  # (every start: nothing attacks until the teacher says)
+        self.lesson["sound"] = rw_sound.sound_settings(self.lesson.get("sound"), load_sound())  # as last set
+        self.lesson["limits"] = sim.clean_limits(load_saved(LIMITS_FILE), sim.clean_limits(self.lesson.get("limits")))
+        self.lesson["ai_card_note"] = str(load_saved(CARD_NOTE_FILE).get("note", ""))[:300]
+        self.intro_started = None  # the countdown before a battle is running since this moment (time.monotonic)
         self.players = {}        # websocket -> Player
         self.teacher_design = sim.default_design("Teacher Bot", (180, 90, 230), "spinner")
         self.paused, self.fight_started = False, 0.0
         self.roster_version = 0
+        self.mod_makers = ai_pipeline.user_mod_makers()  # who made each user mod: their name goes in front of it
+        self.mod_votes = {}      # user mod -> the learners who'd like it switched on (this session)
+        self.arena_votes = {}    # the same for the arena's hazards and Resident Robots (see ARENA_ITEMS)
+        self.group = []          # the launched group's learners (from the club desk), here yet or not
+        self.warnings = []       # for the teacher: learners who changed, in the code, something outside the lesson
+        self.session = {"desk": bool(LIVE_FILE)}  # for the teacher's Accounts tab: who is in this session, and the next
+        # The first computer robot is the teacher's to set up, as a learner sets up theirs (the Learner view): its
+        # design and its own brain are kept between sessions. Its autopilot is off at every start: until the teacher
+        # switches it on, the robot follows Computer brains in Controls like the others (so it starts still).
+        self.cpu = Player(None, "computer", CPU_NAME, (150, 150, 160))
+        self.cpu.design = sim.default_design("Sparky 1", (150, 150, 160), "wedge")  # (the computer robot as it comes)
+        self.cpu.default = copy.deepcopy(self.cpu.design)
+        self.cpu_source, self.cpu_own_brain, self.cpu_autopilot = "", None, False
+        saved = load_saved(CPU_FILE)
+        if isinstance(saved.get("design"), dict) and not sim.check_design(saved["design"], sim.full_limits()) \
+                and rw_mods.colour_ok(saved["design"].get("colour")):
+            self.cpu.design = saved["design"]
+        if saved.get("brain"):
+            self.cpu_source = str(saved["brain"])[:20000]
+            self.cpu_own_brain = self.make_demo_brain(self.cpu_source)[0]
         self.arena = None
         self.look = {}
         try:  # the mod rules and arena look (hazards come from the lesson)
@@ -128,11 +218,18 @@ class LabServer:
         self.rebuild_arena()
 
     # ---------- the arena and who is in it ----------
-    def rebuild_arena(self):
-        """New arena (hazards may have changed), then put everyone's robot back in."""
+    def rebuild_arena(self, intro=False):
+        """New arena (hazards may have changed), then put everyone's robot back in.
+        intro: a new battle is starting, so it opens with the countdown (robots can't move or fire until it ends)."""
         self.arena = sim.Arena(hazards=self.lesson["hazards"], user_mods=self.lesson.get("user_mods"))
         self.arena.practice = self.lesson["mode"] == "practice"
+        if self.arena.practice:
+            self.intro_started = None
+        elif intro:
+            self.intro_started = time.monotonic()
+        self.arena.frozen = self.intro_started is not None
         self.arena.real_damage = bool(self.lesson.get("real_damage"))
+        self.arena.flame_pit_cm = self.lesson.get("flame_pit_cm", sim.FLAME_PIT_CM)
         start = 0
         for p in self.learners():
             p.robot = self.arena.add_robot(p.design, brain=None, owner=p.name, start=start)
@@ -140,25 +237,123 @@ class LabServer:
             start += 1
         t = self.teacher()
         if self.lesson["teacher_robot"]:
-            owner = t.name if t else "Teacher (away)"
-            r = self.arena.add_robot(t.design if t else self.teacher_design, brain=None if t else sim.chase_brain,
+            owner = t.name if t else "Teacher (away)"  # (away: the computer drives it, like its own robots)
+            r = self.arena.add_robot(t.design if t else self.teacher_design, brain=None if t else self.cpu_brain(),
                                      owner=owner, start=start)
             if t:
                 t.robot = r
             start += 1
         elif t:
             t.robot = None
+        self.cpu.robot = None
         for i in range(self.lesson["cpu_robots"]):
             if start < len(sim.Arena.STARTS):
-                cpu = sim.default_design(f"Sparky {i + 1}", (150, 150, 160), ["wedge", "spinner", "drum", "hammer"][i % 4])
-                self.arena.add_robot(cpu, brain=self.cpu_brain(), owner="Computer", start=start)
+                if i == 0:  # (the one the teacher sets up in the Learner view)
+                    self.cpu.robot = self.arena.add_robot(self.cpu.design, brain=self.cpu_robot_brain(),
+                                                          owner="Computer", start=start)
+                else:
+                    cpu = sim.default_design(f"Sparky {i + 1}", (150, 150, 160),
+                                             ["wedge", "spinner", "drum", "hammer"][i % 4])
+                    self.arena.add_robot(cpu, brain=self.cpu_brain(), owner="Computer", start=start)
                 start += 1
         self.fight_started = self.arena.time
         self.roster_version += 1
-        self.arena.events.append((self.arena.time, "Practice: no damage" if self.arena.practice else "FIGHT!"))
+        if not self.arena.frozen:
+            self.arena.events.append((self.arena.time, "Practice: no damage" if self.arena.practice else "FIGHT!"))
+
+    def end_intro(self):
+        """The countdown is over: ACTIVATE! The robots can move and fire, and the battle's clock starts."""
+        self.intro_started, self.arena.frozen = None, False
+        self.fight_started = self.arena.time
+        self.arena.events.append((self.arena.time, "ACTIVATE!"))
 
     def cpu_brain(self):
-        return cpu_brains.for_level(self.lesson.get("cpu_level", "medium"), self.demo_brain)
+        return cpu_brains.for_level(self.lesson.get("cpu_level", cpu_brains.START_LEVEL), self.demo_brain)
+
+    def cpu_robot_brain(self):
+        """What drives the first computer robot: its own brain while its autopilot is on, or the level's brain."""
+        return self.cpu_own_brain if (self.cpu_own_brain and self.cpu_autopilot) else self.cpu_brain()
+
+    def attach_cpu(self):
+        if self.arena is not None and self.cpu.robot is not None and self.cpu.robot in self.arena.robots:
+            self.cpu.robot.brain = self.cpu_robot_brain()
+
+    def save_cpu(self):
+        try:
+            if self.cpu.design == self.cpu.default and not self.cpu_source:
+                if os.path.exists(CPU_FILE):
+                    os.remove(CPU_FILE)  # (as it comes: nothing to keep)
+                return
+            with open(CPU_FILE + ".tmp", "w", encoding="utf-8") as f:
+                json.dump({"design": self.cpu.design, "brain": self.cpu_source}, f)
+            os.replace(CPU_FILE + ".tmp", CPU_FILE)
+        except OSError:
+            pass
+
+    def rebuild_cpu_robot(self):
+        """The first computer robot has a new design: it is built again on its start square."""
+        r = self.cpu.robot
+        if r is not None and r in self.arena.robots:
+            start = r.start_index
+            self.arena.remove_robot(r)
+            self.cpu.robot = self.arena.add_robot(self.cpu.design, brain=self.cpu_robot_brain(), owner="Computer",
+                                                  start=start)
+            self.roster_version += 1
+
+    async def cpu_robot_command(self, m):
+        """The teacher sets up the first computer robot (the Learner view): its design, its own brain, its
+        autopilot, or Reset (back to the computer robot as it comes: Sparky 1, with no brain of its own)."""
+        t = self.teacher()
+        text = None
+        if "design" in m:
+            d = m["design"] if isinstance(m["design"], dict) else {}
+            new = copy.deepcopy(self.cpu.design)
+            new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", new["name"])))[:16] or new["name"]
+            for key in ("colour", "weapon", "points", "settings"):
+                if key in d:
+                    new[key] = d[key]
+            if d.get("model") in sim.HOUSE_BY_NAME:
+                new["model"], new["weapon"] = d["model"], sim.HOUSE_BY_NAME[d["model"]][0]
+            else:
+                new.pop("model", None)
+            problems = sim.check_design(new, self.lesson["limits"])
+            if not rw_mods.colour_ok(new.get("colour")):
+                problems.append("colour must be three whole numbers from 0 to 255")
+            if problems:
+                text = "Not built: " + "; ".join(problems)
+            else:
+                self.cpu.design = new
+                self.rebuild_cpu_robot()
+                text = f"Built {new['name']} for the computer"
+                self.arena.events.append((self.arena.time, "The teacher rebuilt the computer's robot"))
+        elif m.get("reset"):
+            old, self.cpu_own_brain = self.cpu_own_brain, None
+            if old is not None:
+                old.close()
+            self.cpu.design, self.cpu_source, self.cpu_autopilot = copy.deepcopy(self.cpu.default), "", False
+            self.rebuild_cpu_robot()
+            text = "The computer's robot is back as it comes: Sparky 1, with no brain of its own"
+        elif "brain" in m:  # (loaded off the game loop: checking a brain can take a moment)
+            source = str(m["brain"])[:20000]
+            brain, problem = await asyncio.to_thread(self.make_demo_brain, source)
+            if brain is None:
+                text = f"Brain problem: {problem}"
+            else:
+                old, self.cpu_own_brain, self.cpu_source = self.cpu_own_brain, brain, source
+                if old is not None:
+                    old.close()
+                text = "Brain uploaded for the computer's robot. Switch its autopilot on to use it."
+        elif "autopilot" in m:
+            self.cpu_autopilot = bool(m["autopilot"]) and self.cpu_own_brain is not None
+        self.attach_cpu()
+        self.save_cpu()
+        if t and text:
+            await self.send(t.ws, {"type": "notice", "text": text})
+        await self.broadcast_lesson()
+
+    def cpu_driven(self):
+        """The robots the computer drives: its own, and the teacher's while the teacher is away."""
+        return [r for r in self.arena.robots if r.owner in ("Computer", "Teacher (away)")]
 
     @staticmethod
     def make_demo_brain(source):
@@ -175,9 +370,9 @@ class LabServer:
         if old is not None and hasattr(old, "close"):
             old.close()
         if self.arena is not None:
-            for r in self.arena.robots:
-                if r.owner == "Computer":
-                    r.brain = self.cpu_brain()
+            for r in self.cpu_driven():
+                r.brain = self.cpu_brain()
+            self.attach_cpu()
 
     def load_demo_brain(self, source):
         """Load and use a demo brain now. Returns a problem, or None if it loaded."""
@@ -197,11 +392,65 @@ class LabServer:
     def teacher(self):
         return next((p for p in self.players.values() if p.role == "teacher"), None)
 
-    def clean_design(self, player, d):
-        """Keep only what this lesson lets learners change; everything else stays as it was."""
+    def limits_for(self, player):
+        """The ranges a design is held to: the learners' (as the teacher has set them), or the widest ones for the
+        teacher's own robot."""
+        return sim.full_limits() if player.role == "teacher" else self.lesson["limits"]
+
+    async def fit_learners(self):
+        """The teacher has changed the limits: a learner's robot outside them is pulled back to the nearest
+        allowed values (and rebuilt, and saved), and the learner is told."""
+        limits = self.lesson["limits"]
+        for p in self.learners():
+            p.default = sim.fit_design(p.default, limits)
+            new = sim.fit_design(p.design, limits)
+            if new is p.design:
+                continue
+            p.design = new
+            if p.robot is not None and p.robot in self.arena.robots:
+                start = p.robot.start_index
+                self.arena.remove_robot(p.robot)
+                p.robot = self.arena.add_robot(new, brain=None, owner=p.name, start=start)
+                self.teaching.attach(p)
+                self.roster_version += 1
+            self.teaching.save_design(p.name, new)
+            await self.send(p.ws, {"type": "design_result", "ok": True, "problems": [], "design": new,
+                                   "by_teacher": True})
+
+    def outside_lesson(self, old, new):
+        """What changed between two of a learner's designs that this lesson's garage doesn't let them change (they
+        did it in the code): [[what, the old value, the new value], ...] for the teacher's Warnings tab."""
+        tools, found = self.lesson["tools"], []
+        if not tools.get("name_and_colour"):
+            found += [[k, old[k], new[k]] for k in ("name", "colour") if old[k] != new[k]]
+        if not tools.get("points_table"):
+            found += [[k, old["points"][k], new["points"][k]] for k in sim.STATS if old["points"][k] != new["points"][k]]
+        found += [[k, old["settings"][k], new["settings"][k]] for k in sim.SETTINGS
+                  if not tools.get(k) and old["settings"][k] != new["settings"][k]]
+        if old.get("model") != new.get("model"):
+            if not tools.get("house_robots"):
+                found.append(["model", old.get("model") or "none", new.get("model") or "none"])
+        elif old["weapon"] != new["weapon"] and not (tools.get("choose_weapon") and new["weapon"] in tools.get("weapons", [])):
+            found.append(["weapon", old["weapon"], new["weapon"]])
+        return found
+
+    async def warn_teacher(self, p=None, changes=None):
+        """Add a warning (a learner got round the lesson in the code) and send the teacher the list. The learner is
+        not told. Warnings last for the session."""
+        if p is not None:
+            self.warnings.append({"who": p.name, "time": time.strftime("%H:%M"), "changes": changes})
+            del self.warnings[:-200]
+        t = self.teacher()
+        if t:
+            await self.send(t.ws, {"type": "warnings", "list": self.warnings})
+
+    def clean_design(self, player, d, everything=False):
+        """Keep only what this lesson lets learners change; everything else stays as it was.
+        everything: the design was sent from the code panel, where a learner can change what the garage hides
+        (the limits still hold, and the teacher is told: see outside_lesson)."""
         tools, old = self.lesson["tools"], player.design
         new = copy.deepcopy(old)
-        if player.role == "teacher":
+        if player.role == "teacher" or everything:
             tools = {k: True for k in tools} | {"weapons": list(sim.WEAPONS)}
         if tools.get("name_and_colour"):
             new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", old["name"])))[:16] or old["name"]
@@ -215,7 +464,7 @@ class LabServer:
                 new["settings"][k] = d["settings"][k]
         if tools.get("choose_weapon") and d.get("weapon") in tools.get("weapons", []):
             new["weapon"] = d["weapon"]
-        if tools.get("house_robots"):  # drive a house robot instead of your own design
+        if tools.get("house_robots"):  # drive a Resident Robot instead of your own design
             if d.get("model") in sim.HOUSE_BY_NAME:
                 new["model"] = d["model"]
             else:
@@ -239,7 +488,9 @@ class LabServer:
             await ws.close(4008, "Too many wrong tries from this computer. Wait a minute, then try again.")
             return
         if CLASS_SERVER and hello.get("version") != lab_version.VERSION:
-            await ws.close(4006, f"Out of date: get Robot Lab {lab_version.VERSION} from {lab_version.DOWNLOAD_PAGE}")
+            # (the window shows this, with a button to the download page. A close reason can be at most 123 bytes)
+            await ws.close(4006, f"Out of date: download Club Coders {lab_version.VERSION} from "
+                                 f"{lab_version.DOWNLOAD_PAGE}"[:120])
             return
         ticket = None
         if hello.get("ticket") and TICKET_KEY:  # from the club desk, which has checked who this is
@@ -298,18 +549,22 @@ class LabServer:
             saved = self.teaching.load_saved_design(name)
             if saved:  # their robot from last time
                 p.design = saved
+            p.design = sim.fit_design(p.design, self.lesson["limits"])  # (inside the limits as they are today)
+            p.default = sim.fit_design(p.default, self.lesson["limits"])
             self.teaching.login(p)  # their missions, reflections, brain and settings from last time
         self.players[ws] = p
         print(f"+ {name} ({role})")
         self.rebuild_arena()
         self.arena.events.append((self.arena.time, f"{name} joined"))
         await self.send(ws, {"type": "welcome", "role": role, "name": name, "lesson": self.lesson,
-                             "design": p.design, "rules": self.rules(),
+                             "design": p.design, "default": p.default, "rules": self.rules(),
                              "prefs": (profile or {}).get("prefs", {}), "new_profile": bool(profile and is_new),
                              "code": lab_version.CODE,
                              "live_ready": getattr(self, "live_ready", None) if role == "teacher" else None})  # (see lab_version)
         await self.broadcast_lesson()
         await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
+        if role == "teacher":
+            await self.warn_teacher()
         try:
             async for raw in ws:
                 await self.on_message(p, json.loads(raw))
@@ -327,6 +582,7 @@ class LabServer:
     def rules(self):
         return {"stats": sim.STATS, "points_total": sim.POINTS_TOTAL, "stat_min": sim.STAT_MIN,
                 "stat_max": sim.STAT_MAX, "settings": sim.SETTINGS, "weapons": sim.WEAPONS,
+                "full": sim.full_limits(),  # the widest ranges: the teacher's own robot, and the Limits tab's sliders
                 "house": {name: w for name, w, _, _ in sim.HOUSE_ROBOTS},
                 "house_weapons": {"flame": "flame thrower: burns what's in front", "hammer": "a huge hammer",
                                   "chainsaw": "chainsaw arm: saws into what's in front",
@@ -341,6 +597,13 @@ class LabServer:
         if kind == "brain" and p.role == "learner":  # loaded in its own process, away from the game loop
             await self.upload_brain(p, str(m.get("source", "")))
             return
+        if kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab
+            votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
+                (self.arena_votes, m.get("item"), ARENA_ITEMS)
+            if isinstance(key, str) and key in known:
+                votes[key] = [n for n in votes.get(key, []) if n != p.name] + ([p.name] if m.get("on") else [])
+                await self.broadcast_lesson()
+            return
         if kind not in ("control", "ping", "design", "weapon", "design_for", "pit", "cpu_brain"):
             replies = self.teaching.on_message(p, m)
             if replies is not None:
@@ -351,11 +614,9 @@ class LabServer:
                     await self.broadcast_lesson()
                     await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
                 return
-        if kind == "control" and p.robot is not None:
-            p.robot.control = (max(-1.0, min(1.0, float(m["throttle"]))), max(-1.0, min(1.0, float(m["steer"]))),
-                               bool(m["fire"]))
-        elif kind == "weapon" and p.robot is not None and (p.role == "teacher" or self.lesson["tools"]["weapon_toggle"]):
-            p.robot.weapon_on = not p.robot.weapon_on
+        if kind == "control" and p.robot is not None:  # (fire is Space, the one weapon key: see Robot.drive)
+            p.robot.drive(max(-1.0, min(1.0, float(m["throttle"]))), max(-1.0, min(1.0, float(m["steer"]))),
+                          bool(m["fire"]), p.role == "teacher" or bool(self.lesson["tools"]["weapon_toggle"]))
         elif kind == "ping":
             await self.send(p.ws, {"type": "pong", "t": m.get("t")})
         elif kind == "design":
@@ -363,8 +624,11 @@ class LabServer:
                 await self.send(p.ws, {"type": "design_result", "ok": False, "problems": ["The teacher has locked designs for now."],
                                        "design": p.design})
                 return
-            new = self.clean_design(p, m.get("design", {}))
-            problems = sim.check_design(new)
+            # from the code panel a learner can change what the garage hides (while the lesson has the Code view)
+            hack = bool(m.get("code")) and p.role == "learner" and bool(self.lesson["tools"].get("code_view"))
+            new = self.clean_design(p, m.get("design", {}), everything=hack)
+            problems = sim.check_design(new, self.limits_for(p))
+            outside = self.outside_lesson(p.design, new) if hack and not problems else []
             if not problems:
                 p.design = new
                 if p.robot is not None and p.robot in self.arena.robots:  # rebuild at the same start square
@@ -382,6 +646,8 @@ class LabServer:
                                                                  if p.role == "learner" else []))
             if not problems:
                 await self.broadcast_lesson()  # the teacher's class list shows the new design
+            if outside:
+                await self.warn_teacher(p, outside)
         elif p.role == "teacher":
             await self.teacher_command(m)
 
@@ -435,12 +701,42 @@ class LabServer:
                 await self.send(t.ws, {"type": "notice", "text": f"Demo brain problem: {problem}" if problem else
                                        "Demo brain uploaded: computer robots set to Empty now run it"})
             return
+        if kind == "mod_makers":  # who made each user mod, from the teacher's laptop (its change history knows)
+            makers = m.get("makers")
+            for key, who in (makers.items() if isinstance(makers, dict) else ()):
+                who = ai_pipeline.maker_name(who)
+                if not (isinstance(key, str) and re.fullmatch(r"[a-z0-9_]{1,40}", key) and who):
+                    continue
+                if self.mod_makers.get(key) == "" and not m.get("new"):
+                    continue  # that learner's data was deleted: only a newly kept or merged change names it again
+                if key in self.mod_makers or len(self.mod_makers) < 500:
+                    self.mod_makers[key] = who
+            ai_pipeline.save_user_mod_makers(self.mod_makers)
+            await self.broadcast_lesson()
+            return
+        if kind == "session_learner":  # the Accounts tab's "In this session" tick: the club desk lets them in or out
+            t, live = self.teacher(), read_live() if LIVE_FILE else None
+            name = lab_profiles.clean_name(str(m.get("learner", "")))
+            if not live or live.get("game") != GAME_ID:
+                text = "No session is live: launch a group from the Club Coders app first."
+            elif not await self.ask_desk({"session_learner": name, "in": bool(m.get("in")), "live_id": live["id"],
+                                          "game": GAME_ID}):
+                text = "The club desk couldn't be asked: nothing was changed."
+            else:
+                text = f"{name} is {'being let into' if m.get('in') else 'being taken out of'} this session..."
+            if t:
+                await self.send(t.ws, {"type": "notice", "text": text})
+            return
         if kind == "pit":  # open or close the drop zone, straight away (no restart)
             self.lesson["hazards"]["pit"] = bool(m.get("open"))
             self.arena.set_pit(self.lesson["hazards"]["pit"])
             self.arena.events.append((self.arena.time, "The drop zone is OPEN" if self.lesson["hazards"]["pit"]
                                       else "The drop zone is closed"))
             await self.broadcast_lesson()
+            return
+        if kind == "cpu_robot" or (kind == "design_for" and m.get("learner") == CPU_NAME
+                                   and not any(q.name == CPU_NAME for q in self.learners())):
+            await self.cpu_robot_command(m)  # the first computer robot, set up from the Learner view
             return
         if kind == "design_for":  # the teacher changes a learner's robot for them
             p = next((q for q in self.learners() if q.name == m.get("learner")), None)
@@ -459,7 +755,7 @@ class LabServer:
                 new["model"], new["weapon"] = d["model"], sim.HOUSE_BY_NAME[d["model"]][0]
             else:
                 new.pop("model", None)
-            problems = sim.check_design(new)
+            problems = sim.check_design(new, self.lesson["limits"])
             if not rw_mods.colour_ok(new.get("colour")):
                 problems.append("colour must be three whole numbers from 0 to 255")
             if problems:
@@ -486,9 +782,9 @@ class LabServer:
             rebuild, arena_changed = False, False
             if update.get("cpu_level") in cpu_brains.LEVELS:  # straight away, no restart
                 self.lesson["cpu_level"] = update["cpu_level"]
-                for r in self.arena.robots:
-                    if r.owner == "Computer":
-                        r.brain = self.cpu_brain()
+                for r in self.cpu_driven():
+                    r.brain = self.cpu_brain()
+                self.attach_cpu()
                 self.arena.events.append((self.arena.time, f"Computer robots: {cpu_brains.LEVELS[update['cpu_level']]}"))
             if isinstance(update.get("user_mods"), dict):  # straight away, no restart: the windows redraw the arena
                 switched = {k: bool(v) for k, v in update["user_mods"].items() if k in sim.USER_MODS}
@@ -497,7 +793,11 @@ class LabServer:
                 self.roster_version += 1
                 if switched:
                     self.arena.events.append((self.arena.time, ", ".join(
-                        f"{sim.USER_MODS[k][0]} {'on' if v else 'off'}" for k, v in switched.items())))
+                        f"{sim.user_mod_title(k, self.mod_makers)} {'on' if v else 'off'}" for k, v in switched.items())))
+            if "flame_pit_cm" in update:  # the Flame pit user mod's baseline flame height: straight away
+                cm = max(sim.FLAME_PIT_CM_MIN, min(sim.FLAME_PIT_CM_MAX, int(update["flame_pit_cm"])))
+                self.lesson["flame_pit_cm"] = self.arena.flame_pit_cm = cm
+            new_battle = update.get("mode") == "battle" and self.lesson["mode"] != "battle"
             for key in ("mode", "time_limit", "cpu_robots", "teacher_robot", "designs_locked"):
                 if key in update:
                     rebuild |= key in ("mode", "cpu_robots", "teacher_robot") and update[key] != self.lesson[key]
@@ -515,10 +815,31 @@ class LabServer:
                             v = sim.house_list(v)
                         arena_changed |= key == "hazards" and v != self.lesson[key].get(k)
                         self.lesson[key][k] = v
-            if isinstance(update.get("sound"), dict):
+            if isinstance(update.get("sound"), dict):  # kept between sessions: every sound comes back as last set
                 self.lesson["sound"] = rw_sound.sound_settings(self.lesson.get("sound"), update["sound"])
+                try:
+                    with open(SOUND_FILE, "w", encoding="utf-8") as f:
+                        json.dump(self.lesson["sound"], f)
+                except OSError:
+                    pass
+            if isinstance(update.get("ai_card_note"), str):  # the teacher's words on the learners' AI request card
+                note = "".join(ch if ch >= " " and ch != "\x7f" else " " for ch in update["ai_card_note"])
+                self.lesson["ai_card_note"] = " ".join(note.split())[:300]
+                try:
+                    with open(CARD_NOTE_FILE, "w", encoding="utf-8") as f:
+                        json.dump({"note": self.lesson["ai_card_note"]}, f)
+                except OSError:
+                    pass
+            if isinstance(update.get("limits"), dict):  # the learners' ranges: kept between sessions, as the sound is
+                self.lesson["limits"] = sim.clean_limits(update["limits"], self.lesson["limits"])
+                try:
+                    with open(LIMITS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(self.lesson["limits"], f)
+                except OSError:
+                    pass
+                await self.fit_learners()
             if rebuild:
-                self.rebuild_arena()
+                self.rebuild_arena(intro=new_battle)
             elif arena_changed:  # hazards start or stop mid-round: robots carry on where they are
                 houses_before = [r.name for r in self.arena.robots if r.house]
                 self.arena.set_hazards(self.lesson["hazards"])
@@ -526,10 +847,10 @@ class LabServer:
                     self.roster_version += 1  # (only robots joining or leaving need the windows to redraw them)
                 changes = [f"{HAZARD_WORDS[k]} {'on' if v else 'off'}" for k, v in update.get("hazards", {}).items()
                            if k in HAZARD_WORDS]
-                self.arena.events.append((self.arena.time, ", ".join(changes) or "The house robots have changed"))
+                self.arena.events.append((self.arena.time, ", ".join(changes) or "The Resident Robots have changed"))
             await self.broadcast_lesson()
-        elif kind == "restart":
-            self.rebuild_arena()
+        elif kind == "restart":  # a new round: a battle opens with the countdown
+            self.rebuild_arena(intro=True)
         elif kind == "pause":
             self.paused = not self.paused
             self.arena.events.append((self.arena.time, "PAUSED" if self.paused else "GO!"))
@@ -558,9 +879,54 @@ class LabServer:
         except websockets.ConnectionClosed:
             pass
 
+    def user_mods_msg(self):
+        """For everyone's User mods tab: who made each mod, who'd like it switched on, and whose group is in
+        (so the teacher's list can light up the mods made by the learners in this session)."""
+        here = {p.name for p in self.learners()} | set(self.group)
+        return {"makers": {k: v for k, v in self.mod_makers.items() if k in sim.USER_MODS},
+                "votes": {k: v for k, v in self.mod_votes.items() if v and k in sim.USER_MODS},
+                "arena_votes": {k: v for k, v in self.arena_votes.items() if v},
+                "here": sorted(here)}
+
+    def session_msg(self):
+        """For the teacher's Accounts tab, on a class server with the club desk: the live session's group and who
+        is allowed into it, the group whose proposed time comes next (and who is in it), and every learner the
+        desk has."""
+        if not LIVE_FILE:
+            return {"desk": False}
+        live = read_live()
+        live = live if live and live.get("game") == GAME_ID else None
+        name, g = next_group(desk_json("groups.json", {}), live.get("group") if live else None)
+        return {"desk": True, "live": bool(live), "group": live.get("group", "") if live else "",
+                "learners": sorted(live.get("learners", [])) if live else [],
+                "next_group": name or "", "next_time": (g or {}).get("time", ""),
+                "next": sorted((g or {}).get("learners", [])), "all": sorted(desk_json("learners.json", {}))}
+
+    async def ask_desk(self, what):
+        """Leave a request for the club desk (it looks every second). True if it could be left. (In the desk's
+        inbox folder, in inbox/desk: that and its reports are the only folders of the desk's a game's server may
+        write to on the class server.)"""
+        folder = os.path.join(os.path.dirname(LIVE_FILE), "inbox", "desk")
+        try:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+            path = os.path.join(folder, f"{int(time.time() * 1000)}_{GAME_ID}_{os.urandom(3).hex()}.json")
+            with open(path + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(what, f)
+            os.replace(path + ".tmp", path)
+            return True
+        except OSError:
+            return False
+
     async def broadcast_lesson(self):
-        msg = {"type": "lesson", "lesson": self.lesson,
-               "class": [{"name": p.name, "role": p.role, "design": p.design} for p in self.players.values()]}
+        teacher = self.teacher()
+        if teacher:  # (learners aren't sent the lists of who is in which group)
+            await self.send(teacher.ws, {"type": "session", "session": self.session})
+        msg = {"type": "lesson", "lesson": self.lesson, "mods": self.user_mods_msg(),
+               "class": [{"name": p.name, "role": p.role, "design": p.design, "default": p.default}
+                         for p in self.players.values()] +
+                        [{"name": CPU_NAME, "role": "computer", "design": self.cpu.design, "default": self.cpu.default,
+                          "brain": self.cpu_own_brain is not None, "autopilot": self.cpu_autopilot,
+                          "in_arena": self.cpu.robot is not None}]}
         for ws in list(self.players):
             await self.send(ws, msg)
 
@@ -574,12 +940,19 @@ class LabServer:
                 "wpos": [round(v, 2) for v in r.weapon_np.getPos()],
                 "wquat": [round(v, 3) for v in tuple(r.weapon_np.getQuat())],
                 "speed": round(r.speed, 2), "hp": round(r.health, 1), "max": round(r.stats["armour"]),
-                "ko": r.knocked_out, "on": r.weapon_on, "rpm": round(r.weapon_rpm), "energy": round(r.weapon_energy()),
+                "ko": r.knocked_out, "rpm": round(r.weapon_rpm), "energy": round(r.weapon_energy()),
+                # on: a weapon that toggles is switched on; any other weapon is firing right now
+                "on": r.weapon_on if r.weapon in sim.TOGGLE_WEAPONS else a.time < r.fire_until,
                 "dealt": round(r.damage_dealt), "hits": r.hits, "fc": r.fires,
-                "act": 1 if a.time < r.fire_until and r.weapon_on else 0,
+                "act": 1 if a.time < r.fire_until else 0,
                 # each part's health in % (body, armour, weapon, four wheels): the windows draw the hit bars from it
                 "pt": [round(100 * max(0.0, r.health) / r.stats["armour"])] +
                       [round(100 * r.condition(k)) for k in sim.PARTS]})
+            if r.rear_np is not None:  # the Flipper on both ends user mod: where its back plate is
+                robots[-1]["w2"] = [round(v, 2) for v in r.rear_np.getPos()] + \
+                    [round(v, 3) for v in tuple(r.rear_np.getQuat())]
+            if a.time < r.boost_until:  # the boost button user mod: it is boosted
+                robots[-1]["bo"] = 1
         time_left = self.time_left()
         winner = self.winner()
         impacts, streams = a.take_fx()
@@ -588,16 +961,20 @@ class LabServer:
                        "streams": [[[round(v, 2) for v in pos], [round(v, 2) for v in d], n] for pos, d, n in streams[-30:]]},
                 "events": [e for t, e in a.events if a.time - t < 4][-4:],
                 "paused": self.paused, "practice": a.practice, "time_left": time_left, "winner": winner,
-                "rd": 1 if a.real_damage else 0}
+                "rd": 1 if a.real_damage else 0,
+                # the countdown before a battle: how many seconds of it have gone (every window shows it together)
+                "intro": None if self.intro_started is None else round(time.monotonic() - self.intro_started, 2)}
 
     def time_left(self):
         a = self.arena
+        if self.intro_started is not None:  # (the battle's clock starts at ACTIVATE!)
+            return self.lesson["time_limit"]
         return None if a.practice else max(0, self.lesson["time_limit"] - (a.time - self.fight_started))
 
     def winner(self):
         a = self.arena
-        fighters = [r for r in a.robots if not r.house]  # house robots don't win or lose
-        if a.practice or len(fighters) < 2:
+        fighters = [r for r in a.robots if not r.house]  # Resident Robots don't win or lose
+        if a.practice or len(fighters) < 2 or self.intro_started is not None:
             return ""
         alive = [r for r in fighters if not r.knocked_out]
         if len(alive) == 1:
@@ -622,6 +999,13 @@ class LabServer:
                 del self.players[ws]
                 await ws.close(4007, "Your account has been deleted by the teacher.")
         text = self.teaching.delete_learner(name)
+        gone = lab_profiles.slug(name)
+        if any(v and lab_profiles.slug(v) == gone for v in self.mod_makers.values()):  # their mods stay, unnamed
+            self.mod_makers = {k: "" if lab_profiles.slug(v) == gone else v for k, v in self.mod_makers.items()}
+            ai_pipeline.save_user_mod_makers(self.mod_makers)
+        for votes in (self.mod_votes, self.arena_votes):
+            for k in votes:
+                votes[k] = [n for n in votes[k] if lab_profiles.slug(n) != gone]
         self.rebuild_arena()
         t = self.teacher()
         if t:
@@ -640,9 +1024,26 @@ class LabServer:
             live = read_live()
             mine = live if live and live.get("game") == GAME_ID else None
             key = mine["id"] if mine else None
+            if key == seen and mine and sorted(mine.get("learners", [])) != self.group:
+                # the same session, but the teacher has let someone in or taken someone out (the Accounts tab)
+                self.group = sorted(mine.get("learners", []))
+                for ws, p in list(self.players.items()):
+                    if p.role == "learner" and p.name not in self.group:
+                        self.players.pop(ws, None)
+                        await ws.close(4009, "You aren't in this session.")
+                        self.rebuild_arena()
+            session = self.session_msg()
+            if session != self.session:  # (for the teacher's Accounts tab)
+                self.session = session
+                await self.broadcast_lesson()
             if key != seen:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()
+                self.group, self.mod_votes, self.arena_votes = sorted(allowed), {}, {}  # a new session: new votes
+                self.warnings = []
+                await self.warn_teacher()
+                self.lesson["cpu_level"] = cpu_brains.START_LEVEL  # ...and nothing attacks until the teacher says
+                self.cpu_autopilot = False
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in allowed:
                         self.players.pop(ws, None)
@@ -711,6 +1112,8 @@ class LabServer:
         next_step, steps = time.perf_counter(), 0
         while True:
             next_step += sim.STEP
+            if self.intro_started is not None and time.monotonic() - self.intro_started >= INTRO_SECONDS:
+                self.end_intro()
             if not self.paused:  # (after a win the arena keeps working; the winner stays on screen until Restart)
                 self.arena.step()
             steps += 1

@@ -270,6 +270,25 @@ try:
             m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"})
             assert "error" in m
     check("removing a learner: the game deletes their data and they can't log in", removed)
+
+    def teacher_password():
+        code, new = "desk-test-teacher-password", "robots like custard"
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            m = ask(ws, {"type": "change_teacher_password", "password": "a wrong guess", "new": new})
+            assert "error" in m, "changed without the password as it is now"
+            m = ask(ws, {"type": "change_teacher_password", "password": code, "new": "too short"})
+            assert "error" in m, "a short password was allowed"
+            m = ask(ws, {"type": "change_teacher_password", "password": code, "new": new})
+            assert m.get("teacher_password_changed"), m
+            assert "error" in ask(ws, {"type": "teacher", "password": code}), "the old teacher code still works"
+            assert ask(ws, {"type": "teacher", "password": new}).get("ok"), "the new password doesn't work"
+        with open(os.path.join(desk_data, "teacher.json"), encoding="utf-8") as f:
+            assert new not in f.read(), "the new password is kept as it was typed"
+        os.remove(os.path.join(desk_data, "teacher.json"))  # (forgotten: the server's teacher code comes back)
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            assert ask(ws, {"type": "teacher", "password": code}).get("ok"), "the teacher code didn't come back"
+    check("teacher: changes the teacher password (the old code stops; removing teacher.json brings it back)",
+          teacher_password)
     teacher.close()
 finally:
     for p in procs:

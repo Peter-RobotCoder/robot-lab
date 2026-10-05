@@ -1,6 +1,7 @@
 # Club Coders desk: the club's learners, groups and the live session, and every login (desk/club_desk.py, behind
 # Caddy at wss://<domain>/desk). It keeps usernames, scrambled passwords and groups in /var/lib/robotlab/desk, reads
-# the games' addresses from /etc/robotlab and the teacher password (TEACHER_CODE) from /etc/robotlab.env.
+# the games' addresses from /etc/robotlab and the teacher code (TEACHER_CODE) from /etc/robotlab.env: that is the
+# teacher password until the teacher chooses their own in the app (then kept, scrambled, in the desk's teacher.json).
 # Installed by setup.sh and robotlab-update to /etc/systemd/system/.
 [Unit]
 Description=Club Coders desk (learners, groups, the live session, logins)

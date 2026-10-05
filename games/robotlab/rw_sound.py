@@ -479,13 +479,18 @@ def your_music():
 
 # ---------- the teacher's sound settings (shared by the server and the windows) ----------
 DEFAULT_SOUND = {"music": "off", "music_volume": 0.5, "crowd": True, "crowd_volume": 0.6, "arena": False,
-                 "arena_volume": 0.4, "effects": True, "volume": 0.7, "weapons": True, "weapons_volume": 0.6}
+                 "arena_volume": 0.4, "effects": True, "volume": 0.7, "weapons": True, "weapons_volume": 0.6,
+                 # weapons: everything a weapon makes (a spinner's own motor included). motors: the drive motors
+                 "motors": True, "motors_volume": 0.6}
 
 
 def sound_settings(saved=None, change=None):
     """The full, checked sound settings: saved ones (older lessons used "background"), plus any change."""
     s = dict(DEFAULT_SOUND)
     saved = dict(saved or {})
+    if "weapons" in saved and "motors" not in saved:  # (older settings had one switch for weapons and motors)
+        saved["motors"] = saved["weapons"]
+        saved.setdefault("motors_volume", saved.get("weapons_volume", s["motors_volume"]))
     old = saved.pop("background", None)  # (the older single choice)
     if old == "beat":
         s["music"] = "rock"
@@ -494,9 +499,9 @@ def sound_settings(saved=None, change=None):
     for k, v in list(saved.items()) + list((change or {}).items()):
         if k == "music" and v in MUSIC:
             s[k] = v
-        elif k in ("crowd", "arena", "effects", "weapons"):
+        elif k in ("crowd", "arena", "effects", "weapons", "motors"):
             s[k] = bool(v)
-        elif k in ("music_volume", "crowd_volume", "arena_volume", "volume", "weapons_volume"):
+        elif k in ("music_volume", "crowd_volume", "arena_volume", "volume", "weapons_volume", "motors_volume"):
             try:
                 s[k] = round(max(0.0, min(1.0, float(v))), 2)
             except (TypeError, ValueError):

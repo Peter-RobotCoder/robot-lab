@@ -99,4 +99,6 @@ Learners whose download is older than the server are told to get the new version
 | `sudo cat /etc/robotlab.env` | Show the teacher code |
 | `journalctl -u club-desk -f` | The desk's messages, live (logins, launches, stops) |
 
-To change the teacher code, edit `/etc/robotlab.env` with `sudo nano`, then `sudo systemctl restart club-desk 'robotlab@*'`. It must be at least 16 characters and not `TEACH99`. A forgotten learner password is reset on the Teacher screen, not here.
+The teacher password is changed in the Club Coders app: Teacher, then Change teacher password (at least 12 characters). The desk keeps it scrambled in `/var/lib/robotlab/desk/teacher.json`, and from then on the teacher code in `/etc/robotlab.env` no longer opens the Teacher screen. If the new password is forgotten, `sudo rm /var/lib/robotlab/desk/teacher.json` brings the teacher code back at once (no restart).
+
+The teacher code itself is still what the game servers use (a teacher window started from the `.bat` files, with `teacher_settings.json`). To change it, edit `/etc/robotlab.env` with `sudo nano`, then `sudo systemctl restart club-desk 'robotlab@*'`. It must be at least 16 characters and not `TEACH99`. A forgotten learner password is reset on the Teacher screen, not here.
