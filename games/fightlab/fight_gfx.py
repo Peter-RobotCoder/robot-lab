@@ -674,7 +674,22 @@ def attack_poses(name):
         lift = dict(wind, ls=(-10, 175, -12), le=(0, 20, 0), rs=(10, 175, 12), re=(0, 20, 0), waist=(0, -20, 0),
                     neck=(0, 15, 0))
         return wind, lift
+    if name == "cartwheel":  # (user mod) a star, arms up and legs apart: FighterVisual.update turns it right over
+        wind = pose(hz=0.86, ls=(0, 172, -15), le=(0, 8, 0), rs=(0, 172, 15), re=(0, 8, 0),
+                    lh=(0, 0, -35), lk=(0, -5, 0), rh=(0, 0, 35), rk=(0, -5, 0))
+        hit = dict(wind, lh=(0, 0, -55), rh=(0, 0, 55))  # the legs whip over, wide apart
+        return wind, hit
     return s, s
+
+
+def cartwheel_turn(k):
+    """How far over (degrees) the cartwheel kick is at progress k: onto the hands as it starts (k 0-1), the feet
+    come over the top and down as it hits (1-2), then back onto the feet early in the recovery."""
+    if k < 1:
+        return 180.0 * max(0.0, k)
+    if k < 2:
+        return 180.0 + 120.0 * (k - 1)
+    return 300.0 + 60.0 * min(1.0, (k - 2) / 0.4)
 
 
 def slam_down():
@@ -843,6 +858,7 @@ class FighterVisual:
         self.h = 0.0
         self.flashing = False
         self.spin = 0.0  # extra turn for the spin kick (degrees)
+        self.wheel = None  # how far over the cartwheel kick is (degrees), while there is one
         self.hand_glow = []
         for side in ("l", "r"):
             g = glow_node(self.nodes[side + "fist"].attachNewNode(sphere(0.13, seg=10, rings=6).node()),
@@ -1093,6 +1109,20 @@ class FighterVisual:
         lift = self.cur["lift"] * self.size
         self.root.setPos(self.pos.x, self.pos.y, self.pos.z + lift)
         self.root.setH(self.h + self.spin)
+        # (user mod) the cartwheel kick: the body turns side-on and goes right over, about its middle
+        if a == "cartwheel":
+            over = cartwheel_turn(k)
+            if self.wheel is None or over < self.wheel - 1:
+                self.wheel = over
+            else:  # (smoothly, between the server's updates)
+                self.wheel = min(over, self.wheel + 900 * dt)
+            mid = Vec3(0, 0, 0.9 * self.size)
+            self.body.setHpr(90 * min(ease(k * 4), ease((3 - k) * 2.5)), 0, self.wheel)
+            rise = 1 + 0.22 * math.sin(math.radians(self.wheel / 2)) ** 2  # (higher on the hands: the arms are up)
+            self.body.setPos(mid * rise - self.body.getQuat().xform(mid))
+        elif self.wheel is not None:
+            self.wheel = None
+            self.body.setPosHpr(0, 0, 0, 0, 0, 0)
         # energy in the hands while a blast charges
         charging = a == "blast" and k < 2.0
         for g in self.hand_glow:

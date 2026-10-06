@@ -314,9 +314,12 @@ MOVES = {
     "uppercut": Move(0.06, 0.14, 0.50, 14, 1.00, 0.30, "mid", 0.50, 1.0, 1.6, "launch"),
     "spin_kick": Move(0.14, 0.36, 0.30, 5, 1.30, 0.0, "mid", 0.30, 2.4, 1.2, "down"),   # hits all round, 3 times
     "slam": Move(0.12, 0.06, 0.45, 18, 1.00, 0.30, "throw", 0.0, 3.5, 1.0, "down"),
+    # user mod "cartwheel_kick": slow to start; its damage is a share of their health (CARTWHEEL_SHARE), not this 12
+    "cartwheel": Move(0.36, 0.18, 0.42, 12, 1.30, 0.30, "overhead", 0.45, 2.4, 1.4, "down"),
 }
+CARTWHEEL_SHARE = 0.5  # a clean cartwheel kick takes this share of the other fighter's full health (0.5 = 50%)
 ATTACKS = ("punch", "kick", "low", "high")      # what a brain or a key can ask for directly
-PRESSES = ATTACKS + ("special", "throw", "jump")  # one-off actions
+PRESSES = ATTACKS + ("special", "throw", "jump", "cartwheel")  # one-off actions (cartwheel: a user mod)
 HOLDS = ("block", "low_block", "crouch")          # actions that last as long as they are asked for
 BLAST_SPEED, BLAST_LIFE = 7.0, 1.4
 INTRO_SECONDS = 1.6  # "ROUND 1" before "FIGHT!"
@@ -463,6 +466,8 @@ class Fighter:
             self.move = None
 
     def press(self, action, now):
+        if action == "cartwheel" and not self.ring.stage.user_mods["cartwheel_kick"]:
+            return  # (a user mod: nothing happens until the teacher switches it on)
         if action in PRESSES:
             self.buffer = (action, now)
 
@@ -751,6 +756,11 @@ class Ring:
         if action == "throw":
             self.begin(f, "throw", now)
             return True
+        if action == "cartwheel":  # user mod: a cartwheel into a kick (not in the middle of a combo)
+            if chaining or not self.stage.user_mods["cartwheel_kick"]:
+                return False
+            self.begin(f, "cartwheel", now)
+            return True
         if action not in ATTACKS:
             return False
         crouched = f.control[2] in ("crouch", "low_block") or f.state in ("crouch", "low_block")
@@ -865,6 +875,8 @@ class Ring:
         hy = point[1] if point else (f.y + v.y) / 2
         hz = point[2] if point else {"low": 0.3, "mid": 0.9, "high": 1.35, "overhead": 1.3, "throw": 1.0}[m.height] * v.stats["size"]
         base = (point[5] if from_shot else m.damage * f.stats["damage"] * f.mods(name)[0]) *             RULES["damage_multiplier"] * v.stats["taken"]
+        if name == "cartwheel":  # user mod: a share of their full health, whoever the fighters are
+            base = v.stats["health"] * CARTWHEEL_SHARE
         # moves from the combo list only knock down or launch on the last move of the list (the finisher)
         in_combo = f.from_combo and not from_shot
         finisher = in_combo and f.chained and f.combo_step == len(f.combo_list) - 1
@@ -890,6 +902,8 @@ class Ring:
             return
         counter = v.state == "attack" and v.move_phase() == "startup"
         dmg = base * (RULES["combo_scaling"] ** v.combo_taken) * (1.25 if counter else 1.0) * (1.3 if finisher else 1.0)
+        if name == "cartwheel":
+            dmg = base  # (always the same share: no extra for a counter, no less in a combo)
         v.combo_taken += 1
         v.last_hurt = now
         f.hits += 1
@@ -931,7 +945,8 @@ class Ring:
         else:
             v.set_state("hitstun", m.stun)
             v.low_guard = was_low
-        kind = "counter" if counter else ("special" if name in SPECIALS else name if name != "jump_kick" else "kick")
+        kind = "counter" if counter else ("special" if name in SPECIALS else
+                                          name if name not in ("jump_kick", "cartwheel") else "kick")
         self.stage.impacts.append(((hx, hy, hz), dmg, kind))
         self.last_hit = {"by": f.id, "move": name, "dmg": round(dmg, 1), "blocked": False, "combo": v.combo_taken,
                          "height": m.height, "counter": counter, "t": round(now, 2)}
@@ -1120,8 +1135,11 @@ class Ring:
 # and the game works exactly as before while it's off. The fighting reads stage.user_mods (a ring: self.stage.user_mods);
 # the graphics get the same switches (StageVisual(..., user_mods)). The teacher can switch one mid-match: the rings
 # and windows follow at once. A learner's AI request can be made as a new user mod (AI cards: "Make it a switchable
-# User Mod"). None yet: the first one a class asks for goes here.
-USER_MODS = {}
+# User Mod").
+USER_MODS = {
+    "cartwheel_kick": ("Cartwheel kick (F)", "Pressing F does a cartwheel into a kick that takes half of the other "
+                                             "fighter's full health if it lands clean."),
+}
 
 
 def user_mods_on(values):

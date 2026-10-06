@@ -102,6 +102,10 @@ elif args.host is None:  # a learner's last choice on the login screen, or this 
     args.host = {"local": lab_version.LOCAL_SERVER, "online": lab_version.ONLINE_SERVER}.get(
         where if not TEACHER else None, lab_version.SERVER)
 LOCAL = args.host.startswith(("ws://127.0.0.1", "ws://localhost"))  # a laptop test server
+import try_local  # noqa: E402
+# Try it on this laptop (see try_local): the teacher's window, opened on a test server here to look at this
+# laptop's game before it is made live for the class. It knows how to go back to the class.
+TRY = try_local.unpack(os.environ.pop("ROBOTLAB_TRY", "")) if args.teacher and LOCAL else None
 import club_ticket  # noqa: E402
 if args.ticket:  # the club desk has logged this person in: their name is in the ticket (the server checks it)
     args.name = (club_ticket.peek(args.ticket) or {}).get("name") or args.name
@@ -119,6 +123,8 @@ name = args.name or ("Teacher" if TEACHER else "")
 net = None  # the connection to the server, made when you log in
 
 title = f"Robot Lab - {'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if TRY:
+    title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 loadPrcFileData("", f"win-size 1280 720\nwindow-title {title}\nframebuffer-multisample 1\nmultisamples 4\n"
                     f"win-origin {x} 80\n")
@@ -126,7 +132,7 @@ if args.offscreen:
     loadPrcFileData("", "window-type offscreen\naudio-library-name null\n")
 
 from direct.gui.DirectGui import (DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame,  # noqa: E402
-                                  DirectSlider)
+                                  DirectLabel, DirectSlider)
 from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
 from panda3d.core import (Filename, KeyboardButton, MouseButton, Point3, TextNode,  # noqa: E402
@@ -148,15 +154,43 @@ BLUE, ORANGE = (.55, .85, 1, 1), (1, .7, .3, 1)
 PANEL = (0.04, 0.05, 0.08, 0.88)
 ON, OFF = (0.85, 0.65, 0.1, 1), (0.2, 0.25, 0.35, 1)
 SWATCHES = [(220, 60, 50), (240, 140, 30), (240, 200, 40), (60, 190, 90), (60, 130, 230), (180, 90, 230),
-            (230, 90, 170), (230, 230, 230)]
+            (230, 90, 170), (230, 230, 230)]  # (the reds on the left, the greens in the middle, the blues on the right,
+#                                              white last: CHANGE 48)
+# The HUD explains its words (CHANGE 44 and 45): hovering over a word drawn with word() shows its tip. The simplest
+# description of each that we could find; the teacher approves the wording.
+TIPS = {
+    "HUD": "Heads Up Display: the information and controls drawn over the top of the game, so you can see them "
+           "while you play.",
+    "GUI": "Graphical User Interface: a nice graphical way to talk to a computer, with buttons, boxes and sliders "
+           "instead of typed commands.",
+    "VARIABLE": "A variable is a name that holds a value. Change the value and the program behaves differently.",
+    "STRING": "A string is text: letters, digits, spaces and symbols, in quotes. \"Richy\" is a string. "
+              "Its type is str.",
+    "INTEGER": "An integer is a whole number: 0, 25, 100 or -3, with no decimal point. Its type is int.",
+    "LIST": "A list holds several values in order, in square brackets: [220, 60, 50]. Its type is list.",
+    "str": "str: the string type. A string is text, made of chars. A char is one character from the ASCII set of "
+           "characters: a letter, a digit, a space or a symbol.",
+    "int": "int: the integer type. An integer is a whole number.",
+    "list": "list: the list type. A list holds values in order, in square brackets.",
+    "NAME": "The variable's name: how the code refers to it. In Python, lower-case words joined with _",
+    "VALUE": "What the variable holds right now. The GUI changes it here; the code changes it with  name = value",
+    "TYPE": "The type says what kind of value the variable holds: str (text), int (a whole number) or list.",
+    "RGB": "The colour is a list of three integers: [red, green, blue], each from 0 (none) to 255 (full).",
+    "PERCENT": "Each setting is a percentage: 100 is the standard robot, 50 is half of it.",
+    "POINTS": "The points are shared out: raising one means lowering another (every choice is a trade-off).",
+}
 PRETTY = {"forward_speed": "Forward speed", "reverse_speed": "Reverse speed", "turn_speed": "Turn speed",
           "acceleration": "Acceleration", "size": "Size", "points_table": "Points table",
           "choose_weapon": "Choose weapon", "name_and_colour": "Name and colour", "code_view": "Code view",
           "stats_readout": "Stats readout", "weapon_toggle": "Weapon on/off", "house_robots": "Resident Robots"}
 HAZARD_NAMES = {"pit": "Drop zone open", "floor_flipper": "Floor flipper", "saws": "Floor saws",
                 "spikes": "Wall spikes", "house_robots": "Resident Robots"}
-LEARNER_TABS = [("missions", "Missions (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)"),
+LEARNER_TABS = [("missions", "Mission (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)"),
                 ("mods", "Mods (J)")]
+CODE_NOTES = {  # the comment on each line of the robot's code (CHANGE 49)
+    "forward_speed": "% of top speed, forwards", "reverse_speed": "% of top speed, in reverse",
+    "turn_speed": "% of the fastest turn", "acceleration": "% of hardest acceleration",
+    "size": "% of the standard size"}
 TEACHER_TABS = [("teacher", "Controls"), ("mods", "User mods"), ("learners", "Learners"), ("accounts", "Accounts"),
                 ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"), ("limits", "Limits"),
                 ("warnings", "Warnings"), ("garage", "My robot")]  # (drawn in two rows)
@@ -179,6 +213,29 @@ CARD_FIELDS = ("goal", "variables", "test", "predict")
 def label(parent, text, x, y, scale=0.036, fg=WHITE, align=TextNode.ALeft, wrap=None):
     return OnscreenText(text, pos=(x, y), scale=scale, fg=fg, align=align, parent=parent, mayChange=True,
                         wordwrap=wrap)
+
+
+def word(parent, text, x, y, scale=0.03, fg=WHITE, tip=None, align=TextNode.ALeft):
+    """A label that explains itself: while the mouse is over it, its tip (a key of TIPS, or its own words) shows
+    beside the mouse (CHANGE 44 and 45)."""
+    if not tip:
+        return label(parent, text, x, y, scale, fg, align)
+    w = DirectLabel(parent=parent, text=text, scale=scale, pos=(x, 0, y), text_fg=fg, text_align=align,
+                    frameColor=(0, 0, 0, 0), relief=DGG.FLAT, pad=(0.1, 0.1), state=DGG.NORMAL)
+    w.bind(DGG.WITHIN, lambda e: APP is not None and APP.show_tip(TIPS.get(tip, tip)))
+    w.bind(DGG.WITHOUT, lambda e: APP is not None and APP.hide_tip())
+    return w
+
+
+def text_button(parent, text, x, y, command, args_=None, scale=0.03, fg=WHITE):
+    """Words that can be clicked (no box round them): an objective's title opens its guidance (CHANGE 53)."""
+    def clicked(*a):
+        if APP is not None:
+            APP.stop_typing()
+        command(*a)
+    return DirectButton(parent=parent, text=text, scale=scale, pos=(x, 0, y), command=clicked, extraArgs=args_ or [],
+                        frameColor=(0, 0, 0, 0), text_fg=fg, text_align=TextNode.ALeft, relief=DGG.FLAT,
+                        pad=(0.1, 0.1))
 
 
 def button(parent, text, x, y, command, args_=None, scale=0.036, colour=OFF):
@@ -380,6 +437,10 @@ class Lab(ShowBase):
         self.warnings, self.warnings_seen = [], 0  # teacher: the Warnings tab, and how many of them have been seen
         self.session = {}  # teacher: the club desk's live session and the next one (the Accounts tab)
         self.code_hack = False  # the design holds a value changed in the code that this lesson's garage hides
+        self.code_changed = False  # the design holds a value changed in the code (Mission 1: hack the code)
+        self.custom_colour = None  # the garage's custom colour block: the colour the code last set (CHANGE 48)
+        self.open_objective = None  # the Mission tab: the objective whose guidance is dropped down (CHANGE 53)
+        self.tip = None  # the description of the word the mouse is over (CHANGE 44 and 45)
         self.code_at, self.code_drag = [0.0, 0.0], None  # how far the code panel has been dragged from its first place
         self.code_state, self.code_editor = {"lines": [""], "cursor": [0, 0], "scroll": 0}, None  # the code panel
         self.intro_beeped, self.intro_was, self.activate_until = set(), False, 0.0  # the countdown before a battle
@@ -423,6 +484,11 @@ class Lab(ShowBase):
             self.key("i", self.open_tab, "ai")
             self.key("j", self.open_tab, "mods")
         self.hud()
+        self.try_starting = None  # (teacher: a test server on this laptop is starting: see try_here)
+        if TRY:
+            self.begin_try()
+        if TEACHER and os.environ.get("CLUBCODERS_TRY_TEST"):  # (tests: there and back by itself, noting each step)
+            self.taskMgr.doMethodLater(4, self.try_test, "try test")
         self.rebuild_panels()
         if TEACHER:
             self.push_mod_makers()
@@ -431,10 +497,27 @@ class Lab(ShowBase):
         if welcome.get("new_profile"):
             self.banner_note(f"Welcome, {name}! Your profile is made: next time log in with the same username "
                              "and password.", 7)
-        if args.selftest:  # press some garage buttons the way a learner would, then build
-            self.taskMgr.doMethodLater(2, lambda t: [self.change_points("speed", 5), self.change_points("armour", -5),
-                                                     self.set_colour([60, 190, 90])] and None, "t1")
-            self.taskMgr.doMethodLater(2.5, lambda t: self.send_design(), "t2")
+        if args.selftest:  # press the garage's buttons the way a learner would and build, then hack the code
+            def gui(t):  # (Mission 1's objectives a, b and c: a string, two integers and a list, with the GUI)
+                self.draft["name"] = "Richy"
+                self.draft["settings"]["turn_speed"], self.draft["settings"]["size"] = 90, 80
+                self.change_points("speed", 5)
+                self.change_points("armour", -5)
+                self.set_colour([60, 190, 90])
+                self.send_design()
+
+            def hack(t):  # (objective d: a value changed in the code editor)
+                self.show_code = True
+                self.rebuild_panels()
+                lines = self.code_state["lines"]
+                lines[:] = [("forward_speed: int = 95" if line.startswith("forward_speed") else line) for line in lines]
+                self.rebuild_from_code()
+
+            def report(t):
+                done = ", ".join(f"{x['id']}={'done' if x['done'] else 'todo'}" for x in (self.missions or {}).get("missions", []))
+                print(f"SELFTEST objectives: {done}", flush=True)
+            for secs, fn in ((2, gui), (3.5, hack), (5.5, report)):
+                self.taskMgr.doMethodLater(secs, fn, f"selftest {fn.__name__}")
 
     def restore_prefs(self, prefs):
         """A learner's camera view and half-typed AI card, from their profile."""
@@ -625,14 +708,22 @@ class Lab(ShowBase):
         self.restart_window(reopen_for=welcome["code"])
         return True
 
-    def restart_window(self, reopen_for=None):
-        """Reopen this window (to load code changes), logged in as the same person."""
+    def restart_window(self, reopen_for=None, argv=None, try_env=None):
+        """Reopen this window (to load code changes), logged in as the same person.
+        argv: open it with these arguments instead (Try it on this laptop, and Back to the class). try_env: what a
+        window on the laptop's test server needs to know (see try_local); left out, a try stays a try."""
         env = dict(os.environ, ROBOTLAB_LOGIN=json.dumps([name, getattr(self, "password", ""), args.ticket or ""]))
         if reopen_for:  # remember which server code this reopen was for, so it only happens once
             env["ROBOTLAB_REOPENED"] = reopen_for
         else:
             env.pop("ROBOTLAB_REOPENED", None)
-        argv = [a for a in sys.argv[1:]]
+        if try_env is None and TRY and argv is None:
+            try_env = json.dumps(TRY)
+        if try_env:
+            env["ROBOTLAB_TRY"] = try_env
+        else:
+            env.pop("ROBOTLAB_TRY", None)
+        argv = [a for a in (sys.argv[1:] if argv is None else argv)]
         for flag in ("--name", "--password"):  # the login travels in ROBOTLAB_LOGIN instead
             while flag in argv:
                 i = argv.index(flag)
@@ -700,6 +791,7 @@ class Lab(ShowBase):
         self.pending_rebuild = False
         self.keep_typing()
         self.close_code_editor()
+        self.hide_tip()
         if self.prompt_view is not None:
             self.prompt_view.destroy()
             self.prompt_view = None
@@ -712,16 +804,21 @@ class Lab(ShowBase):
             tabs = TEACHER_TABS if TEACHER else LEARNER_TABS
             left, width = (0.8, 0.95) if TEACHER else (0.84, 0.9)
             across = (len(tabs) + 1) // 2 if TEACHER else len(tabs)  # (the teacher has too many tabs for one row)
+            if not TEACHER:  # the learner's panel says what it is, and each word explains itself (CHANGE 44)
+                word(f, "HUD", 0.81, 0.942, 0.026, YELLOW, "HUD")
+                label(f, "/", 0.885, 0.942, 0.026, GREY)
+                word(f, "GUI", 0.91, 0.942, 0.026, YELLOW, "GUI")
+                label(f, "(hover over a word in capitals to see what it means)", 0.99, 0.942, 0.019, GREY)
             for i, (key, text) in enumerate(tabs):
                 button(f, self.tab_text(key, text), left + (i % across + 0.5) * (width / across),
-                       (0.94 - (i // across) * 0.047) if TEACHER else 0.925, self.open_tab, [key],
+                       (0.94 - (i // across) * 0.047) if TEACHER else 0.9, self.open_tab, [key],
                        0.024 if TEACHER else 0.026, ON if key == self.tab else OFF)
             {"garage": self.build_garage, "teacher": self.build_teacher_panel, "missions": self.build_missions,
              "ai": self.build_ai_card, "outcomes": self.build_outcomes, "cards": self.build_cards,
              "card": self.build_card, "mods": self.build_mods,
              "learners": self.build_learner_view, "changes": self.build_changes,
              "accounts": self.build_accounts, "limits": self.build_limits,
-             "warnings": self.build_warnings}[self.tab](f, 0.84)
+             "warnings": self.build_warnings}[self.tab](f, 0.84 if TEACHER else 0.83)
         if self.show_code and (TEACHER or self.lesson["tools"]["code_view"]):
             self.build_code_panel()
         if self.typing == "code" and self.code_editor is not None:  # redrawn while typing in the code: carry on
@@ -729,6 +826,23 @@ class Lab(ShowBase):
             self.code_editor.refresh()
         elif self.typing and self.typing not in self.entries:  # the box being typed in has gone
             self.typing = None
+
+    def show_tip(self, text):
+        """A word's description, beside the mouse (to its left: the panel is at the right edge of the screen)."""
+        self.hide_tip()
+        at = self.mouse_at()
+        if at is None:
+            return
+        self.tip = DirectFrame(frameColor=(0.1, 0.12, 0.18, 0.97), frameSize=(-0.76, 0, -0.1, 0.03),
+                               pos=(max(at[0] - 0.02, 0.78 - self.getAspectRatio()), 0, at[1] - 0.03))
+        t = label(self.tip, text, -0.74, 0.0, 0.023, WHITE, wrap=31)
+        rows = t.textNode.getNumRows()
+        self.tip["frameSize"] = (-0.76, 0, -0.023 * 1.2 * rows - 0.01, 0.03)
+
+    def hide_tip(self):
+        if getattr(self, "tip", None) is not None:
+            self.tip.destroy()
+            self.tip = None
 
     def tab_text(self, key, text):
         """A tab's name (some say how much is waiting in them)."""
@@ -802,24 +916,53 @@ class Lab(ShowBase):
                 check(f, " learner sees", 1.52, yy, seen.get(tool), lambda v, t=tool: self.set_lesson({"tools": {t: bool(v)}}),
                       0.022)
         label(f, f"{view.upper()}'S ROBOT (what they see and change)" if view else
-              ("MY ROBOT" if TEACHER else "GARAGE  -  design your robot"), 0.82, y, 0.034 if view else 0.04, YELLOW)
-        y -= 0.07
-        if tools.get("name_and_colour"):
-            label(f, "Robot's Name", 0.82, y, 0.03)
-            self.entry(f, self.name_key(), 1.06, y, 10, initial=d["name"],
-                       command=lambda t: self.cur().__setitem__("name", t[:16]))
-            shown_box("name_and_colour", y)
-            y -= 0.065
-            for i, c in enumerate(SWATCHES):
-                big = 0.95 if list(c) == list(d["colour"]) else 0.6
-                DirectButton(parent=f, text="", scale=0.034, pos=(0.84 + i * 0.09, 0, y), relief=DGG.FLAT,
-                             frameColor=(*(v / 255 for v in c), 1), frameSize=(-0.9, 0.9, -big, big),
-                             command=self.set_colour, extraArgs=[list(c)])
-            if list(d["colour"]) not in [list(c) for c in SWATCHES]:  # a colour typed in the code
-                DirectFrame(parent=f, frameColor=(*(v / 255 for v in d["colour"]), 1), frameSize=(-0.03, 0.03, -0.032, 0.032),
-                            pos=(0.84 + len(SWATCHES) * 0.09, 0, y))
-            y -= 0.07
+              ("MY ROBOT" if TEACHER else "GARAGE  -  your robot as variables"), 0.82, y, 0.034 if view else 0.038,
+              YELLOW)
+        y -= 0.06
         model = d.get("model")
+        limits = self.limits()
+        # (CHANGE 46 to 48: the garage is tables of variables, headed by their type, and every heading explains
+        # itself when the mouse is over it)
+
+        def heading(text, tip, yy, extra="", colour=YELLOW):
+            word(f, text, 0.82, yy, 0.029, colour, tip)
+            if extra:
+                label(f, extra, 0.82 + 0.0165 * len(text) + 0.02, yy, 0.024, GREY if colour == YELLOW else colour)
+
+        def columns(yy, cols):
+            for text, x, tip in cols:
+                word(f, text, x, yy, 0.02, BLUE, tip)
+
+        # STRING VARIABLES: the name, and the weapon (a word chosen from a list)
+        weapon_shown = not model
+        if tools.get("name_and_colour") or weapon_shown:
+            heading("STRING VARIABLES", "STRING", y)
+            y -= 0.036
+            columns(y, (("STRING NAME", 0.82, "NAME"), ("STRING VALUE", 1.08, "VALUE"), ("TYPE", 1.44, "TYPE")))
+            y -= 0.045
+        if tools.get("name_and_colour"):
+            word(f, "robot_name", 0.82, y, 0.028, WHITE, "VARIABLE")
+            self.entry(f, self.name_key(), 1.08, y, 10, initial=d["name"],
+                       command=lambda t: self.cur().__setitem__("name", t[:16]))
+            word(f, "str", 1.44, y, 0.028, BLUE, "str")
+            shown_box("name_and_colour", y)
+            y -= 0.055
+        if weapon_shown:
+            word(f, "weapon", 0.82, y, 0.028, WHITE, "VARIABLE")
+            label(f, f'"{d["weapon"]}"', 1.08, y, 0.028, WHITE)
+            word(f, "str", 1.44, y, 0.028, BLUE, "str")
+            if tools.get("choose_weapon"):
+                shown_box("choose_weapon", y)
+                y -= 0.05
+                label(f, "choose:", 0.84, y, 0.022, GREY)
+                for i, w in enumerate(tools.get("weapons", [])):
+                    button(f, w, 1.02 + i * 0.13, y + 0.008, self.set_weapon, [w], 0.024, ON if w == d["weapon"] else OFF)
+                y -= 0.045
+            else:
+                label(f, "(chosen by the teacher this mission)", 1.08, y - 0.035, 0.02, GREY)
+                y -= 0.07
+            label(f, self.rules["weapons"].get(d["weapon"], ""), 0.82, y, 0.023, GREY)
+            y -= 0.05 if not view else 0.065
         if tools.get("house_robots") or model:
             label(f, "Robot", 0.82, y, 0.03)
             if tools.get("house_robots"):
@@ -836,55 +979,75 @@ class Lab(ShowBase):
             label(f, "Resident Robots are heavy (190 kg), with armour 400 and big wheels.\n"
                      "Their stats are fixed, so points and settings aren't used.", 0.82, y, 0.024, GREY)
             y -= 0.1
-        elif tools.get("choose_weapon"):
-            label(f, "Weapon", 0.82, y, 0.03)
-            for i, w in enumerate(tools.get("weapons", [])):
-                button(f, w, 1.02 + i * 0.13, y + 0.008, self.set_weapon, [w], 0.026, ON if w == d["weapon"] else OFF)
-            shown_box("choose_weapon", y - 0.04)
-        else:
-            label(f, f"Weapon: {d['weapon']}  (chosen by the teacher this lesson)", 0.82, y, 0.028, GREY)
-        if not model:
-            y -= 0.045
-            label(f, self.rules["weapons"].get(d["weapon"], ""), 0.82, y, 0.024, GREY)
-            y -= 0.06 if not view else 0.075
-        limits = self.limits()
+        # VARIABLE LISTS: the colour, [red, green, blue]
+        if tools.get("name_and_colour"):
+            heading("VARIABLE LISTS", "LIST", y)
+            y -= 0.055
+            word(f, "colour", 0.82, y, 0.028, WHITE, "RGB")
+            word(f, "list", 0.82, y - 0.034, 0.024, BLUE, "list")
+            swatches = [list(c) for c in SWATCHES]
+            if list(d["colour"]) not in swatches:  # a colour typed in the code: the custom block holds it
+                self.custom_colour = list(d["colour"])
+            blocks = swatches + [self.custom_colour]
+            for i, c in enumerate(blocks):
+                x = 0.96 + i * 0.095
+                if c is None:  # no custom colour yet: an empty block, until the code sets one
+                    DirectFrame(parent=f, frameColor=(0.25, 0.27, 0.32, 1), frameSize=(-0.03, 0.03, -0.02, 0.02),
+                                pos=(x, 0, y))
+                    label(f, "custom", x, y - 0.045, 0.013, GREY, TextNode.ACenter)
+                    continue
+                big = 0.95 if c == list(d["colour"]) else 0.6
+                DirectButton(parent=f, text="", scale=0.034, pos=(x, 0, y), relief=DGG.FLAT,
+                             frameColor=(*(v / 255 for v in c), 1), frameSize=(-0.9, 0.9, -big, big),
+                             command=self.set_colour, extraArgs=[c])
+                label(f, f"[{c[0]},{c[1]},{c[2]}]", x, y - 0.045, 0.013, GREY, TextNode.ACenter)
+            y -= 0.085
+        # INTEGER VARIABLES: the points, and the settings
         if tools.get("points_table") and not model:
             used, total = sum(d["points"].values()), limits["points_total"]
-            label(f, f"POINTS  ({used} of {total} used, {total - used} left)",
-                  0.82, y, 0.03, YELLOW if used <= total else RED)
-            shown_box("points_table", y)
-            y -= 0.055
+            heading("INTEGER VARIABLES: points", "INTEGER", y, f"({used} of {total} used, {total - used} left)",
+                    YELLOW if used <= total else RED)
+            shown_box("points_table", y - 0.036)
+            y -= 0.036
+            columns(y, (("VARIABLE NAMES", 0.82, "NAME"), ("VARIABLE VALUE", 1.08, "VALUE"), ("share", 1.42, "POINTS")))
+            y -= 0.045
             for stat in self.rules["stats"]:
                 v = d["points"][stat]
-                label(f, stat.title(), 0.82, y, 0.03)
-                for dx, delta, text in ((1.04, -5, "-5"), (1.12, -1, "-"), (1.26, 1, "+"), (1.34, 5, "+5")):
-                    button(f, text, dx, y + 0.008, self.change_points, [stat, delta], 0.026)
-                label(f, str(v), 1.19, y, 0.032, WHITE, TextNode.ACenter)
+                word(f, f"{stat}_points", 0.82, y, 0.027, WHITE, "VARIABLE")
+                for dx, delta, text in ((1.06, -5, "-5"), (1.14, -1, "-"), (1.28, 1, "+"), (1.36, 5, "+5")):
+                    button(f, text, dx, y + 0.008, self.change_points, [stat, delta], 0.024)
+                label(f, str(v), 1.21, y, 0.03, WHITE, TextNode.ACenter)
                 DirectFrame(parent=f, frameColor=(0.2, 0.2, 0.22, 1), frameSize=(0, 0.3, 0, 0.02), pos=(1.42, 0, y))
                 most = max(1, limits["points"][stat][1])
                 DirectFrame(parent=f, frameColor=(0.9, 0.7, 0.15, 1),
                             frameSize=(0, 0.3 * min(v, most) / most, 0, 0.02), pos=(1.42, 0, y))
-                y -= 0.055
+                y -= 0.05
+            y -= 0.01
         self.sliders = {}
         shown = [k for k in self.rules["settings"] if tools.get(k)] if not model else []
         if shown:
-            label(f, "SETTINGS  (percent)", 0.82, y, 0.03, YELLOW)
-            y -= 0.055
+            heading("INTEGER VARIABLES: settings", "INTEGER", y, "(percent)")
+            y -= 0.036
+            columns(y, (("VARIABLE NAMES", 0.82, "NAME"), ("VARIABLE VALUE", 1.1 if not view else 1.06, "VALUE"),
+                        ("%", 1.55 if not view else 1.42, "PERCENT")))
+            y -= 0.045
         for k in shown:
             lo, hi = limits["settings"][k]
-            label(f, PRETTY[k], 0.82, y, 0.028)
+            word(f, k, 0.82, y, 0.027, WHITE, "VARIABLE")
             if lo >= hi:  # the teacher's range is one value: nothing to slide
-                self.sliders[k] = (None, label(f, f"{d['settings'][k]:g}%  (set by the teacher)", 1.07, y, 0.028, GREY))
+                self.sliders[k] = (None, label(f, f"{d['settings'][k]:g}%  (set by the teacher)", 1.1, y, 0.027, GREY))
                 shown_box(k, y)
-                y -= 0.055
+                y -= 0.05
                 continue
             s = DirectSlider(parent=f, range=(lo, hi), value=max(lo, min(hi, d["settings"][k])), pageSize=5,
                              scale=0.17 if view else 0.2,
                              pos=(1.24 if view else 1.3, 0, y + 0.008), command=self.slider_moved, extraArgs=[k],
                              thumb_frameSize=(-0.04, 0.04, -0.12, 0.12))
-            self.sliders[k] = (s, label(f, f"{d['settings'][k]:g}%", 1.44 if view else 1.55, y, 0.028, WHITE))
+            self.sliders[k] = (s, label(f, f"{d['settings'][k]:g}%", 1.44 if view else 1.55, y, 0.027, WHITE))
             shown_box(k, y)
-            y -= 0.055
+            y -= 0.05
+        if shown:
+            y -= 0.01
         self.stats_text = None
         if tools.get("stats_readout") and not model:
             self.stats_text = label(f, "", 0.82, y - 0.01, 0.026, GREEN)
@@ -963,7 +1126,7 @@ class Lab(ShowBase):
         if "name_me" in self.entries and self.tools().get("name_and_colour"):
             self.draft["name"] = self.entries["name_me"].get()[:16]
         # (code: the design holds something changed in the code panel, where every value can be changed)
-        send({"type": "design", "design": self.draft, "code": bool(from_code or self.code_hack)})
+        send({"type": "design", "design": self.draft, "code": bool(from_code or self.code_hack or self.code_changed)})
         self.status_msg = ("Building...", GREY)
         self.code_building = from_code  # (the code panel then says how the build went)
         if self.tab == "garage":
@@ -978,18 +1141,38 @@ class Lab(ShowBase):
             self.garage_msg.setText(f"Building for {learner}...")
 
     # ---------- code view: your robot as Python code, which you can edit ----------
+    def code_weapons(self):
+        """The weapons the code may choose from: the lesson's (the teacher: every weapon)."""
+        return list(self.tools().get("weapons") or self.rules["weapons"])
+
     def code_lines(self, d):
-        lines = ["ROBOT = {", f'    "name": "{d["name"]}",        # text (a string)',
-                 f'    "colour": [{d["colour"][0]}, {d["colour"][1]}, {d["colour"][2]}],  # red, green, blue: 0-255',
-                 f'    "weapon": "{d["weapon"]}",']
-        if d.get("model"):
-            lines.append(f'    "model": "{d["model"]}",      # driving a Resident Robot')
+        """The robot as Python: one variable a line, with its type and a comment, in the garage's groups
+        (CHANGE 49). 59 letters fit across the panel."""
+        def row(code, note):
+            return f"{code:<28}# {note}"
         total = self.limits()["points_total"]
-        lines += [f'    "points": {{         # a dictionary: {total} points to share']  # (59 letters fit across the panel)
-        lines += [f'        "{k}": {v},' for k, v in d["points"].items()]
-        lines += ["    },", '    "settings": {               # percentages']
-        lines += [f'        "{k}": {v:g},' for k, v in d["settings"].items()]
-        lines += ["    },", "}", f"# points used: {sum(d['points'].values())} of {total}"]
+        lines = ["# MY ROBOT as Python code. Each line makes a variable:", "#     name: type = value", "",
+                 "# INTEGER VARIABLES (whole numbers)"]
+        for k, v in d["settings"].items():
+            kind = "int" if v == int(v) else "float"  # (the teacher's limits can make size 12.5: not an integer)
+            lines.append(row(f"{k}: {kind} = {v:g}", CODE_NOTES.get(k, "percent")))
+        for k, v in d["points"].items():
+            lines.append(row(f"{k}_points: int = {v}", f"points for {k}"))
+        lines += [f"# points used: {sum(d['points'].values())} of {total}", "",
+                  "# STRING VARIABLES (text in quotes)",
+                  row(f"robot_name: str = {json.dumps(d['name'])}", "a string: text made of chars")]
+        if d.get("model"):
+            lines.append(row(f"model: str = {json.dumps(d['model'])}", "driving a Resident Robot"))
+        weapons = self.code_weapons()
+        lines += ["", "# VARIABLE LISTS (values in order, in square brackets)",
+                  row(f"colour: list = [{d['colour'][0]}, {d['colour'][1]}, {d['colour'][2]}]", "red, green, blue: 0 to 255"),
+                  "# the weapons allowed this mission:",
+                  f"weapons: list = {json.dumps(weapons)}"]
+        if d["weapon"] in weapons:
+            lines.append(row(f"weapon: str = weapons[{weapons.index(d['weapon'])}]",
+                             f"chosen: {d['weapon']} (0 is the first)"))
+        else:
+            lines.append(row(f"weapon: str = {json.dumps(d['weapon'])}", "the one chosen"))
         return lines
 
     def build_code_panel(self):
@@ -1114,28 +1297,47 @@ class Lab(ShowBase):
                 self.code_state["scroll"] = max(0, e.lineno - CODE_ROWS)
             self.refresh_code_panel()
             return
-        node = next((s.value for s in tree.body if isinstance(s, ast.Assign)
-                     and [getattr(t, "id", None) for t in s.targets] == ["ROBOT"]), None)
-        if node is None:
-            self.code_msg = ("The code needs ROBOT = { ... }", RED)
-            self.refresh_code_panel()
-            return
-        try:
-            new = ast.literal_eval(node)
-        except ValueError:
-            self.code_msg = ("Only plain values are allowed: numbers, \"text\", [lists] and {dictionaries}.", RED)
-            self.refresh_code_panel()
-            return
-        if not isinstance(new, dict):
-            self.code_msg = ("ROBOT must be a dictionary: { ... }", RED)
+        # One variable a line:  name: type = value  (or name = value). The weapon may be picked from the weapons
+        # list:  weapon = weapons[1]. Nothing is run: the values are read as data.
+        new, problems = {}, []
+        for st in tree.body:
+            if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and st.value is not None:
+                target, value = st.target.id, st.value
+            elif isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+                target, value = st.targets[0].id, st.value
+            else:
+                self.code_msg = (f"Line {st.lineno}: only lines like  name: type = value  are allowed.", RED)
+                self.refresh_code_panel()
+                return
+            if target == "weapon" and isinstance(value, ast.Subscript) and isinstance(value.value, ast.Name) \
+                    and value.value.id == "weapons":
+                weapons = new.get("weapons", self.code_weapons())
+                try:
+                    i = ast.literal_eval(value.slice)
+                    new["weapon"] = weapons[i]
+                except (ValueError, TypeError, IndexError, KeyError):
+                    self.code_msg = (f"Line {st.lineno}: weapons[...] needs a number from 0 (the first) to "
+                                     f"{len(weapons) - 1} (the last).", RED)
+                    self.refresh_code_panel()
+                    return
+                continue
+            try:
+                new[target] = ast.literal_eval(value)
+            except ValueError:
+                self.code_msg = (f"Line {st.lineno}: only plain values are allowed: numbers, \"text\" and [lists].", RED)
+                self.refresh_code_panel()
+                return
+        if "ROBOT" in new:
+            self.code_msg = ("The code is now one variable a line: press RESET CODE to see it.", RED)
             self.refresh_code_panel()
             return
         # Everything in the code can be changed, even what this lesson's garage hides (hidden: those values). The
         # class server holds the robot to the limits all the same, and tells the teacher what was changed.
-        d, tools, hidden, problems = self.cur(), self.tools(), [], []
-        if "name" in new and str(new["name"]) != d["name"]:
-            d["name"] = str(new["name"])[:16]
+        d, tools, hidden, changed = self.cur(), self.tools(), [], []
+        if "robot_name" in new and str(new["robot_name"]) != d["name"]:
+            d["name"] = str(new["robot_name"])[:16]
             self.entry_text.pop(self.name_key(), None)
+            changed.append("name")
             hidden += [] if tools.get("name_and_colour") else ["name"]
         c = new.get("colour", d["colour"])
         if c != d["colour"]:
@@ -1143,6 +1345,9 @@ class Lab(ShowBase):
                 problems.append("colour must be a list of three whole numbers from 0 to 255")
             else:
                 d["colour"] = c
+                changed.append("colour")
+                if c not in [list(s) for s in SWATCHES]:
+                    self.custom_colour = list(c)  # (the garage's custom block takes it)
                 hidden += [] if tools.get("name_and_colour") else ["colour"]
         m = new.get("model")
         if m != d.get("model"):
@@ -1156,6 +1361,7 @@ class Lab(ShowBase):
                     d.pop("model", None)
                     if d["weapon"] not in self.rules["weapons"]:
                         d["weapon"] = new["weapon"] = "wedge"
+                changed.append("model")
                 hidden += [] if tools.get("house_robots") else ["model"]
         w = new.get("weapon", d["weapon"])
         if w != d["weapon"] and not d.get("model"):
@@ -1163,20 +1369,27 @@ class Lab(ShowBase):
                 problems.append(f"weapon must be one of: {', '.join(self.rules['weapons'])}")
             else:
                 d["weapon"] = w
+                changed.append("weapon")
                 hidden += [] if tools.get("choose_weapon") and w in tools.get("weapons", []) else ["weapon"]
-        for group, allowed in (("points", lambda k: tools.get("points_table")), ("settings", lambda k: tools.get(k))):
-            values = new.get(group, {})
-            if not isinstance(values, dict):
-                problems.append(f"{group} must be a dictionary")
-                continue
-            for k, v in values.items():
-                if k not in d[group]:
-                    problems.append(f"'{k}' isn't one of the {group}")
-                elif not isinstance(v, (int, float)) or isinstance(v, bool):
-                    problems.append(f"{k} must be a number")
+        known = {"robot_name", "colour", "model", "weapon", "weapons"}
+        for group, allowed, var in (("points", lambda k: tools.get("points_table"), lambda k: f"{k}_points"),
+                                    ("settings", lambda k: tools.get(k), lambda k: k)):
+            for k in d[group]:
+                known.add(var(k))
+                if var(k) not in new:
+                    continue
+                v = new[var(k)]
+                if not isinstance(v, (int, float)) or isinstance(v, bool):
+                    problems.append(f"{var(k)} must be a number")
                 elif v != d[group][k]:
                     d[group][k] = int(v) if group == "points" and v == int(v) else v
+                    changed.append(var(k))
                     hidden += [] if allowed(k) else [k]
+        for name_ in new:
+            if name_ not in known:
+                problems.append(f"'{name_}' isn't one of the robot's variables")
+        if changed and not self.viewing():
+            self.code_changed = True  # (the next build is sent as the code's: Mission 1, hack the code)
         if hidden and not self.viewing():
             self.code_hack = True  # (so the next build, from here or the garage, is sent as the code's)
         problems += sim.check_design(d, self.limits())
@@ -1217,7 +1430,7 @@ class Lab(ShowBase):
             for m in day["missions"]:
                 if y < -0.75:
                     break
-                label(f, f"Lesson {m['lesson']}: {m['title']}", 0.88, y, 0.025, GREY)
+                label(f, f"Mission {m['lesson']}: {m['title']}", 0.88, y, 0.025, GREY)
                 label(f, " ".join(m["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
                 y -= 0.034
             y -= 0.012
@@ -1230,34 +1443,40 @@ class Lab(ShowBase):
         if not m:
             label(f, "Waiting for missions...", 0.82, y, 0.03, GREY)
             return
-        label(f, f"LESSON {m['lesson']}: {m['title']}", 0.82, y, 0.034, YELLOW, wrap=26)
-        y -= 0.1
-        for mm in m["missions"]:
+        title = label(f, f"MISSION {m['lesson']}: {m['title']}", 0.82, y, 0.034, YELLOW, wrap=26)
+        y -= 0.045 * title.textNode.getNumRows() + 0.005
+        label(f, "Objectives. Click one to see what to do; a done one shows what you did.", 0.82, y, 0.021, GREY)
+        y -= 0.045
+        # (CHANGE 53) each objective is its title: done, the result is under it; not done, clicking the title drops
+        # down its explanation and guidance. The teacher's Learner view shows everything.
+        for i, mm in enumerate(m["missions"]):
             tick = "DONE" if mm["done"] else ("TEACHER" if mm["check"] == "teacher" else "TO DO")
-            label(f, f"[{tick}]  {mm['title']}", 0.82, y, 0.03, GREEN if mm["done"] else WHITE)
+            letter = f"{'abcdefgh'[i]}. " if i < 8 else ""
+            text = f"[{tick}]  {letter}{mm['title']}"
+            if mm["done"] or preview:
+                label(f, text, 0.82, y, 0.03, GREEN if mm["done"] else WHITE)
+            else:
+                text_button(f, text, 0.82, y, self.toggle_objective, [mm["id"]], 0.03,
+                            YELLOW if self.open_objective == mm["id"] else WHITE)
             label(f, " ".join(mm["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
             y -= 0.04
-            text = mm["detail"] if mm["done"] else mm["text"]
-            label(f, text, 0.84, y, 0.024, GREY, wrap=36)
-            y -= 0.035 * max(1, len(text) // 55 + 1)
+            open_ = preview or mm["done"] or self.open_objective == mm["id"]
+            if open_:
+                text = mm["detail"] if mm["done"] else mm["text"]
+                t = label(f, text, 0.84, y, 0.024, GREEN if mm["done"] else GREY, wrap=36)
+                y -= 0.03 * t.textNode.getNumRows() + 0.01
             if preview:  # the teacher sees what the learner typed, not boxes to type in
-                typed = m["prediction"] if mm["id"] == "1b" else m["text"].get(mm["id"])
+                typed = m["text"].get(mm["id"])
                 if typed and not mm["done"]:
                     label(f, f"They wrote: {typed}", 0.86, y, 0.022, BLUE, wrap=38)
                     y -= 0.045
-                y -= 0.015
+                y -= 0.01
                 continue
-            if mm["id"] == "1b" and not mm["done"]:
-                label(f, "Prediction (km/h)", 0.84, y, 0.026)
-                self.entry(f, "prediction", 1.12, y, 5, initial=str(m["prediction"] or ""))
-                button(f, "Save", 1.36, y + 0.008, self.save_prediction, None, 0.026)
-                self.top_speed_text = label(f, f"fastest so far {m['top_speed']:.1f} km/h", 1.45, y, 0.024, GREY)
-                y -= 0.06
-            if mm["id"] in ("2d", "5b") and not mm["done"]:
+            if mm["id"] in ("2d", "5b") and not mm["done"] and open_:
                 self.entry(f, f"reflect_{mm['id']}", 0.84, y, 30, 2, initial=m["text"].get(mm["id"], ""), scale=0.026)
                 button(f, "Save", 1.66, y - 0.02, self.save_reflection, [mm["id"]], 0.026)
                 y -= 0.09
-            y -= 0.015
+            y -= 0.01
         if m["lesson"] >= 3:
             status = ("autopilot ON" if m["autopilot"] else "uploaded (press P for autopilot)") if m["brain"] \
                 else "not uploaded yet (edit brains/my_brain.py, then press U)"
@@ -1265,8 +1484,10 @@ class Lab(ShowBase):
             if m.get("brain_error"):
                 label(f, f"Brain stopped: {m['brain_error']}", 0.82, max(y, -0.8) - 0.045, 0.024, RED, wrap=38)
 
-    def save_prediction(self):
-        send({"type": "prediction", "value": self.entries["prediction"].get()})
+    def toggle_objective(self, mid):
+        """Drop down an objective's guidance in the Mission tab, or fold it away again."""
+        self.open_objective = None if self.open_objective == mid else mid
+        self.rebuild_panels()
 
     def save_reflection(self, mission):
         send({"type": "reflection", "mission": mission, "text": self.entries[f"reflect_{mission}"].get()})
@@ -1394,7 +1615,7 @@ class Lab(ShowBase):
     # ---------- teacher: controls ----------
     def build_teacher_panel(self, f, y):
         L = self.lesson
-        label(f, "Lesson", 0.82, y, 0.032, YELLOW)
+        label(f, "Mission", 0.82, y, 0.032, YELLOW)
         for n in range(1, 6):
             button(f, str(n), 1.0 + (n - 1) * 0.09, y + 0.008, send, [{"type": "lesson_number", "n": n}], 0.03,
                    ON if L.get("lesson_number") == n else OFF)
@@ -1501,10 +1722,93 @@ class Lab(ShowBase):
                (0.6, 0.35, 0.1, 1) if self.needs_restart else OFF)
         button(f, "Reopen learners' windows", 1.25, y, send, [{"type": "restart_clients"}], 0.026)
         button(f, "Reopen mine", 1.6, y, self.restart_window, None, 0.026)
+        y -= 0.055
+        if TRY:
+            button(f, "Back to the class", 1.0, y, self.back_to_class, None, 0.026, (0.15, 0.55, 0.25, 1))
+            label(f, "Trying this laptop's game: the class can't see it.", 1.2, y - 0.008, 0.021, ORANGE)
+        elif not lab_version.FROZEN and not LOCAL:
+            button(f, "Try on this laptop", 1.0, y, self.try_here, None, 0.026, (0.15, 0.45, 0.65, 1))
+            label(f, "this window, on a test server here (the class sees nothing)", 1.19, y - 0.008, 0.02, GREY)
 
     def restart_server(self):
+        if TRY:  # (nothing would start the test server again: a new try loads new code)
+            return self.banner_note("You are trying this on the laptop: go Back to the class, then Try again, to "
+                                    "load new code.", 8)
         self.needs_restart = False
         send({"type": "restart_server"})
+
+    # ---------- try it on this laptop (teacher): a look at this laptop's game before it is made live ----------
+    def try_here(self, mods=()):
+        """Leave the class for a moment: a test server starts on this laptop, out of sight, and this one window
+        reopens on it (see try_local). mods: the user mods to switch on there. Back to the class comes back."""
+        if TRY or lab_version.FROZEN or self.try_starting is not None:
+            return
+        if LOCAL:
+            return self.banner_note("This window is already on this laptop's test server: it has this laptop's "
+                                    "game. Tick the mod in Controls.", 8)
+        info, proc = try_local.start(HERE, "lab_server.py", "ROBOTLAB_DATA")
+        self.try_starting = (info, proc, time.perf_counter(), list(mods))
+        self.banner_note("Starting a test server on this laptop: this window will reopen on it in a few seconds...", 60)
+        self.taskMgr.doMethodLater(0.5, self.try_wait, "try on this laptop")
+
+    def try_wait(self, task):
+        info, proc, began, mods = self.try_starting
+        if try_local.ready(info):
+            login = [name, getattr(self, "password", ""), args.ticket or ""]
+            self.restart_window(argv=["--host", f"ws://127.0.0.1:{info['port']}", "--teacher", "--code", "TEACH99",
+                                      "--gfx", args.gfx] + (["--offscreen"] if args.offscreen else []),
+                                try_env=try_local.pack(info, sys.argv[1:], login, mods, self.lesson.get("lesson_number")))
+        if proc.poll() is not None or time.perf_counter() - began > 45:  # it stopped, or never answered
+            words = try_local.last_words(info)
+            try_local.stop(info, HERE)
+            self.try_starting = None
+            self.banner_note("The test server didn't start on this laptop, so the game as it is here doesn't run"
+                             + (f": {words}" if words else "."), 30)
+            return task.done
+        return task.again
+
+    def begin_try(self):
+        """This window has just opened on the laptop's test server: the class's lesson, the teacher's own robot
+        in the arena, and the new user mods switched on. A notice and a way back stay on the screen."""
+        if TRY.get("lesson") in (1, 2, 3, 4, 5):
+            send({"type": "lesson_number", "n": TRY["lesson"]})
+        mods = {k: True for k in TRY.get("mods") or [] if k in sim.USER_MODS}
+        self.set_lesson({"teacher_robot": True, **({"user_mods": mods} if mods else {})})
+        self.exitFunc = self.stop_try  # (closing the window stops the test server too)
+        OnscreenText("TRYING ON THIS LAPTOP: the class can't see this", pos=(-0.04, 0.715), scale=0.045, fg=ORANGE,
+                     shadow=(0, 0, 0, 0.9), parent=self.aspect2d)
+        DirectButton(parent=self.aspect2d, text="Back to the class", scale=0.042, pos=(-0.04, 0, 0.635),
+                     command=self.back_to_class, frameColor=(0.15, 0.55, 0.25, 1), text_fg=WHITE, relief=DGG.FLAT,
+                     pad=(0.4, 0.2))
+        on = ", ".join(sim.USER_MODS[k][0] for k in mods)
+        self.banner_note((f"Switched on here: {on}. " if on else "Tick a user mod in Controls to try it. ")
+                         + "When you have seen enough, press Back to the class.", 12)
+
+    def stop_try(self):
+        if TRY:
+            try_local.stop(TRY["server"], HERE)
+
+    def try_test(self, task):
+        """Tests only (CLUBCODERS_TRY_TEST names a file): on the class, note it and try the laptop; on the laptop,
+        note what is switched on and go back; back on the class, note it and stay."""
+        path = os.environ["CLUBCODERS_TRY_TEST"]
+        seen = open(path).read() if os.path.exists(path) else ""
+        with open(path, "a") as f:
+            f.write(json.dumps({"where": "laptop" if TRY else "class", "host": args.host, "lesson": self.lesson.get(
+                "lesson_number"), "user_mods": self.lesson.get("user_mods"), "mine": self.my_id is not None}) + "\n")
+        if TRY:
+            self.back_to_class()
+        elif "laptop" not in seen:
+            self.try_here([k for k in os.environ.get("CLUBCODERS_TRY_TEST_MODS", "").split(",") if k])
+        return task.done
+
+    def back_to_class(self):
+        """Stop the test server and reopen this window on the class, the way it was opened before."""
+        self.stop_try()
+        global name
+        login = TRY.get("login") or [name, "", ""]
+        name, self.password, args.ticket = login[0] or name, login[1], login[2] or None
+        self.restart_window(argv=TRY.get("argv") or [], try_env="")
 
     def toggle_house(self, hr, on):
         names = sim.house_list(self.lesson["hazards"].get("house_robots"))
@@ -1726,7 +2030,7 @@ class Lab(ShowBase):
         who = self.view_name
         is_computer = computer is not None and who == computer["name"]
         tabs = (("garage", "Garage"), ("brain", "Brain")) if is_computer else \
-            (("garage", "Garage"), ("missions", "Missions"), ("ai", "AI card"), ("login", "Login"))
+            (("garage", "Garage"), ("missions", "Mission"), ("ai", "AI card"), ("login", "Login"))
         if self.view_tab not in [t for t, _ in tabs]:
             self.view_tab = "garage"
         for i, (t, text) in enumerate(tabs):
@@ -2021,11 +2325,11 @@ class Lab(ShowBase):
             return
         n_ = getattr(self, "guide_lesson", None) or t["lesson"]
         y -= 0.06
-        label(f, "Lesson", 0.82, y, 0.028, YELLOW)
+        label(f, "Mission", 0.82, y, 0.028, YELLOW)
         for n in lm.LESSONS:
             button(f, str(n), 1.0 + (n - 1) * 0.08, y + 0.008, self.show_outcome, [None, n], 0.028,
                    ON if n == n_ else OFF)
-        label(f, "(the class is on lesson %d)" % t["lesson"], 1.42, y, 0.022, GREY)
+        label(f, "(the class is on mission %d)" % t["lesson"], 1.42, y, 0.022, GREY)
         y -= 0.045
         label(f, lm.LESSONS[n_]["title"], 0.82, y, 0.03, WHITE)
         y -= 0.04
@@ -2047,7 +2351,7 @@ class Lab(ShowBase):
                 label(f, str(c) if c else "-", 1.28 + j * 0.12, y, 0.026, GREEN if c else GREY, TextNode.ACenter)
             y -= 0.047
         y -= 0.02
-        label(f, f"Teacher-checked missions (lesson {t['lesson']})", 0.82, y, 0.028, YELLOW)
+        label(f, f"Teacher-checked objectives (mission {t['lesson']})", 0.82, y, 0.028, YELLOW)
         y -= 0.045
         for mid, (lesson, title, check_) in t["missions"].items():
             if check_ != "teacher" or lesson != t["lesson"]:
@@ -2075,11 +2379,11 @@ class Lab(ShowBase):
         label(f, name_.upper(), 0.82, y, 0.034, YELLOW)
         y -= 0.04
         y = self.para(f, "Learners can: " + can_do, 0.82, y, 0.029, WHITE)
-        label(f, "Taught in lesson", 0.82, y - 0.01, 0.028, GREY)
+        label(f, "Taught in mission", 0.82, y - 0.01, 0.028, GREY)
         for i, n in enumerate(taught_in):
             button(f, str(n), 1.12 + i * 0.08, y - 0.002, self.show_outcome, [code_, n], 0.028, ON if n == n_ else OFF)
         y -= 0.065
-        label(f, f"LESSON {n_}: {lm.LESSONS[n_]['title']}", 0.82, y, 0.03, YELLOW, wrap=30)
+        label(f, f"MISSION {n_}: {lm.LESSONS[n_]['title']}", 0.82, y, 0.03, YELLOW, wrap=30)
         y -= 0.045
         y = self.para(f, "Overall task: " + lm.LESSON_TASKS[n_], 0.82, y, 0.026, BLUE)
         piece = lm.GUIDE[n_][code_]
@@ -2099,7 +2403,7 @@ class Lab(ShowBase):
         y = self.para(f, piece["success"], 0.84, y, 0.027, GREEN, 0.88)
         y -= 0.01
         missions = lm.missions_for_outcome(n_, code_)
-        label(f, "Missions that give evidence", 0.82, y, 0.029, YELLOW)
+        label(f, "Objectives that give evidence", 0.82, y, 0.029, YELLOW)
         y -= 0.042
         for mid, (_, title, _, _, check_) in missions.items():
             who = "the teacher ticks it" if check_ == "teacher" else "ticked by the game"
@@ -2170,9 +2474,14 @@ class Lab(ShowBase):
                     button(f, "Reject", 1.27, y, self.card_status, [c["id"], "rejected"], 0.026)
                     y -= 0.07
                 elif job.get("status") == "Kept" and res.get("code_changed"):
-                    label(f, "Kept on this laptop. For the online class: Make my changes live.bat (then Restart\n"
-                             "server). A user mod then appears in Controls, ready to switch on.", 0.84, y, 0.022, ORANGE)
-                    y -= 0.05
+                    label(f, "Kept on this laptop only. Try it here first; then, for the class: Make my changes\n"
+                             "live.bat (then Restart server). A user mod then appears in Controls, to switch on.",
+                          0.84, y, 0.022, ORANGE)
+                    y -= 0.075
+                    if not TRY and not LOCAL and not lab_version.FROZEN:
+                        button(f, "Try it on this laptop", 1.02, y, self.try_here, [self.job_mods(job)], 0.026,
+                               (0.15, 0.45, 0.65, 1))
+                        y -= 0.06
             elif c["status"] in ("waiting", "sent", "working"):
                 y = self.card_targets_row(f, y, c, target)
                 button(f, "Check and send", 0.95, y, self.show_cards, [c["id"]], 0.026, (0.15, 0.45, 0.65, 1))
@@ -2219,6 +2528,15 @@ class Lab(ShowBase):
         button(f, "Send to Claude", 0.95, -0.875, self.ai_send, [c], 0.028, (0.15, 0.45, 0.65, 1))
         button(f, "Copy prompt", 1.22, -0.875, self.copy_prompt, [c], 0.026)
         button(f, "Back", 1.42, -0.875, self.show_cards, [None], 0.026)
+
+    @staticmethod
+    def job_mods(job):
+        """The user mods a kept AI change added (to switch on when it is tried on this laptop)."""
+        change = job.get("change")
+        if change is None:
+            return []
+        return sorted(try_local.mod_keys(change.after.get("lab_sim.py"))
+                      - try_local.mod_keys(change.before.get("lab_sim.py")))
 
     def card_targets_row(self, f, y, c, target):
         for i, (key, text) in enumerate(TARGETS.items()):
@@ -2461,7 +2779,7 @@ class Lab(ShowBase):
                     self.status_msg = ("Not built: " + "; ".join(m["problems"]), RED)
                     if self.code_building:
                         self.code_msg = self.status_msg
-                self.code_building = self.code_hack = False
+                self.code_building = self.code_hack = self.code_changed = False
                 rebuild = rebuild or self.tab == "garage" or self.show_code
             elif kind == "ai_card_result":
                 if m["ok"]:
@@ -2718,7 +3036,7 @@ class Lab(ShowBase):
             self.rows[i][0].hide()
         if row != self.hud_used:
             self.layout_hud(row)
-        lesson = f"L{self.lesson.get('lesson_number', 1)}  "
+        lesson = f"M{self.lesson.get('lesson_number', 1)}  "
         if st["practice"]:
             self.mode_text.setText(lesson + "PRACTICE (no damage)")
         else:

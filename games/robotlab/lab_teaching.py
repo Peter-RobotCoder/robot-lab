@@ -27,6 +27,21 @@ def now_text():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+def design_changes(old, new):
+    """What a build changed, by variable name as the code editor shows them: ['turn_speed 80 -> 100', ...]."""
+    out = []
+    for key, var in (("name", "robot_name"), ("colour", "colour"), ("weapon", "weapon"), ("model", "model")):
+        if old.get(key) != new.get(key):
+            out.append(f"{var} {old.get(key)!r} -> {new.get(key)!r}")
+    for k, v in new.get("points", {}).items():
+        if old.get("points", {}).get(k) != v:
+            out.append(f"{k}_points {old.get('points', {}).get(k)} -> {v}")
+    for k, v in new.get("settings", {}).items():
+        if old.get("settings", {}).get(k) != v:
+            out.append(f"{k} {old.get('settings', {}).get(k)} -> {v:g}")
+    return out
+
+
 class Record:
     """Everything the teaching layer remembers about one learner (kept if they reconnect)."""
 
@@ -122,8 +137,9 @@ class Teaching:
         self.save()
         return True
 
-    def on_design(self, p, new, problems, accepted):
-        """Called after a learner presses Build: valid or not."""
+    def on_design(self, p, new, problems, accepted, old=None, by_code=False):
+        """Called after a learner presses Build: valid or not. old: their design before this build; by_code: the
+        build came from the code editor (Mission 1's objective d), not the Garage's buttons (a, b and c)."""
         if p.role != "learner":
             return
         r = self.record(p.name)
@@ -135,11 +151,21 @@ class Teaching:
         r.top_speed = 0.0
         r.hits_at_build = p.robot.hits if p.robot else 0
         defaults = {k: v[2] for k, v in sim.SETTINGS.items()}
-        changed = [k for k, v in new["settings"].items() if v != defaults[k]]
-        if changed:
-            self.complete(p.name, "1a", "Changed " + ", ".join(f"{k} to {new['settings'][k]}%" for k in changed))
-        if new["name"] != p.name and new["colour"] != p.start_colour and r.code_viewed:
-            self.complete(p.name, "1c", f"Name '{new['name']}' (text), colour {new['colour']} (list)")
+        old = old or {}
+        if by_code:
+            changed = design_changes(old, new)
+            if changed:
+                self.complete(p.name, "1d", "Changed in the code: " + ", ".join(changed))
+        else:
+            was = old.get("name", p.name)
+            if new["name"] != was:
+                self.complete(p.name, "1a", f'robot_name "{was}" became "{new["name"]}" (a string, with the GUI)')
+            s = new["settings"]
+            if s["turn_speed"] != defaults["turn_speed"] and s["size"] != defaults["size"]:
+                self.complete(p.name, "1b", f"turn_speed = {s['turn_speed']:g}, size = {s['size']:g} "
+                                            "(integers, with the GUI)")
+            if new["colour"] != old.get("colour", p.start_colour):
+                self.complete(p.name, "1c", f"colour = {new['colour']} (a list, with the GUI)")
         limits = self.server.lesson["limits"]  # (the points to share and each point's range are the teacher's)
         if sum(new["points"].values()) == limits["points_total"]:
             self.complete(p.name, "2a", "Points " + ", ".join(f"{k} {v}" for k, v in new["points"].items()))
@@ -154,10 +180,6 @@ class Teaching:
             if robot is None or robot not in self.server.arena.robots:
                 continue
             r.top_speed = max(r.top_speed, robot.speed * 3.6)
-            if r.prediction is not None and r.top_speed >= 0.9 * robot.stats["forward_max"] * 3.6:
-                diff = r.top_speed - r.prediction
-                self.complete(p.name, "1b", f"Predicted {r.prediction:.0f} km/h, measured {r.top_speed:.1f} km/h "
-                                            f"({'faster' if diff > 0 else 'slower'} by {abs(diff):.1f})")
             if r.built and robot.hits - r.hits_at_build >= 3 and len(r.text.get("2d", "").split()) >= 8:
                 self.complete(p.name, "2d", f"{robot.hits - r.hits_at_build} hits after rebuilding. Why: {r.text['2d']}")
             if r.brain and r.autopilot and r.brain.seconds_running(now) >= 20:
@@ -324,7 +346,12 @@ class Teaching:
         card["review"], card["status"] = answers, "reviewed"
         mission = lm.AI_REVIEW_MISSION.get(self.lesson_number)
         if mission:
-            self.complete(p.name, mission, f"Reviewed AI change #{card['id']}: " + " | ".join(answers.values()))
+            review = f"Reviewed AI change #{card['id']}: " + " | ".join(answers.values())
+            if not self.complete(p.name, mission, review):
+                r = self.record(p.name)  # (Mission 1: sending the card did the objective; the review is its second
+                if mission in r.done:    # half, so it goes on the record too)
+                    r.done[mission]["detail"] = (r.done[mission]["detail"] + " || " + review)[:1200]
+                    self.save()
         return self.missions_msg(p)
 
     # ---------- what each screen is sent ----------
@@ -500,7 +527,7 @@ class Teaching:
         path = os.path.join(EVIDENCE_DIR, f"evidence_{datetime.date.today()}.csv")
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["Learner", "Lesson", "Mission", "Title", "Outcomes", "Curriculum", "When", "Evidence"])
+            w.writerow(["Learner", "Mission", "Objective", "Title", "Outcomes", "Curriculum", "When", "Evidence"])
             for n, r in sorted(self.records.items()):
                 for mid, info in sorted(r.done.items()):
                     lesson, title, _, outcomes, _ = lm.MISSIONS[mid]

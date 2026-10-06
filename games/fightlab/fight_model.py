@@ -11,12 +11,14 @@ main pieces. A fighting style's own moves are named "<style>.<move>" (for exampl
 its own version of a move uses the sword-and-shield one.
 """
 import json
+import math
 import os
 
 from direct.actor.Actor import Actor
-from panda3d.core import Filename, LColor, Material, Point3, TextNode
+from panda3d.core import Filename, LColor, Material, Point3, TextNode, Vec3
 
 import fight_sim as sim
+from fight_gfx import cartwheel_turn, ease
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(HERE, "models")
@@ -24,7 +26,12 @@ FACING = 180.0      # the models face -y; the game's heading 0 faces +y
 BLEND_TIME = 0.12   # seconds to blend from one move into the next
 # a move a model has no animation for plays another (and in the end, idle)
 FALLBACK = {"intro": "idle", "dizzy": "hitstun", "hit_body": "hitstun", "swept": "knockdown", "idle_hurt": "idle",
-            "launched": "knockdown"}
+            "launched": "knockdown",
+            "cartwheel": "win_power_up"}  # (user mod: the models have no cartwheel: the body is turned over whole, in
+#                                              the star pose below, over an upright clip)
+# The cartwheel kick's pose (user mod): arms up and out, legs apart and straight. These joints are held at the
+# model's rest pose turned this much (the right side the other way); the rest of the body plays its clip.
+STAR = {"UpLeg": (0, 0, -35), "Leg": (0, 0, 0), "Arm": (-80, 0, 0), "ForeArm": (0, 0, 0)}
 TWO_HANDED = ("longsword", "katana", "staff", "glaive")
 HURT = 0.25  # below this share of their health, they stand hurt
 
@@ -78,8 +85,10 @@ class ModelFighterVisual:
         info = moves_info()
         self.fps, self.moves = info["fps"], info["moves"]
         self.root = parent.attachNewNode("fighter")
+        self.body = self.root.attachNewNode("body")  # (turned over whole for the cartwheel kick)
         self.actor = Actor(Filename.fromOsSpecific(path))
-        self.actor.reparentTo(self.root)
+        self.actor.reparentTo(self.body)
+        self.wheel, self.star = None, []  # the cartwheel kick: how far over (degrees), and the joints held for it
         self.actor.setH(FACING)
         self.size = 1.3 if design.get("model") else design.get("settings", {}).get("size", 100) / 100
         self.actor.setScale(self.size * 0.975 * look["height"] / 100)  # (the models are 1.80 m; fighters 1.75 m)
@@ -212,10 +221,42 @@ class ModelFighterVisual:
             else:
                 self.actor.setControlEffect(self.prev, 0.0)
                 self.prev = None
+        # (user mod) the cartwheel kick, as fight_gfx.FighterVisual does it: the body turns side-on and goes right
+        # over about its middle, in the star pose (the models have no cartwheel of their own)
+        if a == "cartwheel":
+            over = cartwheel_turn(k)
+            if self.wheel is None or over < self.wheel - 1:
+                self.wheel = over
+            else:  # (smoothly, between the server's updates)
+                self.wheel = min(over, self.wheel + 900 * dt)
+            self.star_pose(True)
+            mid = Vec3(0, 0, 0.9 * self.size)
+            self.body.setHpr(90 * min(ease(k * 4), ease((3 - k) * 2.5)), 0, self.wheel)
+            rise = 1 + 0.22 * math.sin(math.radians(self.wheel / 2)) ** 2  # (higher on the hands: the arms are up)
+            self.body.setPos(mid * rise - self.body.getQuat().xform(mid))
+        elif self.wheel is not None:
+            self.wheel = None
+            self.star_pose(False)
+            self.body.setPosHpr(0, 0, 0, 0, 0, 0)
         hurt = s.get("hu", 9) < 0.12  # a hit flash: bright for a moment
         if hurt != self.flashing:
             self.flashing = hurt
             self.actor.setColorScale((2.6, 2.3, 2.1, 1) if hurt else (1, 1, 1, 1))
+
+    def star_pose(self, on):
+        """Hold the arms and legs in the cartwheel's star (see STAR), or let the clips have them back."""
+        if on and not self.star:
+            for side, sign in (("Left", 1), ("Right", -1)):
+                for part, (h, p, r) in STAR.items():
+                    name = f"mixamorig:{side}{part}"
+                    joint = self.actor.controlJoint(None, "modelRoot", name)
+                    if joint is not None:
+                        joint.setHpr(joint, h * sign, p * sign, r * sign)
+                        self.star.append(name)
+        elif not on and self.star:
+            for name in self.star:
+                self.actor.releaseJoint("modelRoot", name)
+            self.star = []
 
     def number_plate(self, design):
         """Robin's number (or name) on the chest, in the light colour."""

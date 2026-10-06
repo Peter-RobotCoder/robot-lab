@@ -379,6 +379,8 @@ class ArenaVisual:
             if not no_cage:
                 bevel_box(0.03, 0.55, 0.3, 0.02, mesh=lit, offset=Vec3(h - 0.04, by, 0.75))
             self.boost_light = part(self.boost, lit, None, (0.02, 0.05, 0.02), 0.5, 0, emission=(0.2, 0.9, 0.3))
+        self.laser_on = mods["laser_beam"]  # the Laser beam user mod: a glowing red beam for each laser firing
+        self.lasers = []                    # (the beams are made in update(), as they're needed)
         self.spikes = None
         # a bank of spikes that shoots out of the wall and back in (rests inside the wall when off; with the
         # No cage user mod there's no wall, so no spikes)
@@ -483,6 +485,22 @@ class ArenaVisual:
         glow.hide()
         return saw, spin, blur, glow
 
+    def build_laser(self):
+        """The Laser beam user mod: a beam 1 m long pointing along y (update() aims it and stretches it to its
+        length): a white-hot core inside a red glow."""
+        aim = self.root.attachNewNode("laser")
+        beam = aim.attachNewNode("beam")
+        part(beam, cylinder(0.02, 0.5, axis="y", seg=8, caps=False, offset=Vec3(0, 0.5, 0)), None, (0, 0, 0), 1, 0,
+             emission=(10, 4, 3))
+        glow = part(beam, cylinder(0.06, 0.5, axis="y", seg=10, caps=False, offset=Vec3(0, 0.5, 0)), None, (0, 0, 0),
+                    1, 0, emission=(8, 0.3, 0.2))
+        glow.setTransparency(TransparencyAttrib.MAlpha)
+        glow.setAlphaScale(0.5)
+        glow.setDepthWrite(False)
+        glow.setBin("transparent", 5)
+        aim.hide()
+        return aim, beam
+
     def update(self, hz):
         """hz: the arena's hazard_state(): saw heights, flipper angle, pit floor, spikes, time."""
         t = hz["t"]
@@ -515,6 +533,19 @@ class ArenaVisual:
         for node, phase in self.flames:  # the Flame pit user mod: from the pit's floor to the flames' height above it
             flicker = 0.88 + 0.12 * math.sin(t * 11 + phase) * math.sin(t * 6.3 + phase * 2)
             node.setSz(max(0.01, (sim.Arena.FLAME_PIT_DEPTH + hz.get("flames", 0.0)) * flicker))
+        if self.laser_on:  # the Laser beam user mod: a beam for each laser firing, from where it starts to its end
+            beams = hz.get("lasers") or []
+            while len(self.lasers) < len(beams):
+                self.lasers.append(self.build_laser())
+            for i, (aim, beam) in enumerate(self.lasers):
+                start, end = (Point3(*beams[i][:3]), Point3(*beams[i][3:])) if i < len(beams) else (None, None)
+                if start is None or (end - start).length() < 0.05:
+                    aim.hide()
+                    continue
+                aim.setPos(start)
+                aim.lookAt(end)
+                beam.setSy((end - start).length())
+                aim.show()
 
     def set_score(self, text):
         self.scoreboard.setText(text)

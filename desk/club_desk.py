@@ -437,6 +437,9 @@ class Desk:
         self.teachers = set()    # teacher connections
         self.tick = None
         self.waiting = {}        # learner connections waiting for their group: ws -> name
+        self.names = {}          # learner connections that are logged in: ws -> name
+        self.done_with = {}      # ws -> the id of the live session whose game window they closed (CHANGE 54: the
+        #                          app is back and waiting, but not for that game to open again by itself)
 
     def go_message(self, name):
         """Where a learner goes now: their live group's game, with a ticket; or None."""
@@ -445,7 +448,7 @@ class Desk:
             return None
         info = self.games[live["game"]]
         return {"go": {"game": live["game"], "address": info["address"], "lesson": live["lesson"],
-                       "code": running_code(info),
+                       "code": running_code(info), "live_id": live.get("id"),
                        "ticket": club_ticket.make(self.store.key, name, "learner", live["game"])}}
 
     async def tell_teachers(self):
@@ -459,6 +462,8 @@ class Desk:
     async def send_waiting(self):
         for ws, name in list(self.waiting.items()):
             go = self.go_message(name)
+            if go and go["go"]["live_id"] == self.done_with.get(ws):
+                continue  # (they closed this game's window themselves: it opens again only when they log in again)
             if go:
                 try:
                     await ws.send(json.dumps({"ok": True, **go}))
@@ -512,6 +517,12 @@ class Desk:
                         await ws.send(json.dumps({"ok": True, "teacher_password_changed": True}))
                     elif kind == "login":
                         await self.learner_login(ws, where, m)
+                    elif kind == "wait":  # (CHANGE 54) the game window closed: the app is back, still logged in
+                        name = self.names.get(ws)
+                        if not name:
+                            raise DeskError("Log in first.")
+                        self.done_with[ws] = m.get("after")
+                        await self.after_login(ws, name)
                     elif kind == "set_password":
                         found = self.store.check_password(m.get("name", ""), m.get("password", ""))
                         if not found:
@@ -530,6 +541,8 @@ class Desk:
         finally:
             self.teachers.discard(ws)
             self.waiting.pop(ws, None)
+            self.names.pop(ws, None)
+            self.done_with.pop(ws, None)
 
     async def learner_login(self, ws, where, m):
         found = await asyncio.to_thread(self.store.check_password, m.get("name", ""), m.get("password", ""))
@@ -544,13 +557,16 @@ class Desk:
         await self.after_login(ws, name)
 
     async def after_login(self, ws, name):
+        self.names[ws] = name
         go = self.go_message(name)
+        if go and go["go"]["live_id"] == self.done_with.get(ws):
+            go = None
         if go:
             await ws.send(json.dumps({"ok": True, **go}))
         else:
             self.waiting[ws] = name
-            await ws.send(json.dumps({"ok": True, "waiting": True, "message": "Your group hasn't started yet: wait "
-                                                                                 "for your teacher."}))
+            await ws.send(json.dumps({"ok": True, "waiting": True, "name": name,
+                                      "message": "Your group hasn't started yet: wait for your teacher."}))
 
     def teacher_window(self):
         live, s = self.store.live, self.store

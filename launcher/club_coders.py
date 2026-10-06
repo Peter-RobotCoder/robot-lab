@@ -341,7 +341,7 @@ def launcher(args, passed_on):
     from direct.gui.DirectGui import DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame
     from direct.gui.OnscreenText import OnscreenText
     from direct.showbase.ShowBase import ShowBase
-    from panda3d.core import Filename, TextNode
+    from panda3d.core import Filename, TextNode, WindowProperties
 
     yellow, white, grey, red, green = (1, .9, .35, 1), (1, 1, 1, 1), (.75, .8, .9, 1), (1, .45, .4, 1), (.5, .95, .55, 1)
     blue = (.55, .85, 1, 1)
@@ -392,6 +392,8 @@ def launcher(args, passed_on):
             if args.test_screen:
                 self.screen = args.test_screen
             self.teacher_proc = None  # the teacher's game window, while the app has one open
+            self.game_proc = None     # a learner's game window, while it is open (the app waits behind it)
+            self.game_title, self.live_id, self.came_back = "", None, False
             self.teacher_view = "session"  # while a group is live: "session" or "desk" (learners and groups)
             self.pending_record = None  # a session just stopped, waiting for "make the PDFs?"
             self.sessions = []        # past sessions' records, from the desk
@@ -469,10 +471,45 @@ def launcher(args, passed_on):
             button(f, "SAVE MY PASSWORD", 0, -0.22, self.change_password, (), 0.06, go_col)
 
         def draw_waiting(self, f, keep):
-            label(f, "NOT STARTED YET", 0, 0.55, 0.08, yellow)
-            label(f, f"Hello {self.me}. Your group hasn't started yet: wait for your teacher.\n"
-                     "The game will open by itself as soon as it does.", 0, 0.25, 0.045, white, wrap=45)
+            label(f, "NOT STARTED YET" if not self.came_back else "WAITING FOR THE NEXT GAME", 0, 0.55, 0.08, yellow)
+            label(f, (f"Hello {self.me}. Your group hasn't started yet: wait for your teacher.\n"
+                      "The game will open by itself as soon as it does.") if not self.came_back else
+                     (f"The game has closed. You're still logged in, {self.me}: when your teacher starts the "
+                      "next game it will open by itself.\nClose this window to leave."),
+                  0, 0.25, 0.045, white, wrap=45)
             button(f, "Log out", 0, -0.3, self.log_out, (), 0.045)
+
+        def draw_playing(self, f, keep):
+            label(f, "PLAYING", 0, 0.55, 0.08, yellow)
+            label(f, f"{self.game_title} is open in its own window.\nWhen it closes you come back here, still "
+                     "logged in, ready for the next game.", 0, 0.25, 0.045, white, wrap=45)
+
+        # ---------- the game, while it is open (CHANGE 54) ----------
+        def minimised(self, on):
+            """The app's window out of the way while the game is open, and back in front when the game closes."""
+            if args.offscreen:
+                return
+            props = WindowProperties()
+            props.setMinimized(on)
+            if not on:
+                props.setForeground(True)
+            self.win.requestProperties(props)
+
+        def watch_game(self, task):
+            if self.game_proc is None:
+                return task.done
+            if self.game_proc.poll() is None:
+                return task.cont
+            self.game_proc = None  # the game window closed: the teacher stopped it, or the learner closed it
+            self.came_back = True
+            self.minimised(False)
+            if self.link is not None and self.link.open:
+                self.show("waiting")
+                self.ask_desk({"type": "wait", "after": self.live_id})  # (the desk's next launch reaches this app)
+            else:  # (the desk connection went while the game was open: once logged in again, the next game opens)
+                self.show("home")
+                self.say("The game has closed. Log in again, and the next game will open by itself.", grey)
+            return task.done
 
         def draw_teacher_login(self, f, keep):
             label(f, "TEACHER", 0, 0.6, 0.09, yellow)
@@ -705,7 +742,7 @@ def launcher(args, passed_on):
             if self.link is None:
                 return task.cont
             try:
-                while True:
+                while self.link is not None:  # (on_desk drops the link when the desk's connection closed)
                     m = self.link.inbox.get_nowait()
                     self.on_desk(m)
             except queue.Empty:
@@ -772,9 +809,16 @@ def launcher(args, passed_on):
                 if g.get("game") in GAMES and address_ok(g.get("address")):
                     self.say(f"Opening {GAMES[g['game']]['title']}...", green)
                     self.graphicsEngine.renderFrame()
-                    result = start_game(g["game"], ["--host", g["address"], "--ticket", g["ticket"]] + passed_on,
-                                        wait=args.wait, code=g.get("code"))
-                    self.finish(result)
+                    argv = ["--host", g["address"], "--ticket", g["ticket"]] + passed_on
+                    if args.wait:  # (tests: run the game to its end, then exit with its result)
+                        self.finish(start_game(g["game"], argv, wait=True, code=g.get("code")))
+                    else:  # (CHANGE 54) the app stays open behind the game, still logged in: when the game window
+                        self.game_proc = start_game(g["game"], argv, code=g.get("code"))  # closes, it comes back
+                        self.game_title, self.live_id = GAMES[g["game"]]["title"], g.get("live_id")
+                        self.show("playing")
+                        self.minimised(True)
+                        self.taskMgr.remove("watch game")
+                        self.taskMgr.add(self.watch_game, "watch game")
                 else:
                     self.say("The club's server gave an answer this app doesn't understand: download the newest "
                              "Club Coders.", red)

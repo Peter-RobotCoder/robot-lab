@@ -81,15 +81,30 @@ LESSONS = {
 # ---------- missions ----------
 # id: (lesson, title, what to do, outcome codes, how it is checked)
 MISSIONS = {
-    "1a": (1, "Change a variable", "Move one of the % sliders and press REBUILD MY ROBOT.", ["VAR"], "auto"),
-    "1b": (1, "Predict, then test", "Type how fast you think you will go (km/h) in the box, press Save, "
-                                   "then drive flat out in a straight line.", ["VAR", "TEST", "ABS"], "auto"),
-    "1c": (1, "Text, numbers and lists", "Change your robot's name and colour, build it, then press C to see "
-                                        "your robot as code.", ["DATA"], "auto"),
-    "1d": (1, "Your first AI request", "Press I and ask the AI to change how your robot looks (colour, lights, "
-                                      "name). No personal information.", ["AISAFE"], "auto"),
-    "1e": (1, "Check the AI's work", "When the teacher keeps the change, look at your robot and answer the review "
-                                    "questions.", ["AIREVIEW", "TEST"], "auto"),
+    # Mission 1 (CHANGE 50 to 53): what the learner sees is the title; the text drops down when the title is
+    # clicked, and is the explanation and the guidance. The Garage (the GUI) shows the robot as variables.
+    "1a": (1, "Change a STRING VARIABLE with the GUI",
+           "In the Garage (G), under STRING VARIABLES, type a new name for your robot in the STRING VALUE box and "
+           "press REBUILD MY ROBOT. A string is text: letters, digits and spaces, in quotes. Its type is str.",
+           ["VAR", "DATA"], "auto"),
+    "1b": (1, "Change an INTEGER VARIABLE with the GUI",
+           "In the Garage, under INTEGER VARIABLES, slide turn_speed and size to new values and press REBUILD MY "
+           "ROBOT. An integer is a whole number (type int). Drive: what did each one change?",
+           ["VAR", "DATA"], "auto"),
+    "1c": (1, "Change a LIST VARIABLE with the GUI",
+           "In the Garage, under VARIABLE LISTS, click a colour block and press REBUILD MY ROBOT. The colour is a "
+           "list of three integers, [red, green, blue], each from 0 (none) to 255 (full). Its type is list.",
+           ["DATA", "VAR"], "auto"),
+    "1d": (1, "Hack the code",
+           "Press C to open the code editor: your robot as Python, every variable with its type. Change a value "
+           "there and press REBUILD MY ROBOT in the code panel. The extra power here: you can see ALL the "
+           "variables, even the ones the Garage doesn't show.",
+           ["VAR", "DATA", "ALG"], "auto"),
+    "1e": (1, "Safe use of AI",
+           "Press I and use an AI request card to ask for a change in the game: your robot, your weapon, your "
+           "defence, the arena, the Resident Robots... almost anything you can imagine. No personal information. "
+           "When the teacher keeps the change, look at what it did and answer the review questions.",
+           ["AISAFE", "AIREVIEW"], "auto"),
     "2a": (2, "Spend exactly 100 points", "Share all 100 points between speed, attack, armour and control.",
            ["ALG", "VAR"], "auto"),
     "2b": (2, "Invalid test data", "Try to build a robot that breaks the rules (for example more than 100 "
@@ -146,9 +161,9 @@ def missions_for(lesson):
 # the steps, what the teacher explains or shows, and what success looks like. The teacher's Outcomes tab shows
 # these when an outcome is clicked, so a new teacher can see exactly what learners need to do.
 LESSON_TASKS = {
-    1: "Tune a robot for a straight-line sprint. Change its settings (variables), predict its top speed, test it, "
-       "and look at the robot as Python code. Finish with a first safe AI request to restyle it, then check "
-       "what the AI did.",
+    1: "Your robot is a set of variables. Change a string (its name), integers (turn speed and size) and a list "
+       "(its colour) with the GUI, then hack the code to change them there, where every variable can be seen. "
+       "Finish with a first safe AI request for a change in the game, then check what the AI did.",
     2: "Design a robot on a budget. Share exactly 100 points between speed, attack, armour and control in the "
        "code, prove the game rejects bad designs (invalid and boundary test data), then fight and use the "
        "evidence to justify the design.",
@@ -166,42 +181,40 @@ LESSON_TASKS = {
 GUIDE = {  # lesson: {outcome: lesson piece}
     1: {
         "VAR": dict(
-            task="Change a variable and see what it does",
-            do=["Open the Garage (G). Move Forward speed from 80 to 100 and press REBUILD MY ROBOT.",
-                "Drive in a straight line: is it faster?",
-                "Press C. Find the line  \"forward_speed\": 100  - that is the variable you changed."],
+            task="Change variables with the GUI, then in the code",
+            do=["Open the Garage (G): the robot is shown as variables. Under STRING VARIABLES type a new "
+                "robot_name; under INTEGER VARIABLES slide turn_speed and size. Press REBUILD MY ROBOT.",
+                "Drive: what did each change do?",
+                "Press C. Find the line  turn_speed: int = 100  - that is the variable you changed. Change a value "
+                "here instead and press REBUILD MY ROBOT in the code panel."],
             teach="A variable is a name that stores a value. Changing the value changes how the program behaves "
-                  "without rewriting the program. Writing forward_speed = 100 is called assignment.",
+                  "without rewriting the program. Writing turn_speed = 100 is called assignment. The GUI and the "
+                  "code change the same variables; the code shows all of them.",
             success="They can point to the variable they changed, say its old and new value, and what it did."),
-        "TEST": dict(
-            task="Predict, then test the top speed",
-            do=["In the Missions tab type how fast you think you will go (km/h) and press Save.",
-                "Drive flat out in a straight line.",
-                "Compare 'fastest so far' with your prediction. Change ONE setting, predict again, test again."],
-            teach="A prediction made before the test is what makes it a test. Change one variable at a time, "
-                  "so you know which change made the difference (a fair test).",
-            success="They can state their prediction, the result and how far out they were."),
-        "ABS": dict(
-            task="How the game models speed",
-            do=["Look at the stats readout in the Garage.",
-                "Top speed in m/s = 3 + 0.2 x speed points, then x forward_speed %. Multiply by 3.6 for km/h.",
-                "Work out your robot's top speed on paper and compare it with your test drive."],
-            teach="The game models a real robot with a few numbers: that is abstraction. It leaves out batteries, "
-                  "tyre wear and motor heat. Ask: what else does it leave out, and does it matter for the game?",
-            success="They can name one real thing the model leaves out and explain why it is still useful."),
         "DATA": dict(
-            task="Text, numbers and lists",
-            do=["Change your robot's name and colour, then press REBUILD MY ROBOT.",
-                "Press C. Find a string (the name), whole numbers (the points), a list (the colour) and a "
-                "dictionary (points: the part in { }).",
-                "Change the colour in the code to [0, 200, 255] and press APPLY CODE."],
-            teach="Data types: a string is text in quotes, an integer is a whole number, a list keeps values in "
-                  "order in [ ], and a dictionary pairs a key with a value in { }.",
+            task="Strings, integers and lists",
+            do=["In the Garage, hover over STRING, INTEGER and LIST to read what each type is.",
+                "Change the name (a string), turn speed and size (integers) and the colour (a list) and press "
+                "REBUILD MY ROBOT.",
+                "Press C. Every variable has its type after its name: str, int or list. Change colour to "
+                "[0, 200, 255] and press APPLY CODE: the custom block in the Garage takes that colour."],
+            teach="Data types: a string (str) is text in quotes, made of chars; an integer (int) is a whole number; "
+                  "a list keeps values in order in [ ]. The colour is a list of three integers: red, green, blue.",
             success="They can name the data type of three values in their robot's code."),
+        "ALG": dict(
+            task="Hack the code",
+            do=["Press C. The code shows every variable, even the ones the Garage hides this mission "
+                "(the points, the weapon).",
+                "Change one of them and press REBUILD MY ROBOT in the code panel.",
+                "The teacher's Warnings tab shows what was changed outside the Garage."],
+            teach="The GUI is one way in; the code is a more powerful way in to the same program. Knowing the "
+                  "variables means you can change things the buttons don't offer.",
+            success="They changed a value in the code that the Garage doesn't show, and can say which."),
         "AISAFE": dict(
             task="Your first AI request",
             do=["Press I to open the AI card.",
-                "Goal: how your robot should look, e.g. 'Make my robot's lights green and its body blue'.",
+                "Goal: a change in the game: your robot, your weapon, your defence, the arena, the Resident "
+                "Robots... e.g. 'Make my robot's lights green and its body blue'.",
                 "Say which values change, how you will test it, and your prediction.",
                 "No personal information. Tick the three boxes and send it."],
             teach="Never give an AI tool personal information (full name, school, email, address). A good request "
@@ -220,11 +233,11 @@ GUIDE = {  # lesson: {outcome: lesson piece}
         "VAR": dict(
             task="Set the 100 points in the code",
             do=["Press C to see your robot as code.",
-                "In \"points\" change the four numbers so they add up to exactly 100 "
-                "(e.g. speed 30, attack 30, armour 25, control 15).",
-                "Press APPLY CODE. The last line must say: points used: 100 of 100.",
+                "Change speed_points, attack_points, armour_points and control_points so they add up to exactly 100 "
+                "(e.g. 30, 30, 25, 15).",
+                "Press APPLY CODE. The line under them must say: points used: 100 of 100.",
                 "Press REBUILD MY ROBOT and test it."],
-            teach="The points dictionary holds four variables. The program adds them up to check the total. "
+            teach="The points are four integer variables. The program adds them up to check the total. "
                   "Raising one value means lowering another: every choice is a trade-off.",
             success="Their code shows a total of 100, and they can say which value they raised and which they lowered."),
         "ALG": dict(
@@ -237,10 +250,10 @@ GUIDE = {  # lesson: {outcome: lesson piece}
             success="They explain their numbers as a plan that meets both rules."),
         "VALID": dict(
             task="Break the rules on purpose",
-            do=["In the code set speed to 60 (more than 50). APPLY and read the error.",
+            do=["In the code set speed_points to 60 (more than 50). APPLY and read the error.",
                 "Make the total 110. APPLY and read the error.",
                 "Put a word instead of a number, e.g. \"fast\". APPLY and read the error.",
-                "Boundary: set armour to exactly 5, then exactly 50. Both should be accepted."],
+                "Boundary: set armour_points to exactly 5, then exactly 50. Both should be accepted."],
             teach="Validation checks input before it is used. Normal data (25), boundary data (5 and 50, the "
                   "edges that are still allowed) and invalid data (51, 110, text) should all be tested.",
             success="They can give an example of normal, boundary and invalid data and what the program did."),
@@ -248,7 +261,7 @@ GUIDE = {  # lesson: {outcome: lesson piece}
             task="Fill in a test table",
             do=["Make a table: test data | type (normal / boundary / invalid) | expected | actual | pass?",
                 "Write the expected result BEFORE each test.",
-                "Test: total 100 (normal), attack 50 (boundary), total 101 (invalid)."],
+                "Test: total 100 (normal), attack_points 50 (boundary), total 101 (invalid)."],
             teach="A test plan says what should happen before you try it. A test passes when what actually "
                   "happens matches what was expected.",
             success="Their table has one test of each type with expected results written first."),

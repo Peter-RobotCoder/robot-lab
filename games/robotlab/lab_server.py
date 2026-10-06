@@ -629,6 +629,7 @@ class LabServer:
             new = self.clean_design(p, m.get("design", {}), everything=hack)
             problems = sim.check_design(new, self.limits_for(p))
             outside = self.outside_lesson(p.design, new) if hack and not problems else []
+            old = p.design  # (the missions compare the two: what the build changed, and how)
             if not problems:
                 p.design = new
                 if p.robot is not None and p.robot in self.arena.robots:  # rebuild at the same start square
@@ -638,7 +639,7 @@ class LabServer:
                     self.teaching.attach(p)
                     self.roster_version += 1
                 self.arena.events.append((self.arena.time, f"{p.name} rebuilt {new['name']}"))
-            self.teaching.on_design(p, new, problems, not problems)
+            self.teaching.on_design(p, new, problems, not problems, old=old, by_code=bool(m.get("code")))
             if not problems and p.role == "learner":
                 self.teaching.save_design(p.name, new)  # autosave: their robot is there next lesson
             await self.send(p.ws, {"type": "design_result", "ok": not problems, "problems": problems, "design": p.design})

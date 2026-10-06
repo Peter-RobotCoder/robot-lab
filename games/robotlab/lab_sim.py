@@ -224,7 +224,13 @@ USER_MODS = {
     "flame_pit": ("Flame pit", "A pit of flames in the middle of the arena: the flames rise while a robot is in it, and after 3 seconds in the pit the robot is deactivated"),
     "double_flipper": ("Flipper on both ends", "A flipper robot has a second flipper on its back end: both lift when it fires"),
     "boost_pad": ("3 second boost", "A boost button on the floor by the east wall: the robot that touches it is faster for 3 seconds, then the button rests for 5 seconds"),
+    "laser_beam": ("Laser beam", "Fire also shoots a laser beam from the front of a robot: the first robot in the beam is pushed away (power 50)"),
 }
+LASER_POWER = 50      # laser beam: how hard it pushes, on the same scale as attack points (5 is weak, 50 the most)
+LASER_PUSH = 0.1      # ...the speed it gives the robot it hits for each point of power (m/s): 5 m/s at power 50
+LASER_RANGE = 12.0    # ...how far the beam reaches (metres)
+LASER_EVERY = 1.0     # ...the seconds between shots while fire is held
+LASER_SECONDS = 0.25  # ...and how long each shot's beam shows
 BOOST_SECONDS = 3.0  # boost button: how long the robot that touches it is boosted...
 BOOST_REST = 5.0     # ...how long after a touch the button doesn't work (so a robot chasing it can't boost too)...
 BOOST_SPEED = 1.5    # ...and a boosted robot's top speed (forwards and backwards) is this many times its own...
@@ -439,6 +445,7 @@ class Robot:
         self.grip_now = None       # the grip its wheels have at the moment
         self.rear_np = self.rear_hinge = None  # the Flipper on both ends user mod: a second plate, on the back end
         self.boost_until = -10.0   # the boost button user mod: boosted until this time
+        self.laser_at = -10.0      # the laser beam user mod: when it last fired its laser
         self.launched = set()  # robots already launched by the current flip
         self.start = (pos, heading)
         self.corner = None
@@ -688,6 +695,11 @@ class Robot:
             inertia = body.getMass() * ((2 * self.shape["half"].x) ** 2 + (2 * self.shape["half"].y) ** 2) / 12
             body.applyTorque(Vec3(0, 0, inertia * 40 * (want - yaw_rate)))
 
+        # laser beam (user mod): fire also shoots the laser, once every LASER_EVERY seconds (see Arena.laser_shots).
+        # Resident Robots don't have one
+        if attack and self.arena.user_mods["laser_beam"] and not self.house and now >= self.laser_at + LASER_EVERY:
+            self.laser_at = now
+
         if "weapon" in self.lost:  # it has come off: nothing to drive
             return
         on = (self.weapon_on or self.weapon not in TOGGLE_WEAPONS) and not self.knocked_out
@@ -769,6 +781,7 @@ class Robot:
     def reset(self, keep_health=False):
         pos, heading = self.start
         self.jump_at, self.slam_until, self.boost_until = None, -10.0, -10.0
+        self.laser_at = -10.0
         for np_ in (self.np, self.weapon_np):
             np_.node().setLinearVelocity(Vec3(0))
             np_.node().setAngularVelocity(Vec3(0))
@@ -911,6 +924,7 @@ class Arena:
         self.flame_height = 0.0           # ...how high the flames stand above the floor right now (metres)
         self.flame_pit_since = {}         # ...robot in the pit -> when it went in
         self.boost_ready_at = 0.0         # boost button (user mod): it works again from this time
+        self.lasers = []                  # laser beam (user mod): the beams showing now, each (start, end)
         self.saw_height = [0.0 for _ in self.SAWS]
         self.saw_hot_until = [0.0 for _ in self.SAWS]
         self.spike_out = 0.0
@@ -941,6 +955,10 @@ class Arena:
             self.boost_ready_at = 0.0
             for r in self.robots:
                 r.boost_until = -10.0
+        if self.user_mods["laser_beam"] != before["laser_beam"]:
+            self.lasers = []
+            for r in self.robots:
+                r.laser_at = -10.0
         switched = [k for k in in_pit if self.user_mods[k] != before[k]]
         if "flame_pit" in switched:  # (switched on, the flames start from nothing and rise to their baseline)
             self.flame_height = 0.0
@@ -1167,6 +1185,8 @@ class Arena:
             self.flame_pit_burn(now)
         if self.user_mods["boost_pad"]:
             self.boost_pad_touch(now)
+        if self.user_mods["laser_beam"]:
+            self.laser_shots(now)
         self.check_knockouts(now)
 
     def move_hazards(self, now):
@@ -1446,6 +1466,63 @@ class Arena:
             self.events.append((now, f"{r.name} {BOOST_SECONDS:.0f} Second Boost"))
             return
 
+    def laser(self, a):
+        """Laser beam (user mod): where a robot's beam starts and ends, and the robot it hits (None if it hits
+        nobody). The beam goes level from the top of the robot's front, the way the robot faces, to the first
+        robot in its way: with none in its way, to the end of its range or the arena's edge."""
+        flat = Vec3(a.forward.x, a.forward.y, 0)
+        if flat.length() < 0.5:  # (pointing up or down: no beam)
+            return None
+        flat.normalize()
+        nose = a.shape["half"].y
+        start = a.pos + flat * nose + Vec3(0, 0, a.shape["top"] + 0.05)
+        reach, hit = LASER_RANGE, None
+        for v in self.robots:
+            if v is a or v.knocked_out or abs(v.pos.z - a.pos.z) > 1.0:  # (a robot down in a pit is under the beam)
+                continue
+            to = v.pos - a.pos
+            along = to.x * flat.x + to.y * flat.y - nose  # how far down the beam the robot is...
+            side = abs(to.x * flat.y - to.y * flat.x)     # ...and how far to one side of it
+            r = (v.shape["half"].x + v.shape["half"].y) / 2
+            if along <= 0 or side >= r:
+                continue
+            touch = max(0.0, along - math.sqrt(r * r - side * side))  # where the beam meets the robot
+            if touch < reach:
+                reach, hit = touch, v
+        if hit is None:
+            h = ARENA / 2
+            for p, d in ((start.x, flat.x), (start.y, flat.y)):
+                if abs(d) > 1e-6:
+                    reach = min(reach, ((h if d > 0 else -h) - p) / d)
+        return start, start + flat * max(0.0, reach), hit
+
+    def laser_shots(self, now):
+        """Laser beam (user mod): the robot in the beam of a laser that has just fired is pushed away, along the
+        beam. The push is a speed (LASER_POWER x LASER_PUSH m/s, never more than max_launch_speed), so a heavy
+        robot is pushed as fast as a light one: a Resident Robot much less. A laser does no damage."""
+        self.lasers = []
+        for a in self.robots:
+            if a.knocked_out or now >= a.laser_at + LASER_SECONDS:
+                continue
+            beam = self.laser(a)
+            if beam is None:
+                continue
+            start, end, v = beam
+            self.lasers.append((start, end))
+            if v is None or a.laser_at != now:  # (it pushes once, as it fires)
+                continue
+            way = end - start
+            way.z = 0
+            if not way.normalize():
+                way = Vec3(a.forward.x, a.forward.y, 0)
+                way.normalize()
+            body = v.np.node()
+            speed = min(RULES["max_launch_speed"], LASER_POWER * LASER_PUSH)
+            body.applyCentralImpulse(way * speed * body.getMass() * (0.35 if v.big else 1.0))
+            v.pushed_until = now + 0.3  # (its tyres slide while it's pushed: see PUSH_GRIP)
+            self.impacts.append(((end.x, end.y, max(0.1, end.z)), 4.0, "laser"))
+            self.events.append((now, f"{a.name}'s laser pushes {v.name}"))
+
     def flame_pit_burn(self, now):
         """Flame pit (user mod): the flames climb while a robot is down in the pit, and a robot that has been in
         for FLAME_PIT_SECONDS is deactivated. With nobody in, they sink back to the baseline the teacher set."""
@@ -1549,7 +1626,10 @@ class Arena:
                 # flame pit (user mod): how high its flames stand above the floor (only sent while it's on)
                 **({"flames": round(self.flame_height, 2)} if self.user_mods["flame_pit"] else {}),
                 # boost button (user mod): 1 while it will work, 0 while it rests (only sent while it's on)
-                **({"boost": 1 if self.time >= self.boost_ready_at else 0} if self.user_mods["boost_pad"] else {})}
+                **({"boost": 1 if self.time >= self.boost_ready_at else 0} if self.user_mods["boost_pad"] else {}),
+                # laser beam (user mod): each beam showing now, start x, y, z then end x, y, z (only sent while it's on)
+                **({"lasers": [[round(c, 2) for c in (*s, *e)] for s, e in self.lasers]}
+                   if self.user_mods["laser_beam"] else {})}
 
     def take_fx(self):
         """New hits and spark showers since the last call (then forgets them)."""

@@ -209,7 +209,7 @@ try:
                     break
             assert welcome and welcome["lesson"]["lesson_number"] == 1
             design = welcome["design"]
-            design["settings"]["forward_speed"] = 100  # mission 1a: change a variable and build
+            design["name"] = "Sammy"  # Mission 1, objective a: change the robot's name (a string) and build
             ws.send(json.dumps({"type": "design", "design": design}))
             card, t0 = None, time.time()
             while time.time() - t0 < 15:
@@ -256,6 +256,26 @@ try:
                 closed = getattr(getattr(e, "rcvd", None), "code", None)
             assert closed == 4009, f"the learner's window wasn't closed on Stop ({closed})"
     check("Stop: the learner's window is closed; the session record is filed with the report and notes", stop_closes)
+
+    def back_to_waiting():  # (CHANGE 54) the app says the game window closed: it waits, logged in, for the next launch
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="waiting")
+            assert m.get("waiting"), m
+            m = ask(ws, {"type": "wait", "after": go.get("live_id")}, want="waiting")
+            assert m.get("waiting") and m.get("name") == "Sam", m
+            m = ask(teacher, {"type": "launch", "group": "Tuesday", "lesson": 2})
+            assert m.get("ok"), m
+            m = json.loads(ws.recv(timeout=10))
+            assert m.get("go") and m["go"]["lesson"] == 2 and m["go"].get("live_id"), m
+            # they close that game's window themselves: the desk doesn't open the same game again by itself
+            m = ask(ws, {"type": "wait", "after": m["go"]["live_id"]}, want="waiting")
+            assert m.get("waiting"), m
+            m = ask(teacher, {"type": "stop"})
+            assert m.get("ok"), m
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            m = ask(ws, {"type": "wait"})
+            assert "error" in m, m  # (not logged in on this connection)
+    check("after Stop: the app waits, logged in, and the next launch opens the next game by itself", back_to_waiting)
 
     def removed():
         m = ask(teacher, {"type": "remove_learner", "name": "Sam"})

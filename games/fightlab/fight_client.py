@@ -95,6 +95,10 @@ elif args.host is None:  # a learner's last choice on the login screen, or this 
     args.host = {"local": fight_version.LOCAL_SERVER, "online": fight_version.ONLINE_SERVER}.get(
         where if not TEACHER else None) or fight_version.SERVER
 LOCAL = args.host.startswith(("ws://127.0.0.1", "ws://localhost"))  # a laptop test server
+import try_local  # noqa: E402
+# Try it on this laptop (see try_local): the teacher's window, opened on a test server here to look at this
+# laptop's game before it is made live for the class. It knows how to go back to the class.
+TRY = try_local.unpack(os.environ.pop("FIGHTLAB_TRY", "")) if args.teacher and LOCAL else None
 import club_ticket  # noqa: E402
 if args.ticket:  # the club desk has logged this person in: their name is in the ticket (the server checks it)
     args.name = (club_ticket.peek(args.ticket) or {}).get("name") or args.name
@@ -114,6 +118,8 @@ name = args.name or ("Teacher" if TEACHER else "")
 net = None  # the connection to the server, made when you log in
 
 title = f"Fight Lab - {'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if TRY:
+    title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 loadPrcFileData("", f"win-size 1280 720\nwindow-title {title}\nframebuffer-multisample 1\nmultisamples 4\n"
                     f"win-origin {x} 80\n")
@@ -169,8 +175,10 @@ AI_RULES = ("Only the teacher uses the AI.  Never put personal information in a 
             "AI can be wrong: you test the code and must be able to explain it.\n"
             "Say where AI helped (the tool and the date).")
 CARD_FIELDS = ("goal", "variables", "test", "predict")
-PRESS_KEYS = {"a": "punch", "s": "kick", "d": "special", "w": "throw", "space": "jump"}
-ATTACK_ANIMS = {"punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam"}
+PRESS_KEYS = {"a": "punch", "s": "kick", "d": "special", "w": "throw", "space": "jump",
+              "f": "cartwheel"}  # (F: the cartwheel kick user mod; it does nothing while the mod is off)
+ATTACK_ANIMS = {"punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam",
+                "cartwheel"}
 
 
 def label(parent, text, x, y, scale=0.036, fg=WHITE, align=TextNode.ALeft, wrap=None):
@@ -412,6 +420,11 @@ class Lab(ShowBase):
         self.accept("arrow_up", self.code_line_move, [-1])  # only does anything while typing in the code
         self.accept("arrow_down", self.code_line_move, [1])
         self.hud()
+        self.try_starting = None  # (teacher: a test server on this laptop is starting: see try_here)
+        if TRY:
+            self.begin_try()
+        if TEACHER and os.environ.get("CLUBCODERS_TRY_TEST"):  # (tests: there and back by itself, noting each step)
+            self.taskMgr.doMethodLater(4, self.try_test, "try test")
         self.rebuild_panels()
         self.start = self.last = time.perf_counter()
         self.prefs_at = self.start
@@ -537,14 +550,22 @@ class Lab(ShowBase):
         self.restart_window(reopen_for=welcome["code"])
         return True
 
-    def restart_window(self, reopen_for=None):
-        """Reopen this window (to load code changes), logged in as the same person."""
+    def restart_window(self, reopen_for=None, argv=None, try_env=None):
+        """Reopen this window (to load code changes), logged in as the same person.
+        argv: open it with these arguments instead (Try it on this laptop, and Back to the class). try_env: what a
+        window on the laptop's test server needs to know (see try_local); left out, a try stays a try."""
         env = dict(os.environ, FIGHTLAB_LOGIN=json.dumps([name, getattr(self, "password", ""), args.ticket or ""]))
         if reopen_for:  # remember which server code this reopen was for, so it only happens once
             env["FIGHTLAB_REOPENED"] = reopen_for
         else:
             env.pop("FIGHTLAB_REOPENED", None)
-        argv = [a for a in sys.argv[1:]]
+        if try_env is None and TRY and argv is None:
+            try_env = json.dumps(TRY)
+        if try_env:
+            env["FIGHTLAB_TRY"] = try_env
+        else:
+            env.pop("FIGHTLAB_TRY", None)
+        argv = [a for a in (sys.argv[1:] if argv is None else argv)]
         for flag in ("--name", "--password"):  # the login travels in FIGHTLAB_LOGIN instead
             while flag in argv:
                 i = argv.index(flag)
@@ -1456,10 +1477,93 @@ class Lab(ShowBase):
                (0.6, 0.35, 0.1, 1) if self.needs_restart else OFF)
         button(f, "Reopen learners' windows", 1.25, y, send, [{"type": "restart_clients"}], 0.024)
         button(f, "Reopen mine", 1.6, y, self.restart_window, None, 0.024)
+        y -= 0.05
+        if TRY:
+            button(f, "Back to the class", 1.0, y, self.back_to_class, None, 0.024, (0.15, 0.55, 0.25, 1))
+            label(f, "Trying this laptop's game: the class can't see it.", 1.2, y - 0.008, 0.021, ORANGE)
+        elif not fight_version.FROZEN and not LOCAL:
+            button(f, "Try on this laptop", 1.0, y, self.try_here, None, 0.024, (0.15, 0.45, 0.65, 1))
+            label(f, "this window, on a test server here (the class sees nothing)", 1.19, y - 0.008, 0.02, GREY)
 
     def restart_server(self):
+        if TRY:  # (nothing would start the test server again: a new try loads new code)
+            return self.banner_note("You are trying this on the laptop: go Back to the class, then Try again, to "
+                                    "load new code.", 8)
         self.needs_restart = False
         send({"type": "restart_server"})
+
+    # ---------- try it on this laptop (teacher): a look at this laptop's game before it is made live ----------
+    def try_here(self, mods=()):
+        """Leave the class for a moment: a test server starts on this laptop, out of sight, and this one window
+        reopens on it (see try_local). mods: the user mods to switch on there. Back to the class comes back."""
+        if TRY or fight_version.FROZEN or self.try_starting is not None:
+            return
+        if LOCAL:
+            return self.banner_note("This window is already on this laptop's test server: it has this laptop's "
+                                    "game. Tick the mod in Controls.", 8)
+        info, proc = try_local.start(HERE, "fight_server.py", "FIGHTLAB_DATA")
+        self.try_starting = (info, proc, time.perf_counter(), list(mods))
+        self.banner_note("Starting a test server on this laptop: this window will reopen on it in a few seconds...", 60)
+        self.taskMgr.doMethodLater(0.5, self.try_wait, "try on this laptop")
+
+    def try_wait(self, task):
+        info, proc, began, mods = self.try_starting
+        if try_local.ready(info):
+            login = [name, getattr(self, "password", ""), args.ticket or ""]
+            self.restart_window(argv=["--host", f"ws://127.0.0.1:{info['port']}", "--teacher", "--code", "TEACH99",
+                                      "--gfx", args.gfx] + (["--offscreen"] if args.offscreen else []),
+                                try_env=try_local.pack(info, sys.argv[1:], login, mods, self.lesson.get("lesson_number")))
+        if proc.poll() is not None or time.perf_counter() - began > 45:  # it stopped, or never answered
+            words = try_local.last_words(info)
+            try_local.stop(info, HERE)
+            self.try_starting = None
+            self.banner_note("The test server didn't start on this laptop, so the game as it is here doesn't run"
+                             + (f": {words}" if words else "."), 30)
+            return task.done
+        return task.again
+
+    def begin_try(self):
+        """This window has just opened on the laptop's test server: the class's lesson, the teacher's own fighter
+        in a ring, and the new user mods switched on. A notice and a way back stay on the screen."""
+        if TRY.get("lesson") in (1, 2, 3, 4, 5):
+            send({"type": "lesson_number", "n": TRY["lesson"]})
+        mods = {k: True for k in TRY.get("mods") or [] if k in sim.USER_MODS}
+        self.set_lesson({"teacher_fighter": True, **({"user_mods": mods} if mods else {})})
+        self.exitFunc = self.stop_try  # (closing the window stops the test server too)
+        OnscreenText("TRYING ON THIS LAPTOP: the class can't see this", pos=(-0.04, 0.715), scale=0.045, fg=ORANGE,
+                     shadow=(0, 0, 0, 0.9), parent=self.aspect2d)
+        DirectButton(parent=self.aspect2d, text="Back to the class", scale=0.042, pos=(-0.04, 0, 0.635),
+                     command=self.back_to_class, frameColor=(0.15, 0.55, 0.25, 1), text_fg=WHITE, relief=DGG.FLAT,
+                     pad=(0.4, 0.2))
+        on = ", ".join(sim.USER_MODS[k][0] for k in mods)
+        self.banner_note((f"Switched on here: {on}. " if on else "Tick a user mod in Controls to try it. ")
+                         + "When you have seen enough, press Back to the class.", 12)
+
+    def stop_try(self):
+        if TRY:
+            try_local.stop(TRY["server"], HERE)
+
+    def try_test(self, task):
+        """Tests only (CLUBCODERS_TRY_TEST names a file): on the class, note it and try the laptop; on the laptop,
+        note what is switched on and go back; back on the class, note it and stay."""
+        path = os.environ["CLUBCODERS_TRY_TEST"]
+        seen = open(path).read() if os.path.exists(path) else ""
+        with open(path, "a") as f:
+            f.write(json.dumps({"where": "laptop" if TRY else "class", "host": args.host, "lesson": self.lesson.get(
+                "lesson_number"), "user_mods": self.lesson.get("user_mods"), "mine": self.my_id is not None}) + "\n")
+        if TRY:
+            self.back_to_class()
+        elif "laptop" not in seen:
+            self.try_here([k for k in os.environ.get("CLUBCODERS_TRY_TEST_MODS", "").split(",") if k])
+        return task.done
+
+    def back_to_class(self):
+        """Stop the test server and reopen this window on the class, the way it was opened before."""
+        self.stop_try()
+        global name
+        login = TRY.get("login") or [name, "", ""]
+        name, self.password, args.ticket = login[0] or name, login[1], login[2] or None
+        self.restart_window(argv=TRY.get("argv") or [], try_env="")
 
     def upload_demo_brain(self):
         """Send brains/demo_cpu.py to the server: computer fighters set to Empty run it (for coding demos)."""
@@ -1899,9 +2003,14 @@ class Lab(ShowBase):
                     button(f, "Reject", 1.2, y, self.card_status, [c["id"], "rejected"], 0.026)
                     y -= 0.07
                 elif job.get("status") == "Kept" and res.get("code_changed"):
-                    label(f, "Kept on this laptop. For the online class: Make my changes live.bat (then Restart\n"
-                             "server). A user mod then appears in Controls, ready to switch on.", 0.84, y, 0.022, ORANGE)
-                    y -= 0.05
+                    label(f, "Kept on this laptop only. Try it here first; then, for the class: Make my changes\n"
+                             "live.bat (then Restart server). A user mod then appears in Controls, to switch on.",
+                          0.84, y, 0.022, ORANGE)
+                    y -= 0.075
+                    if not TRY and not LOCAL and not fight_version.FROZEN:
+                        button(f, "Try it on this laptop", 1.02, y, self.try_here, [self.job_mods(job)], 0.026,
+                               (0.15, 0.45, 0.65, 1))
+                        y -= 0.06
             elif c["status"] in ("waiting", "sent", "working"):
                 y = self.card_targets_row(f, y, c, target)
                 button(f, "Send to Claude", 0.95, y, self.ai_send, [c], 0.026, (0.15, 0.45, 0.65, 1))
@@ -1911,6 +2020,15 @@ class Lab(ShowBase):
             y -= 0.02
             if y < -0.8:
                 break
+
+    @staticmethod
+    def job_mods(job):
+        """The user mods a kept AI change added (to switch on when it is tried on this laptop)."""
+        change = job.get("change")
+        if change is None:
+            return []
+        return sorted(try_local.mod_keys(change.after.get("fight_sim.py"))
+                      - try_local.mod_keys(change.before.get("fight_sim.py")))
 
     def card_targets_row(self, f, y, c, target):
         for i, (key, text) in enumerate(TARGETS.items()):

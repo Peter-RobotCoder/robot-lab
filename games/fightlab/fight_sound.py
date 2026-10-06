@@ -181,7 +181,8 @@ METAL = {"punch": 0.5, "kick": 0.6, "low": 0.5, "high": 0.7, "special": 0.8, "bl
 SWINGS = {"punch": ("whoosh", 0.45, 1.25), "kick": ("whoosh", 0.6, 0.9), "low": ("whoosh", 0.5, 0.85),
           "high": ("whoosh", 0.7, 0.8), "jump_kick": ("whoosh", 0.6, 0.9), "throw": ("whoosh", 0.4, 0.7),
           "blast": ("blast_fire", 0.9, 1.0), "uppercut": ("uppercut", 0.9, 1.0), "spin_kick": ("spin", 0.9, 1.0),
-          "slam": ("whoosh", 0.6, 0.6), "jump": ("jump", 0.6, 1.0)}  # move: (sound, volume, speed)
+          "slam": ("whoosh", 0.6, 0.6), "jump": ("jump", 0.6, 1.0),
+          "cartwheel": ("spin", 0.9, 0.8)}  # move: (sound, volume, speed)
 
 
 class FightSounds(rw_sound.Sounds):
