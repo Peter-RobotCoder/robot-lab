@@ -26,8 +26,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # the games' folders: games/<game> beside desk/ in the public repository, the club's own folders one level up
 PUBLIC = os.path.isdir(os.path.join(os.path.dirname(HERE), "games"))
 CLUB = os.path.dirname(HERE) if PUBLIC else os.path.dirname(os.path.dirname(HERE))
-sys.path.insert(0, HERE)
-import club_ticket  # noqa: E402
+sys.path.insert(0, CLUB if not PUBLIC else os.path.dirname(HERE))  # (the engine package: club_ticket)
+from engine import club_ticket  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="desk_test_")
 PY = sys.executable
@@ -93,13 +93,11 @@ try:
     time.sleep(8)
     versions = {g: game_version(f, "lab_version" if g == "robotlab" else "fight_version") for g, (f, *_) in GAMES.items()}
 
-    def same_ticket_file():
-        with open(os.path.join(HERE, "club_ticket.py"), "rb") as f:
-            mine = f.read().replace(b"\r\n", b"\n")
+    def one_ticket_file():  # (the desk and both games use the engine's club_ticket: no copies to drift apart)
+        assert os.path.normcase(os.path.dirname(club_ticket.__file__)).endswith("engine"), club_ticket.__file__
         for folder, *_ in GAMES.values():
-            with open(os.path.join(CLUB, folder, "club_ticket.py"), "rb") as f:
-                assert f.read().replace(b"\r\n", b"\n") == mine, folder
-    check("the ticket file is the same in the desk and both games", same_ticket_file)
+            assert not os.path.exists(os.path.join(CLUB, folder, "club_ticket.py")), folder
+    check("the ticket file is the engine's, used by the desk and both games", one_ticket_file)
 
     teacher = connect(f"ws://127.0.0.1:{DESK}")
     check("teacher: a wrong password is refused",

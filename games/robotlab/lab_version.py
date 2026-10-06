@@ -19,7 +19,7 @@ import os
 import sys
 import urllib.request
 
-VERSION = "1.5.1"  # the Club Coders app's version (stamped by make_public_repo.py)
+VERSION = "1.6.0"  # the Club Coders app's version (stamped by make_public_repo.py)
 GITHUB_REPO = "Peter-RobotCoder/robot-lab"  # (stamped: the Club Coders releases page)
 DOWNLOAD_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 LOCAL_SERVER = "ws://127.0.0.1:8780"
@@ -30,13 +30,32 @@ FROZEN = bool(getattr(sys, "frozen", False))  # running as the downloaded Robot 
 BUNDLE = getattr(sys, "_MEIPASS", HERE)       # where the exe's bundled files are
 
 
+def _engine_home():
+    """The folder holding the engine package (engine/, shared by every game): inside a live update's folder, beside
+    the games in the working folder and the public repository, or two levels up in the downloaded app."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in (0, 1, 2, 3):
+        candidate = os.path.abspath(os.path.join(here, *([".."] * up)))
+        if os.path.isdir(os.path.join(candidate, "engine")):
+            return candidate
+    return here
+
+
+ENGINE_HOME = _engine_home()
+if ENGINE_HOME not in sys.path:  # (so anything that imports this module can import the engine)
+    sys.path.insert(0, ENGINE_HOME)
+
+
 def fingerprint():
+    """The game's Python files, and the engine's (club_coders.py's release_code_id makes the same)."""
     h = hashlib.sha1()
-    for name in sorted(os.listdir(HERE)):
-        if name.endswith(".py"):
-            h.update(name.encode())
-            with open(os.path.join(HERE, name), "rb") as f:
-                h.update(f.read().replace(b"\r\n", b"\n"))  # (the same on Windows and on the server)
+    engine = os.path.join(_engine_home(), "engine")
+    for folder, prefix in ((HERE, ""), (engine, "engine/")):
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            if name.endswith(".py"):
+                h.update((prefix + name).encode())
+                with open(os.path.join(folder, name), "rb") as f:
+                    h.update(f.read().replace(b"\r\n", b"\n"))  # (the same on Windows and on the server)
     return h.hexdigest()[:12]
 
 

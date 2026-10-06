@@ -15,8 +15,8 @@ import os
 
 import numpy as np
 
-import rw_sound
-from rw_sound import RATE, SFX, band, env, modes, noise, reverb, rng, t, thump
+from engine import rw_sound
+from engine.rw_sound import RATE, SFX, band, env, modes, noise, reverb, rng, t, thump
 
 VERSION = "1"
 VARIANTS = 3

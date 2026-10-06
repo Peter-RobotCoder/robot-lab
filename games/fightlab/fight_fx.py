@@ -9,7 +9,7 @@ import random
 from panda3d.core import CardMaker, ColorBlendAttrib, PNMImage, Texture, TransparencyAttrib, Vec3
 
 import fight_gfx
-from rw_mesh import bevel_box
+from engine.rw_mesh import bevel_box
 
 # spark colours: (start colour, end colour) for each kind of hit
 SPARKS = {"hot": ((1.0, 0.95, 0.6), (1.0, 0.35, 0.05)), "blue": ((0.8, 0.95, 1.0), (0.2, 0.45, 1.0)),

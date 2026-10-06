@@ -12,6 +12,7 @@ Options: --gfx low|medium|high (use low on old laptops)   --drive titan --cpu ra
 import argparse
 import math
 import os
+import sys
 import time
 
 from panda3d.core import loadPrcFileData
@@ -43,12 +44,14 @@ from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
 from panda3d.core import Filename, KeyboardButton, Point3, TextNode  # noqa: E402
 
+import lab_version  # noqa: E402
+sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
 import cpu_brains  # noqa: E402
 import lab_sim as sim  # noqa: E402
 import rw_fx  # noqa: E402
 import rw_gfx  # noqa: E402
 import rw_mods  # noqa: E402
-import rw_sound  # noqa: E402
+from engine import rw_sound  # noqa: E402
 from rw_camera import GameCamera  # noqa: E402
 
 YELLOW, WHITE, GREY, RED, GREEN, ORANGE = (1, .85, .2, 1), (1, 1, 1, 1), (.7, .75, .85, 1), (1, .35, .3, 1), \

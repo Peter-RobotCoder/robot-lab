@@ -25,6 +25,7 @@ import hmac
 import ipaddress
 import json
 import os
+import sys
 import random
 import re
 import time
@@ -34,12 +35,13 @@ import websockets
 import cpu_brains
 import fight_brain
 import fight_mods
-import club_ticket
 import fight_profiles
 import fight_sim as sim
 import fight_teaching
 import fight_version
-import rw_sound
+sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
+from engine import club_ticket  # noqa: E402
+from engine import rw_sound  # noqa: E402
 
 DEMO_CODES = {"learner": "CLUB42", "teacher": "TEACH99"}
 LEARNER_CODE = os.environ.get("JOIN_CODE", DEMO_CODES["learner"])
@@ -573,11 +575,12 @@ class FightServer:
             self.teaching.save()
             self.carry_lesson()  # (the lesson carries on as it was: hazards, mode, matches, tools)
             for ws in list(self.players):
-                await self.send(ws, {"type": "notice", "text": "The server is restarting to load changes: "
-                                                               "you'll reconnect in a few seconds."})
+                await self.send(ws, {"type": "notice", "big": True,
+                                     "text": "THE SERVER IS RESTARTING to load changes\nyou'll reconnect in a few seconds"})
             if CLASS_SERVER:  # the class server (a live update): everyone gets a warning, then it restarts
                 for ws in list(self.players):
-                    await self.send(ws, {"type": "notice", "text": "The game is updating: back in 10 seconds."})
+                    await self.send(ws, {"type": "notice", "big": True,
+                                         "text": "THE GAME IS UPDATING\nback in 10 seconds: your window will reopen"})
                 asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), self.carry_lesson(), os._exit(3)))
                 return
             print("Restarting to load code changes...")

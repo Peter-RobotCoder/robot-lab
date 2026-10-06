@@ -23,6 +23,7 @@ import hmac
 import ipaddress
 import json
 import os
+import sys
 import re
 import time
 
@@ -31,13 +32,14 @@ import websockets
 import ai_pipeline
 import cpu_brains
 import lab_brain
-import club_ticket
 import lab_profiles
 import lab_sim as sim
 import lab_version
+sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
+from engine import club_ticket  # noqa: E402
 import lab_teaching
 import rw_mods
-import rw_sound
+from engine import rw_sound  # noqa: E402
 
 DEMO_CODES = {"learner": "CLUB42", "teacher": "TEACH99"}
 LEARNER_CODE = os.environ.get("JOIN_CODE", DEMO_CODES["learner"])
@@ -115,6 +117,8 @@ WEEK1_LESSON = {
     "designs_locked": False,       # stop design changes (e.g. during a battle)
     "real_damage": False,          # each part (wheels, weapon, armour, body) has hit points and comes off at zero
     "user_mods": {},               # features learners asked for (lab_sim.USER_MODS): the teacher switches them on
+    "mods_in_vote": {},            # ...and which of them learners see and vote on (CHANGE 55; missing = in the vote)
+    "arena_in_vote": {},           # the same for the arena's hazards and Resident Robots (ARENA_ITEMS)
     "flame_pit_cm": sim.FLAME_PIT_CM,  # the Flame pit user mod: how high its flames stand with nobody in (cm)
     "hazards": {"pit": True, "floor_flipper": False, "saws": False, "spikes": False, "house_robots": []},
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd, arena hum and hit sounds
@@ -138,6 +142,10 @@ SOUND_FILE = os.path.join(lab_teaching.DATA, "sound_saved.json")  # the teacher'
 LIMITS_FILE = os.path.join(lab_teaching.DATA, "limits_saved.json")  # ...and the learners' ranges, kept the same way
 CARD_NOTE_FILE = os.path.join(lab_teaching.DATA, "card_note_saved.json")  # ...and the teacher's words on the AI card
 CPU_FILE = os.path.join(lab_teaching.DATA, "computer_robot.json")  # ...and the first computer robot, as the teacher set it up
+MISSIONS_FILE = os.path.join(lab_teaching.DATA, "mission_settings.json")  # ...and the teacher's settings for each
+# mission, kept by Save settings and used whenever that mission is chosen (CHANGE 58 and 59): these keys
+MISSION_KEYS = ("mode", "time_limit", "cpu_robots", "teacher_robot", "designs_locked", "real_damage", "user_mods",
+                "mods_in_vote", "arena_in_vote", "flame_pit_cm", "hazards", "tools", "limits")
 CPU_NAME = "Computer robot"  # the first computer robot's name in the teacher's Learner view (its robot is Sparky 1)
 
 
@@ -175,6 +183,9 @@ class LabServer:
         self.lesson["sound"] = rw_sound.sound_settings(self.lesson.get("sound"), load_sound())  # as last set
         self.lesson["limits"] = sim.clean_limits(load_saved(LIMITS_FILE), sim.clean_limits(self.lesson.get("limits")))
         self.lesson["ai_card_note"] = str(load_saved(CARD_NOTE_FILE).get("note", ""))[:300]
+        self.mission_settings = load_saved(MISSIONS_FILE)  # mission number (as text) -> the teacher's saved settings
+        self.lesson["saved_missions"] = self.saved_missions()  # (the Controls tab says which have saved settings)
+        self.use_mission_settings()
         self.intro_started = None  # the countdown before a battle is running since this moment (time.monotonic)
         self.players = {}        # websocket -> Player
         self.teacher_design = sim.default_design("Teacher Bot", (180, 90, 230), "spinner")
@@ -218,6 +229,35 @@ class LabServer:
         self.rebuild_arena()
 
     # ---------- the arena and who is in it ----------
+    def use_mission_settings(self):
+        """The teacher's saved settings for the mission the class is on, over the mission's own defaults (the
+        presets in lab_missions): every control they saved, including what learners see in the garage."""
+        saved = self.mission_settings.get(str(self.lesson.get("lesson_number", 1)))
+        if not isinstance(saved, dict):
+            return False
+        for key in MISSION_KEYS:
+            if key in saved:
+                self.lesson[key] = copy.deepcopy(saved[key])
+        self.lesson["limits"] = sim.clean_limits(self.lesson.get("limits"))
+        self.lesson["cpu_robots"] = max(0, min(3, int(self.lesson.get("cpu_robots", 1))))
+        self.lesson["time_limit"] = max(30, min(300, int(self.lesson.get("time_limit", 120))))
+        self.lesson["hazards"]["house_robots"] = sim.house_list(self.lesson["hazards"].get("house_robots"))
+        self.lesson["user_mods"] = {k: bool(v) for k, v in self.lesson.get("user_mods", {}).items() if k in sim.USER_MODS}
+        return True
+
+    def saved_missions(self):
+        return sorted(int(k) for k in self.mission_settings if str(k).isdigit())
+
+    def save_mission_settings(self):
+        n = str(self.lesson.get("lesson_number", 1))
+        self.mission_settings[n] = {k: copy.deepcopy(self.lesson[k]) for k in MISSION_KEYS if k in self.lesson}
+        self.lesson["saved_missions"] = self.saved_missions()
+        try:
+            with open(MISSIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.mission_settings, f, indent=2)
+        except OSError:
+            pass
+
     def rebuild_arena(self, intro=False):
         """New arena (hazards may have changed), then put everyone's robot back in.
         intro: a new battle is starting, so it opens with the countdown (robots can't move or fire until it ends)."""
@@ -600,6 +640,9 @@ class LabServer:
         if kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab
             votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
                 (self.arena_votes, m.get("item"), ARENA_ITEMS)
+            in_vote = self.lesson.get("mods_in_vote" if kind == "mod_vote" else "arena_in_vote", {})
+            if not in_vote.get(key, True):
+                return  # (the teacher took this out of the vote)
             if isinstance(key, str) and key in known:
                 votes[key] = [n for n in votes.get(key, []) if n != p.name] + ([p.name] if m.get("on") else [])
                 await self.broadcast_lesson()
@@ -678,11 +721,12 @@ class LabServer:
         if kind == "restart_server":  # load code changes (13 Robot Lab server.bat starts it again)
             self.teaching.save()
             for ws in list(self.players):
-                await self.send(ws, {"type": "notice", "text": "The server is restarting to load changes: "
-                                                               "you'll reconnect in a few seconds."})
+                await self.send(ws, {"type": "notice", "big": True,
+                                     "text": "THE SERVER IS RESTARTING to load changes\nyou'll reconnect in a few seconds"})
             if CLASS_SERVER:  # the class server (a live update): everyone gets a warning, then it restarts
                 for ws in list(self.players):
-                    await self.send(ws, {"type": "notice", "text": "The game is updating: back in 10 seconds."})
+                    await self.send(ws, {"type": "notice", "big": True,
+                                         "text": "THE GAME IS UPDATING\nback in 10 seconds: your window will reopen"})
                 asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), os._exit(3)))
                 return
             print("Restarting to load code changes...")
@@ -795,6 +839,18 @@ class LabServer:
                 if switched:
                     self.arena.events.append((self.arena.time, ", ".join(
                         f"{sim.user_mod_title(k, self.mod_makers)} {'on' if v else 'off'}" for k, v in switched.items())))
+            if isinstance(update.get("mods_in_vote"), dict):  # which mods learners see and vote on (CHANGE 55)
+                in_vote = {k: bool(v) for k, v in update["mods_in_vote"].items() if k in sim.USER_MODS}
+                self.lesson["mods_in_vote"] = {**self.lesson.get("mods_in_vote", {}), **in_vote}
+                for k, v in in_vote.items():
+                    if not v:
+                        self.mod_votes.pop(k, None)  # (its votes go with it)
+            if isinstance(update.get("arena_in_vote"), dict):  # ...and which arena items (hazards, Resident Robots)
+                in_vote = {k: bool(v) for k, v in update["arena_in_vote"].items() if k in ARENA_ITEMS}
+                self.lesson["arena_in_vote"] = {**self.lesson.get("arena_in_vote", {}), **in_vote}
+                for k, v in in_vote.items():
+                    if not v:
+                        self.arena_votes.pop(k, None)
             if "flame_pit_cm" in update:  # the Flame pit user mod's baseline flame height: straight away
                 cm = max(sim.FLAME_PIT_CM_MIN, min(sim.FLAME_PIT_CM_MAX, int(update["flame_pit_cm"])))
                 self.lesson["flame_pit_cm"] = self.arena.flame_pit_cm = cm
@@ -855,11 +911,20 @@ class LabServer:
         elif kind == "pause":
             self.paused = not self.paused
             self.arena.events.append((self.arena.time, "PAUSED" if self.paused else "GO!"))
-        elif kind == "save_lesson":
+        elif kind == "save_lesson":  # every control, for this mission: used whenever the mission is chosen
+            self.save_mission_settings()
             path = os.path.join(lab_teaching.DATA, "lesson_saved.json")
             with open(path, "w") as f:
                 json.dump(self.lesson, f, indent=2)
-            self.arena.events.append((self.arena.time, "Lesson settings saved"))
+            self.arena.events.append((self.arena.time, f"Mission {self.lesson.get('lesson_number', 1)} settings saved"))
+            await self.broadcast_lesson()
+        elif kind == "restore_lesson":  # back to what was saved for this mission (or the mission's own defaults)
+            n = self.lesson.get("lesson_number", 1)
+            self.teaching.apply_lesson(n)
+            self.rebuild_arena()
+            await self.fit_learners()
+            self.arena.events.append((self.arena.time, f"Mission {n} settings restored"))
+            await self.broadcast_lesson()
 
     def reload_mods(self, written):
         """Use mod files that an approved AI change just updated."""

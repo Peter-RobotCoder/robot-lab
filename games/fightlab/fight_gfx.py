@@ -21,8 +21,8 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, C
                           TextureStage, Vec3)
 
 import fight_sim as sim
-import rw_textures
-from rw_mesh import Mesh, bevel_box, cylinder
+from engine import rw_textures
+from engine.rw_mesh import Mesh, bevel_box, cylinder
 
 _state = {}
 SHADOW_MASK = BitMask32.bit(5)  # what the key light's shadow camera draws (the hall and crowd are left out: faster)

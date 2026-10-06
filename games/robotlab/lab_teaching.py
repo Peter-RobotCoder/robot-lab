@@ -123,6 +123,7 @@ class Teaching:
         L["mode"] = preset["mode"]
         L["hazards"] = dict(preset["hazards"])
         L["tools"] = json.loads(json.dumps(preset["tools"]))
+        self.server.use_mission_settings()  # (then what the teacher saved for this mission, if anything)
 
     # ---------- missions ----------
     def complete(self, name, mission, detail, by_teacher=False):

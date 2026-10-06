@@ -30,11 +30,17 @@ import json
 import os
 import re
 import secrets
+import sys
 import time
 
 import websockets
 
-import club_ticket
+HERE = os.path.dirname(os.path.abspath(__file__))
+# the engine package (club_ticket and the rest shared by the games): engine/ beside desk/ in the public repository
+# and on the server, two levels up in the working folder
+sys.path.insert(0, next((p for p in (os.path.dirname(HERE), os.path.dirname(os.path.dirname(HERE)))
+                         if os.path.isdir(os.path.join(p, "engine"))), HERE))
+from engine import club_ticket  # noqa: E402
 
 GAMES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab"}
 ETC = "/etc/robotlab"

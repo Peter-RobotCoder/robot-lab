@@ -187,11 +187,11 @@ def load_tools(check=True):
     import make_public_repo as export
 
 
-def risky_lines(folder):
+def risky_lines(folder, prefix=""):
     """{(file, what it does, the line's text)} for every line in the folder's .py files that does something risky,
-    and {library} for every library imported."""
+    and {library} for every library imported. prefix: how the files are named in the list (engine/...)."""
     found, libraries = set(), set()
-    local = {f[:-3] for f in os.listdir(folder) if f.endswith(".py")}
+    local = {f[:-3] for f in os.listdir(folder) if f.endswith(".py")} | {"engine"}
     for name in sorted(os.listdir(folder)):
         if not name.endswith(".py"):
             continue
@@ -209,27 +209,28 @@ def risky_lines(folder):
                 if m not in local:
                     libraries.add(m)
                 if m in RISKY_MODULES:
-                    found.add((name, f"uses {m}", text(node)))
+                    found.add((prefix + name, f"uses {m}", text(node)))
             if isinstance(node, ast.Call):
                 fn = node.func
                 called = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else None
                 owner = fn.value.id if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name) else None
                 if called in RISKY_CALLS:
-                    found.add((name, f"calls {called}()", text(node)))
+                    found.add((prefix + name, f"calls {called}()", text(node)))
                 elif owner in RISKY_MODULES or (owner == "os" and called in OS_RISKY):
-                    found.add((name, f"calls {owner}.{called}()", text(node)))
+                    found.add((prefix + name, f"calls {owner}.{called}()", text(node)))
                 if called == "open" and len(node.args) > 1 and not (
                         isinstance(node.args[1], ast.Constant) and str(node.args[1].value).startswith("r")):
-                    found.add((name, "writes a file", text(node)))
+                    found.add((prefix + name, "writes a file", text(node)))
             if isinstance(node, ast.Attribute) and node.attr in ("modules", "__builtins__", "__dict__", "__code__"):
-                found.add((name, f"reaches into .{node.attr}", text(node)))
+                found.add((prefix + name, f"reaches into .{node.attr}", text(node)))
             if isinstance(node, ast.Name) and node.id == "__builtins__":
-                found.add((name, "reaches into __builtins__", text(node)))
+                found.add((prefix + name, "reaches into __builtins__", text(node)))
     return found, libraries
 
 
 def release_copy(game, into):
-    """The game as it is in the release installed on the class server (the public repository's version tag)."""
+    """The game as it is in the release installed on the class server (the public repository's version tag), and
+    the engine with it (releases before 1.6.0 had none). -> (the game's folder, the engine's or None)"""
     tag = "v" + export.version()
     archive = subprocess.run(["git", "archive", "--format=tar", tag, f"games/{game}"], cwd=export.DEFAULT_TARGET,
                              capture_output=True)
@@ -238,27 +239,47 @@ def release_copy(game, into):
                          f"{archive.stderr.decode(errors='replace').strip()}")
     with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as t:
         t.extractall(into, filter="data")
-    return os.path.join(into, "games", game)
+    engine = subprocess.run(["git", "archive", "--format=tar", tag, "engine"], cwd=export.DEFAULT_TARGET,
+                            capture_output=True)
+    if not engine.returncode:
+        with tarfile.open(fileobj=io.BytesIO(engine.stdout)) as t:
+            t.extractall(into, filter="data")
+    return os.path.join(into, "games", game), os.path.join(into, "engine") if not engine.returncode else None
+
+
+def changed_files(old_folder, new_folder, prefix=""):
+    """Every .py file that differs between two folders, as 'name (new / removed / changed)'."""
+    out = []
+    olds = set(os.listdir(old_folder)) if old_folder and os.path.isdir(old_folder) else set()
+    news = set(os.listdir(new_folder)) if new_folder and os.path.isdir(new_folder) else set()
+    for name in sorted(olds | news):
+        if not name.endswith(".py"):
+            continue
+        a, b = os.path.join(old_folder or "", name), os.path.join(new_folder or "", name)
+        old = open(a, encoding="utf-8").read().replace("\r\n", "\n") if old_folder and os.path.exists(a) else None
+        new = open(b, encoding="utf-8").read().replace("\r\n", "\n") if new_folder and os.path.exists(b) else None
+        if old != new:
+            out.append(f"{prefix}{name} ({'new' if old is None else 'removed' if new is None else 'changed'})")
+    return out
 
 
 def review(game, live_folder):
     """Every changed file, every new risky line, and the reviewer's yes: nothing is signed without it."""
     work = tempfile.mkdtemp(prefix="clubcoders_release_")
+    live_engine = os.path.join(live_folder, "engine")
     try:
-        released = release_copy(game, work)
+        released, released_engine = release_copy(game, work)
         before, before_libs = risky_lines(released)
-        changed = []
-        for name in sorted(set(os.listdir(live_folder)) | set(os.listdir(released))):
-            if not name.endswith(".py"):
-                continue
-            a, b = os.path.join(released, name), os.path.join(live_folder, name)
-            old = open(a, encoding="utf-8").read().replace("\r\n", "\n") if os.path.exists(a) else None
-            new = open(b, encoding="utf-8").read().replace("\r\n", "\n") if os.path.exists(b) else None
-            if old != new:
-                changed.append(f"{name} ({'new' if old is None else 'removed' if new is None else 'changed'})")
+        if released_engine:
+            b2, l2 = risky_lines(released_engine, "engine/")
+            before, before_libs = before | b2, before_libs | l2
+        changed = changed_files(released, live_folder) + changed_files(released_engine, live_engine, "engine/")
     finally:
         shutil.rmtree(work, ignore_errors=True)
     after, after_libs = risky_lines(live_folder)
+    if os.path.isdir(live_engine):
+        a2, l2 = risky_lines(live_engine, "engine/")
+        after, after_libs = after | a2, after_libs | l2
     new_libraries = sorted(after_libs - before_libs - set(sys.stdlib_module_names))
     if new_libraries:
         raise SystemExit("STOP: this code needs " + ", ".join(new_libraries) + ", which the app doesn't have. "
@@ -286,6 +307,8 @@ def stage_game(game):
     g["source"] = os.path.join(export.CLUB, g["folder"])
     stage = tempfile.mkdtemp(prefix="clubcoders_live_")
     export.copy_game(game, stage)
+    export.copy_engine(stage, os.path.join(export.CLUB, "engine"))  # (the engine goes inside the game's update)
+    shutil.copytree(os.path.join(stage, "engine"), os.path.join(stage, "games", game, "engine"))
     problems = export.check(stage)
     if problems:
         shutil.rmtree(stage, ignore_errors=True)

@@ -120,14 +120,26 @@ def game_dir(game):
 
 
 # ---------- live updates ----------
+def engine_home(folder):
+    """The folder holding engine/ for a game's folder (the game's version file searches the same way)."""
+    for up in (0, 1, 2, 3):
+        candidate = os.path.abspath(os.path.join(folder, *([".."] * up)))
+        if os.path.isdir(os.path.join(candidate, "engine")):
+            return candidate
+    return folder
+
+
 def release_code_id(folder):
-    """The code the app came with: the same fingerprint the game's own version file makes (its CODE)."""
+    """The code the app came with: the same fingerprint the game's own version file makes (its CODE): the game's
+    Python files and the engine's."""
     h = hashlib.sha1()
-    for name in sorted(os.listdir(folder)):
-        if name.endswith(".py"):
-            h.update(name.encode())
-            with open(os.path.join(folder, name), "rb") as f:
-                h.update(f.read().replace(b"\r\n", b"\n"))
+    engine = os.path.join(engine_home(folder), "engine")
+    for where, prefix in ((folder, ""), (engine, "engine/")):
+        for name in sorted(os.listdir(where)) if os.path.isdir(where) else []:
+            if name.endswith(".py"):
+                h.update((prefix + name).encode())
+                with open(os.path.join(where, name), "rb") as f:
+                    h.update(f.read().replace(b"\r\n", b"\n"))
     return h.hexdigest()[:12]
 
 
@@ -157,18 +169,21 @@ def fetch(url):
 
 def remove_folder(folder):
     """Delete a live update's folder, taking its links out first (so nothing they point at is touched)."""
-    for d in live_format.LINK_DIRS:
-        p = os.path.join(folder, d)
+    for p in live_format.link_paths(folder):
         if os.path.isjunction(p) or os.path.islink(p):
             os.rmdir(p) if os.path.isjunction(p) else os.unlink(p)
     shutil.rmtree(folder, ignore_errors=True)
 
 
 def link_big_files(folder, bundled):
-    """The update uses the app's own textures, sounds, models, mods and brains (links, remade if the app moved)."""
+    """The update uses the app's own textures, sounds, models, mods and brains, and the engine's made textures and
+    sounds (links, remade if the app moved)."""
     import _winapi
-    for d in live_format.LINK_DIRS:
-        target, link = os.path.join(bundled, d), os.path.join(folder, d)
+    pairs = [(os.path.join(bundled, d), os.path.join(folder, d)) for d in live_format.LINK_DIRS]
+    if os.path.isdir(os.path.join(folder, "engine")):  # (the update carries the engine's code: its assets are the app's)
+        pairs.append((os.path.join(engine_home(bundled), "engine", "assets"), os.path.join(folder, "engine", "assets")))
+    for target, link in pairs:
+        d = os.path.relpath(link, folder)
         if not os.path.isdir(target):
             continue
         if os.path.isjunction(link) and os.path.realpath(link) == os.path.realpath(target):

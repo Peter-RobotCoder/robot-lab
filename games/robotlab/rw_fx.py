@@ -8,7 +8,7 @@ import random
 from panda3d.core import CardMaker, ColorBlendAttrib, PNMImage, Texture, TransparencyAttrib, Vec3
 
 import rw_gfx
-from rw_mesh import bevel_box
+from engine.rw_mesh import bevel_box
 
 
 def soft_dot_texture(size=64):

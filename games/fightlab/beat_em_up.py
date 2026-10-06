@@ -16,6 +16,7 @@ Options: --gfx low|medium|high (use low on old laptops)   --you blaze --cpu kait
 import argparse
 import math
 import os
+import sys
 import time
 
 from panda3d.core import loadPrcFileData
@@ -48,6 +49,8 @@ from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
 from panda3d.core import Filename, KeyboardButton, Point3, TextNode, Vec3  # noqa: E402
 
+import fight_version  # noqa: E402
+sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
 import cpu_brains  # noqa: E402
 import fight_fx  # noqa: E402
 import fight_gfx  # noqa: E402

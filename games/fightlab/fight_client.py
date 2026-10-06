@@ -38,6 +38,7 @@ import webbrowser
 from panda3d.core import loadPrcFileData
 
 import fight_version  # (first: this records the code this window is running, before anything can change it)
+sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game: engine/ beside the games)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--name", default="", help="username (learners are asked in the window if it's left out)")
@@ -52,6 +53,8 @@ ap.add_argument("--after", type=float, default=6)
 ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
+ap.add_argument("--show-code", action="store_true", help=argparse.SUPPRESS)  # (tests: open the code panel)
+ap.add_argument("--scroll", type=float, help=argparse.SUPPRESS)  # (tests: slide the side panel this far after 3 s)
 ap.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
 ap.add_argument("--ticket", help=argparse.SUPPRESS)  # (from the club desk: the app has logged this person in)
 args = ap.parse_args()
@@ -65,27 +68,14 @@ TEACHER = args.teacher
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEACHER_SETTINGS = os.path.join(HERE, "teacher_settings.json")  # the teacher's laptop only: never in git
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "FightLab")
+from engine import editor as code_editor  # noqa: E402  (the engine: shared by every game)
+from engine import hud  # noqa: E402
+from engine.hud import DARK, button, check, label, load_json, remember, text_button, word  # noqa: E402,F401
+from engine.hud import YELLOW, WHITE, GREY, RED, GREEN, BLUE, ORANGE, PANEL, ON, OFF, BOX, HANDLE  # noqa: E402,F401
+SETTINGS = hud.setup(SETTINGS_DIR, sys.modules[__name__])  # this computer's settings; this module's colours follow the look
 BRAINS = os.path.join(os.path.dirname(sys.executable), "brains", "fightlab") if fight_version.FROZEN else os.path.join(HERE, "brains")  # (Club Coders: each game has its own brains folder)
 
 
-def load_json(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
-
-
-def remember(key, value):
-    """Keep a setting (the class code) on this computer, so it's only typed once."""
-    path = os.path.join(SETTINGS_DIR, "settings.json")
-    data = load_json(path) | {key: value}
-    try:
-        os.makedirs(SETTINGS_DIR, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-    except OSError:
-        pass
 
 
 if args.host == "class":  # the class server's address, from the teacher's settings
@@ -95,11 +85,11 @@ elif args.host is None:  # a learner's last choice on the login screen, or this 
     args.host = {"local": fight_version.LOCAL_SERVER, "online": fight_version.ONLINE_SERVER}.get(
         where if not TEACHER else None) or fight_version.SERVER
 LOCAL = args.host.startswith(("ws://127.0.0.1", "ws://localhost"))  # a laptop test server
-import try_local  # noqa: E402
+from engine import try_local  # noqa: E402
 # Try it on this laptop (see try_local): the teacher's window, opened on a test server here to look at this
 # laptop's game before it is made live for the class. It knows how to go back to the class.
 TRY = try_local.unpack(os.environ.pop("FIGHTLAB_TRY", "")) if args.teacher and LOCAL else None
-import club_ticket  # noqa: E402
+from engine import club_ticket  # noqa: E402
 if args.ticket:  # the club desk has logged this person in: their name is in the ticket (the server checks it)
     args.name = (club_ticket.peek(args.ticket) or {}).get("name") or args.name
 if args.code or args.ticket:
@@ -126,8 +116,7 @@ loadPrcFileData("", f"win-size 1280 720\nwindow-title {title}\nframebuffer-multi
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\naudio-library-name null\n")
 
-from direct.gui.DirectGui import (DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame,  # noqa: E402
-                                  DirectSlider)
+from direct.gui.DirectGui import DGG, DirectButton, DirectFrame, DirectSlider  # noqa: E402
 from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
 from panda3d.core import Filename, KeyboardButton, Point3, TextNode, Vec3, WindowProperties  # noqa: E402
@@ -138,17 +127,15 @@ import fight_gfx  # noqa: E402
 import fight_missions as fm  # noqa: E402
 import fight_sim as sim  # noqa: E402
 import fight_sound  # noqa: E402
-import rw_sound  # noqa: E402
+from engine import rw_sound  # noqa: E402
 from fight_camera import FightCamera  # noqa: E402
 import fight_model  # noqa: E402
 from fight_gfx import StageVisual  # noqa: E402
 from fight_hud import FightHUD  # noqa: E402
-from net import Net  # noqa: E402
+from engine.net import Net  # noqa: E402
 
-YELLOW, WHITE, GREY, RED, GREEN = (1, .9, .35, 1), (1, 1, 1, 1), (.75, .8, .9, 1), (1, .45, .4, 1), (.5, .95, .55, 1)
-BLUE, ORANGE = (.55, .85, 1, 1), (1, .7, .3, 1)
-PANEL = (0.04, 0.05, 0.08, 0.88)
-ON, OFF = (0.85, 0.65, 0.1, 1), (0.2, 0.25, 0.35, 1)
+CODE_ROWS = 19     # lines of code the code panel shows at once (longer code scrolls)
+CODE_PANEL = (-0.86, 0.01, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
 SWATCHES = [(220, 60, 50), (240, 140, 30), (240, 200, 40), (60, 190, 90), (60, 130, 230), (180, 90, 230),
             (230, 90, 170), (230, 230, 230)]
 HAIR_SWATCHES = [(20, 16, 14), (60, 36, 22), (110, 62, 32), (140, 50, 25), (190, 95, 40), (215, 180, 110),
@@ -164,9 +151,11 @@ PRETTY = {"walk_speed": "Walk speed", "sidestep_speed": "Sidestep speed", "jump_
           "bosses": "Play as a boss", "fighting_style": "Fighting style"}
 HAZARD_NAMES = {"ring_out": "Ring-outs (no ropes)", "electric_ropes": "Electric ropes", "fire_jets": "Fire jets",
                 "slippery": "Slippery ice", "spikes": "Spikes"}
-LEARNER_TABS = [("missions", "Missions (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)")]
+LEARNER_TABS = [("missions", "Missions (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)"),
+                ("settings", "Settings (L)")]  # (S is kick, so the Settings key is L here)
 TEACHER_TABS = [("teacher", "Controls"), ("matches", "Matches"), ("learners", "Learners"), ("accounts", "Accounts"),
-                ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"), ("garage", "My fighter")]
+                ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"), ("garage", "My fighter"),
+                ("settings", "Settings")]  # (drawn in two rows)
 STOP_CODES = (4001, 4004, 4006, 4007, 4008, 4009, 4010, 4011)  # the server said no: wrong code or password,
 # old version, deleted, the session ended, the group hasn't started, a ticket that ran out
 TARGETS = {"fighter": "Their fighter", "stage": "The stage", "rules": "The rules", "game": "The whole game"}
@@ -181,43 +170,27 @@ ATTACK_ANIMS = {"punch", "kick", "low", "high", "jump_kick", "throw", "blast", "
                 "cartwheel"}
 
 
-def label(parent, text, x, y, scale=0.036, fg=WHITE, align=TextNode.ALeft, wrap=None):
-    return OnscreenText(text, pos=(x, y), scale=scale, fg=fg, align=align, parent=parent, mayChange=True,
-                        wordwrap=wrap)
-
-
-def button(parent, text, x, y, command, args_=None, scale=0.036, colour=OFF):
-    def clicked(*a):  # pressing a button ends typing, so the panel can redraw with the result
-        if APP is not None:
-            APP.stop_typing()
-        command(*a)
-    return DirectButton(parent=parent, text=text, scale=scale, pos=(x, 0, y), command=clicked, extraArgs=args_ or [],
-                        frameColor=colour, text_fg=WHITE, relief=DGG.FLAT, pad=(0.3, 0.15))
-
-
-def check(parent, text, x, y, value, command, scale=0.032):
-    return DirectCheckButton(parent=parent, text=text, scale=scale, pos=(x, 0, y), indicatorValue=1 if value else 0,
-                             command=command, text_align=TextNode.ALeft, text_fg=WHITE, frameColor=(0, 0, 0, 0),
-                             boxPlacement="left")
-
-
 def send(msg):
     if net is not None:
         net.send(msg)
 
 
-class Lab(ShowBase):
+class Lab(hud.HudKit, ShowBase):
+    teacher = TEACHER
+    CODE_PANEL, CODE_ROWS = CODE_PANEL, CODE_ROWS
+
     def __init__(self):
         super().__init__()
         self.disableMouse()
         global APP
         APP = self
+        hud.setup_app(self)
+        self.init_hud()  # (the engine's HUD kit: text boxes, the side panel, settings, the code panel's place)
+        self.code_state = {"lines": [], "cursor": [0, 0], "scroll": 0}  # the code panel's text, kept while it is closed
         fight_gfx.init(self, args.gfx)
         self.fx = fight_fx.Effects(self.render, args.gfx)
         self.snd = fight_sound.FightSounds(self, on=not args.offscreen)
         self.muted = False
-        self.entries, self.entry_text = {}, {}   # text boxes, and what was typed in them
-        self.typing = None           # the text box being typed in (game keys are ignored while typing)
         self.pending_rebuild = False  # a panel redraw waiting until typing stops
         self.started = False
         self.login_panel = None
@@ -387,8 +360,11 @@ class Lab(ShowBase):
         self.last_control = None
         self.panel = self.code_panel = None
         self.tab = args.tab or ("teacher" if TEACHER else "missions")
-        self.show_code = False
+        self.show_code = bool(args.show_code)
         self.reconnecting = False
+        if args.scroll:
+            self.taskMgr.doMethodLater(3, lambda t: (setattr(self, "panel_scroll", args.scroll), self.place_panel())
+                                       and None, "test scroll")
         self.restore_prefs(welcome.get("prefs", {}))
         for key, action in PRESS_KEYS.items():  # fighting keys: sent the moment they're pressed
             self.key(key, self.press, action)
@@ -408,17 +384,19 @@ class Lab(ShowBase):
         self.key("b", self.toggle_rings)
         self.key("[", self.watch_ring, -1)
         self.key("]", self.watch_ring, 1)
-        for key, factor in (("wheel_up", 0.88), ("wheel_down", 1 / 0.88), ("=", 0.8), ("+", 0.8), ("-", 1.25),
-                            ("=-repeat", 0.9), ("--repeat", 1.11)):
+        for key, factor in (("=", 0.8), ("+", 0.8), ("-", 1.25), ("=-repeat", 0.9), ("--repeat", 1.11)):
             self.key(key, self.cam.wheel, factor)
+        for key, factor, step in (("wheel_up", 0.88, -1), ("wheel_down", 1 / 0.88, 1)):
+            self.key(key, self.wheel, factor, step)  # (the wheel slides a tall side panel, or zooms)
+        self.key("l", self.open_tab, "settings")
+        self.key("page_up", self.slide_panel, -1)
+        self.key("page_down", self.slide_panel, 1)
         if TEACHER:
             self.key("t", self.cycle_teacher_tabs)
         else:
             self.key("m", self.open_tab, "missions")
             self.key("k", self.open_tab, "card")
             self.key("i", self.open_tab, "ai")
-        self.accept("arrow_up", self.code_line_move, [-1])  # only does anything while typing in the code
-        self.accept("arrow_down", self.code_line_move, [1])
         self.hud()
         self.try_starting = None  # (teacher: a test server on this laptop is starting: see try_here)
         if TRY:
@@ -439,6 +417,7 @@ class Lab(ShowBase):
     def restore_prefs(self, prefs):
         """A learner's camera view and half-typed AI card, from their profile."""
         self.cam.restore(prefs.get("camera", {}))
+        self.restore_hud_prefs(prefs)  # (the code panel's place and size, text size, look, the wheel)
         for k in CARD_FIELDS:
             if prefs.get("card", {}).get(k):
                 self.entry_text[f"card_{k}"] = str(prefs["card"][k])[:400]
@@ -451,7 +430,7 @@ class Lab(ShowBase):
         for k in CARD_FIELDS:
             e = self.entries.get(f"card_{k}")
             card[k] = e.get() if e is not None else self.entry_text.get(f"card_{k}", "")
-        return {"camera": self.cam.settings(), "card": card, "card_target": self.card_target}
+        return {"camera": self.cam.settings(), "card": card, "card_target": self.card_target, **self.hud_prefs()}
 
     def key(self, key, fn, *extra):
         """A game shortcut key. It does nothing while you are typing in a text box."""
@@ -485,22 +464,14 @@ class Lab(ShowBase):
         e.setCursorPosition(len(e.get()))
         self.typing = to
 
-    def start_typing(self, key):
-        self.typing = key
-
-    def stop_typing(self, key=None):
-        if key is not None and key != self.typing:
-            return
-        e = self.entries.get(self.typing)
-        self.typing = None
-        if e is not None:
-            try:
-                e["focus"] = 0
-            except Exception:
-                pass
-
     # ---------- fixed parts of the screen ----------
     def hud(self):
+        was = hud.THEME
+        hud.set_theme("dark")  # (the HUD over the ring is always the dark look: it is drawn once, over the game)
+        self.hud_dark()
+        hud.set_theme(was)
+
+    def hud_dark(self):
         self.fight_hud = FightHUD(self.aspect2d)
         # the rings box (top left, under the health bars): who you are, the mode, and every ring's fight
         self.rings_small = bool(load_json(os.path.join(SETTINGS_DIR, "settings.json")).get("rings_small"))
@@ -518,8 +489,8 @@ class Lab(ShowBase):
                                    wordwrap=40)
         keys = ("Arrows move (up/down sidestep)  A punch/combo  S kick  D special  W throw  Space jump  Shift block  "
                 "X crouch  " + ("T panels  " if TEACHER else "M missions  I AI card  ") +
-                "G garage  C code  U brain  P autopilot  V view  Q/E or right-drag turn  H help")
-        self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021, GREY)
+                "G garage  C code  L settings  U brain  P autopilot  V view  Q/E or right-drag turn  H help")
+        self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021 * self.text_scale(), GREY)
         self.layout_rings()
 
     def toggle_rings(self):
@@ -601,27 +572,6 @@ class Lab(ShowBase):
         self.code_shown = None
         self.rebuild_panels()
 
-    def keep_typing(self):
-        """Remember what is typed in text boxes, so redrawing a panel doesn't lose it."""
-        for key, e in self.entries.items():
-            try:
-                self.entry_text[key] = e.get()
-            except Exception:
-                pass
-        self.entries = {}
-
-    def entry(self, parent, key, x, y, width=18, lines=1, initial="", command=None, scale=0.03, obscured=False):
-        e = DirectEntry(parent=parent, initialText=self.entry_text.get(key, initial), scale=scale, width=width,
-                        pos=(x, 0, y), numLines=lines, focus=0, frameColor=(0.15, 0.17, 0.22, 1), text_fg=WHITE,
-                        obscured=1 if obscured else 0,
-                        command=command, focusInCommand=self.start_typing, focusInExtraArgs=[key],
-                        focusOutCommand=self.stop_typing, focusOutExtraArgs=[key])
-        if key == self.typing:  # redrawn while typing: carry on typing in the new box
-            e["focus"] = 1
-            e.setCursorPosition(len(e.get()))
-        self.entries[key] = e
-        return e
-
     def rebuild_panels(self, from_game=False):
         """Redraw the side panels. A redraw caused by the game (a new round, new mission results)
         waits while you're typing, so the text box keeps the keyboard."""
@@ -632,24 +582,34 @@ class Lab(ShowBase):
             return
         self.pending_rebuild = False
         self.keep_typing()
+        self.close_code_editor()
+        self.hide_tip()
         for p in (self.panel, self.code_panel):
             if p is not None:
                 p.destroy()
-        self.panel = self.code_panel = None
+        self.panel = self.code_panel = self.panel_body = None
+        self.panel_bar = []
         if self.tab:
             f = self.panel = DirectFrame(frameColor=PANEL, frameSize=(0.78, 1.76, -0.93, 0.97))
-            tabs = TEACHER_TABS if TEACHER else LEARNER_TABS
-            for i, (key, text) in enumerate(tabs):
-                button(f, text, 0.84 + (i + 0.5) * (0.9 / len(tabs)), 0.925, self.open_tab, [key],
-                       0.022 if TEACHER else 0.03, ON if key == self.tab else OFF)
-            {"garage": self.build_garage, "teacher": self.build_teacher_panel, "missions": self.build_missions,
-             "ai": self.build_ai_card, "outcomes": self.build_outcomes, "cards": self.build_cards,
-             "card": self.build_card,
-             "learners": self.build_learner_view, "changes": self.build_changes,
-             "accounts": self.build_accounts, "matches": self.build_matches}[self.tab](f, 0.84)
+            tabs = (TEACHER_TABS if TEACHER else LEARNER_TABS) + hud.extra_tabs(TEACHER)  # (+ a mod's own tabs)
+            f, y0 = self.draw_header(f, tabs, self.open_tab, self.tab)
+            builders = {"garage": self.build_garage, "teacher": self.build_teacher_panel, "missions": self.build_missions,
+                        "ai": self.build_ai_card, "outcomes": self.build_outcomes, "cards": self.build_cards,
+                        "card": self.build_card,
+                        "learners": self.build_learner_view, "changes": self.build_changes,
+                        "accounts": self.build_accounts, "matches": self.build_matches,
+                        "settings": self.build_settings}
+            if self.tab in builders:
+                builders[self.tab](f, y0)
+            elif hud.extra_builder(self.tab) is not None:
+                hud.extra_builder(self.tab)(self, f, y0)
+            self.place_panel()
         if self.show_code and (TEACHER or self.lesson["tools"]["code_view"]):
             self.build_code_panel()
-        if self.typing and self.typing not in self.entries:  # the box being typed in has gone
+        if self.typing == "code" and self.code_editor is not None:  # redrawn while typing in the code: carry on
+            self.code_editor.focused = True
+            self.code_editor.refresh()
+        elif self.typing and self.typing not in self.entries:  # the box being typed in has gone
             self.typing = None
         self.fight_hud.place(-0.5 if self.tab else 0.0)
         self.cam.set_shift(0.14 if self.tab else 0.0)  # keep the fight clear of the side panel
@@ -1027,54 +987,81 @@ class Lab(ShowBase):
         return lines
 
     def build_code_panel(self):
+        """The fighter as Python code, in a small editor (the engine's): click anywhere in it to type there, the
+        words are coloured as an IDE colours them, long code scrolls, and the panel can be moved and resized."""
         who = self.viewing()
         d = self.cur()
-        f = self.code_panel = DirectFrame(frameColor=PANEL, frameSize=(-0.84, -0.02, -0.92, 0.42))
-        label(f, f"{who.upper()}'S FIGHTER AS PYTHON CODE" if who else "YOUR FIGHTER AS PYTHON CODE", -0.8, 0.36, 0.03,
+        self.code_size = self.code_fit(*self.code_size)
+        self.code_at = self.code_place(*self.code_at)
+        left, right, bottom, top = rect = self.code_rect()
+        f = self.code_panel = DirectFrame(frameColor=PANEL, frameSize=rect, pos=(self.code_at[0], 0, self.code_at[1]))
+        handle = DirectFrame(parent=f, frameColor=HANDLE, state=DGG.NORMAL, frameSize=(left, right, 0.285, top))
+        handle.bind(DGG.B1PRESS, self.code_drag_start)  # (its top is a handle: drag it to move the panel)
+        label(f, f"{who.upper()}'S FIGHTER AS PYTHON CODE" if who else "YOUR FIGHTER AS PYTHON CODE", -0.83, 0.3, 0.032,
               YELLOW)
-        label(f, "Change a value, then press Enter or APPLY: the garage changes to match.", -0.8, 0.32, 0.021, GREY)
-        fresh = self.code_lines(d)
-        typed = [self.entry_text.get(f"code_{i}") for i in range(len(self.code_shown or []))]
-        edited = self.code_shown is not None and any(t is not None and t != s for t, s in zip(typed, self.code_shown))
-        lines = [t if t is not None else s for t, s in zip(typed, self.code_shown)] if edited else fresh
-        if not edited:
-            for i in range(40):
-                self.entry_text.pop(f"code_{i}", None)
-        for i, line in enumerate(lines):
-            self.entry(f, f"code_{i}", -0.81, 0.27 - i * 0.041, 35.5, initial=line, scale=0.021,
-                       command=lambda t: self.apply_code())
-        self.code_shown = lines
-        yb = 0.27 - len(lines) * 0.041 - 0.03
-        button(f, "APPLY CODE", -0.62, yb, self.apply_code, None, 0.03, (0.15, 0.55, 0.25, 1))
-        button(f, "UNDO MY EDITS", -0.3, yb, self.reset_code, None, 0.03)
-        label(f, self.code_msg[0], -0.8, yb - 0.06, 0.021, self.code_msg[1], wrap=37)
+        label(f, "drag here to move", right - 0.02, 0.337, 0.017, GREY, TextNode.ARight)
+        label(f, "Click in the code to type there. Change a value, then press Enter or APPLY CODE:\n"
+                 "the garage changes to match. (Shift+Enter makes a new line.)", -0.83, 0.264, 0.021, GREY)
+        st, fresh = self.code_state, self.code_lines(d)
+        if self.code_shown is None or st["lines"] == self.code_shown:  # not edited: the fighter as it is now
+            st["lines"][:] = fresh
+            self.code_shown = list(fresh)
+        self.code_editor = code_editor.CodeEditor(self, f, st, -0.845, 0.21, right - left - 0.03, self.code_rows(),
+                                                  0.024 * self.text_scale(), on_enter=self.apply_code,
+                                                  on_focus=self.type_code)
+        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, GREY, TextNode.ARight)
+        self.code_editor.on_scroll = self.show_code_more
+        self.show_code_more()
+        button(f, "APPLY CODE", -0.64, bottom + 0.178, self.apply_code, None, 0.03, (0.15, 0.55, 0.25, 1))
+        button(f, "RESET CODE", -0.36, bottom + 0.178, self.reset_code, None, 0.03)
+        button(f, f"BUILD FOR {who.upper()}" if who else "BUILD MY FIGHTER", -0.64 if not who else -0.5, bottom + 0.112,
+               self.build_from_code, None, 0.03, (0.15, 0.55, 0.25, 1))  # (under APPLY CODE: apply, then build)
+        label(f, self.code_msg[0], -0.83, bottom + 0.055, 0.021, self.code_msg[1], wrap=39 + self.code_size[0] / 0.021)
+        grip = DirectFrame(parent=f, frameColor=(0.35, 0.4, 0.5, 1), state=DGG.NORMAL,
+                           frameSize=(right - 0.045, right, bottom, bottom + 0.045))
+        grip.bind(DGG.B1PRESS, self.code_resize_start)  # (its corner is a grip: drag it to resize)
+        label(f, "drag to resize", right - 0.055, bottom + 0.012, 0.015, GREY, TextNode.ARight)
+
+    def show_code_more(self):
+        """Under the code: how much of it is out of sight (it scrolls with the mouse wheel or the cursor)."""
+        above, below = self.code_editor.hidden()
+        self.code_more.setText("" if not (above or below) else f"{above} lines above, {below} below")
+
+    def close_code_editor(self):
+        if self.code_editor is not None:
+            self.code_editor.destroy()
+            self.code_editor = None
 
     def refresh_code_panel(self):
-        for key in [k for k in self.entries if k.startswith("code_")]:
-            self.entry_text[key] = self.entries.pop(key).get()
+        self.close_code_editor()
         if self.code_panel is not None:
             self.code_panel.destroy()
         self.build_code_panel()
+        if self.typing == "code":
+            self.code_editor.focused = True
+            self.code_editor.refresh()
 
     def reset_code(self):
-        self.code_shown, self.code_msg = None, ("", GREY)
-        for i in range(40):
-            self.entry_text.pop(f"code_{i}", None)
-        self.rebuild_panels()
+        """RESET CODE: the code goes back to the fighter as it is now. Only the code on screen changes."""
+        self.code_state["lines"][:] = self.code_lines(self.cur())
+        self.code_state["cursor"][:], self.code_state["scroll"] = [0, 0], 0
+        self.code_shown = list(self.code_state["lines"])
+        self.code_msg = ("The code is back to your fighter as it is. Press APPLY CODE or BUILD to use it.", GREY)
+        self.refresh_code_panel()
 
-    def code_line_move(self, delta):
-        """Up / down arrows move between lines of code while typing in it."""
-        if not self.typing or not self.typing.startswith("code_"):
+    def build_from_code(self):
+        """BUILD MY FIGHTER in the code panel: read the code as APPLY CODE does, then build the fighter from it."""
+        if not self.apply_code():
             return
-        e = self.entries.get(f"code_{int(self.typing[5:]) + delta}")
-        if e is not None:
-            self.entries[self.typing]["focus"] = 0
-            e["focus"] = 1
+        who = self.viewing()
+        if who:
+            self.send_design_for(who)
+        else:
+            self.send_design()
 
     def apply_code(self):
-        """Read the edited code as data (never run it), and change the design to match."""
-        n = len(self.code_shown or [])
-        text = "\n".join(self.entries[f"code_{i}"].get() if f"code_{i}" in self.entries else "" for i in range(n))
+        """Read the edited code as data (never run it), and change the design to match. True if it was used."""
+        text = "\n".join(self.code_state["lines"])
         try:
             tree = ast.parse(text)
         except SyntaxError as e:
@@ -1208,9 +1195,8 @@ class Lab(ShowBase):
         else:
             self.code_msg = ("Applied: the garage shows your changes. Press BUILD to use them.", GREEN)
         self.code_shown = None
-        for i in range(40):
-            self.entry_text.pop(f"code_{i}", None)
         self.rebuild_panels()
+        return not problems
 
     # ---------- missions (learner) ----------
     def build_card(self, f, y):
@@ -1304,9 +1290,10 @@ class Lab(ShowBase):
                 return
         self.banner_note("No brain file: make brains/my_brain.py first")
 
-    def banner_note(self, text, secs=3):
+    def banner_note(self, text, secs=3, big=False):
+        """Words over the ring for a few seconds. big: the size of a round's banner (a restart warning)."""
         self.note_until = time.perf_counter() + secs
-        self.note_text = text
+        self.note_text, self.note_big = text, big
 
     # ---------- AI request card (learner) ----------
     def build_ai_card(self, f, y):
@@ -2197,6 +2184,9 @@ class Lab(ShowBase):
             self.rebuild_panels()
         self.view_text.setText(f"view: {self.cam.name}  (V to change)" + ("   typing - Esc to stop" if self.typing else ""))
         self.banner.setText(self.note_text if now < getattr(self, "note_until", 0) else "")
+        self.banner.setScale(0.075 if getattr(self, "note_big", False) else 0.05)
+        if self.panel_bar and self.last_aspect != self.getAspectRatio():  # (the window resized: the body's cut-off moves)
+            self.place_panel()
         if not TEACHER and now - self.prefs_at > 3:  # keep the learner's settings in their profile
             self.prefs_at = now
             prefs = self.gather_prefs()
@@ -2302,7 +2292,7 @@ class Lab(ShowBase):
                                  "Restart server (Controls).", 12)
                 rebuild = True
             elif kind == "notice":
-                self.banner_note(m["text"], 5)
+                self.banner_note(m["text"], 12 if m.get("big") else 5, big=bool(m.get("big")))
                 if self.tab in ("learners", "accounts"):
                     rebuild = True
             elif kind == "pong":

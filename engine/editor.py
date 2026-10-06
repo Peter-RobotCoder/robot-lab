@@ -24,10 +24,26 @@ WHEEL_UP = PGButton.getPressPrefix() + MouseButton.wheelUp().getName() + "-"  # 
 WHEEL_DOWN = PGButton.getPressPrefix() + MouseButton.wheelDown().getName() + "-"
 
 # the colours of Visual Studio's dark theme
-COLOURS = {"keyword": (0.34, 0.61, 0.84), "string": (0.81, 0.57, 0.47), "number": (0.71, 0.81, 0.66),
-           "comment": (0.42, 0.60, 0.33), "name": (0.61, 0.86, 1.0), "bracket": (1.0, 0.84, 0.0),
-           "other": (0.83, 0.83, 0.83)}
-BACK, LINE_BACK, GUTTER = (0.118, 0.118, 0.118, 1), (0.17, 0.17, 0.19, 1), (0.52, 0.52, 0.52, 1)
+DARK_COLOURS = {"keyword": (0.34, 0.61, 0.84), "string": (0.81, 0.57, 0.47), "number": (0.71, 0.81, 0.66),
+                "comment": (0.42, 0.60, 0.33), "name": (0.61, 0.86, 1.0), "bracket": (1.0, 0.84, 0.0),
+                "other": (0.83, 0.83, 0.83)}
+LIGHT_COLOURS = {"keyword": (0.0, 0.0, 0.75), "string": (0.63, 0.13, 0.1), "number": (0.05, 0.5, 0.1),
+                 "comment": (0.0, 0.5, 0.0), "name": (0.0, 0.1, 0.4), "bracket": (0.6, 0.35, 0.0),
+                 "other": (0.15, 0.15, 0.15)}
+DARK_BACK = ((0.118, 0.118, 0.118, 1), (0.17, 0.17, 0.19, 1), (0.52, 0.52, 0.52, 1), (1, 1, 1, 1))
+LIGHT_BACK = ((1, 1, 1, 1), (0.93, 0.94, 0.97, 1), (0.55, 0.55, 0.6, 1), (0.1, 0.1, 0.1, 1))
+COLOURS = dict(DARK_COLOURS)
+BACK, LINE_BACK, GUTTER, CURSOR = DARK_BACK
+
+
+def set_theme(name):
+    """The dark or the light look for code drawn after this (the window redraws its code panel)."""
+    global BACK, LINE_BACK, GUTTER, CURSOR
+    light = name == "light"
+    COLOURS.clear()
+    COLOURS.update(LIGHT_COLOURS if light else DARK_COLOURS)
+    BACK, LINE_BACK, GUTTER, CURSOR = LIGHT_BACK if light else DARK_BACK
+    styles()
 TOKEN = re.compile(r"""(?P<comment>\#.*)
                      |(?P<string>"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)
                      |(?P<number>\b\d+(?:\.\d+)?\b)
@@ -113,13 +129,15 @@ class CodeEditor(DirectObject):
         self.back = DirectFrame(parent=parent, frameColor=BACK, frameSize=(x, x + width, top - height, top),
                                 state=DGG.NORMAL)
         self.back.bind(DGG.B1PRESS, self.click)
-        self.back.bind(WHEEL_UP, lambda e: self.wheel(-3))
-        self.back.bind(WHEEL_DOWN, lambda e: self.wheel(3))
+        self.back.bind(WHEEL_UP, lambda e: self.wheel(3 if getattr(base, "invert_scroll", False) else -3))
+        self.back.bind(WHEEL_DOWN, lambda e: self.wheel(-3 if getattr(base, "invert_scroll", False) else 3))
         self.line_back = DirectFrame(parent=parent, frameColor=LINE_BACK, frameSize=(0, width, -scale * 0.45,
                                                                                     self.line_h - scale * 0.45))
-        self.cursor = DirectFrame(parent=parent, frameColor=(1, 1, 1, 1),
+        self.cursor = DirectFrame(parent=parent, frameColor=CURSOR,
                                   frameSize=(0, scale * 0.09, -scale * 0.35, scale * 1.05))
         extra = {"font": self.font} if self.font is not None else {}
+        # how many letters fit across the box: a longer line is cut at the box's edge, not drawn over it
+        self.cols = max(10, int((x + width - self.code_x - scale * 0.3) / max(1e-6, self.text_width("M"))))
         self.numbers, self.texts = [], []
         for i in range(rows):
             y = self.row_y(i)
@@ -190,7 +208,8 @@ class CodeEditor(DirectObject):
             n = first + i
             if n < len(self.lines):
                 self.numbers[i].setText(str(n + 1))
-                self.texts[i].setText(self.lines[n] if self.read_only else coloured(self.lines[n]))
+                text = self.lines[n][:self.cols]
+                self.texts[i].setText(text if self.read_only else coloured(text))
             else:
                 self.numbers[i].setText("")
                 self.texts[i].setText("")

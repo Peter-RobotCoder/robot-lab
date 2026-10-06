@@ -23,6 +23,12 @@ import zipfile
 
 GAMES = ("robotlab", "fightlab")
 LINK_DIRS = ("assets", "models", "music", "mods", "brains")  # not in an update: it links to the installed ones
+ENGINE_LINK = "engine/assets"  # the engine's made textures and sounds: the same (an update carries engine/'s code)
+
+
+def link_paths(folder):
+    """Where an update's links are, under its folder: the big-file folders, and the engine's assets."""
+    return [os.path.join(folder, d) for d in LINK_DIRS] + [os.path.join(folder, *ENGINE_LINK.split("/"))]
 ID_PATTERN = r"[0-9a-f]{24}"
 MAX_ZIP = 20 * 1024 * 1024        # a live update is code: a few hundred KB
 MAX_UNPACKED = 60 * 1024 * 1024
@@ -41,7 +47,8 @@ def content_id(folder):
     h = hashlib.sha256()
     for root, dirs, files in os.walk(folder):
         rel_root = os.path.relpath(root, folder).replace("\\", "/")
-        dirs[:] = sorted(d for d in dirs if not (rel_root == "." and d in LINK_DIRS))
+        dirs[:] = sorted(d for d in dirs if not ((rel_root == "." and d in LINK_DIRS)
+                                                 or f"{rel_root}/{d}" == ENGINE_LINK))
         for name in sorted(files):
             rel = name if rel_root == "." else f"{rel_root}/{name}"
             if rel == "LIVE_ID":
@@ -85,6 +92,6 @@ def safe_unpack(zip_bytes, dest):
             if (i.filename.startswith(("/", "\\")) or ".." in parts or ":" in i.filename
                     or (i.external_attr >> 16) & 0o170000 == 0o120000):  # (a link)
                 raise LiveError(f"the update has a file in the wrong place: {i.filename}")
-            if parts[0].lower() in LINK_DIRS:
+            if parts[0].lower() in LINK_DIRS or "/".join(parts[:2]).lower() == ENGINE_LINK:
                 raise LiveError(f"the update tries to replace {parts[0]}/, which it may not")
         z.extractall(dest)

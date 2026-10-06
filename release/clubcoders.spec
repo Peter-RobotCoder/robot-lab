@@ -17,12 +17,14 @@ NOT_IN_APP = {"ursina", "pygame", "tkinter", "psutil", "IPython", "pytest"}  # (
 
 
 def game_datas():
-    """Every game's files (code, starter mods, models, the textures and sounds made before the build)."""
+    """Every game's files (code, starter mods, models, the textures and sounds made before the build), and the
+    engine's (engine/ beside games/: the games find it two levels up)."""
     out = []
-    for folder, dirs, files in os.walk(GAMES):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        rel = os.path.relpath(folder, ROOT)
-        out += [(os.path.join(folder, f), rel) for f in files if not f.endswith((".pyc", ".log"))]
+    for top in (GAMES, os.path.join(ROOT, "engine")):
+        for folder, dirs, files in os.walk(top):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            rel = os.path.relpath(folder, ROOT)
+            out += [(os.path.join(folder, f), rel) for f in files if not f.endswith((".pyc", ".log"))]
     return out
 
 

@@ -27,11 +27,13 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DIST = os.path.join(ROOT, "dist")
 APP = os.path.join(DIST, "Club Coders")
 ZIP = os.path.join(DIST, "ClubCoders-windows.zip")
-GAMES = {"robotlab": ("Robot Lab", "lab_server.py", "ROBOTLAB_DATA", "import rw_textures, rw_sound; "
-                                                                   "rw_textures.ensure(); rw_sound.ensure()"),
-         "fightlab": ("Fight Lab", "fight_server.py", "FIGHTLAB_DATA", "import rw_textures, rw_sound, fight_sound; "
-                                                                      "rw_textures.ensure(); rw_sound.ensure(); "
-                                                                      "fight_sound.ensure()")}
+GAMES = {"robotlab": ("Robot Lab", "lab_server.py", "ROBOTLAB_DATA",
+                      "import lab_version; from engine import rw_textures, rw_sound; "
+                      "rw_textures.ensure(); rw_sound.ensure()"),
+         "fightlab": ("Fight Lab", "fight_server.py", "FIGHTLAB_DATA",
+                      "import fight_version; from engine import rw_textures, rw_sound; import fight_sound; "
+                      "rw_textures.ensure(); rw_sound.ensure(); fight_sound.ensure()")}
+# (the textures and sounds are made into engine/assets, which the app carries beside games/)
 
 READ_ME = """CLUB CODERS
 ===========

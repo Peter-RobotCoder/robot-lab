@@ -117,6 +117,8 @@ def install(game, update_id):
         target = os.path.join(APP, "games", game, d)
         if os.path.isdir(target):
             os.symlink(target, os.path.join(part, d))
+    if os.path.isdir(os.path.join(part, "engine")) and os.path.isdir(os.path.join(APP, "engine", "assets")):
+        os.symlink(os.path.join(APP, "engine", "assets"), os.path.join(part, "engine", "assets"))  # (the same)
     for root, dirs, names in os.walk(part):  # read-only for the game servers
         os.chmod(root, 0o755)
         for n in names:

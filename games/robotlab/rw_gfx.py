@@ -14,8 +14,8 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker, DirectionalL
                           TransparencyAttrib, Vec3)
 
 import lab_sim as sim
-import rw_textures
-from rw_mesh import Mesh, bevel_box, cylinder, plate_y, prism
+from engine import rw_textures
+from engine.rw_mesh import Mesh, bevel_box, cylinder, plate_y, prism
 
 _state = {}
 
