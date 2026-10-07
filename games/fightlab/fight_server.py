@@ -32,6 +32,7 @@ import time
 
 import websockets
 
+import ai_pipeline
 import cpu_brains
 import fight_brain
 import fight_mods
@@ -41,7 +42,9 @@ import fight_teaching
 import fight_version
 sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
 from engine import club_ticket  # noqa: E402
+from engine import schema  # noqa: E402
 from engine import rw_sound  # noqa: E402
+from engine.tournament import WinnerStaysOn  # noqa: E402
 
 DEMO_CODES = {"learner": "CLUB42", "teacher": "TEACH99"}
 LEARNER_CODE = os.environ.get("JOIN_CODE", DEMO_CODES["learner"])
@@ -68,6 +71,14 @@ BRAIN_UPLOAD_GAP = 3.0                     # seconds between one learner's brain
 MAX_LEARNERS = 4
 SEND_RATE = 1 / 20
 HERE = os.path.dirname(os.path.abspath(__file__))
+CARD_NOTE_FILE = os.path.join(fight_teaching.DATA, "card_note_saved.json")  # the teacher's words on the AI card
+LIMITS_FILE = os.path.join(fight_teaching.DATA, "limits_saved.json")  # the learners' ranges, kept between sessions
+CPU_FILE = os.path.join(fight_teaching.DATA, "computer_fighter.json")  # the computer fighter, as the teacher set it up
+CPU_NAME = "Computer fighter"  # its name in the teacher's Learner view (CHANGE 77: one design for every ring)
+MISSIONS_FILE = os.path.join(fight_teaching.DATA, "mission_settings.json")  # the teacher's settings for each mission,
+# kept by Save settings and used whenever that mission is chosen (CHANGE 58 and 59): these keys
+MISSION_KEYS = ("mode", "round_time", "rounds_to_win", "cpu_opponents", "cpu_fighter", "teacher_fighter", "rings",
+                "designs_locked", "user_mods", "mods_in_vote", "arena_in_vote", "hazards", "tools", "limits")
 COLOURS = [(220, 60, 50), (60, 130, 230), (60, 190, 90), (240, 190, 40), (180, 90, 230)]
 CPU_NAMES = ["SPARKY", "RIVET", "JADE", "BOLT", "MIKO", "TANK"]
 TEACHER_COLOUR = (180, 90, 230)
@@ -84,7 +95,12 @@ WEEK1_LESSON = {
     "teacher_fighter": False,      # the teacher's own fighter gets a ring too (and can be put in matches)
     "designs_locked": False,       # stop design changes (e.g. during a tournament)
     "matches": [],                 # pairs of names the teacher has put in the same ring
+    "rings": 0,                    # CHANGE 75: how many rings (0 = one each, and matches share); with a number,
+    "places": {},                  # who is in which (a learner's name, or "Teacher", -> its index), two to a ring,
+                                   # and anyone not named takes the rings in turn
     "hazards": {"ring_out": True, "electric_ropes": False, "fire_jets": False, "slippery": False, "spikes": False},
+    "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
+    "limits": sim.default_limits(),  # the learners' ranges for every setting and point (the teacher's Limits tab)
     "user_mods": {},               # features learners asked for (fight_sim.USER_MODS): the teacher switches them on
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd and hit sounds
     "tools": {                     # the learner's garage: what is shown and changeable
@@ -99,6 +115,7 @@ WEEK1_LESSON = {
 
 HAZARD_WORDS = {"ring_out": "Ring-outs", "electric_ropes": "Electric ropes", "fire_jets": "Fire jets",
                 "slippery": "Slippery ice", "spikes": "Spikes"}
+STAGE_ITEMS = tuple(HAZARD_WORDS)  # what learners can vote for on the Mods tab (the stage's hazards)
 
 
 class Player:
@@ -168,7 +185,47 @@ class FightServer:
                 os.remove(carried)
             for k, v in WEEK1_LESSON["hazards"].items():  # (a hazard added by a code change starts off)
                 self.lesson["hazards"].setdefault(k, v)
+        try:
+            with open(MISSIONS_FILE, encoding="utf-8") as f:
+                self.mission_settings = json.load(f)  # mission number (as text) -> the teacher's saved settings
+            if not isinstance(self.mission_settings, dict):
+                self.mission_settings = {}
+        except (OSError, ValueError):
+            self.mission_settings = {}
+        self.lesson["saved_missions"] = self.saved_missions()  # (the Controls tab says which have saved settings)
+        try:
+            with open(LIMITS_FILE, encoding="utf-8") as f:
+                saved_limits = json.load(f)
+        except (OSError, ValueError):
+            saved_limits = None
+        self.lesson["limits"] = sim.clean_limits(saved_limits, sim.clean_limits(self.lesson.get("limits")))
+        try:
+            with open(CARD_NOTE_FILE, encoding="utf-8") as f:
+                self.lesson["ai_card_note"] = str(json.load(f).get("note", ""))[:300]
+        except (OSError, ValueError, AttributeError):
+            pass
+        self.use_mission_settings()
         self.players = {}        # websocket -> Player
+        # the computer fighter: every ring's sparring partner is built from this design (the teacher sets it up in
+        # the Learner view, with a brain of its own if they like); None = the partners as they come
+        self.cpu_default = sim.default_design("SPARKY", (150, 150, 160), "blast", "robot")
+        self.cpu_default["style"] = {"trim": [60, 60, 70], "lights": [120, 220, 255], "number": "SPARKY"}
+        self.cpu_custom = None
+        self.cpu = Player(None, "computer", CPU_NAME, (150, 150, 160))  # (named for the teaching framework's
+        self.cpu_source, self.cpu_own_brain, self.cpu_autopilot = "", None, False  # Learner view: CHANGE 23)
+        try:
+            with open(CPU_FILE, encoding="utf-8") as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            saved = {}
+        if isinstance(saved.get("design"), dict) and not sim.check_design(saved["design"], sim.full_limits()):
+            self.cpu_custom = saved["design"]
+        self.cpu_saved_brain = str(saved.get("brain", ""))[:20000] if isinstance(saved, dict) else ""
+        self.group = []          # the launched group's learners (from the club desk), here yet or not
+        self.mod_votes = {}      # user mod -> the learners who'd like it switched on (this session)
+        self.arena_votes = {}    # the same for the stage's hazards (STAGE_ITEMS)
+        self.mod_makers = ai_pipeline.user_mod_makers()  # who made each user mod: their name goes in front of it
+        self.warnings = []       # for the teacher: learners who changed, in the code, something outside the lesson
         self.teacher_design = sim.default_design("Sensei", TEACHER_COLOUR, "spin_kick", "human")
         self.paused = False
         self.roster_version = 0
@@ -176,6 +233,7 @@ class FightServer:
         self.look = {}
         self.tournament = None
         self.match_names = {}    # ring index -> (name a, name b) for matches and tournament matches
+        self.swaps = []          # winner stays on (CHANGE 76): (ring index, loser, challenger, when) still to do
         try:  # the mod rules and stage look (hazards come from the lesson)
             sim.RULES.update(fight_mods.load_rules())
             self.look = fight_mods.load_stage()["look"]
@@ -187,6 +245,9 @@ class FightServer:
         if os.path.exists(demo):
             with open(demo, encoding="utf-8") as f:
                 self.load_demo_brain(f.read())
+        if self.cpu_saved_brain:  # (the computer fighter's own brain, kept from last time; its autopilot starts off)
+            self.cpu_own_brain, _ = self.make_demo_brain(self.cpu_saved_brain)
+            self.cpu_source = self.cpu_saved_brain if self.cpu_own_brain else ""
         if not lesson_file:
             self.teaching.apply_lesson(1)
         self.rebuild_stage()
@@ -204,11 +265,41 @@ class FightServer:
         who = self.lesson.get("cpu_fighter", "sparring")
         if who in sim.BOSS_BY_NAME:
             return sim.boss_design(who)
+        if self.cpu_custom is not None:  # the one the teacher set up (CHANGE 77): the same in every ring
+            return copy.deepcopy(self.cpu_custom)
         rnd = random.Random(i * 7 + 3)
         special = rnd.choice(list(sim.SPECIALS))
         d = sim.default_design(CPU_NAMES[i % len(CPU_NAMES)], (150, 150, 160), special, ("robot", "human")[i % 2])
         d["style"] = {"trim": [60, 60, 70], "lights": [120, 220, 255], "number": d["name"]}
         return d
+
+    def use_mission_settings(self):
+        """The teacher's saved settings for the mission the class is on, over the mission's own defaults (the
+        presets in fight_missions): every control they saved, including what learners see in the garage."""
+        saved = self.mission_settings.get(str(self.lesson.get("lesson_number", 1)))
+        if not isinstance(saved, dict):
+            return False
+        for key in MISSION_KEYS:
+            if key in saved:
+                self.lesson[key] = copy.deepcopy(saved[key])
+        self.lesson["limits"] = sim.clean_limits(self.lesson.get("limits"))
+        self.lesson["user_mods"] = {k: bool(v) for k, v in self.lesson.get("user_mods", {}).items() if k in sim.USER_MODS}
+        for k, v in WEEK1_LESSON["hazards"].items():
+            self.lesson["hazards"].setdefault(k, v)
+        return True
+
+    def saved_missions(self):
+        return sorted(int(k) for k in self.mission_settings if str(k).isdigit())
+
+    def save_mission_settings(self):
+        n = str(self.lesson.get("lesson_number", 1))
+        self.mission_settings[n] = {k: copy.deepcopy(self.lesson[k]) for k in MISSION_KEYS if k in self.lesson}
+        self.lesson["saved_missions"] = self.saved_missions()
+        try:
+            with open(MISSIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.mission_settings, f, indent=2)
+        except OSError:
+            pass
 
     def rebuild_stage(self):
         """New rings (the mode, matches or hazards may have changed), then put everyone's fighter back in."""
@@ -227,6 +318,9 @@ class FightServer:
         used, cpu_count = set(), 0
         for p in self.players.values():
             p.fighter = None
+        if L.get("rings") and not (self.tournament and not self.tournament.champion):  # CHANGE 75: the teacher's rings
+            self.place_in_rings(wanted)
+            return self.finish_stage()
         for a, b in pairs:
             if a in used or b in used or len(self.stage.rings) >= sim.MAX_RINGS:
                 continue
@@ -246,6 +340,8 @@ class FightServer:
                 ring.label = self.tournament.title(i)
             else:
                 ring.label = "MATCH"
+        if getattr(self.tournament, "kind", "") == "stays":
+            wanted = []  # winner stays on: whoever is waiting for a ring watches (CHANGE 76)
         for name, design, p in wanted:
             if name in used or len(self.stage.rings) >= sim.MAX_RINGS:
                 continue
@@ -255,6 +351,9 @@ class FightServer:
                 ring.add_fighter(self.cpu_design(cpu_count), brain=self.cpu_brain(), owner="Computer")
                 cpu_count += 1
             ring.label = "TRAINING" if self.stage.practice else ""
+        self.finish_stage()
+
+    def finish_stage(self):
         if not self.stage.rings:  # nobody here yet: a demo fight to watch
             ring = self.stage.add_ring()
             ring.add_fighter(self.teacher_design, brain=self.cpu_brain("medium"), owner="Teacher (away)")
@@ -262,6 +361,37 @@ class FightServer:
             ring.label = "DEMO"
         self.roster_version += 1
         self.stage.events.append((self.stage.time, "Practice: no damage" if self.stage.practice else "Battle!"))
+
+    def place_in_rings(self, wanted):
+        """CHANGE 75: the teacher's number of rings, two fighters to a ring: the people the teacher placed
+        (Controls, Who is where) go where they were put, everyone else takes the rings in turn; a ring with one
+        fighter gets a computer sparring partner (when they are on), and anyone who doesn't fit sits out."""
+        L = self.lesson
+        n = max(1, min(sim.MAX_RINGS, int(L["rings"])))
+        rings = [self.stage.add_ring() for _ in range(n)]
+        places = L.get("places", {})
+        turn = 0
+        for name, design, p in wanted:
+            key = "Teacher" if (p is None or p.role == "teacher") else name
+            i = places.get(key)
+            if not (isinstance(i, int) and 0 <= i < n and len(rings[i].fighters) < 2):
+                free = [j for j in range(n) if len(rings[j].fighters) < 2]
+                if not free:
+                    continue
+                i = free[turn % len(free)]
+                turn += 1
+            self.place(rings[i], name, design, p)
+        for i, ring in enumerate(rings):
+            names = [f.owner for f in ring.fighters]
+            if len(names) == 1 and L.get("cpu_opponents"):
+                ring.add_fighter(self.cpu_design(i), brain=self.cpu_brain(), owner="Computer")
+            if len(names) == 2:
+                self.match_names[ring.index] = tuple(names)
+                ring.label = "MATCH"
+            elif not ring.fighters:
+                ring.label = "EMPTY"
+            else:
+                ring.label = "TRAINING" if self.stage.practice else ""
 
     def place(self, ring, name, design, p):
         f = ring.add_fighter(design, brain=None if p else self.cpu_brain("medium"), owner=name if p else "Teacher (away)")
@@ -272,7 +402,84 @@ class FightServer:
         return f
 
     def cpu_brain(self, level=None):
+        """What drives a computer fighter: the computer fighter's own brain while its autopilot is on, or the
+        level's brain."""
+        if level is None and self.cpu_own_brain is not None and self.cpu_autopilot:
+            return self.cpu_own_brain
         return cpu_brains.for_level(level or self.lesson.get("cpu_level", "medium"), self.demo_brain)
+
+    def cpu_state(self):
+        """The computer fighter for the teacher's Learner view (in the class list)."""
+        return {"name": CPU_NAME, "role": "computer", "design": self.cpu_custom or self.cpu_default,
+                "default": self.cpu_default, "brain": self.cpu_own_brain is not None, "autopilot": self.cpu_autopilot,
+                "in_arena": bool(self.lesson.get("cpu_opponents", 1))}
+
+    def save_cpu(self):
+        try:
+            if self.cpu_custom is None and not self.cpu_source:
+                if os.path.exists(CPU_FILE):
+                    os.remove(CPU_FILE)  # (as it comes: nothing to keep)
+                return
+            with open(CPU_FILE + ".tmp", "w", encoding="utf-8") as f:
+                json.dump({"design": self.cpu_custom, "brain": self.cpu_source}, f)
+            os.replace(CPU_FILE + ".tmp", CPU_FILE)
+        except OSError:
+            pass
+
+    async def cpu_fighter_command(self, m):
+        """The teacher sets up the computer fighter (the Learner view): its design, its own brain, its autopilot,
+        or Reset (back to the sparring partners as they come, with no brain of its own)."""
+        t = self.teacher()
+        text = None
+        if "design" in m:
+            d = m["design"] if isinstance(m["design"], dict) else {}
+            new = copy.deepcopy(self.cpu_custom or self.cpu_default)
+            new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", new["name"])))[:16] or new["name"]
+            for key in ("colour", "body", "special", "points", "settings", "combo", "fighting_style", "weapon",
+                        "look", "style"):
+                if key in d:
+                    new[key] = d[key]
+            if new.get("body") not in sim.MODEL_BODIES:
+                new.pop("look", None)
+            if not sim.weapons_for(sim.style_of(new)[0]):
+                new.pop("weapon", None)
+            new.pop("model", None)
+            problems = sim.check_design(new, sim.full_limits())
+            if not fight_mods.colour_ok(new.get("colour")):
+                problems.append("colour must be three whole numbers from 0 to 255")
+            if problems:
+                text = "Not built: " + "; ".join(problems)
+            else:
+                self.cpu_custom = new
+                self.rebuild_stage()
+                text = f"Built {new['name']} for the computer: every ring's sparring partner"
+                self.stage_event("The teacher rebuilt the computer fighter")
+        elif m.get("reset"):
+            old, self.cpu_own_brain = self.cpu_own_brain, None
+            if old is not None:
+                old.close()
+            self.cpu_custom, self.cpu_source, self.cpu_autopilot = None, "", False
+            self.rebuild_stage()
+            text = "The computer fighter is back as it comes, with no brain of its own"
+        elif "brain" in m:  # (loaded off the game loop: checking a brain can take a moment)
+            source = str(m["brain"])[:20000]
+            brain, problem = await asyncio.to_thread(self.make_demo_brain, source)
+            if brain is None:
+                text = f"Brain problem: {problem}"
+            else:
+                old, self.cpu_own_brain, self.cpu_source = self.cpu_own_brain, brain, source
+                if old is not None:
+                    old.close()
+                text = "Brain uploaded for the computer fighter. Switch its autopilot on to use it."
+        elif "autopilot" in m:
+            self.cpu_autopilot = bool(m["autopilot"]) and self.cpu_own_brain is not None
+            for f in self.stage.fighters():
+                if f.owner == "Computer":
+                    f.brain = self.cpu_brain()
+        self.save_cpu()
+        if t and text:
+            await self.send(t.ws, {"type": "notice", "text": text})
+        await self.broadcast_lesson()
 
     @staticmethod
     def make_demo_brain(source):
@@ -305,13 +512,54 @@ class FightServer:
     def teacher(self):
         return next((p for p in self.players.values() if p.role == "teacher"), None)
 
-    def clean_design(self, player, d):
-        """Keep only what this lesson lets learners change; everything else stays as it was."""
+    def limits_for(self, player):
+        """The ranges a design is held to: the learners' (as the teacher has set them), or the widest ones for the
+        teacher's own fighter."""
+        return sim.full_limits() if player.role == "teacher" else self.lesson["limits"]
+
+    async def fit_learners(self):
+        """The teacher has changed the limits: a learner's fighter outside them is pulled back to the nearest
+        allowed values (and rebuilt, and saved), and the learner is told."""
+        limits = self.lesson["limits"]
+        for p in self.learners():
+            new = sim.fit_design(p.design, limits)
+            if new is p.design:
+                continue
+            p.design = new
+            self.refit(p)
+            self.teaching.save_design(p.name, new)
+            await self.send(p.ws, {"type": "design_result", "ok": True, "problems": [], "design": new,
+                                   "by_teacher": True})
+
+    def outside_lesson(self, old, new):
+        """What changed between two of a learner's designs that this lesson's garage doesn't let them change (they
+        did it in the code): [[variable, the old value, the new value], ...] for the teacher's Warnings tab."""
+        found = schema.outside_lesson(sim.schema(), old, new, self.lesson["tools"])
+        if old.get("model") != new.get("model"):  # (a boss's special comes with it: not a change of theirs)
+            found = [f for f in found if f[0] != "special"]
+        if old.get("fighting_style") != new.get("fighting_style"):  # (a style's weapon comes with it)
+            found = [f for f in found if f[0] != "weapon"]
+        return found
+
+    async def warn_teacher(self, p=None, changes=None):
+        """Add a warning (a learner got round the lesson in the code) and send the teacher the list. The learner is
+        not told. Warnings last for the session."""
+        if p is not None:
+            self.warnings.append({"who": p.name, "time": time.strftime("%H:%M"), "changes": changes})
+            del self.warnings[:-200]
+        t = self.teacher()
+        if t:
+            await self.send(t.ws, {"type": "warnings", "list": self.warnings})
+
+    def clean_design(self, player, d, everything=False):
+        """Keep only what this lesson lets learners change; everything else stays as it was.
+        everything: the design was sent from the code panel, where a learner can change what the garage hides
+        (the rules still hold, and the teacher is told: see outside_lesson)."""
         tools, old = self.lesson["tools"], player.design
         new = copy.deepcopy(old)
         if not isinstance(d, dict):
             return new
-        if player.role == "teacher":
+        if player.role == "teacher" or everything:
             tools = {k: True for k in tools} | {"specials": list(sim.SPECIALS)}
         if tools.get("name_and_colour"):
             new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", old["name"])))[:16] or old["name"]
@@ -435,6 +683,8 @@ class FightServer:
             if saved:  # their fighter from last time
                 p.design = saved
             self.teaching.login(p)  # their missions, reflections, brain and settings from last time
+            if getattr(self, "design_for_everyone", None) and p.role == "learner":  # (CHANGE 85)
+                await self.build_for(p, self.design_for_everyone, quiet=True)
         self.players[ws] = p
         print(f"+ {name} ({role})")
         self.rebuild_stage()
@@ -446,6 +696,8 @@ class FightServer:
                              "live_ready": getattr(self, "live_ready", None) if role == "teacher" else None})
         await self.broadcast_lesson()
         await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
+        if role == "teacher":
+            await self.warn_teacher()
         try:
             async for raw in ws:
                 m = json.loads(raw)
@@ -465,6 +717,7 @@ class FightServer:
     def rules(self):
         return {"stats": sim.STATS, "points_total": sim.POINTS_TOTAL, "stat_min": sim.STAT_MIN,
                 "stat_max": sim.STAT_MAX, "settings": sim.SETTINGS, "specials": sim.SPECIALS, "bodies": sim.BODIES,
+                "full": sim.full_limits(),  # the widest ranges: the teacher's own fighter, and the Limits tab's sliders
                 "combo_moves": sim.COMBO_MOVES, "combo_min": sim.COMBO_MIN, "combo_max": sim.COMBO_MAX,
                 "bosses": {name: v[1] for name, v in sim.BOSS_BY_NAME.items()}, "cpu_levels": cpu_brains.LEVELS,
                 "model_bodies": list(sim.MODEL_BODIES), "human_bodies": list(sim.HUMAN_BODIES),
@@ -477,6 +730,37 @@ class FightServer:
     async def deliver(self, replies):
         for ws, msg in replies:
             await self.send(ws, msg)
+
+    async def build_for(self, p, d, quiet=False):
+        """The teacher builds this fighter for learner p (the Learner view's BUILD FOR NAME; and for all:
+        CHANGE 85). Returns the problems (none: built)."""
+        new = copy.deepcopy(p.design)
+        new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", new["name"])))[:16] or new["name"]
+        for key in ("colour", "special", "points", "settings", "combo", "body", "look", "fighting_style"):
+            if key in d:
+                new[key] = d[key]
+        if sim.weapons_for(sim.style_of(new)[0]):
+            new["weapon"] = d.get("weapon", new.get("weapon"))
+        else:
+            new.pop("weapon", None)
+        if d.get("model") in sim.BOSS_BY_NAME:
+            new["model"], new["special"] = d["model"], sim.BOSS_BY_NAME[d["model"]][1]
+        else:
+            new.pop("model", None)
+        problems = fight_mods.check_fighter(new)
+        if problems:
+            if not quiet:
+                await self.notice_teacher("Not built: " + "; ".join(problems))
+            return problems
+        p.design = new
+        self.refit(p)
+        self.teaching.save_design(p.name, new)
+        self.stage.events.append((self.stage.time, f"The teacher rebuilt {p.name}'s fighter"))
+        await self.send(p.ws, {"type": "design_result", "ok": True, "problems": [], "design": new,
+                               "by_teacher": True})
+        if not quiet:
+            await self.notice_teacher(f"Built {new['name']} for {p.name}")
+        return []
 
     async def on_message(self, p, m):
         kind = m.get("type")
@@ -506,18 +790,29 @@ class FightServer:
                     p.fighter.press(m["press"], self.stage.time)
         elif kind == "ping":
             await self.send(p.ws, {"type": "pong", "t": m.get("t")})
+        elif kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab
+            votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
+                (self.arena_votes, m.get("item"), STAGE_ITEMS)
+            in_vote = self.lesson.get("mods_in_vote" if kind == "mod_vote" else "arena_in_vote", {})
+            if isinstance(key, str) and key in known and in_vote.get(key, True):
+                votes[key] = [n for n in votes.get(key, []) if n != p.name] + ([p.name] if m.get("on") else [])
+                await self.broadcast_lesson()
         elif kind == "design":
             if self.lesson["designs_locked"] and p.role == "learner":
                 await self.send(p.ws, {"type": "design_result", "ok": False, "design": p.design,
                                        "problems": ["The teacher has locked designs for now."]})
                 return
-            new = self.clean_design(p, m.get("design", {}))
-            problems = sim.check_design(new)
+            # from the code panel a learner can change what the garage hides (while the lesson has the Code view)
+            hack = bool(m.get("code")) and p.role == "learner" and bool(self.lesson["tools"].get("code_view"))
+            new = self.clean_design(p, m.get("design", {}), everything=hack)
+            problems = sim.check_design(new, self.limits_for(p))
+            old = p.design  # (the missions compare the two: what the build changed, and how)
+            outside = self.outside_lesson(old, new) if hack and not problems else []
             if not problems:
                 p.design = new
                 self.refit(p)
                 self.stage.events.append((self.stage.time, f"{p.name} rebuilt {new['name']}"))
-            self.teaching.on_design(p, new, problems, not problems)
+            self.teaching.on_design(p, new, problems, not problems, old=old, by_code=bool(m.get("code")))
             if not problems and p.role == "learner":
                 self.teaching.save_design(p.name, new)  # autosave: their fighter is there next lesson
             await self.send(p.ws, {"type": "design_result", "ok": not problems, "problems": problems, "design": p.design})
@@ -525,6 +820,8 @@ class FightServer:
                                                                  if p.role == "learner" else []))
             if not problems:
                 await self.broadcast_lesson()  # the teacher's class list shows the new design
+            if outside:
+                await self.warn_teacher(p, outside)
         elif p.role == "teacher":
             await self.teacher_command(m)
 
@@ -568,6 +865,19 @@ class FightServer:
 
     async def teacher_command(self, m):
         kind = m.get("type")
+        if kind == "mod_makers":  # who made each user mod, from the teacher's laptop (its change history knows)
+            makers = m.get("makers")
+            for key, who in (makers.items() if isinstance(makers, dict) else ()):
+                who = ai_pipeline.maker_name(who)
+                if not (isinstance(key, str) and re.fullmatch(r"[a-z0-9_]{1,40}", key) and who):
+                    continue
+                if self.mod_makers.get(key) == "" and not m.get("new"):
+                    continue  # that learner's data was deleted: only a newly kept or merged change names it again
+                if key in self.mod_makers or len(self.mod_makers) < 500:
+                    self.mod_makers[key] = who
+            ai_pipeline.save_user_mod_makers(self.mod_makers)
+            await self.broadcast_lesson()
+            return
         if kind == "delete_learner":  # everything the server keeps about them goes (they're disconnected first)
             await self.delete_learner(m.get("learner", ""))
             return
@@ -597,48 +907,45 @@ class FightServer:
             await self.notice_teacher(f"Demo brain problem: {problem}" if problem else
                                       "Demo brain uploaded: computer fighters set to Empty now run it")
             return
+        if kind == "cpu_robot" or (kind == "design_for" and m.get("learner") == CPU_NAME):  # the computer fighter
+            await self.cpu_fighter_command(m)
+            return
+        if kind == "design_for_all":  # CHANGE 85: every learner gets exactly this fighter (and anyone who joins later)
+            d = m.get("design", {}) if isinstance(m.get("design"), dict) else {}
+            built, failed = [], []
+            for p in self.learners():
+                problems = await self.build_for(p, d, quiet=True)
+                (failed if problems else built).append(p.name)
+            self.design_for_everyone = d
+            self.lesson["design_for_everyone"] = str(d.get("name", ""))[:16]
+            await self.notice_teacher(f"Built {d.get('name', '?')} for {', '.join(built) or 'nobody yet'}"
+                                      + (f"; not for {', '.join(failed)}" if failed else "") +
+                                      ". Anyone who joins this session gets it too.")
+            await self.broadcast_lesson()
+            return
         if kind == "design_for":  # the teacher changes a learner's fighter for them
             p = next((q for q in self.learners() if q.name == m.get("learner")), None)
             if p is None:
                 await self.notice_teacher("That learner isn't connected.")
                 return
-            d = m.get("design", {}) if isinstance(m.get("design"), dict) else {}
-            new = copy.deepcopy(p.design)
-            new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", new["name"])))[:16] or new["name"]
-            for key in ("colour", "special", "points", "settings", "combo", "body", "look", "fighting_style"):
-                if key in d:
-                    new[key] = d[key]
-            if sim.weapons_for(sim.style_of(new)[0]):
-                new["weapon"] = d.get("weapon", new.get("weapon"))
-            else:
-                new.pop("weapon", None)
-            if d.get("model") in sim.BOSS_BY_NAME:
-                new["model"], new["special"] = d["model"], sim.BOSS_BY_NAME[d["model"]][1]
-            else:
-                new.pop("model", None)
-            problems = fight_mods.check_fighter(new)
-            if problems:
-                await self.notice_teacher("Not built: " + "; ".join(problems))
-                return
-            p.design = new
-            self.refit(p)
-            self.teaching.save_design(p.name, new)
-            self.stage.events.append((self.stage.time, f"The teacher rebuilt {p.name}'s fighter"))
-            await self.send(p.ws, {"type": "design_result", "ok": True, "problems": [], "design": new,
-                                   "by_teacher": True})
-            await self.notice_teacher(f"Built {new['name']} for {p.name}")
+            await self.build_for(p, m.get("design", {}) if isinstance(m.get("design"), dict) else {})
             await self.broadcast_lesson()
             return
-        if kind == "tournament":  # start or stop a knockout tournament of everyone connected
+        if kind == "tournament":  # start or stop a tournament of everyone connected: a knockout, or winner stays on
             if m.get("start"):
                 names = [n for n, _, _ in self.fighters_wanted()]
                 if len(names) < 2:
                     await self.notice_teacher("A tournament needs at least 2 fighters (learners, or your own fighter).")
                     return
-                self.tournament = Tournament(names)
+                if m.get("kind") == "stays":  # CHANGE 76: two rings live, the winner stays, the loser queues
+                    self.tournament = WinnerStaysOn(names, live=max(1, min(sim.MAX_RINGS, int(m.get("live", 2)))))
+                    self.stage_event("WINNER STAYS ON!  The loser goes to the back of the queue.")
+                else:
+                    self.tournament = Tournament(names)
+                    self.stage_event("THE TOURNAMENT BEGINS!")
+                self.swaps = []
                 self.lesson["mode"] = "battle"
                 self.lesson["designs_locked"] = True
-                self.stage_event("THE TOURNAMENT BEGINS!")
             else:
                 self.tournament = None
                 self.lesson["designs_locked"] = False
@@ -654,6 +961,34 @@ class FightServer:
                     if f.owner == "Computer":
                         f.brain = self.cpu_brain()
                 self.stage_event(f"Computer fighters: {cpu_brains.LEVELS[update['cpu_level']]}")
+            if isinstance(update.get("limits"), dict):  # the learners' ranges: kept between sessions
+                self.lesson["limits"] = sim.clean_limits(update["limits"], self.lesson["limits"])
+                try:
+                    with open(LIMITS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(self.lesson["limits"], f)
+                except OSError:
+                    pass
+                await self.fit_learners()
+            if isinstance(update.get("ai_card_note"), str):  # the teacher's words on the learners' AI request card
+                note = "".join(ch if ch >= " " and ch != "\x7f" else " " for ch in update["ai_card_note"])
+                self.lesson["ai_card_note"] = " ".join(note.split())[:300]
+                try:
+                    with open(CARD_NOTE_FILE, "w", encoding="utf-8") as f:
+                        json.dump({"note": self.lesson["ai_card_note"]}, f)
+                except OSError:
+                    pass
+            if isinstance(update.get("mods_in_vote"), dict):  # which mods learners see and vote on (CHANGE 55)
+                in_vote = {k: bool(v) for k, v in update["mods_in_vote"].items() if k in sim.USER_MODS}
+                self.lesson["mods_in_vote"] = {**self.lesson.get("mods_in_vote", {}), **in_vote}
+                for k, v in in_vote.items():
+                    if not v:
+                        self.mod_votes.pop(k, None)  # (its votes go with it)
+            if isinstance(update.get("arena_in_vote"), dict):  # ...and which of the stage's items (CHANGE 71)
+                in_vote = {k: bool(v) for k, v in update["arena_in_vote"].items() if k in STAGE_ITEMS}
+                self.lesson["arena_in_vote"] = {**self.lesson.get("arena_in_vote", {}), **in_vote}
+                for k, v in in_vote.items():
+                    if not v:
+                        self.arena_votes.pop(k, None)
             if isinstance(update.get("user_mods"), dict):  # straight away, no restart: the windows redraw the stage
                 switched = {k: bool(v) for k, v in update["user_mods"].items() if k in sim.USER_MODS}
                 self.lesson["user_mods"] = {**self.lesson.get("user_mods", {}), **switched}
@@ -678,6 +1013,23 @@ class FightServer:
             except (TypeError, ValueError):
                 self.lesson["round_time"], self.lesson["rounds_to_win"] = 60, 2
             self.stage.round_seconds = self.lesson["round_time"]
+            if "rings" in update:  # CHANGE 75: how many rings (0 = automatic), and who is in which
+                try:
+                    n = max(0, min(sim.MAX_RINGS, int(update["rings"])))
+                except (TypeError, ValueError):
+                    n = 0
+                rebuild |= n != self.lesson.get("rings", 0)
+                self.lesson["rings"] = n
+            if isinstance(update.get("places"), dict):
+                places = dict(self.lesson.get("places", {}))
+                for k, v in update["places"].items():
+                    if isinstance(k, str) and len(k) <= 40:
+                        if v is None:
+                            places.pop(k, None)
+                        elif isinstance(v, int) and 0 <= v < sim.MAX_RINGS:
+                            places[k] = v
+                rebuild |= places != self.lesson.get("places", {})
+                self.lesson["places"] = places
             if "matches" in update and isinstance(update["matches"], list):
                 pairs = [[str(a)[:16], str(b)[:16]] for a, b in
                          (m_ for m_ in update["matches"] if isinstance(m_, list) and len(m_) == 2)][:6]
@@ -713,11 +1065,19 @@ class FightServer:
         elif kind == "pause":
             self.paused = not self.paused
             self.stage_event("PAUSED" if self.paused else "GO!")
-        elif kind == "save_lesson":
+        elif kind == "save_lesson":  # every control, for this mission: used whenever the mission is chosen
+            self.save_mission_settings()
             path = os.path.join(fight_teaching.DATA, "lesson_saved.json")
             with open(path, "w") as f:
                 json.dump(self.lesson, f, indent=2)
-            self.stage_event("Lesson settings saved")
+            self.stage_event(f"Mission {self.lesson.get('lesson_number', 1)} settings saved")
+            await self.broadcast_lesson()
+        elif kind == "restore_lesson":  # back to what was saved for this mission (or the mission's own defaults)
+            n = self.lesson.get("lesson_number", 1)
+            self.teaching.apply_lesson(n)
+            self.rebuild_stage()
+            self.stage_event(f"Mission {n} settings restored")
+            await self.broadcast_lesson()
 
     def carry_lesson(self):
         """Save the lesson for the server that starts after a restart for code changes."""
@@ -746,9 +1106,18 @@ class FightServer:
         except websockets.ConnectionClosed:
             pass
 
+    def user_mods_msg(self):
+        """For everyone's Mods tab: who made each mod, who'd like it switched on, and whose group is in."""
+        here = {p.name for p in self.learners()} | set(self.group)
+        return {"makers": {k: v for k, v in self.mod_makers.items() if k in sim.USER_MODS},
+                "votes": {k: v for k, v in self.mod_votes.items() if v and k in sim.USER_MODS},
+                "arena_votes": {k: v for k, v in self.arena_votes.items() if v},
+                "here": sorted(here)}
+
     async def broadcast_lesson(self):
-        msg = {"type": "lesson", "lesson": self.lesson,
-               "class": [{"name": p.name, "role": p.role, "design": p.design} for p in self.players.values()],
+        msg = {"type": "lesson", "lesson": self.lesson, "mods": self.user_mods_msg(),
+               "class": [{"name": p.name, "role": p.role, "design": p.design} for p in self.players.values()] +
+                        [self.cpu_state()],
                "tournament": self.tournament.summary() if self.tournament else None}
         for ws in list(self.players):
             await self.send(ws, msg)
@@ -773,8 +1142,27 @@ class FightServer:
                 "mine": {p.name: (p.fighter.id if p.fighter else None) for p in self.players.values()}}
 
     def check_matches(self):
-        """A tournament match finished: record the winner, and start the next round when they're all done."""
+        """A tournament match finished: record the winner, and start the next round when they're all done.
+        Winner stays on: the loser is swapped out of that ring (only) for the next challenger, a moment later."""
         if not self.tournament or self.tournament.champion:
+            return False
+        if getattr(self.tournament, "kind", "") == "stays":
+            self.tournament.join([n for n, _, _ in self.fighters_wanted()])  # (anyone who has just come in)
+            for r in self.stage.rings:
+                names = self.match_names.get(r.index)
+                if names and r.match_over and not getattr(r, "recorded", False):
+                    r.recorded = True
+                    champ = next((f for f in r.fighters if f.wins >= self.stage.rounds_to_win), None)
+                    if champ is None or len(r.fighters) != 2:
+                        continue
+                    winner = names[r.fighters.index(champ)]
+                    swap = self.tournament.record(names[0], names[1], winner)
+                    if swap:
+                        loser, challenger = swap
+                        self.swaps.append((r.index, loser, challenger, time.perf_counter() + 4.0))
+                        self.stage_event(f"{winner} stays on! {challenger} is next in ring {r.index + 1}"
+                                         if challenger != loser else f"{winner} stays on! {loser} tries again")
+                        self.lesson_dirty = True
             return False
         done = False
         for r in self.stage.rings:
@@ -794,6 +1182,35 @@ class FightServer:
             return True
         return False
 
+    def do_swaps(self):
+        """Winner stays on: swaps that are due. The loser's fighter leaves the ring, the challenger's comes in
+        (built from their design as it is now), and the ring starts a new match. Returns True if any happened."""
+        now = time.perf_counter()
+        due = [s for s in self.swaps if s[3] <= now]
+        self.swaps = [s for s in self.swaps if s[3] > now]
+        wanted = {n: (d, p) for n, d, p in self.fighters_wanted()}
+        for ring_index, loser, challenger, _ in due:
+            ring = next((r for r in self.stage.rings if r.index == ring_index), None)
+            if ring is None:
+                continue
+            names = list(self.match_names.get(ring_index, ()))
+            for f in list(ring.fighters):
+                if f.owner == loser or f.owner not in names:
+                    for p in self.players.values():
+                        if p.fighter is f:
+                            p.fighter = None
+                    ring.remove_fighter(f)
+            if challenger in wanted and challenger not in [f.owner for f in ring.fighters]:
+                d, p = wanted[challenger]
+                self.place(ring, challenger, d, p)
+            stay = [f.owner for f in ring.fighters if f.owner != challenger]
+            self.match_names[ring_index] = (stay[0] if stay else "", challenger)
+            ring.recorded = False
+            ring.label = self.tournament.title(ring_index) if self.tournament else "MATCH"
+        if due:
+            self.roster_version += 1
+        return bool(due)
+
     async def delete_learner(self, username):
         name = fight_profiles.clean_name(username)
         for ws, q in list(self.players.items()):
@@ -801,6 +1218,13 @@ class FightServer:
                 del self.players[ws]
                 await ws.close(4007, "Your account has been deleted by the teacher.")
         text = self.teaching.delete_learner(name)
+        gone = fight_profiles.slug(name)
+        if any(v and fight_profiles.slug(v) == gone for v in self.mod_makers.values()):  # their mods stay, unnamed
+            self.mod_makers = {k: "" if fight_profiles.slug(v) == gone else v for k, v in self.mod_makers.items()}
+            ai_pipeline.save_user_mod_makers(self.mod_makers)
+        for votes in (self.mod_votes, self.arena_votes):
+            for k in votes:
+                votes[k] = [n for n in votes[k] if fight_profiles.slug(n) != gone]
         self.rebuild_stage()
         t = self.teacher()
         if t:
@@ -822,6 +1246,7 @@ class FightServer:
             if key != seen:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()
+                self.group, self.mod_votes, self.arena_votes = sorted(allowed), {}, {}  # a new session: new votes
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in allowed:
                         self.players.pop(ws, None)
@@ -897,6 +1322,11 @@ class FightServer:
                 self.teaching.tick(self.stage.time)
                 if next_round_at is None and self.check_matches():
                     next_round_at = time.perf_counter() + (4.0 if not self.tournament.champion else 9999)
+                    await self.broadcast_lesson()
+                if self.swaps and self.do_swaps():
+                    await self.broadcast_lesson()
+                elif getattr(self, "lesson_dirty", False):
+                    self.lesson_dirty = False
                     await self.broadcast_lesson()
             if next_round_at is not None and time.perf_counter() > next_round_at:
                 next_round_at = None

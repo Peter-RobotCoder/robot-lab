@@ -1,123 +1,19 @@
-"""Teacher-approved AI changes ("vibe coding" through the teacher).
-
-A learner's AI request card, once the teacher approves it, goes to Claude Code on the teacher's computer:
-  1. a snapshot of the project's files is taken, so any change can be undone
-  2. Claude is given only file tools (no commands) and told what it may change
-  3. any change outside that is put back as it was
-  4. the change is tested: the mods and a test fight, and for code changes the whole game (smoke_test.py)
-  5. the teacher sees what changed and presses Keep or Undo
-  6. every kept change becomes a mod in the change history (ai_changes/): it can be looked at, switched off
-     and on again (only the mod's own lines change, so later work is kept), and finally merged into the game
-     as a permanent update. Nothing is committed to git automatically: commit when you choose to.
-  7. a change that adds a user mod (lab_sim.USER_MODS) is named after the learner who asked for it, when it is
-     kept and again when it is merged: "Sam's Spike pit". The name is kept in ai_changes/user_mod_makers.json
-     (with the class's data, never in the code) and the teacher's window passes it on to the class server.
-
-What Claude may change:
-  "robot"  the learner's file in mods/robots        "arena"  mods/arena.py        "rules"  mods/rules.py
-  "game"   anything in the game: every .py file and the mods, including new files. Only the safety parts
-           stay locked: this file, the learner-code sandbox, the password code, where updates come from
-           (lab_version.py) and the tests.
-If a smaller request needs more than it was given, Claude says so and the teacher can send it again as "game".
-
-Try it from a terminal:  python ai_pipeline.py robot Sam "Make my robot blue with yellow lights"
+"""Robot Lab's AI pipeline: what is Robot Lab's own, on the engine's (engine/ai_pipeline.py): its folders and
+files, and its words for the prompt to Claude. Every name the windows and the server use is the engine's.
+    python ai_pipeline.py robot Sam "..."    a request from a terminal
 """
-import ast
-import datetime
-import difflib
 import json
 import os
-import re
-import shlex
-import subprocess
-import sys
-import tempfile
+
+import lab_version  # noqa: F401  (puts the engine on the path)
+from engine import ai_pipeline as _engine
+from engine.ai_pipeline import *  # noqa: F401,F403
+from engine.ai_pipeline import (AIChange, DATA, NEEDS_GAME, allowed_files, build_prompt, change_diff,  # noqa: F401
+                                forget_user_mod_makers, history, maker_name, merge, name_user_mods,
+                                open_in_editor, reapply, rollback, save_prompt, save_user_mod_makers, slug,
+                                user_mod_keys, user_mod_makers)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.environ.get("ROBOTLAB_DATA", HERE)          # where profiles, evidence and the change history live
-CHANGES = os.path.join(DATA, "ai_changes")
-MAKERS = os.path.join(CHANGES, "user_mod_makers.json")  # who made each user mod: {"spike_pit": "Sam"}
-# the safety parts: logins, the brain sandbox, where updates come from, and the tests (never changed by Claude)
-PROTECTED = {"ai_pipeline.py", "lab_profiles.py", "robot_loader.py", "lab_brain.py", "brain_rules.py",
-             "brain_worker.py", "lab_version.py", "smoke_test.py", "security_test.py"}
-SKIP_DIRS = {".venv", ".git", "__pycache__", "assets", "evidence", "ai_requests", "ai_changes", "profiles", "brains"}
-CLAUDE = shlex.split(os.environ.get("CLAUDE_CMD", "claude"))  # CLAUDE_CMD lets tests use a stand-in
-NEEDS_GAME = "NEEDS THE WHOLE GAME"
-TARGET_NAMES = {"robot": "the learner's robot file", "arena": "the arena file", "rules": "the rules file",
-                "game": "the whole game"}
-
-
-def slug(name):
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "learner"
-
-
-def git(*args, check=True):
-    r = subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True)
-    if check and r.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
-    return r.stdout.strip()
-
-
-def in_git_repo():
-    r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=HERE, capture_output=True, text=True)
-    return r.returncode == 0 and r.stdout.strip() == "true"
-
-
-def snapshot_files():
-    """Every project file's bytes (paths relative to this folder), so changes can be found and undone."""
-    snap = {}
-    for root, dirs, files in os.walk(HERE):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for name in files:
-            path = os.path.join(root, name)
-            rel = os.path.relpath(path, HERE).replace("\\", "/")
-            try:
-                if os.path.getsize(path) <= 2_000_000:
-                    with open(path, "rb") as f:
-                        snap[rel] = f.read()
-            except OSError:
-                pass
-    return snap
-
-
-def restore(rel, before):
-    """Put one file back as it was in the snapshot (or remove it if it's new)."""
-    path = os.path.join(HERE, rel)
-    if rel in before:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(before[rel])
-    elif os.path.exists(path):
-        os.remove(path)
-
-
-def may_change(target, learner, rel):
-    """Is Claude allowed to change this file for this kind of request?"""
-    if target == "robot":
-        return rel == f"mods/robots/{slug(learner)}.py"
-    if target == "arena":
-        return rel == "mods/arena.py"
-    if target == "rules":
-        return rel == "mods/rules.py"
-    if target == "game":
-        top = rel.split("/")[0]
-        return (rel.endswith(".py") or rel.startswith("mods/")) and rel not in PROTECTED and top not in SKIP_DIRS \
-            and ".." not in rel
-    return False
-
-
-def allowed_files(target, learner, allow_engine=True):
-    """What the prompt tells Claude it may change."""
-    if target == "robot":
-        return [f"mods/robots/{slug(learner)}.py"]
-    if target == "arena":
-        return ["mods/arena.py"]
-    if target == "rules":
-        return ["mods/rules.py"]
-    if target == "game":
-        return ["any file of the game (the .py files and everything in mods/), and new files if they're needed",
-                "except these, which must not be changed: " + ", ".join(sorted(PROTECTED))]
-    raise ValueError(f"Unknown target: {target}")
 
 
 def robot_file_text(design, learner):
@@ -127,6 +23,27 @@ def robot_file_text(design, learner):
     body = json.dumps(d, indent=4).replace("true", "True").replace("false", "False")
     return (f'"""{learner}\'s robot. Changed by AI requests that the teacher approves."""\n\n'
             f"ROBOT = {body}\n")
+
+
+def _sim():
+    import lab_sim as sim
+    return sim
+
+
+def _rules_limits():
+    import rw_mods
+    return rw_mods.RULE_LIMITS
+
+
+def _mod_files_text(sim, settings):
+    return f"""- mods/robots/*.py hold ROBOT = {{...}}: name, colour [r, g, b] 0-255, weapon (wedge, spinner, drum, hammer),
+  points (speed, attack, armour, control: whole numbers {sim.STAT_MIN}-{sim.STAT_MAX}, total at most {sim.POINTS_TOTAL}),
+  settings (percent):
+{settings}
+  style: trim [r, g, b], lights [r, g, b], number (text on the deck, up to 10 characters), and optionally
+  model (one of {', '.join(sim.HOUSE_BY_NAME)}) to drive a Resident Robot.
+- mods/arena.py holds ARENA = {{...}}: hazards (pit, floor_flipper, saws, spikes: True/False; house_robots: True,
+  False or a list of names) and look (name up to 16 characters, wall_colour [r, g, b], crowd True/False)."""
 
 
 GAME_GUIDE = """HOW THE GAME IS BUILT (Python 3, Panda3D with Bullet physics)
@@ -168,414 +85,19 @@ USER_MOD_GUIDE = """MAKE IT A SWITCHABLE USER MOD (the teacher switches it on an
   USER_MODS, and the server and windows pass the switches on already."""
 
 
-def build_prompt(card, learner, target, files, as_user_mod=False):
-    import lab_sim as sim
-    import rw_mods
-    limits = "\n".join(f"  - {k}: {lo} to {hi}" for k, (lo, hi) in rw_mods.RULE_LIMITS.items())
-    settings = "\n".join(f"  - {k}: {lo} to {hi}" for k, (lo, hi, _, _) in sim.SETTINGS.items())
-    if target == "game":
-        scope = f"""The teacher has checked and approved this request, and allows you to change {files[0]},
-{files[1]}.
-
-{GAME_GUIDE}""" + (f"\n\n{USER_MOD_GUIDE}" if as_user_mod else "")
-    else:
-        scope = f"""The teacher has checked and approved this request. Make the change by editing ONLY these files:
-{chr(10).join('  - ' + f for f in files)}
-If the request needs anything outside these files (for example a new kind of weapon, a second weapon, or new
-game mechanics), change nothing and begin your reply with exactly "{NEEDS_GAME}:" followed by one sentence
-saying what would need to change. The teacher can then send it again with the whole game allowed."""
-    return f"""You are helping a 13-18 year old learner in a coding club change their Robot Wars game.
-{scope}
-
-LEARNER'S REQUEST (first name only: {learner})
-  Goal: {card.get('goal', '').strip()}
-  Variables / values: {card.get('variables', '').strip()}
-  How they will test it: {card.get('test', '').strip()}
-  Their prediction: {card.get('predict', '').strip()}
-
-HOW THE MOD FILES WORK
-- mods/robots/*.py hold ROBOT = {{...}}: name, colour [r, g, b] 0-255, weapon (wedge, spinner, drum, hammer),
-  points (speed, attack, armour, control: whole numbers {sim.STAT_MIN}-{sim.STAT_MAX}, total at most {sim.POINTS_TOTAL}),
-  settings (percent):
-{settings}
-  style: trim [r, g, b], lights [r, g, b], number (text on the deck, up to 10 characters), and optionally
-  model (one of {', '.join(sim.HOUSE_BY_NAME)}) to drive a Resident Robot.
-- mods/arena.py holds ARENA = {{...}}: hazards (pit, floor_flipper, saws, spikes: True/False; house_robots: True,
-  False or a list of names) and look (name up to 16 characters, wall_colour [r, g, b], crowd True/False).
-- mods/rules.py holds RULES = {{...}} with these numbers and limits:
-{limits}
-- Mod files must stay plain data: one dictionary, comments allowed, no imports, functions or other code.
-
-RULES FOR YOUR CHANGE
-- Keep values inside the limits above (a whole-game change may change the limits themselves in rw_mods.py).
-- Don't add anything that wasn't asked for. Keep comments short and clear.
-- Finish with 3-5 short bullet points: what you changed (file, what, old -> new) and one thing the learner should
-  check when they test it. Don't include any personal information.
-"""
-
-
-def save_prompt(card_id, learner, target, prompt):
-    """Keep a prompt that goes to Claude, whole, with the card's number: ai_requests/003_sam_game_<when>_prompt.md
-    (on the teacher's laptop, with the class's other data). Returns the file's name."""
-    folder = os.path.join(DATA, "ai_requests")
-    os.makedirs(folder, exist_ok=True)
-    when = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    name = f"{int(card_id):03d}_{slug(learner)}_{target}_{when}_prompt.md"
-    with open(os.path.join(folder, name), "w", encoding="utf-8") as f:
-        f.write(prompt)
-    return name
-
-
-def run_tests(changed):
-    """Mods and a test fight; if code changed, the whole game (smoke_test.py). Returns (ok, text)."""
-    code = any(f.endswith(".py") and not f.startswith("mods/") for f in changed)
-    script = "smoke_test.py" if code else "rw_mods.py"
-    try:
-        r = subprocess.run([sys.executable, os.path.join(HERE, script)], cwd=HERE, capture_output=True, text=True,
-                           timeout=400)
-        return r.returncode == 0, (r.stdout + r.stderr).strip()
-    except subprocess.TimeoutExpired:
-        return False, f"{script} took too long"
-
-
-class AIChange:
-    """One learner request going through Claude. Call run(), then keep() or undo()."""
-
-    def __init__(self, card_id, learner, card, target, design=None, allow_engine=True, as_user_mod=False):
-        if target not in TARGET_NAMES:
-            raise ValueError(f"Unknown target: {target}")
-        self.id, self.learner, self.card, self.target = card_id, learner, card, target
-        self.as_user_mod = as_user_mod and target == "game"  # a feature the teacher switches on and off
-        self.design = design
-        self.files = allowed_files(target, learner)
-        self.before, self.after = {}, {}
-        self.changed = []
-        self.user_mods = []  # the user mods this change added (known once it's kept)
-        self.prompt, self.prompt_file = "", ""  # exactly what was sent to Claude, and the file it is kept in
-        self.result = {}
-
-    def run(self, progress=print, timeout=None):
-        self.before = snapshot_files()  # before the robot file is made, so Undo removes a new one
-        stub = None
-        if self.target == "robot":
-            rel = f"mods/robots/{slug(self.learner)}.py"
-            path = os.path.join(HERE, rel)
-            if not os.path.exists(path):
-                import lab_sim as sim
-                # the learner's current robot, or a starter one if they aren't connected right now
-                design = self.design if not sim.check_design(self.design or {}) else sim.default_design(self.learner)
-                stub = robot_file_text(design, self.learner).encode("utf-8")
-                with open(path, "wb") as f:
-                    f.write(stub)
-        progress("Claude is working on it...")
-        whole = self.target == "game"
-        prompt = self.prompt = build_prompt(self.card, self.learner, self.target, self.files, self.as_user_mod)
-        try:
-            self.prompt_file = save_prompt(self.id, self.learner, self.target, prompt)  # every sent prompt is kept
-        except OSError:
-            pass
-        tools = "Read,Edit,Write,Glob,Grep" + (",Bash(.venv/Scripts/python smoke_test.py)" if whole else "")
-        cmd = CLAUDE + ["-p", prompt, "--allowedTools", tools,
-                        "--permission-mode", "acceptEdits", "--max-turns", "60" if whole else "15",
-                        "--output-format", "json"]
-        try:
-            r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, timeout=timeout or (1200 if whole else 600),
-                               stdin=subprocess.DEVNULL, encoding="utf-8")
-            out = json.loads(r.stdout) if r.stdout.strip().startswith("{") else {"result": r.stdout or r.stderr}
-        except subprocess.TimeoutExpired:
-            out = {"result": "Claude took too long, so the change was stopped.", "is_error": True}
-        except FileNotFoundError:
-            out = {"result": "Claude Code isn't installed on this computer.", "is_error": True}
-        summary = str(out.get("result", "")).strip()
-        # put back anything Claude touched that this request may not change
-        after = snapshot_files()
-        changed = sorted(f for f in set(self.before) | set(after) if self.before.get(f) != after.get(f))
-        outside = [f for f in changed if not may_change(self.target, self.learner, f)]
-        for f in outside:
-            restore(f, self.before)
-        kept = [f for f in changed if f not in outside]
-        if stub is not None:  # the starter robot file we made isn't a change unless Claude changed it
-            rel = f"mods/robots/{slug(self.learner)}.py"
-            if after.get(rel) == stub:
-                restore(rel, self.before)
-                kept = [f for f in kept if f != rel]
-        self.after = {f: after.get(f) for f in kept}
-        self.changed = kept
-        diff = diff_text(self.before, self.after, kept)
-        progress("Testing the change...")
-        test_ok, test_text = run_tests(kept) if kept else (True, "nothing to test")
-        needs_game = summary.lstrip("*_ `").upper().startswith(NEEDS_GAME)
-        self.result = {"id": self.id, "summary": summary[:1500], "files": kept, "blocked": outside,
-                       "diff": diff[:6000], "test_ok": test_ok, "test": test_text[-600:],
-                       "needs_game": needs_game and not whole, "target": self.target,
-                       "code_changed": any(f.endswith(".py") and not f.startswith("mods/") for f in kept),
-                       "error": bool(out.get("is_error")), "cost_usd": out.get("total_cost_usd")}
-        return self.result
-
-    def contents(self):
-        """The changed files' text, so they can be sent to the game server."""
-        return {f: open(os.path.join(HERE, f), encoding="utf-8").read() for f in self.changed
-                if os.path.exists(os.path.join(HERE, f))}
-
-    def keep(self):
-        """Add the change to the mods (so it can be switched off and on later, or merged into the game)."""
-        return record_change(self)
-
-    def undo(self):
-        """Put the changed files back exactly as they were before Claude ran."""
-        for f in self.changed:
-            restore(f, self.before)
-
-
-# ---------- the change history: look at, roll back and put back kept changes ----------
-
-def diff_text(before, after, files):
-    out = []
-    for f in files:
-        a = (before.get(f) or b"").decode("utf-8", "replace").splitlines(True)
-        b = (after.get(f) or b"").decode("utf-8", "replace").splitlines(True)
-        out.append("".join(difflib.unified_diff(a, b, f"before/{f}", f"after/{f}")))
-    return "".join(out)
-
-
-def _log_path():
-    return os.path.join(CHANGES, "log.json")
-
-
-def history():
-    """Every kept change, oldest first."""
-    try:
-        with open(_log_path(), encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return []
-
-
-def _save_history(log):
-    os.makedirs(CHANGES, exist_ok=True)
-    with open(_log_path(), "w", encoding="utf-8") as f:
-        json.dump(log, f, indent=2)
-
-
-def _store(n, side, files):
-    for rel, data in files.items():
-        if data is None:
-            continue
-        path = os.path.join(CHANGES, str(n), side, rel)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(data)
-
-
-def _stored(n, side, rel):
-    path = os.path.join(CHANGES, str(n), side, rel)
-    if not os.path.exists(path):
-        return None
-    with open(path, "rb") as f:
-        return f.read()
-
-
-def _current(rel):
-    path = os.path.join(HERE, rel)
-    if not os.path.exists(path):
-        return None
-    with open(path, "rb") as f:
-        return f.read()
-
-
-def _put(rel, data):
-    path = os.path.join(HERE, rel)
-    if data is None:
-        if os.path.exists(path):
-            os.remove(path)
-        return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as f:
-        f.write(data)
-
-
-def record_change(change):
-    log = history()
-    n = max([e["n"] for e in log], default=0) + 1
-    _store(n, "before", {f: change.before.get(f) for f in change.changed})
-    _store(n, "after", {f: change.after.get(f) for f in change.changed})
-    change.user_mods = sorted(user_mod_keys(change.after.get("lab_sim.py")) -
-                              user_mod_keys(change.before.get("lab_sim.py")))
-    log.append({"n": n, "card": change.id, "learner": change.learner, "goal": change.card.get("goal", "")[:200],
-                "target": change.target, "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "files": change.changed, "summary": change.result.get("summary", "")[:600], "status": "kept",
-                "new_files": [f for f in change.changed if change.before.get(f) is None],
-                "user_mods": change.user_mods, "prompt": getattr(change, "prompt_file", "")})
-    _save_history(log)
-    name_user_mods(change.user_mods, change.learner)
-    return n
-
-
-# ---------- who made each user mod: its maker's name goes in front ("Sam's Spike pit") ----------
-
-def user_mod_keys(source):
-    """The user mods in a copy of lab_sim.py (its bytes, or None): the keys of USER_MODS."""
-    try:
-        tree = ast.parse(source or b"")
-    except (SyntaxError, ValueError):
-        return set()
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict) and any(
-                isinstance(t, ast.Name) and t.id == "USER_MODS" for t in node.targets):
-            return {k.value for k in node.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
-    return set()
-
-
-def maker_name(text):
-    """A maker's name as it's kept and shown: a learner's username (letters, numbers and spaces)."""
-    return re.sub(r"[^A-Za-z0-9 ]", "", str(text)).strip()[:12]
-
-
-def user_mod_makers():
-    """Who made each user mod: {key: name}. ("" = the maker's data was deleted: the mod stays, without a name.)"""
-    try:
-        with open(MAKERS, encoding="utf-8") as f:
-            makers = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(makers, dict):
-        return {}
-    return {k: maker_name(v) for k, v in makers.items() if isinstance(v, str)}
-
-
-def save_user_mod_makers(makers):
-    os.makedirs(CHANGES, exist_ok=True)
-    with open(MAKERS + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(makers, f, indent=2, sort_keys=True)
-    os.replace(MAKERS + ".tmp", MAKERS)
-
-
-def name_user_mods(keys, learner):
-    """These user mods were made for this learner: remember it, so their name goes in front of each one."""
-    who = maker_name(learner)
-    if keys and who:
-        save_user_mod_makers(user_mod_makers() | {k: who for k in keys})
-
-
-def forget_user_mod_makers(keys):
-    """Take the maker's name off these user mods (their data was deleted on the class server)."""
-    makers = user_mod_makers()
-    if any(k in makers for k in keys):
-        save_user_mod_makers({k: v for k, v in makers.items() if k not in keys})
-
-
-def change_diff(n):
-    e = next((e for e in history() if e["n"] == n), None)
-    if e is None:
-        return ""
-    return diff_text({f: _stored(n, "before", f) for f in e["files"]}, {f: _stored(n, "after", f) for f in e["files"]},
-                     e["files"])
-
-
-def merge3(current, base, other):
-    """Take the file as it is now and apply just the mod's own change (base -> other) to it, keeping every
-    other change made since. Returns the new bytes, or None if the same lines were changed again since."""
-    if current is None or base is None or other is None:  # made or deleted by the mod
-        return other if current == base else (current if current == other else None)
-    crlf = b"\r\n" in current  # (Windows line endings or not: compare the words, keep the file's own style)
-    current, base, other = (d.replace(b"\r\n", b"\n") for d in (current, base, other))
-    merged = other if current in (base, other) else None
-    if merged is None:
-        with tempfile.TemporaryDirectory() as d:
-            paths = []
-            for name, data in (("current", current), ("base", base), ("other", other)):
-                path = os.path.join(d, name)
-                with open(path, "wb") as f:
-                    f.write(data)
-                paths.append(path)
-            r = subprocess.run(["git", "merge-file", "-p", "--quiet", *paths], capture_output=True)
-        if r.returncode != 0:
-            return None
-        merged = r.stdout
-    return merged.replace(b"\n", b"\r\n") if crlf else merged
-
-
-def _switch(n, to):
-    """Switch a mod off (to = "before") or on (to = "after"), changing only the mod's own lines."""
-    log = history()
-    e = next((e for e in log if e["n"] == n), None)
-    if e is None:
-        return {"ok": False, "message": f"No mod {n}"}
-    if e["status"] == "merged":
-        return {"ok": False, "message": f"Mod {n} is merged into the game, so it can't be switched off"}
-    frm = "after" if to == "before" else "before"
-    new, clashes = {}, []
-    for f in e["files"]:
-        result = merge3(_current(f), _stored(n, frm, f), _stored(n, to, f))
-        if result is None and _stored(n, to, f) is not None:
-            clashes.append(f)
-        else:
-            new[f] = result
-    if clashes:
-        return {"ok": False, "clashes": clashes,
-                "message": f"Mod {n} can't be switched {'off' if to == 'before' else 'on'} cleanly: the same lines of "
-                           f"{', '.join(clashes)} have been changed again since. Nothing was changed. Press Open in "
-                           "editor to see the mod's lines."}
-    for f, data in new.items():
-        _put(f, data)
-    e["status"] = "rolled back" if to == "before" else "kept"
-    e.setdefault("events", []).append(f"{datetime.datetime.now():%Y-%m-%d %H:%M} "
-                                      f"{'switched off' if to == 'before' else 'switched on'}")
-    _save_history(log)
-    return {"ok": True, "files": e["files"], "message": ""}
-
-
-def rollback(n):
-    return _switch(n, "before")
-
-
-def reapply(n):
-    return _switch(n, "after")
-
-
-def merge(n):
-    """Accept a mod as a permanent part of the game: it stays in, and can't be switched off any more."""
-    log = history()
-    e = next((e for e in log if e["n"] == n), None)
-    if e is None:
-        return {"ok": False, "message": f"No mod {n}"}
-    if e["status"] != "kept":
-        return {"ok": False, "message": "Switch the mod on before merging it into the game"}
-    e["status"] = "merged"
-    e["merged"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    e.setdefault("events", []).append(f"{e['merged']} merged into the game")
-    if "user_mods" not in e:  # (kept before user mods were named after their makers)
-        e["user_mods"] = sorted(user_mod_keys(_stored(n, "after", "lab_sim.py")) -
-                                user_mod_keys(_stored(n, "before", "lab_sim.py")))
-    _save_history(log)
-    name_user_mods(e["user_mods"], e["learner"])  # the learner's name goes in front of the user mods it added
-    return {"ok": True, "message": "", "user_mods": e["user_mods"]}
-
-
-def open_in_editor(n):
-    """Save the full changes as a file and open it (Windows: in the default text editor)."""
-    path = os.path.join(CHANGES, str(n), "changes.diff")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(change_diff(n) or "(no changes)")
-    try:
-        os.startfile(path)  # noqa: attribute exists on Windows
-    except (AttributeError, OSError):
-        pass
-    return path
+_engine.setup(_engine.Game(
+    home=HERE, data=os.environ.get("ROBOTLAB_DATA", HERE),
+    protected={"ai_pipeline.py", "lab_profiles.py", "robot_loader.py", "lab_brain.py", "brain_rules.py",
+             "brain_worker.py", "lab_version.py", "smoke_test.py", "security_test.py"},
+    skip_dirs={".venv", ".git", "__pycache__", "assets", "evidence", "ai_requests", "ai_changes", "profiles", "brains"},
+    design_target="robot", design_dir="mods/robots", design_var="ROBOT",
+    world_target="arena", world_file="mods/arena.py",
+    design_text=robot_file_text, sim=_sim, sim_file="lab_sim.py", rules_limits=_rules_limits,
+    mods_module="rw_mods.py", mods_test="rw_mods.py", showcase="robot_wars.py",
+    intro="their Robot Wars game", needs_game_examples="a new kind of weapon, a second weapon, or new game mechanics",
+    mod_files_text=_mod_files_text, game_guide=GAME_GUIDE, user_mod_guide=USER_MOD_GUIDE))
+DATA = _engine.DATA  # noqa: F811  (where the change history lives, for the windows)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        raise SystemExit(__doc__)
-    target, learner, goal = sys.argv[1], sys.argv[2], " ".join(sys.argv[3:])
-    change = AIChange(0, learner, {"goal": goal, "variables": "", "test": "Run robot_wars.py and look",
-                                   "predict": ""}, target, design=None)
-    res = change.run()
-    print(json.dumps({k: v for k, v in res.items() if k != "diff"}, indent=2))
-    print(res["diff"])
-    if input("Keep this change? (y/n) ").strip().lower() == "y":
-        print("Kept as change", change.keep())
-    else:
-        change.undo()
-        print("Undone.")
+    _engine.main()

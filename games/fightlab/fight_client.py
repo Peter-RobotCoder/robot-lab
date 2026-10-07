@@ -21,7 +21,7 @@ Camera:    V change view (fight camera, my fighter, over the shoulder, ring, all
            drag with the right mouse button (or Q / E) to swing round the ring and tilt   Home resets the view
            [ and ] watch another ring   mouse wheel or + / - zoom   B the rings list
 Typing:    while you type in a text box, keys go into the box (not the game). Click away or press Esc to stop.
-           In the code panel, Enter applies your code and the up / down arrows move between lines.
+           In the code panel, click or drag to select; APPLY CODE applies your code, Return makes a new line.
 """
 import argparse
 import ast
@@ -31,6 +31,7 @@ import os
 import queue
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import webbrowser
@@ -54,6 +55,8 @@ ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
 ap.add_argument("--show-code", action="store_true", help=argparse.SUPPRESS)  # (tests: open the code panel)
+ap.add_argument("--card", help=argparse.SUPPRESS)
+ap.add_argument("--view-tab", help=argparse.SUPPRESS)  # (tests: the Learner view opens on this tab)  # (tests: the teacher's AI cards tab opens on "edit" or a card's id)
 ap.add_argument("--scroll", type=float, help=argparse.SUPPRESS)  # (tests: slide the side panel this far after 3 s)
 ap.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
 ap.add_argument("--ticket", help=argparse.SUPPRESS)  # (from the club desk: the app has logged this person in)
@@ -70,6 +73,7 @@ TEACHER_SETTINGS = os.path.join(HERE, "teacher_settings.json")  # the teacher's 
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "FightLab")
 from engine import editor as code_editor  # noqa: E402  (the engine: shared by every game)
 from engine import hud  # noqa: E402
+from engine import garage, schema  # noqa: E402
 from engine.hud import DARK, button, check, label, load_json, remember, text_button, word  # noqa: E402,F401
 from engine.hud import YELLOW, WHITE, GREY, RED, GREEN, BLUE, ORANGE, PANEL, ON, OFF, BOX, HANDLE  # noqa: E402,F401
 SETTINGS = hud.setup(SETTINGS_DIR, sys.modules[__name__])  # this computer's settings; this module's colours follow the look
@@ -135,7 +139,7 @@ from fight_hud import FightHUD  # noqa: E402
 from engine.net import Net  # noqa: E402
 
 CODE_ROWS = 19     # lines of code the code panel shows at once (longer code scrolls)
-CODE_PANEL = (-0.86, 0.01, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
+CODE_PANEL = (-0.86, 0.12, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
 SWATCHES = [(220, 60, 50), (240, 140, 30), (240, 200, 40), (60, 190, 90), (60, 130, 230), (180, 90, 230),
             (230, 90, 170), (230, 230, 230)]
 HAIR_SWATCHES = [(20, 16, 14), (60, 36, 22), (110, 62, 32), (140, 50, 25), (190, 95, 40), (215, 180, 110),
@@ -151,11 +155,11 @@ PRETTY = {"walk_speed": "Walk speed", "sidestep_speed": "Sidestep speed", "jump_
           "bosses": "Play as a boss", "fighting_style": "Fighting style"}
 HAZARD_NAMES = {"ring_out": "Ring-outs (no ropes)", "electric_ropes": "Electric ropes", "fire_jets": "Fire jets",
                 "slippery": "Slippery ice", "spikes": "Spikes"}
-LEARNER_TABS = [("missions", "Missions (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)"),
-                ("settings", "Settings (L)")]  # (S is kick, so the Settings key is L here)
-TEACHER_TABS = [("teacher", "Controls"), ("matches", "Matches"), ("learners", "Learners"), ("accounts", "Accounts"),
-                ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"), ("garage", "My fighter"),
-                ("settings", "Settings")]  # (drawn in two rows)
+LEARNER_TABS = [("missions", "Mission (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)"),
+                ("mods", "Mods (J)"), ("settings", "Settings (L)")]  # (S is kick, so the Settings key is L here)
+TEACHER_TABS = [("teacher", "Controls"), ("mods", "User mods"), ("matches", "Matches"), ("learners", "Learners"),
+                ("accounts", "Accounts"), ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"),
+                ("limits", "Limits"), ("warnings", "Warnings"), ("garage", "My fighter"), ("settings", "Settings")]  # (two rows)
 STOP_CODES = (4001, 4004, 4006, 4007, 4008, 4009, 4010, 4011)  # the server said no: wrong code or password,
 # old version, deleted, the session ended, the group hasn't started, a ticket that ran out
 TARGETS = {"fighter": "Their fighter", "stage": "The stage", "rules": "The rules", "game": "The whole game"}
@@ -176,17 +180,28 @@ def send(msg):
 
 
 class Lab(hud.HudKit, ShowBase):
+    UNIT, CPU_VIEW = "fighter", "Computer fighter"
+    VERSION, LIVE_ID = fight_version.VERSION, fight_version.live_id()
     teacher = TEACHER
     CODE_PANEL, CODE_ROWS = CODE_PANEL, CODE_ROWS
+    reflections = tuple(fm.REFLECTIONS)
+    user_mods = sim.USER_MODS
+    STAGE_WORD = "STAGE"
+    LIMITS_TITLE = "FIGHTER LIMITS"
+    LIMITS_NOTE = "Size: 100 is the standard size; 80 to 120 is as far as a fighter can go."
 
     def __init__(self):
         super().__init__()
         self.disableMouse()
         global APP
         APP = self
-        hud.setup_app(self)
+        hud.setup_app(self, send)
         self.init_hud()  # (the engine's HUD kit: text boxes, the side panel, settings, the code panel's place)
+        self.my_name = name
         self.code_state = {"lines": [], "cursor": [0, 0], "scroll": 0}  # the code panel's text, kept while it is closed
+        self.schema = sim.schema()  # the fighter's variables: the code panel (and the garage's tables) come from it
+        self.code_changed = False  # the design holds a value changed in the code (Mission 1: hack the code)
+        self.code_hack = False  # the design holds a value changed in the code that this mission's garage hides
         fight_gfx.init(self, args.gfx)
         self.fx = fight_fx.Effects(self.render, args.gfx)
         self.snd = fight_sound.FightSounds(self, on=not args.offscreen)
@@ -339,9 +354,15 @@ class Lab(hud.HudKit, ShowBase):
         self.card_msg = ("", WHITE)
         self.card_target = "fighter"
         self.ai_jobs = {}        # teacher: card id -> {"status", "result", "change"}
+        self.cards_view = None   # teacher's AI cards tab: None (the requests), "edit" (the learners' card), a card's id
+        if args.card:
+            self.cards_view = int(args.card) if args.card.isdigit() else args.card
+        self.prompt_view, self.prompt_state = None, {}  # ...that card's whole prompt, in a box that scrolls
         self.card_targets = {}   # teacher: card id -> what Claude may change (can differ from the learner's choice)
         self.card_user_mod = {}  # teacher: card id -> make a whole-game change as a switchable user mod
         self.view_name, self.view_tab = None, "garage"   # teacher's learner view
+        if args.view_tab:
+            self.view_tab = args.view_tab
         self.change_view, self.change_page, self.change_msg = None, 0, ("", GREY)  # teacher's Changes tab
         self.match_pick = []     # teacher: the two names being put in a match
         self.needs_restart = bool(welcome.get("live_ready"))  # a code change (or a live update) waits for a restart
@@ -366,6 +387,7 @@ class Lab(hud.HudKit, ShowBase):
             self.taskMgr.doMethodLater(3, lambda t: (setattr(self, "panel_scroll", args.scroll), self.place_panel())
                                        and None, "test scroll")
         self.restore_prefs(welcome.get("prefs", {}))
+        send({"type": "slot", "do": "list"})  # (my saved designs: CHANGE 83)
         for key, action in PRESS_KEYS.items():  # fighting keys: sent the moment they're pressed
             self.key(key, self.press, action)
         self.key("g", self.open_tab, "garage")
@@ -389,6 +411,7 @@ class Lab(hud.HudKit, ShowBase):
         for key, factor, step in (("wheel_up", 0.88, -1), ("wheel_down", 1 / 0.88, 1)):
             self.key(key, self.wheel, factor, step)  # (the wheel slides a tall side panel, or zooms)
         self.key("l", self.open_tab, "settings")
+        self.key("j", self.open_tab, "mods")
         self.key("page_up", self.slide_panel, -1)
         self.key("page_down", self.slide_panel, 1)
         if TEACHER:
@@ -404,15 +427,32 @@ class Lab(hud.HudKit, ShowBase):
         if TEACHER and os.environ.get("CLUBCODERS_TRY_TEST"):  # (tests: there and back by itself, noting each step)
             self.taskMgr.doMethodLater(4, self.try_test, "try test")
         self.rebuild_panels()
+        if TEACHER:
+            self.push_mod_makers()
         self.start = self.last = time.perf_counter()
         self.prefs_at = self.start
         if welcome.get("new_profile"):
             self.banner_note(f"Welcome, {name}! Your profile is made: next time log in with the same username "
                              "and password.", 7)
-        if args.selftest:  # press some garage buttons the way a learner would, then build
-            self.taskMgr.doMethodLater(2, lambda t: [self.change_points("speed", 5), self.change_points("defence", -5),
-                                                     self.set_colour([60, 190, 90])] and None, "t1")
-            self.taskMgr.doMethodLater(2.5, lambda t: self.send_design(), "t2")
+        if args.selftest:  # press the garage's buttons the way a learner would and build, then hack the code
+            def gui(t):  # (Mission 1's objectives a, b and c: a string, two integers and a list, with the GUI)
+                self.draft["name"] = "Rocky"
+                self.draft["settings"]["walk_speed"], self.draft["settings"]["size"] = 90, 110
+                self.set_colour([60, 190, 90])
+                self.send_design()
+
+            def hack(t):  # (objective d: a value changed in the code editor)
+                self.show_code = True
+                self.rebuild_panels()
+                lines = self.code_state["lines"]
+                lines[:] = [("jump_height: int = 95" if line.startswith("jump_height") else line) for line in lines]
+                self.build_from_code()
+
+            def report(t):
+                done = ", ".join(f"{x['id']}={'done' if x['done'] else 'todo'}" for x in (self.missions or {}).get("missions", []))
+                print(f"SELFTEST objectives: {done}", flush=True)
+            for secs, fn in ((2, gui), (3.5, hack), (5.5, report)):
+                self.taskMgr.doMethodLater(secs, fn, f"selftest {fn.__name__}")
 
     def restore_prefs(self, prefs):
         """A learner's camera view and half-typed AI card, from their profile."""
@@ -420,7 +460,7 @@ class Lab(hud.HudKit, ShowBase):
         self.restore_hud_prefs(prefs)  # (the code panel's place and size, text size, look, the wheel)
         for k in CARD_FIELDS:
             if prefs.get("card", {}).get(k):
-                self.entry_text[f"card_{k}"] = str(prefs["card"][k])[:400]
+                self.entry_text[f"card_{k}"] = str(prefs["card"][k])[:2000]
         if prefs.get("card_target") in fm.AI_TARGETS and prefs["card_target"] != "game":
             self.card_target = prefs["card_target"]
         self.prefs_sent = json.dumps(self.gather_prefs(), sort_keys=True)
@@ -489,7 +529,7 @@ class Lab(hud.HudKit, ShowBase):
                                    wordwrap=40)
         keys = ("Arrows move (up/down sidestep)  A punch/combo  S kick  D special  W throw  Space jump  Shift block  "
                 "X crouch  " + ("T panels  " if TEACHER else "M missions  I AI card  ") +
-                "G garage  C code  L settings  U brain  P autopilot  V view  Q/E or right-drag turn  H help")
+                "G garage  J mods  C code  L settings  U brain  P autopilot  V view  Q/E or right-drag turn  H help")
         self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021 * self.text_scale(), GREY)
         self.layout_rings()
 
@@ -584,6 +624,9 @@ class Lab(hud.HudKit, ShowBase):
         self.keep_typing()
         self.close_code_editor()
         self.hide_tip()
+        if self.prompt_view is not None:
+            self.prompt_view.destroy()
+            self.prompt_view = None
         for p in (self.panel, self.code_panel):
             if p is not None:
                 p.destroy()
@@ -592,13 +635,15 @@ class Lab(hud.HudKit, ShowBase):
         if self.tab:
             f = self.panel = DirectFrame(frameColor=PANEL, frameSize=(0.78, 1.76, -0.93, 0.97))
             tabs = (TEACHER_TABS if TEACHER else LEARNER_TABS) + hud.extra_tabs(TEACHER)  # (+ a mod's own tabs)
-            f, y0 = self.draw_header(f, tabs, self.open_tab, self.tab)
+            f, y0 = self.draw_header(f, tabs, self.open_tab, self.tab,
+                                     lambda key, text: self.warnings_tab_text(text) if key == "warnings" else text)
             builders = {"garage": self.build_garage, "teacher": self.build_teacher_panel, "missions": self.build_missions,
                         "ai": self.build_ai_card, "outcomes": self.build_outcomes, "cards": self.build_cards,
                         "card": self.build_card,
                         "learners": self.build_learner_view, "changes": self.build_changes,
                         "accounts": self.build_accounts, "matches": self.build_matches,
-                        "settings": self.build_settings}
+                        "settings": self.build_settings, "mods": self.build_mods, "warnings": self.build_warnings,
+                        "limits": self.build_limits}
             if self.tab in builders:
                 builders[self.tab](f, y0)
             elif hud.extra_builder(self.tab) is not None:
@@ -625,7 +670,7 @@ class Lab(hud.HudKit, ShowBase):
         if who:
             if who not in self.view_drafts:
                 d = next((c["design"] for c in self.class_list if c["name"] == who), self.draft)
-                self.view_drafts[who] = copy.deepcopy(d)
+                self.view_drafts[who] = copy.deepcopy(d)  # ("All learners" starts from the teacher's own: CHANGE 85)
             return self.view_drafts[who]
         return self.draft
 
@@ -637,7 +682,8 @@ class Lab(hud.HudKit, ShowBase):
     # ---------- garage: design your fighter ----------
     def build_garage(self, f, y, view=None):
         """view: the teacher's Learner view of this learner. The teacher sees every control, with a tick box
-        on each showing (and setting) whether the learner can see and change it."""
+        on each showing (and setting) whether the learner can see and change it. The tables are the engine's,
+        from the fighter's schema."""
         tools, d = self.tools(), self.cur()
         seen = self.lesson["tools"]
 
@@ -645,114 +691,25 @@ class Lab(hud.HudKit, ShowBase):
             if view:
                 check(f, " learner sees", 1.52, yy, seen.get(tool), lambda v, t=tool: self.set_lesson({"tools": {t: bool(v)}}),
                       0.022)
-        label(f, f"{view.upper()}'S FIGHTER (what they see and change)" if view else
-              ("MY FIGHTER" if TEACHER else "GARAGE  -  design your fighter"), 0.82, y, 0.034 if view else 0.04, YELLOW)
-        y -= 0.065
-        if tools.get("name_and_colour"):
-            label(f, "Name", 0.82, y, 0.028)
-            self.entry(f, self.name_key(), 0.97, y, 10, initial=d["name"],
-                       command=lambda t: self.cur().__setitem__("name", t[:16]))
-            shown_box("name_and_colour", y)
-            y -= 0.055
-            for i, c in enumerate(SWATCHES):
-                big = 0.95 if list(c) == list(d["colour"]) else 0.6
-                DirectButton(parent=f, text="", scale=0.03, pos=(0.84 + i * 0.085, 0, y), relief=DGG.FLAT,
-                             frameColor=(*(v / 255 for v in c), 1), frameSize=(-0.9, 0.9, -big, big),
-                             command=self.set_colour, extraArgs=[list(c)])
-            if list(d["colour"]) not in [list(c) for c in SWATCHES]:  # a colour typed in the code
-                DirectFrame(parent=f, frameColor=(*(v / 255 for v in d["colour"]), 1), frameSize=(-0.027, 0.027, -0.028, 0.028),
-                            pos=(0.84 + len(SWATCHES) * 0.085, 0, y))
-            y -= 0.06
+        label(f, ("EVERY LEARNER'S FIGHTER (what they all get)" if view == self.ALL_LEARNERS else
+               f"{view.upper()}'S FIGHTER (what they see and change)") if view else
+              ("MY FIGHTER" if TEACHER else "GARAGE  -  your fighter as variables"), 0.82, y, 0.034 if view else 0.038,
+              YELLOW)
+        y -= 0.06
         model = d.get("model")
-        if tools.get("body_choice") and not model:
-            label(f, "Body", 0.82, y, 0.028)
-            for i, b in enumerate(self.rules["bodies"]):
-                button(f, b, 1.02 + i * 0.14, y + 0.008, self.set_body, [b], 0.024, ON if b == d.get("body") else OFF)
-            shown_box("body_choice", y)
-            y -= 0.055
-            if d.get("body") in self.rules.get("model_bodies", []):
-                y = self.build_look(f, y, d)
-        if tools.get("bosses") or model:
-            label(f, "Fighter", 0.82, y, 0.028)
-            if tools.get("bosses"):
-                button(f, "Mine", 1.0, y + 0.008, self.set_model, [None], 0.022, OFF if model else ON)
-                for i, b in enumerate(self.rules.get("bosses", {})):
-                    button(f, b, 1.13 + i * 0.145, y + 0.008, self.set_model, [b], 0.022, ON if b == model else OFF)
-                shown_box("bosses", y - 0.04)
-            else:
-                label(f, f"{model} (a boss, set by the teacher)", 1.0, y, 0.024, ORANGE)
-            y -= 0.055 if not view else 0.075
-        if model:
-            label(f, f"Special: {self.rules['specials'].get(d['special'], d['special'])}", 0.82, y, 0.022, ORANGE, wrap=44)
-            y -= 0.07
-            label(f, "Bosses are big and strong (260 health) but slow.\n"
-                     "Their stats are fixed, so points and settings aren't used.", 0.82, y, 0.022, GREY)
-            y -= 0.09
-        elif tools.get("choose_special"):
-            label(f, "Special", 0.82, y, 0.028)
-            for i, sp in enumerate(tools.get("specials", [])):
-                button(f, sp.replace("_", " "), 1.03 + i * 0.16, y + 0.008, self.set_special, [sp], 0.023,
-                       ON if sp == d["special"] else OFF)
-            shown_box("choose_special", y - 0.04)
-        else:
-            label(f, f"Special: {d['special'].replace('_', ' ')}  (chosen by the teacher this lesson)", 0.82, y, 0.026, GREY)
-        if not model:
-            y -= 0.042
-            label(f, self.rules["specials"].get(d["special"], ""), 0.82, y, 0.021, GREY, wrap=46)
-            y -= 0.055 if not view else 0.07
-        if not model and self.rules.get("styles"):
-            y = self.build_style(f, y, d, tools.get("fighting_style"), shown_box)
-        if tools.get("points_table") and not model:
-            used = sum(d["points"].values())
-            label(f, f"POINTS  ({used} of {self.rules['points_total']} used, {self.rules['points_total'] - used} left)",
-                  0.82, y, 0.028, YELLOW if used <= self.rules["points_total"] else RED)
-            shown_box("points_table", y)
-            y -= 0.048
-            for stat in self.rules["stats"]:
-                v = d["points"][stat]
-                label(f, stat.title(), 0.82, y, 0.027)
-                for dx, delta, text in ((1.04, -5, "-5"), (1.12, -1, "-"), (1.26, 1, "+"), (1.34, 5, "+5")):
-                    button(f, text, dx, y + 0.008, self.change_points, [stat, delta], 0.024)
-                label(f, str(v), 1.19, y, 0.03, WHITE, TextNode.ACenter)
-                DirectFrame(parent=f, frameColor=(0.2, 0.2, 0.22, 1), frameSize=(0, 0.3, 0, 0.018), pos=(1.42, 0, y))
-                DirectFrame(parent=f, frameColor=(0.9, 0.7, 0.15, 1),
-                            frameSize=(0, 0.3 * min(v, self.rules["stat_max"]) / self.rules["stat_max"], 0, 0.018),
-                            pos=(1.42, 0, y))
-                y -= 0.046
-        if tools.get("combo_editor") and not model:
-            combo = d.get("combo", [])
-            label(f, f"COMBO  (a list: {self.rules['combo_min']} to {self.rules['combo_max']} moves, "
-                     "press A again after each hit)", 0.82, y, 0.024, YELLOW)
-            shown_box("combo_editor", y)
-            y -= 0.05
-            for i, mv in enumerate(combo):  # click a move to change it
-                button(f, f"{i + 1}. {mv}", 0.9 + (i % 4) * 0.2, y + 0.008 - (i // 4) * 0.05, self.cycle_combo, [i], 0.023,
-                       (0.3, 0.35, 0.5, 1))
-            y -= 0.05 * (1 + (max(0, len(combo) - 1)) // 4)
-            button(f, "+ add a move", 0.94, y + 0.008, self.combo_length, [1], 0.022)
-            button(f, "- last move", 1.17, y + 0.008, self.combo_length, [-1], 0.022)
-            y -= 0.05
-        self.sliders = {}
-        shown = [k for k in self.rules["settings"] if tools.get(k)] if not model else []
-        if shown:
-            label(f, "SETTINGS  (percent)", 0.82, y, 0.028, YELLOW)
-            y -= 0.048
-        for k in shown:
-            lo, hi, _, _ = self.rules["settings"][k]
-            label(f, PRETTY[k], 0.82, y, 0.026)
-            s = DirectSlider(parent=f, range=(lo, hi), value=d["settings"][k], pageSize=5, scale=0.17 if view else 0.2,
-                             pos=(1.24 if view else 1.3, 0, y + 0.008), command=self.slider_moved, extraArgs=[k],
-                             thumb_frameSize=(-0.04, 0.04, -0.12, 0.12))
-            self.sliders[k] = (s, label(f, f"{d['settings'][k]:.0f}%", 1.44 if view else 1.55, y, 0.026, WHITE))
-            shown_box(k, y)
-            y -= 0.046
+        limits = self.limits()
+        y = garage.draw(self, f, y, d, self.schema, self.code_ctx(d), tools, limits, view, shown_box,
+                        teacher=TEACHER and not view)
+
         self.stats_text = None
         if tools.get("stats_readout") and not model:
             self.stats_text = label(f, "", 0.82, y - 0.005, 0.022, GREEN)
             self.update_stats_text()
             shown_box("stats_readout", y)
             y -= 0.13
-        y = max(y, -0.8)
+        if view != self.CPU_VIEW:
+            y = self.build_slots(f, y, view)  # (CHANGE 83 to 87)
+        self.garage_bottom = y - 0.1  # (where the Learner view puts the computer fighter's Reset button)
         if view:
             button(f, f"BUILD FOR {view.upper()}", 1.27, y, self.send_design_for, [view], 0.034, (0.15, 0.55, 0.25, 1))
         else:
@@ -805,6 +762,28 @@ class Lab(hud.HudKit, ShowBase):
         self.code_shown = None
         self.rebuild_panels()
 
+    def look_section(self, f, y, d):
+        """After the body row: a detailed 3D body's look."""
+        if d.get("body") in self.rules.get("model_bodies", []) and (TEACHER or self.tools().get("body_choice")):
+            return self.build_look(f, y, d)
+        return y
+
+    def combo_section(self, f, y, d):
+        """After the combo row: the editor (click a move to change it)."""
+        if not (TEACHER or self.tools().get("combo_editor")):
+            return y
+        combo = d.get("combo", [])
+        label(f, f"{self.rules['combo_min']} to {self.rules['combo_max']} moves; press A again after each hit. "
+                 "Click a move to change it.", 0.84, y, 0.021, GREY)
+        y -= 0.045
+        for i, mv in enumerate(combo):
+            button(f, f"{i + 1}. {mv}", 0.9 + (i % 4) * 0.2, y + 0.008 - (i // 4) * 0.05, self.cycle_combo, [i], 0.023,
+                   (0.3, 0.35, 0.5, 1))
+        y -= 0.05 * (1 + (max(0, len(combo) - 1)) // 4)
+        button(f, "+ add a move", 0.94, y + 0.008, self.combo_length, [1], 0.022)
+        button(f, "- last move", 1.17, y + 0.008, self.combo_length, [-1], 0.022)
+        return y - 0.055
+
     def build_look(self, f, y, d):
         """A detailed body's look: outfit, hairstyle, hair colour, shape and height (it doesn't change the fight).
         Robin has a frame (shape) and height instead, with trim and light colours."""
@@ -845,6 +824,40 @@ class Lab(hud.HudKit, ShowBase):
                          pos=(1.28, 0, y + 0.008), command=self.height_moved, thumb_frameSize=(-0.04, 0.04, -0.12, 0.12))
         self.height_slider = (s, label(f, f"{look.get('height', 100):.0f}%", 1.5, y, 0.025, WHITE))
         return y - 0.055
+
+    def limits(self):
+        """The ranges the design being edited is held to: the learners' (the teacher sets them in the Limits tab),
+        or the widest ones for the teacher's own fighter."""
+        if TEACHER and not self.viewing():
+            return self.full_limits()
+        return self.lesson.get("limits") or self.default_limits()
+
+    def pretty(self, key):
+        return PRETTY.get(key, key.title())
+
+    def push_mod_makers(self, only=None):
+        """(Teacher) Tell the server who made each user mod: this laptop's change history knows (ai_changes/).
+        only: the mods that a change kept or merged just now added."""
+        import ai_pipeline
+        makers = {k: who for k, who in ai_pipeline.user_mod_makers().items() if who and (only is None or k in only)}
+        if makers:
+            send({"type": "mod_makers", "makers": makers, "new": only is not None})
+
+    def forget_mod_makers(self, mods):
+        """(Teacher) A deleted learner's name has come off their mods on the server: off this laptop's list too."""
+        gone = [k for k, who in mods.get("makers", {}).items() if who == ""]
+        if gone:
+            import ai_pipeline
+            try:
+                ai_pipeline.forget_user_mod_makers(gone)
+            except OSError:
+                pass
+
+    def stage_items(self):
+        """The stage's hazards, for the Mods tab."""
+        L = self.lesson
+        return [(hz, HAZARD_NAMES[hz], bool(L["hazards"].get(hz)), lambda v, k=hz: self.set_lesson({"hazards": {k: bool(v)}}))
+                for hz in HAZARD_NAMES]
 
     def set_style_colour(self, key, colour):
         self.cur().setdefault("style", {})[key] = colour
@@ -940,12 +953,18 @@ class Lab(hud.HudKit, ShowBase):
     def send_design(self):
         if "name_me" in self.entries and self.tools().get("name_and_colour"):
             self.draft["name"] = self.entries["name_me"].get()[:16]
-        send({"type": "design", "design": self.draft})
+        send({"type": "design", "design": self.draft, "code": bool(self.code_changed or self.code_hack)})
         self.status_msg = ("Building...", GREY)
         if self.tab == "garage":
             self.garage_msg.setText("Building...")
 
     def send_design_for(self, learner):
+        if learner == self.ALL_LEARNERS:  # (CHANGE 85)
+            d = self.cur()
+            if self.name_key() in self.entries:
+                d["name"] = self.entries[self.name_key()].get()[:16]
+            send({"type": "design_for_all", "design": d})
+            return
         d = self.cur()
         if self.name_key() in self.entries:
             d["name"] = self.entries[self.name_key()].get()[:16]
@@ -953,38 +972,22 @@ class Lab(hud.HudKit, ShowBase):
         self.garage_msg.setText(f"Building for {learner}...")
 
     # ---------- code view: your fighter as Python code, which you can edit ----------
+    def code_ctx(self, d=None):
+        """What the schema needs to know from this window: the mission's specials, the bodies, the bosses, the
+        styles, the combo moves, the limits, and the design itself (the weapons offered depend on its style)."""
+        from types import SimpleNamespace
+        who = self.viewing()
+        tools = self.tools()
+        return SimpleNamespace(title=f"{who.upper()}'S FIGHTER" if who else "MY FIGHTER", points_total=self.limits()["points_total"],
+                               design=d if d is not None else self.cur(), bodies=self.rules["bodies"],
+                               bosses=self.rules.get("bosses", {}), specials=list(tools.get("specials") or self.rules["specials"]),
+                               all_specials=list(self.rules["specials"]), styles=self.rules.get("styles", {}),
+                               combo_moves=self.rules.get("combo_moves", {}), rules=self.rules)
+
     def code_lines(self, d):
-        lines = ["FIGHTER = {", f'    "name": "{d["name"]}",        # text (a string)',
-                 f'    "body": "{d.get("body", "robot")}",       # robot or human',
-                 f'    "colour": [{d["colour"][0]}, {d["colour"][1]}, {d["colour"][2]}],  # red, green, blue: 0 to 255',
-                 f'    "special": "{d["special"]}",']
-        if self.rules.get("styles"):
-            style, weapon = sim.style_of(d)
-            lines.append(f'    "fighting_style": "{style}",  # {", ".join(self.rules["styles"])}')
-            if weapon:
-                others = [w for w, v in self.rules["weapons"].items() if v[0] == style]
-                lines.append(f'    "weapon": "{weapon}",   # {", ".join(others)}')
-        if d.get("model"):
-            lines.append(f'    "model": "{d["model"]}",      # playing as a boss')
-        lines += ['    "points": {                 # a dictionary: 100 points to share']
-        lines += [f'        "{k}": {v},' for k, v in d["points"].items()]
-        lines += ["    },", '    "settings": {               # percentages']
-        lines += [f'        "{k}": {v:.0f},' for k, v in d["settings"].items()]
-        lines += ["    },", f'    "combo": {json.dumps(d.get("combo", []))},  # a list of moves']
-        if d.get("body") in self.rules.get("model_bodies", []):
-            look = d.get("look") or sim.default_look(d["body"])
-            lines += ['    "look": {                   # how the detailed body looks']
-            lines += [f'        "{k}": {json.dumps(v)},' for k, v in look.items()]
-            lines += ["    },"]
-        if d.get("body") == "robin" or (d.get("style") and d.get("body") == "robot"):
-            style = d.get("style") or {}
-            lines += ['    "style": {                  # trim and light colours [red, green, blue], the chest number']
-            lines += [f'        "{k}": {json.dumps(style.get(k, v))},' for k, v in
-                      (("trim", sim.ROBIN_STYLE["trim"]), ("lights", sim.ROBIN_STYLE["lights"]), ("number", d["name"][:10]))]
-            lines += ["    },"]
-        lines += ["}",
-                  f"# points used: {sum(d['points'].values())} of {self.rules['points_total']}"]
-        return lines
+        """The fighter as Python: one variable a line, with its type and a comment, in the garage's groups (the
+        engine writes it from the schema)."""
+        return schema.code_lines(self.schema, d, self.code_ctx(d))
 
     def build_code_panel(self):
         """The fighter as Python code, in a small editor (the engine's): click anywhere in it to type there, the
@@ -1000,8 +1003,8 @@ class Lab(hud.HudKit, ShowBase):
         label(f, f"{who.upper()}'S FIGHTER AS PYTHON CODE" if who else "YOUR FIGHTER AS PYTHON CODE", -0.83, 0.3, 0.032,
               YELLOW)
         label(f, "drag here to move", right - 0.02, 0.337, 0.017, GREY, TextNode.ARight)
-        label(f, "Click in the code to type there. Change a value, then press Enter or APPLY CODE:\n"
-                 "the garage changes to match. (Shift+Enter makes a new line.)", -0.83, 0.264, 0.021, GREY)
+        label(f, "Click in the code to type there (drag to select; Ctrl+C, X, V and A work). Change a value,\n"
+                 "then press APPLY CODE: the garage changes to match. Return makes a new line.", -0.83, 0.264, 0.021, GREY)
         st, fresh = self.code_state, self.code_lines(d)
         if self.code_shown is None or st["lines"] == self.code_shown:  # not edited: the fighter as it is now
             st["lines"][:] = fresh
@@ -1060,138 +1063,43 @@ class Lab(hud.HudKit, ShowBase):
             self.send_design()
 
     def apply_code(self):
-        """Read the edited code as data (never run it), and change the design to match. True if it was used."""
+        """Read the edited code as data (never run it), and change the design to match. True if all of it was used.
+        Everything in the code can be changed, even what this mission's garage hides (hidden: those values). The
+        class server holds the fighter to the rules all the same, and tells the teacher what was changed."""
         text = "\n".join(self.code_state["lines"])
+        d = self.cur()
+        ctx = self.code_ctx(d)
         try:
-            tree = ast.parse(text)
-        except SyntaxError as e:
-            msg = e.msg if e.msg.endswith((".", "?", "!")) else e.msg + "."
-            self.code_msg = (f"Line {e.lineno}: {msg} Check the brackets, commas and quote marks.", RED)
+            values = schema.parse_code(text, self.schema, ctx)
+        except schema.ParseError as e:
+            self.code_msg = (f"Line {e.lineno}: {e.message}", RED)
+            if e.lineno:  # the cursor goes to the line with the mistake
+                self.code_state["cursor"][:] = [e.lineno - 1, 0]
+                self.code_state["scroll"] = max(0, e.lineno - self.code_rows())
             self.refresh_code_panel()
             return
-        node = next((s.value for s in tree.body if isinstance(s, ast.Assign)
-                     and [getattr(t, "id", None) for t in s.targets] == ["FIGHTER"]), None)
-        if node is None:
-            self.code_msg = ("The code needs FIGHTER = { ... }", RED)
+        if "FIGHTER" in values:
+            self.code_msg = ("The code is now one variable a line: press RESET CODE to see it.", RED)
             self.refresh_code_panel()
             return
-        try:
-            new = ast.literal_eval(node)
-        except ValueError:
-            self.code_msg = ("Only plain values are allowed: numbers, \"text\", [lists] and {dictionaries}.", RED)
-            self.refresh_code_panel()
-            return
-        if not isinstance(new, dict):
-            self.code_msg = ("FIGHTER must be a dictionary: { ... }", RED)
-            self.refresh_code_panel()
-            return
-        d, tools, locked, problems = self.cur(), self.tools(), [], []
-        if "name" in new and str(new["name"]) != d["name"]:
-            if tools.get("name_and_colour"):
-                d["name"] = str(new["name"])[:16]
-                self.entry_text.pop(self.name_key(), None)
-            else:
-                locked.append("name")
-        c = new.get("colour", d["colour"])
-        if c != d["colour"]:
-            if not (isinstance(c, list) and len(c) == 3 and all(isinstance(v, int) and 0 <= v <= 255 for v in c)):
-                problems.append("colour must be a list of three whole numbers from 0 to 255")
-            elif tools.get("name_and_colour"):
-                d["colour"] = c
-            else:
-                locked.append("colour")
-        b = new.get("body", d.get("body"))
-        if b != d.get("body"):
-            if b not in self.rules["bodies"]:
-                problems.append(f"body must be one of: {', '.join(self.rules['bodies'])}")
-            elif tools.get("body_choice"):
-                d["body"] = b
-            else:
-                locked.append("body")
-        m = new.get("model")
-        if m != d.get("model"):
-            if m is not None and m not in self.rules.get("bosses", {}):
-                problems.append(f"model must be one of: {', '.join(self.rules.get('bosses', {}))}")
-            elif tools.get("bosses"):
-                if m:
-                    d["model"] = m
-                    new["special"] = d["special"] = self.rules["bosses"][m]
-                else:
-                    d.pop("model", None)
-            else:
-                locked.append("model")
-        sp = new.get("special", d["special"])
-        if sp != d["special"] and not d.get("model"):
-            if sp not in self.rules["specials"]:
-                problems.append(f"special must be one of: {', '.join(self.rules['specials'])}")
-            elif tools.get("choose_special") and sp in tools.get("specials", []):
-                d["special"] = sp
-            else:
-                locked.append("special")
-        style, weapon = new.get("fighting_style", sim.style_of(d)[0]), new.get("weapon")
-        if (style, weapon) != sim.style_of(d) and self.rules.get("styles"):
-            weapons = [w for w, v in self.rules["weapons"].items() if v[0] == style]
-            if style not in self.rules["styles"]:
-                problems.append(f"fighting_style must be one of: {', '.join(self.rules['styles'])}")
-            elif weapons and weapon not in weapons:
-                problems.append(f"a {style} fighter's weapon must be one of: {', '.join(weapons)}")
-            elif not weapons and weapon is not None:
-                problems.append(f"a {style} fighter has no weapon (take the weapon line out)")
-            elif tools.get("fighting_style"):
-                d["fighting_style"] = style
-                if weapon:
-                    d["weapon"] = weapon
-                else:
-                    d.pop("weapon", None)
-            else:
-                locked.append("fighting_style")
-        combo = new.get("combo", d.get("combo"))
-        if combo != d.get("combo"):
-            if not isinstance(combo, list) or not all(isinstance(mv, str) for mv in combo):
-                problems.append("combo must be a list of moves in quotes, like [\"punch\", \"kick\"]")
-            elif tools.get("combo_editor"):
-                d["combo"] = combo[:12]
-            else:
-                locked.append("combo")
-        if "style" in new and new["style"] != d.get("style"):
-            st = new["style"]
-            if not isinstance(st, dict):
-                problems.append("style must be a dictionary")
-            elif any(k in st and not (isinstance(st[k], list) and len(st[k]) == 3 and
-                                      all(isinstance(v, int) and 0 <= v <= 255 for v in st[k])) for k in ("trim", "lights")):
-                problems.append("style trim and lights must each be three whole numbers from 0 to 255")
-            elif "number" in st and (not isinstance(st["number"], str) or len(st["number"]) > 10):
-                problems.append("style number must be text, up to 10 characters")
-            else:
-                d["style"] = {k: v for k, v in st.items() if k in ("trim", "lights", "number")}
-        if "look" in new and new["look"] != d.get("look") and d.get("body") in self.rules.get("model_bodies", []):
-            if not tools.get("body_choice"):
-                locked.append("look")
-            elif not isinstance(new["look"], dict):
-                problems.append("look must be a dictionary")
-            else:
-                problems += sim.check_look(d["body"], new["look"])
-                d["look"] = new["look"]
-        for group, allowed in (("points", lambda k: tools.get("points_table")), ("settings", lambda k: tools.get(k))):
-            values = new.get(group, {})
-            if not isinstance(values, dict):
-                problems.append(f"{group} must be a dictionary")
-                continue
-            for k, v in values.items():
-                if k not in d[group]:
-                    problems.append(f"'{k}' isn't one of the {group}")
-                elif not isinstance(v, (int, float)) or isinstance(v, bool):
-                    problems.append(f"{k} must be a number")
-                elif v != d[group][k]:
-                    if allowed(k):
-                        d[group][k] = int(v) if group == "points" and v == int(v) else v
-                    else:
-                        locked.append(k)
-        problems += sim.check_design(d)
+        tools = self.tools()
+
+        def allowed(var, value):  # (what this mission's garage lets the learner change)
+            if var.name == "special":
+                return bool(tools.get("choose_special")) and value in tools.get("specials", [])
+            return bool(tools.get(var.tool, True))
+        changed, hidden, problems = schema.apply_values(self.schema, d, values, ctx, allowed)
+        if changed and not self.viewing():
+            self.code_changed = True  # (the next build is sent as the code's: Mission 1, hack the code)
+        if hidden and not self.viewing():
+            self.code_hack = True  # (so the next build, from here or the garage, is sent as the code's)
+        if "fighter_name" in changed:
+            self.entry_text.pop(self.name_key(), None)
+            if self.name_key() in self.entries:
+                self.entries[self.name_key()].enterText(d["name"])
+        problems += sim.check_design(d, self.limits())
         if problems:
             self.code_msg = ("Applied, but: " + "; ".join(problems[:3]), ORANGE)
-        elif locked:
-            self.code_msg = ("Applied. Not changeable this lesson: " + ", ".join(locked), ORANGE)
         else:
             self.code_msg = ("Applied: the garage shows your changes. Press BUILD to use them.", GREEN)
         self.code_shown = None
@@ -1219,64 +1127,20 @@ class Lab(hud.HudKit, ShowBase):
         label(f, "What I did", 0.82, y, 0.03, YELLOW)
         y -= 0.045
         for day in card["history"]:
-            if y < -0.75:
-                label(f, "...", 0.84, y, 0.026, GREY)
-                break
             label(f, day["date"], 0.84, y, 0.028, WHITE)
             y -= 0.038
             for m in day["missions"]:
-                if y < -0.75:
-                    break
-                label(f, f"Lesson {m['lesson']}: {m['title']}", 0.88, y, 0.025, GREY)
+                label(f, f"Mission {m['lesson']}: {m['title']}", 0.88, y, 0.025, GREY)
                 label(f, " ".join(m["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
                 y -= 0.034
+                if m.get("detail"):  # (CHANGE 96: the change itself, as the objective's check recorded it)
+                    t = label(f, m["detail"], 0.92, y, 0.022, GREEN, wrap=44)
+                    y -= 0.028 * t.textNode.getNumRows() + 0.008
             y -= 0.012
         if not card["history"]:
             label(f, "Nothing yet.", 0.84, y, 0.026, GREY)
 
-    def build_missions(self, f, y, m=None, preview=False):
-        m = m or self.missions
-        self.punch_text = None
-        if not m:
-            label(f, "Waiting for missions...", 0.82, y, 0.03, GREY)
-            return
-        label(f, f"LESSON {m['lesson']}: {m['title']}", 0.82, y, 0.032, YELLOW, wrap=28)
-        y -= 0.1
-        for mm in m["missions"]:
-            tick = "DONE" if mm["done"] else ("TEACHER" if mm["check"] == "teacher" else "TO DO")
-            label(f, f"[{tick}]  {mm['title']}", 0.82, y, 0.028, GREEN if mm["done"] else WHITE)
-            label(f, " ".join(mm["outcomes"]), 1.74, y, 0.02, BLUE, TextNode.ARight)
-            y -= 0.038
-            text = mm["detail"] if mm["done"] else mm["text"]
-            label(f, text, 0.84, y, 0.022, GREY, wrap=40)
-            y -= 0.033 * max(1, len(text) // 60 + 1)
-            if preview:  # the teacher sees what the learner typed, not boxes to type in
-                typed = m["prediction"] if mm["id"] == "1b" else m["text"].get(mm["id"])
-                if typed and not mm["done"]:
-                    label(f, f"They wrote: {typed}", 0.86, y, 0.021, BLUE, wrap=40)
-                    y -= 0.042
-                y -= 0.012
-                continue
-            if mm["id"] == "1b" and not mm["done"]:
-                label(f, "Punches to knock out", 0.84, y, 0.024)
-                self.entry(f, "prediction", 1.16, y, 4, initial=str(m["prediction"] or ""))
-                button(f, "Save", 1.36, y + 0.008, self.save_prediction, None, 0.024)
-                self.punch_text = label(f, f"punches landed {m.get('punches', 0)}", 1.44, y, 0.022, GREY)
-                y -= 0.055
-            if mm["id"] in fm.REFLECTIONS and not mm["done"]:
-                self.entry(f, f"reflect_{mm['id']}", 0.84, y, 30, 2, initial=m["text"].get(mm["id"], ""), scale=0.025)
-                button(f, "Save", 1.66, y - 0.02, self.save_reflection, [mm["id"]], 0.024)
-                y -= 0.085
-            y -= 0.012
-        if m["lesson"] >= 3:
-            status = ("autopilot ON" if m["autopilot"] else "uploaded (press P for autopilot)") if m["brain"] \
-                else "not uploaded yet (edit brains/my_brain.py, then press U)"
-            label(f, f"Brain: {status}", 0.82, max(y, -0.8), 0.025, GREEN if m["brain"] else GREY)
-            if m.get("brain_error"):
-                label(f, f"Brain stopped: {m['brain_error']}", 0.82, max(y, -0.8) - 0.045, 0.022, RED, wrap=42)
 
-    def save_prediction(self):
-        send({"type": "prediction", "value": self.entries["prediction"].get()})
 
     def save_reflection(self, mission):
         send({"type": "reflection", "mission": mission, "text": self.entries[f"reflect_{mission}"].get()})
@@ -1296,29 +1160,52 @@ class Lab(hud.HudKit, ShowBase):
         self.note_text, self.note_big = text, big
 
     # ---------- AI request card (learner) ----------
-    def build_ai_card(self, f, y):
-        label(f, "AI REQUEST CARD", 0.82, y, 0.04, YELLOW)
+    def build_ai_card(self, f, y, edit=False):
+        """edit: the teacher's copy (AI cards tab, "The learners' card"). It is the card as the learners see it,
+        with a box for the teacher's own instructions: what is typed there is shown on every learner's card."""
+        label(f, "AI REQUEST CARD" + ("  as the learners see it" if edit else ""), 0.82, y, 0.036 if edit else 0.04,
+              YELLOW)
+        if edit:
+            button(f, "Back to the requests", 1.62, y + 0.008, self.show_cards, [None], 0.022)
         y -= 0.055
         label(f, AI_RULES, 0.82, y, 0.023, BLUE, wrap=42)
         y -= 0.12
+        note = str(self.lesson.get("ai_card_note") or "").strip()
+        if edit:
+            label(f, "From your teacher:   (type what the learners should read here)", 0.82, y, 0.024, ORANGE)
+            self.entry(f, "card_note", 0.84, y - 0.042, 30, 4, initial=note, scale=0.026)
+            y -= 0.165
+            button(f, "SHOW THIS ON THE LEARNERS' CARDS", 1.27, y, self.send_card_note, None, 0.028, (0.15, 0.45, 0.65, 1))
+            self.note_text = label(f, "On their cards now." if note else "Nothing from you is on their cards yet.",
+                                   0.82, y - 0.055, 0.022, GREY)
+            y -= 0.1
+        elif note:
+            words = label(f, "From your teacher:  " + note, 0.82, y, 0.025, ORANGE, wrap=36)
+            y -= 0.03 * max(1, words.textNode.getNumRows()) + 0.025
         label(f, "What should change?", 0.82, y, 0.027)
         for i, (key, text) in enumerate(fm.AI_TARGETS.items()):
             if key == "game":
                 continue
-            button(f, text, 1.12 + i * 0.2, y + 0.008, self.set_card_target, [key], 0.025,
+            button(f, text, 1.19 + i * 0.2, y + 0.008, self.set_card_target, [key], 0.025,
                    ON if key == self.card_target else OFF)
         y -= 0.07
-        for key, text in (("goal", "My idea in one sentence"), ("variables", "Variables and values it needs"),
+        for key, text in (("goal", "My idea"), ("variables", "Variables and values it needs"),
                           ("test", "How I will test it"), ("predict", "What I predict will happen")):
+            rows = 6 if key in ("goal", "test") else 4  # (room to explain, every box wrapping: CHANGE 93)
             label(f, text, 0.82, y, 0.027)
-            self.entry(f, f"card_{key}", 0.84, y - 0.045, 30, 1, scale=0.026)
-            y -= 0.1
+            if edit:  # (the teacher's copy: the boxes are only drawn)
+                DirectFrame(parent=f, frameColor=(0.15, 0.17, 0.22, 1), pos=(0.84, 0, y - 0.045),
+                            frameSize=(0, 0.78, -0.009 - (rows - 1) * 0.026, 0.024))
+            else:
+                self.entry(f, f"card_{key}", 0.84, y - 0.045, 30, rows, scale=0.026)
+            y -= 0.1 + (rows - 1) * 0.026
         for key, text in (("privacy", "No personal information (names, school, email, address)"),
                           ("review", "I will review and test the AI's code"),
                           ("credit", "I will say where AI helped")):
             check(f, text, 0.84, y, self.card_checks[key], lambda v, k=key: self.card_checks.__setitem__(k, bool(v)), 0.026)
             y -= 0.045
-        button(f, "SEND TO THE TEACHER", 1.27, y - 0.01, self.send_card, None, 0.036, (0.15, 0.45, 0.65, 1))
+        if not edit:
+            button(f, "SEND TO THE TEACHER", 1.27, y - 0.01, self.send_card, None, 0.036, (0.15, 0.45, 0.65, 1))
         y -= 0.07
         self.card_text = label(f, self.card_msg[0], 0.82, y, 0.024, self.card_msg[1], wrap=40)
         y -= 0.1
@@ -1367,18 +1254,24 @@ class Lab(hud.HudKit, ShowBase):
     # ---------- teacher: controls ----------
     def build_teacher_panel(self, f, y):
         L = self.lesson
-        label(f, "Lesson", 0.82, y, 0.03, YELLOW)
+        label(f, "Mission", 0.82, y, 0.03, YELLOW)
         for n in range(1, 6):
             button(f, str(n), 1.0 + (n - 1) * 0.09, y + 0.008, send, [{"type": "lesson_number", "n": n}], 0.028,
                    ON if L.get("lesson_number") == n else OFF)
-        button(f, "Save settings", 1.6, y + 0.008, send, [{"type": "save_lesson"}], 0.024)
+        saved = (L.get("saved_missions") or [])  # (CHANGE 58 and 59: saved per mission, and brought back)
+        button(f, "Save settings", 1.5, y + 0.008, send, [{"type": "save_lesson"}], 0.024)
+        button(f, "Restore", 1.68, y + 0.008, send, [{"type": "restore_lesson"}], 0.024)
+        if saved:
+            label(f, "saved settings: mission " + ", ".join(str(n) for n in saved), 1.74, y - 0.037, 0.015, GREY,
+                  TextNode.ARight)
         y -= 0.06
         label(f, "Fights", 0.82, y, 0.028, YELLOW)
         for i, mode in enumerate(("practice", "battle")):
             button(f, mode.title(), 1.04 + i * 0.19, y + 0.008, self.set_lesson, [{"mode": mode}], 0.028,
                    ON if L["mode"] == mode else OFF)
         button(f, "Restart", 1.44, y + 0.008, send, [{"type": "restart"}], 0.028)
-        button(f, "Pause", 1.63, y + 0.008, send, [{"type": "pause"}], 0.028)
+        button(f, "Pause", 1.63, y + 0.008, send, [{"type": "pause"}], 0.028,
+               ON if (self.state or {}).get("paused") else OFF)  # (CHANGE 102: lit while paused)
         y -= 0.055
         label(f, f"Rounds {L['round_time']} s", 0.82, y, 0.026)
         button(f, "-10", 1.06, y + 0.008, self.set_lesson, [{"round_time": L["round_time"] - 10}], 0.024)
@@ -1409,6 +1302,7 @@ class Lab(hud.HudKit, ShowBase):
         check(f, "Lock designs", 1.34, y, L["designs_locked"], lambda v: self.set_lesson({"designs_locked": bool(v)}),
               0.026)
         y -= 0.06
+        y = self.rings_section(f, y)
         label(f, "Stage hazards", 0.82, y, 0.028, YELLOW)
         y -= 0.045
         for i, hz in enumerate(HAZARD_NAMES):
@@ -1586,10 +1480,58 @@ class Lab(hud.HudKit, ShowBase):
             people.append(name)
         return people
 
+    def rings_section(self, f, y):
+        """Controls (CHANGE 75): how many rings (Auto: one each, and matches share a ring), who is in which (two
+        to a ring), and which ring this window watches."""
+        L = self.lesson
+        n = max(0, int(L.get("rings", 0)))
+        label(f, "Rings", 0.82, y, 0.028, YELLOW)
+        button(f, "Auto", 0.98, y + 0.008, self.set_lesson, [{"rings": 0}], 0.024, ON if n == 0 else OFF)
+        for i in range(1, sim.MAX_RINGS + 1):
+            button(f, str(i), 1.08 + (i - 1) * 0.07, y + 0.008, self.set_lesson, [{"rings": i}], 0.024,
+                   ON if n == i else OFF)
+        label(f, "Auto: one each, matches\nshare (Matches tab)" if n == 0 else "two to a ring", 1.51, y + 0.012,
+              0.017, GREY)
+        y -= 0.05
+        if n:
+            where = {f_["owner"]: f_["ring"] for f_ in (self.roster or {}).get("fighters", [])}
+            places = L.get("places", {})
+            people = [c["name"] for c in self.class_list if c["role"] == "learner"]
+            if L.get("teacher_fighter"):
+                people.append("Teacher")
+            label(f, "Who is where  (the rings take turns unless you choose; a third sits out)", 0.84, y, 0.022,
+                  GREY)
+            y -= 0.045
+            for who in people:
+                shown = "My fighter" if who == "Teacher" else who
+                label(f, shown, 0.84, y, 0.024)
+                at = places.get(who, where.get(name if who == "Teacher" else who))
+                for i in range(n):
+                    button(f, str(i + 1), 1.2 + i * 0.075, y + 0.008, self.set_lesson, [{"places": {who: i}}], 0.024,
+                           ON if at == i and who in places else (0.35, 0.35, 0.3, 1) if at == i else OFF)
+                if at is None:
+                    label(f, "sitting out", 1.2 + n * 0.075, y, 0.018, ORANGE)
+                y -= 0.045
+            if places:
+                button(f, "Take turns again", 0.96, y + 0.008, self.set_lesson,
+                       [{"places": {k: None for k in places}}], 0.022)
+                y -= 0.045
+            label(f, "Watch ring", 0.84, y, 0.024)
+            for i in range(n):
+                button(f, str(i + 1), 1.2 + i * 0.075, y + 0.008, self.set_watch, [i], 0.024,
+                       ON if self.watched_ring() == i else OFF)
+            label(f, "([ and ] in the ring)", 1.2 + n * 0.075 + 0.02, y, 0.018, GREY)
+            y -= 0.06
+        return y
+
     def build_matches(self, f, y):
         L = self.lesson
         label(f, "MATCHES  -  who fights who", 0.82, y, 0.034, YELLOW)
         y -= 0.05
+        if L.get("rings"):
+            label(f, f"Rings is set to {L['rings']} in Controls: Who is where there says who shares a ring.\n"
+                     "Set Rings to Auto for the matches below to make the rings.", 0.82, y, 0.02, ORANGE)
+            y -= 0.07
         label(f, "Pick two fighters, then Add match: they share a ring. Everyone else trains in a ring of their own.\n"
                  "Switch Battle on (Controls) for rounds, knockouts and ring-outs.", 0.82, y, 0.02, GREY)
         y -= 0.07
@@ -1624,14 +1566,35 @@ class Lab(hud.HudKit, ShowBase):
             button(f, "Clear all", 1.0, y, self.set_lesson, [{"matches": []}], 0.024)
             y -= 0.06
         y -= 0.02
-        label(f, "TOURNAMENT  (knockout: computer fighters fill the gaps)", 0.82, y, 0.028, YELLOW)
+        label(f, "TOURNAMENT  (Battle switched on, designs locked)", 0.82, y, 0.028, YELLOW)
         y -= 0.06
         t = self.tournament
         if t is None:
-            button(f, "Start a tournament", 1.1, y, send, [{"type": "tournament", "start": True}], 0.03,
-                   (0.15, 0.55, 0.25, 1))
-            label(f, "(it switches Battle on and locks designs)", 1.36, y - 0.005, 0.019, GREY)
+            button(f, "Knockout", 0.96, y, send, [{"type": "tournament", "start": True}], 0.028, (0.15, 0.55, 0.25, 1))
+            label(f, "computer fighters fill the gaps", 1.1, y - 0.005, 0.019, GREY)
+            y -= 0.06
+            button(f, "Winner stays on", 1.0, y, send, [{"type": "tournament", "start": True, "kind": "stays", "live": 2}],
+                   0.028, (0.15, 0.55, 0.25, 1))
+            label(f, "two rings live; the loser queues, the next\nchallenger comes in; the rest watch ([ and ])",
+                  1.18, y + 0.006, 0.019, GREY)
             y -= 0.07
+        elif t.get("kind") == "stays":  # CHANGE 76
+            button(f, "Stop: winner stays on", 1.1, y, send, [{"type": "tournament", "start": False}], 0.028,
+                   (0.6, 0.2, 0.15, 1))
+            y -= 0.055
+            for i, (a, b) in enumerate(t.get("live", [])):
+                label(f, f"Ring {i + 1}:  {a or '-'}  v  {b or '-'}", 0.84, y, 0.024, WHITE)
+                y -= 0.04
+            label(f, "Waiting:  " + (", ".join(t.get("queue", [])) or "nobody"), 0.84, y, 0.022, GREY, wrap=46)
+            y -= 0.045
+            label(f, f"Matches played: {t.get('played', 0)}", 0.84, y, 0.022, GREY)
+            y -= 0.04
+            for n, w, s in t.get("table", [])[:12]:
+                label(f, f"{n}", 0.88, y, 0.022, GREEN if w else WHITE)
+                label(f, f"{w} win{'s' if w != 1 else ''}" + (f"   {s} in a row" if s > 1 else ""), 1.25, y, 0.022,
+                      GREEN if w else GREY)
+                y -= 0.036
+            y -= 0.01
         else:
             button(f, "Stop the tournament", 1.1, y, send, [{"type": "tournament", "start": False}], 0.028,
                    (0.6, 0.2, 0.15, 1))
@@ -1679,7 +1642,11 @@ class Lab(hud.HudKit, ShowBase):
 
     # ---------- teacher: the learner view ----------
     def build_learner_view(self, f, y):
-        learners = [c["name"] for c in self.class_list if c["role"] == "learner"]
+        # the learners who are connected, then the computer fighter: the teacher sets it up as a learner sets up
+        # theirs, and every ring's sparring partner is built from it (CHANGE 77)
+        computer = next((c for c in self.class_list if c["role"] == "computer"), None)
+        learners = [c["name"] for c in self.class_list if c["role"] == "learner"] + \
+            ([computer["name"]] if computer else []) + [self.ALL_LEARNERS]  # (CHANGE 85)
         label(f, "LEARNER VIEW  -  see and change what a learner sees", 0.82, y, 0.03, YELLOW)
         y -= 0.06
         if not learners:
@@ -1687,16 +1654,33 @@ class Lab(hud.HudKit, ShowBase):
             return
         if self.view_name not in learners:
             self.set_view(learners[0], redraw=False)
+        across = max(0.16, min(0.2, 0.86 / len(learners)))
         for i, n in enumerate(learners):
-            button(f, n, 0.9 + i * 0.2, y + 0.008, self.set_view, [n], 0.028, ON if n == self.view_name else OFF)
+            button(f, n, 0.9 + i * across, y + 0.008, self.set_view, [n], 0.028 if len(learners) < 5 else 0.022,
+                   ON if n == self.view_name else OFF)
         y -= 0.065
-        for i, (t, text) in enumerate((("garage", "Garage"), ("missions", "Missions"), ("ai", "AI card"),
-                                      ("login", "Login"))):
-            button(f, text, 0.9 + i * 0.2, y + 0.008, self.set_view_tab, [t], 0.026, ON if t == self.view_tab else OFF)
-        y -= 0.07
         who = self.view_name
-        if self.view_tab == "garage":
+        is_computer = computer is not None and who == computer["name"]
+        tabs = (("garage", "Garage"), ("missions", "Mission"), ("ai", "AI card"), ("mods", "Mods"), ("brain", "Brain")) \
+            if is_computer else (("garage", "Garage"),) if who == self.ALL_LEARNERS else \
+            (("garage", "Garage"), ("missions", "Mission"), ("ai", "AI card"), ("login", "Login"))
+        if self.view_tab not in [t for t, _ in tabs]:
+            self.view_tab = "garage"
+        for i, (t, text) in enumerate(tabs):
+            button(f, text, 0.9 + i * 0.18, y + 0.008, self.set_view_tab, [t], 0.026, ON if t == self.view_tab else OFF)
+        y -= 0.07
+        if is_computer and self.view_tab == "brain":
+            self.build_computer_brain(f, y, computer)
+        elif is_computer and self.view_tab == "mods":  # (as Robot Lab's CHANGE 23: the Mods tab as a learner sees it)
+            label(f, "The Mods tab as a learner sees it (the computer fighter doesn't vote).", 0.82, y, 0.022, GREY)
+            self.build_mods(f, y - 0.045, as_learner=True)
+        elif self.view_tab == "garage":
             self.build_garage(f, y, view=who)
+            if is_computer:
+                if not computer.get("in_arena"):
+                    label(f, "It isn't in a ring: Computer sparring partners is off in Controls.", 0.82, self.garage_bottom + 0.05, 0.022, ORANGE)
+                button(f, "RESET: THE COMPUTER FIGHTER AS IT COMES", 1.27, self.garage_bottom, send,
+                       [{"type": "cpu_robot", "reset": True}], 0.026, (0.6, 0.2, 0.15, 1))
         elif self.view_tab == "missions":
             self.build_missions(f, y, m=self.view_missions.get(who), preview=True)
         elif self.view_tab == "ai":
@@ -1713,6 +1697,35 @@ class Lab(hud.HudKit, ShowBase):
             y -= 0.06
             self.entry(f, "new_password", 0.84, y, 12, scale=0.03)
             button(f, "Set", 1.3, y + 0.008, self.set_password, [who], 0.03)
+
+    def build_computer_brain(self, f, y, computer):
+        """Teacher: the computer fighter's own brain, uploaded and switched on as a learner does theirs."""
+        label(f, "THE COMPUTER FIGHTER'S BRAIN", 0.82, y, 0.03, YELLOW)
+        y -= 0.055
+        label(f, "A learner writes brains/my_brain.py, uploads it (U) and switches autopilot on (P).\n"
+                 "Do the same for the computer fighter here. With its autopilot off, every ring's\n"
+                 "sparring partner follows Computer level in Controls.", 0.82, y, 0.022, GREY)
+        y -= 0.13
+        has, on = bool(computer.get("brain")), bool(computer.get("autopilot"))
+        label(f, "Its brain: " + (("autopilot ON" if on else "uploaded, autopilot off") if has else "not uploaded yet"),
+              0.82, y, 0.028, GREEN if has else GREY)
+        y -= 0.075
+        button(f, "Upload brains/my_brain.py for it", 1.08, y, self.upload_computer_brain, None, 0.028)
+        if has:
+            button(f, "Autopilot off" if on else "Autopilot on", 1.5, y, send,
+                   [{"type": "cpu_robot", "autopilot": not on}], 0.028, ON if on else OFF)
+        y -= 0.07
+        label(f, "The brain is kept for next time. Its autopilot starts off at every session. Reset (in its\n"
+                 "Garage) takes the brain away.", 0.82, y, 0.022, GREY)
+
+    def upload_computer_brain(self):
+        path = os.path.join(BRAINS, "my_brain.py")
+        if not os.path.exists(path):
+            self.banner_note("No brain file: make brains/my_brain.py first")
+            return
+        with open(path, encoding="utf-8") as fh:
+            send({"type": "cpu_robot", "brain": fh.read()})
+        self.banner_note("Uploading my_brain.py for the computer fighter...")
 
     def set_view(self, learner, redraw=True):
         self.view_name = learner
@@ -1859,6 +1872,8 @@ class Lab(hud.HudKit, ShowBase):
         res = ai_pipeline.merge(n)
         self.change_msg = (f"Mod {n} is now a permanent part of the game." if res["ok"] else res["message"],
                            GREEN if res["ok"] else RED)
+        if res["ok"]:  # the learner's name goes in front of any user mod it added
+            self.push_mod_makers(res["user_mods"])
         if self.change_view == n:
             self.change_view = None
         self.rebuild_panels()
@@ -1942,7 +1957,15 @@ class Lab(hud.HudKit, ShowBase):
 
     # ---------- teacher: AI request cards ----------
     def build_cards(self, f, y):
+        if self.cards_view == "edit":
+            return self.build_ai_card(f, y, edit=True)
+        checking = next((c for c in (self.teaching or {}).get("cards", []) if c["id"] == self.cards_view), None)
+        if checking is not None:
+            return self.build_card_check(f, y, checking)
+        if self.teaching is not None:  # (that card has gone: back to the list)
+            self.cards_view = None
         label(f, "AI REQUEST CARDS", 0.82, y, 0.036, YELLOW)
+        button(f, "The learners' card", 1.62, y + 0.008, self.show_cards, ["edit"], 0.022)
         y -= 0.05
         label(f, "Choose what Claude may change, then Send to Claude. The whole game lets Claude change\n"
                  "anything (new moves, specials, hazards, rules, graphics). Every change is tested before you Keep it,\n"
@@ -2000,7 +2023,7 @@ class Lab(hud.HudKit, ShowBase):
                         y -= 0.06
             elif c["status"] in ("waiting", "sent", "working"):
                 y = self.card_targets_row(f, y, c, target)
-                button(f, "Send to Claude", 0.95, y, self.ai_send, [c], 0.026, (0.15, 0.45, 0.65, 1))
+                button(f, "Check and send", 0.95, y, self.show_cards, [c["id"]], 0.026, (0.15, 0.45, 0.65, 1))
                 button(f, "Copy prompt", 1.2, y, self.copy_prompt, [c], 0.026)
                 button(f, "Reject", 1.42, y, self.card_status, [c["id"], "rejected"], 0.026)
                 y -= 0.07
@@ -2032,6 +2055,58 @@ class Lab(hud.HudKit, ShowBase):
         self.card_targets[cid] = key
         self.rebuild_panels()
 
+    def card_prompt(self, c):
+        """Exactly the prompt that Send to Claude sends for this card, as the teacher has set it."""
+        import ai_pipeline
+        target = self.card_targets.get(c["id"], c["card"].get("target", "fighter"))
+        return ai_pipeline.build_prompt(c["card"], c["learner"], target, ai_pipeline.allowed_files(target, c["learner"]),
+                                        target == "game" and self.card_user_mod.get(c["id"], True)), target
+
+    def build_card_check(self, f, y, c):
+        """Before anything goes to Claude: the whole card and the whole prompt, on screen."""
+        label(f, f"CHECK BEFORE SENDING   #{c['id']} {c['learner']}", 0.82, y, 0.034, YELLOW)
+        y -= 0.05
+        for key, text in (("goal", "Idea"), ("variables", "Variables and values"), ("test", "How they will test it"),
+                          ("predict", "Their prediction")):
+            words = label(f, f"{text}:  {c['card'].get(key, '')}", 0.82, y, 0.022, WHITE, wrap=42)
+            y -= 0.026 * max(1, words.textNode.getNumRows()) + 0.008
+        ticks = [text for key, text in (("privacy", "no personal information"), ("review", "will review and test the code"),
+                                        ("credit", "will say where AI helped")) if c["card"].get(key)]
+        label(f, "Ticked: " + (", ".join(ticks) or "nothing"), 0.82, y, 0.02, GREY)
+        y -= 0.045
+        try:
+            prompt, target = self.card_prompt(c)
+        except ValueError as e:
+            prompt, target = str(e), "fighter"
+        button(f, "Send to Claude", 0.95, y - 0.01, self.ai_send, [c], 0.028, (0.15, 0.45, 0.65, 1))
+        button(f, "Copy prompt", 1.22, y - 0.01, self.copy_prompt, [c], 0.026)
+        button(f, "Back", 1.42, y - 0.01, self.show_cards, [None], 0.026)
+        y -= 0.065
+        label(f, f"THE WHOLE PROMPT   ({TARGETS.get(target, target)})", 0.82, y, 0.026, YELLOW)
+        label(f, "scroll with the mouse wheel", 1.74, y, 0.02, GREY, TextNode.ARight)
+        y -= 0.03
+        key = (c["id"], prompt)
+        if self.prompt_state.get("key") != key:  # a different card (or what Claude may change has changed)
+            lines = [part for line in prompt.splitlines() for part in (textwrap.wrap(line, 80) or [""])]
+            self.prompt_state = {"key": key, "lines": lines, "cursor": [0, 0], "scroll": 0}
+        scale = 0.018
+        rows = max(4, int((y + 0.90) / (scale * 1.8)))
+        self.prompt_view = code_editor.CodeEditor(self, f, self.prompt_state, 0.80, y, 0.94, rows, scale, read_only=True)
+
+    def show_cards(self, view):
+        """Teacher's AI cards tab: the list of requests (None), the learners' card ("edit"), or one card with its
+        whole prompt before it is sent (the card's number)."""
+        self.cards_view = view
+        self.rebuild_panels()
+
+    def send_card_note(self):
+        """Teacher: what is typed in "From your teacher" goes on every learner's card (and stays for next time)."""
+        note = " ".join(self.entries["card_note"].get().split())[:300] if "card_note" in self.entries else ""
+        self.entry_text.pop("card_note", None)
+        self.stop_typing()
+        self.set_lesson({"ai_card_note": note})
+        self.note_text.setText("Sent: it is on the learners' cards." if note else "Sent: nothing from you is on their cards.")
+
     def ai_retry(self, c, target=None):
         if target:
             self.card_targets[c["id"]] = target
@@ -2049,6 +2124,7 @@ class Lab(hud.HudKit, ShowBase):
         except ValueError as e:
             self.banner_note(str(e), 5)
             return
+        self.cards_view = None  # (back to the list of requests, where its progress shows)
         job = self.ai_jobs[c["id"]] = {"status": "Claude is working...", "change": change, "started": time.time()}
         send({"type": "card_status", "id": c["id"], "status": "working", "note": "The teacher sent this to Claude"})
 
@@ -2068,6 +2144,7 @@ class Lab(hud.HudKit, ShowBase):
         job = self.ai_jobs[c["id"]]
         change = job["change"]
         change.keep()
+        self.push_mod_makers(change.user_mods)  # a new user mod gets the learner's name in front
         mods = {k: v for k, v in change.contents().items() if k.startswith("mods/")}
         if mods:
             send({"type": "mods_update", "files": mods})
@@ -2096,17 +2173,12 @@ class Lab(hud.HudKit, ShowBase):
 
     def copy_prompt(self, c):
         import ai_pipeline
-        target = self.card_targets.get(c["id"], c["card"].get("target", "fighter"))
         try:
-            files = ai_pipeline.allowed_files(target, c["learner"])
+            text, target = self.card_prompt(c)  # the same prompt Send uses
         except ValueError as e:
             self.banner_note(str(e), 5)
             return
-        text = ai_pipeline.build_prompt(c["card"], c["learner"], target, files)  # the same prompt Send uses
-        os.makedirs(os.path.join(HERE, "ai_requests"), exist_ok=True)
-        path = os.path.join(HERE, "ai_requests", f"{c['id']:03d}_{ai_pipeline.slug(c['learner'])}_prompt.md")
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
+        path = os.path.join(ai_pipeline.DATA, "ai_requests", ai_pipeline.save_prompt(c["id"], c["learner"], target, text))
         try:
             subprocess.run("clip", input=text.encode("utf-16"), check=True, shell=True)  # Windows clipboard
             self.banner_note(f"Prompt #{c['id']} copied: paste it into Claude")
@@ -2180,6 +2252,7 @@ class Lab(hud.HudKit, ShowBase):
         if self.newer and self.download_button is None:  # a newer release is out
             self.banner_note(f"Club Coders {self.newer} is out: press the green button to download it", 8)
             self.offer_download()
+        self.limits_released()  # (a limit's slider let go: the class server gets the new limits)
         if self.pending_rebuild and not self.typing:  # typing stopped: now do the redraw that waited
             self.rebuild_panels()
         self.view_text.setText(f"view: {self.cam.name}  (V to change)" + ("   typing - Esc to stop" if self.typing else ""))
@@ -2211,6 +2284,8 @@ class Lab(hud.HudKit, ShowBase):
                 ring_list = [r["i"] for r in m.get("rings", [])]
                 if self.tab == "matches" and ring_list != [r["i"] for r in (self.state or {}).get("rings", [])]:
                     rebuild = True
+                if TEACHER and self.tab == "teacher" and bool(m.get("paused")) != bool((self.state or {}).get("paused")):
+                    rebuild = True  # (the Pause button lights up: CHANGE 102)
                 self.state = m
                 self.fx_waiting.append(m.get("fx", []))
             elif kind == "roster":
@@ -2228,7 +2303,24 @@ class Lab(hud.HudKit, ShowBase):
                 if m["lesson"] != self.lesson or m.get("tournament") != self.tournament or \
                         (TEACHER and m["class"] != self.class_list):
                     rebuild = rebuild or self.tab in ("garage", "teacher", "learners", "matches")
-                self.lesson, self.class_list, self.tournament = m["lesson"], m["class"], m.get("tournament")
+                mods = m.get("mods") or {}
+                if mods != self.mod_info:  # a new vote, a maker's name, or someone from the group has come in
+                    rebuild = rebuild or self.tab in ("teacher", "mods")
+                    if TEACHER:
+                        self.forget_mod_makers(mods)
+                if TEACHER:  # the computer fighter was rebuilt or reset: the Learner view shows it as it is now
+                    was = next((c["design"] for c in self.class_list if c["role"] == "computer"), None)
+                    for c in m["class"]:
+                        if c["role"] == "computer" and was is not None and c["design"] != was:
+                            self.view_drafts.pop(c["name"], None)
+                            self.entry_text.pop("name_" + c["name"], None)
+                            self.code_shown = None
+                self.lesson, self.class_list, self.tournament, self.mod_info = m["lesson"], m["class"], m.get("tournament"), mods
+            elif kind in ("slots", "history"):  # saved designs (CHANGE 83 to 86)
+                rebuild = self.took_slots(m) or rebuild
+            elif kind == "warnings":  # teacher: a learner changed, in the code, something outside the lesson
+                self.took_warnings(m)
+                rebuild = True  # (the tab's name counts the ones not seen yet)
             elif kind == "missions":
                 if m.get("for"):  # the teacher's learner view
                     self.view_missions[m["for"]] = m
@@ -2239,8 +2331,6 @@ class Lab(hud.HudKit, ShowBase):
                 if sig != self.sig.get("missions"):
                     self.sig["missions"] = sig
                     rebuild = rebuild or self.tab in ("missions", "ai", "card")
-                elif self.tab == "missions" and getattr(self, "punch_text", None):
-                    self.punch_text.setText(f"punches landed {m.get('punches', 0)}")
             elif kind == "teaching":
                 self.teaching = m
                 sig = json.dumps(m, sort_keys=True)
@@ -2249,6 +2339,7 @@ class Lab(hud.HudKit, ShowBase):
                     rebuild = rebuild or self.tab in ("outcomes", "cards", "learners", "accounts")
             elif kind == "design_result":
                 self.design = m["design"]
+                self.code_changed = self.code_hack = False
                 if m["ok"]:
                     self.draft = copy.deepcopy(self.design)
                     self.code_shown = None

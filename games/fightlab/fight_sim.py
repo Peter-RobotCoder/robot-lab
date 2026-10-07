@@ -20,6 +20,8 @@ Rounds: practice (no damage, like a game's training mode) or battle (rounds, a t
 No graphics here: this runs on the teacher's server.
 """
 import math
+
+import fight_version  # noqa: F401  (puts the engine, shared by every game, on the path)
 import random
 from collections import namedtuple
 
@@ -52,6 +54,39 @@ SETTINGS = {  # name: (lowest, highest, default, what it means)
     "attack_speed": (10, 100, 70, "% attack speed: faster attacks come out sooner but hit softer"),
     "size": (80, 120, 100, "% of standard size: bigger reaches further and has more health, but is slower"),
 }
+FULL_SETTINGS = {k: (v[0], v[1]) for k, v in SETTINGS.items()}  # (the widest ranges: the standard ones, for now)
+FULL_STAT, FULL_POINTS_TOTAL = (STAT_MIN, STAT_MAX), POINTS_TOTAL
+LIMITS = None  # the engine's limits Spec (made below, once the engine can be imported)
+
+
+def _limits():
+    global LIMITS
+    if LIMITS is None:
+        from engine.limits import Spec
+        LIMITS = Spec(SETTINGS, FULL_SETTINGS, STATS, (STAT_MIN, STAT_MAX), FULL_STAT, POINTS_TOTAL, FULL_POINTS_TOTAL)
+    return LIMITS
+
+
+def default_limits():
+    """The learners' ranges as they are until the teacher changes them (the Limits tab narrows them)."""
+    return _limits().default()
+
+
+def full_limits():
+    """The widest ranges: the teacher's own fighter is checked against these."""
+    return _limits().full()
+
+
+def clean_limits(new, old=None):
+    """Limits sent by the teacher's window (or loaded from a file), made safe."""
+    return _limits().clean(new, old)
+
+
+def fit_design(d, limits):
+    """A design pulled back inside the limits (the teacher has narrowed them)."""
+    return _limits().fit(d, limits)
+
+
 BODIES = {"robot": "a fighting robot: metal armour and glowing eyes",
           "human": "a martial artist: quick hands and a headband",
           "woman": "a detailed 3D woman (Penthesilea's model): choose her outfit, hair, shape and height",
@@ -160,6 +195,90 @@ def weapons_for(style):
     return [w for w, spec in WEAPONS.items() if spec[0] == style]
 
 
+# ---------- the fighter as variables (the engine's schema: the code panel and the garage's tables) ----------
+CODE_NOTES = {  # the comment on each setting's line of the fighter's code
+    "walk_speed": "% of top walking speed", "sidestep_speed": "% of fastest sidestep",
+    "jump_height": "% of highest jump", "attack_speed": "% attack speed: faster, softer",
+    "size": "% of standard size"}
+
+
+def _body_changed(d, ctx):
+    """A detailed 3D body gets its standard look (and Robin its trim and lights) until the garage changes them."""
+    body = d.get("body")
+    if body in MODEL_BODIES and not isinstance(d.get("look"), dict):
+        d["look"] = default_look(body)
+    if body == "robin" and not isinstance(d.get("style"), dict):
+        d["style"] = {k: list(v) for k, v in ROBIN_STYLE.items()}
+
+
+def _model_changed(d, ctx):
+    """Playing as a boss: its special is its own."""
+    if d.get("model"):
+        d["special"] = ctx.bosses.get(d["model"], d.get("special"))
+
+
+def _special_changed(d, ctx):
+    if d.get("model"):
+        d["special"] = ctx.bosses.get(d["model"], d["special"])
+
+
+def _style_changed(d, ctx):
+    """An armed style has a weapon from its own list; an unarmed one has none."""
+    weapons = weapons_for(style_of(d)[0])
+    if weapons and d.get("weapon") not in weapons:
+        d["weapon"] = weapons[0]
+    elif not weapons:
+        d.pop("weapon", None)
+
+
+def _special_text(ctx, d):
+    if d.get("model"):
+        return (ctx.rules["specials"].get(d["special"], d["special"]) + "\nBosses are big and strong (260 health) "
+                "but slow. Their stats are fixed, so points and settings aren't used.")
+    return ctx.rules["specials"].get(d["special"], "")
+
+
+def _style_text(ctx, d):
+    """Under the style row: what the style (or the weapon) is, and what the attack buttons do with it."""
+    style, weapon = style_of(d)
+    moves = ctx.rules["style_moves"].get(style, {})
+    what = ctx.rules["weapons"][weapon][1] if weapon else ctx.rules["styles"][style]
+    return (f"{what}\nA {moves.get('punch')}   S {moves.get('kick')}   X+S {moves.get('low')}   "
+            f"forward+S {moves.get('high')}")
+
+
+def schema():
+    """The fighter's variables, in the HUD's groups. ctx (from the window): title, points_total, design (the one
+    being edited: the weapons offered depend on its style), bodies, bosses (boss -> its special), specials
+    (allowed this mission), all_specials, styles, combo_moves, rules."""
+    from engine.schema import Var
+    boss = lambda d: bool(d.get("model"))  # noqa: E731  (playing as a boss: its stats are its own)
+    return ([Var(k, ("settings", k), "int", "settings", tool=k, note=CODE_NOTES[k], unless=boss) for k in SETTINGS] +
+            [Var(f"{k}_points", ("points", k), "int", "points", tool="points_table", note=f"points for {k}",
+                 unless=boss) for k in STATS] +
+            [Var("fighter_name", ("name",), "str", "strings", tool="name_and_colour", note="a string: text made of chars"),
+             Var("body", ("body",), "choice", "strings", tool="body_choice", note="robot, human, woman, man or robin",
+                 options=lambda ctx: list(ctx.bodies), after=_body_changed, unless=boss, per_row=5, step=0.14,
+                 extra=lambda win, f, y, d: win.look_section(f, y, d)),
+             Var("model", ("model",), "choice", "strings", tool="bosses", note="playing as a boss", optional=True,
+                 options=lambda ctx: list(ctx.bosses), after=_model_changed, none_text="Mine", step=0.145),
+             Var("special", ("special",), "choice", "lists", tool="choose_special", options=lambda ctx: ctx.specials,
+                 valid=lambda ctx: ctx.all_specials, list_name="specials", list_note="the specials allowed this mission",
+                 after=_special_changed, fixed=boss, describe=_special_text, step=0.16, always=True,
+                 allowed_values=lambda tools: tools.get("specials", [])),
+             Var("fighting_style", ("fighting_style",), "choice", "strings", tool="fighting_style",
+                 note="kickboxer, boxer, capoeira...", options=lambda ctx: list(ctx.styles), after=_style_changed,
+                 unless=boss, per_row=3, step=0.2, describe=_style_text),
+             Var("weapon", ("weapon",), "choice", "lists", tool="fighting_style", optional=True,
+                 options=lambda ctx: weapons_for(style_of(ctx.design)[0]), list_name="weapons",
+                 list_note="this style's weapons", after=_style_changed, step=0.2,
+                 unless=lambda d: bool(d.get("model")) or not weapons_for(style_of(d)[0])),
+             Var("colour", ("colour",), "rgb", "lists", tool="name_and_colour", note="red, green, blue: 0 to 255"),
+             Var("combo", ("combo",), "words", "lists", tool="combo_editor", note="moves in order (A, A, A...)",
+                 options=lambda ctx: list(ctx.combo_moves), unless=boss,
+                 extra=lambda win, f, y, d: win.combo_section(f, y, d))])
+
+
 def style_of(d):
     """A design's fighting style and weapon (designs from before styles are kick boxers). (A design's "style" is
     something else: how a robot looks.)"""
@@ -214,25 +333,13 @@ def boss_design(name):
     return d
 
 
-def check_design(d):
-    """Return a list of problems (empty = fine). Used by the server and shown to learners."""
-    problems = []
+def check_design(d, limits=None):
+    """Return a list of problems (empty = fine). Used by the server and shown to learners.
+    limits: the ranges to hold it to (the learners' ranges the teacher has set, or full_limits() for the teacher's
+    own fighter); left out, the ranges are the standard ones (default_limits)."""
     if not isinstance(d, dict):
         return ["the design must be a dictionary"]
-    pts = d.get("points", {})
-    if not isinstance(pts, dict) or set(pts) != set(STATS):
-        problems.append(f"points must have exactly: {', '.join(STATS)}")
-    else:
-        for k, v in pts.items():
-            if not isinstance(v, int) or isinstance(v, bool) or not STAT_MIN <= v <= STAT_MAX:
-                problems.append(f"{k} must be a whole number from {STAT_MIN} to {STAT_MAX}")
-        if all(isinstance(v, int) for v in pts.values()) and sum(pts.values()) > POINTS_TOTAL:
-            problems.append(f"{sum(pts.values())} points used: the most you can spend is {POINTS_TOTAL}")
-    settings = d.get("settings", {})
-    for k, (lo, hi, _, _) in SETTINGS.items():
-        v = settings.get(k) if isinstance(settings, dict) else None
-        if not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi:
-            problems.append(f"{k} must be from {lo} to {hi}")
+    problems = _limits().problems(d, limits)
     if d.get("body") not in BODIES:
         problems.append(f"body must be one of {', '.join(BODIES)}")
     elif d.get("body") in MODEL_BODIES and "look" in d:

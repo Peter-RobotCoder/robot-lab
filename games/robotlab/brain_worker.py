@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import brain_rules as rules  # noqa: E402
 
 MEMORY_LIMIT = 256 * 1024 * 1024
+SENSOR_SPREAD = 3.0  # metres: how far out to each side a Braitenberg vehicle's feelers reach (CHANGE 98)
 
 
 def limit_process():
@@ -52,6 +53,22 @@ class View:
     def distance_to(self, thing):
         return math.hypot(thing.x - self.x, thing.y - self.y)
 
+    def _side(self, thing, sign):
+        """CHANGE 98 (Braitenberg vehicles): how far thing is from this side's feeler, 0 (touching) to 100 (the far
+        corner of the arena). A feeler reaches SENSOR_SPREAD metres out to the left (sign +1) or right (-1) of
+        the robot: the wheels themselves are too close together for the two distances to differ much."""
+        h = math.radians(getattr(self, "heading", 0.0))
+        half = getattr(self, "half_width", 0.5) + SENSOR_SPREAD
+        wx, wy = self.x - sign * half * math.cos(h), self.y - sign * half * math.sin(h)  # (right = (cos h, sin h))
+        far = getattr(self, "arena", 20.0) * math.sqrt(2)
+        return max(0.0, min(100.0, 100.0 * math.hypot(thing.x - wx, thing.y - wy) / far))
+
+    def distance_from_left(self, thing):
+        return self._side(thing, 1)
+
+    def distance_from_right(self, thing):
+        return self._side(thing, -1)
+
     def angle_to(self, thing):
         """Degrees to turn to face thing: positive = turn left, negative = turn right."""
         want = math.degrees(math.atan2(-(thing.x - self.x), thing.y - self.y))
@@ -66,8 +83,8 @@ def load(source, fname):
     except SyntaxError as e:
         raise rules.RuleError(f"line {e.lineno}: {e.msg}") from None
     rules.check_code(tree)
-    code = ast.Module(body=[n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef))],
-                      type_ignores=[])
+    code = ast.Module(body=[n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef,
+                                                                   ast.Assign))], type_ignores=[])
     namespace = {"__builtins__": {**rules.SAFE_BUILTINS, "__import__": rules.safe_import,
                                   "print": lambda *a, **k: None}}
     exec(compile(code, fname, "exec"), namespace)

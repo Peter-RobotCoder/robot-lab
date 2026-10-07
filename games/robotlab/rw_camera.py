@@ -33,17 +33,40 @@ class GameCamera:
         self.zoom_scale = 1.0    # zoomed follow: tighter or wider framing (0.2 to 4)
         self.arena_scale = 1.0   # full arena: closer or further away (0.35 to 2)
         self.centre_scale = 1.0  # centre camera: closer or further away (0.35 to 2)
-        self.orbit, self.tilt = 0.0, 0.0  # your own view: degrees swung round, and tilted up (or down)
+        self.angles = {m: [0.0, 0.0] for m in MODES}  # each view's own swing round and tilt up, degrees (CHANGE 111)
+        self.pans = {m: 0.0 for m in MODES}             # ...and how far it was moved sideways, metres (CHANGE 112)
         self.drag_from = None
         self.rig_shown, self.rig_check = True, 0
         self.look_z = 0.0        # (the height of what the view looks at: a swung camera stays above the floor)
+
+    @property
+    def orbit(self):
+        return self.angles[self.mode][0]
+
+    @orbit.setter
+    def orbit(self, value):
+        self.angles[self.mode][0] = value
+
+    @property
+    def tilt(self):
+        return self.angles[self.mode][1]
+
+    @tilt.setter
+    def tilt(self, value):
+        self.angles[self.mode][1] = value
 
     def turn(self, degrees):
         """Swing the view round (keys)."""
         self.orbit = (self.orbit + degrees) % 360
 
+    def pan(self, metres):
+        """Move the view sideways (sideways scroll on a touchpad: CHANGE 112), this view only."""
+        self.pans[self.mode] = max(-12.0, min(12.0, self.pans[self.mode] + metres))
+
     def reset_view(self):
-        self.orbit, self.tilt = 0.0, 0.0
+        """Home: this view back as it comes (its swing, tilt and sideways move)."""
+        self.angles[self.mode] = [0.0, 0.0]
+        self.pans[self.mode] = 0.0
 
     def mouse_drag(self):
         """Dragging with the right mouse button swings the view round (left and right) and tilts it (up and down)."""
@@ -98,7 +121,9 @@ class GameCamera:
     def settings(self):
         return {"mode": self.mode, "dist": round(self.dist, 2), "fpv": round(self.fpv_scale, 2),
                 "zoom": round(self.zoom_scale, 2), "arena": round(self.arena_scale, 2),
-                "centre": round(self.centre_scale, 2), "orbit": round(self.orbit, 1), "tilt": round(self.tilt, 1)}
+                "centre": round(self.centre_scale, 2), "orbit": round(self.orbit, 1), "tilt": round(self.tilt, 1),
+                "angles": {m: [round(o, 1), round(t, 1)] for m, (o, t) in self.angles.items()},
+                "pans": {m: round(p, 2) for m, p in self.pans.items()}}
 
     def restore(self, saved):
         """Put back a view and zoom levels saved earlier (e.g. in a learner's profile)."""
@@ -110,8 +135,17 @@ class GameCamera:
             self.zoom_scale = max(0.2, min(4.0, float(saved.get("zoom", self.zoom_scale))))
             self.arena_scale = max(0.35, min(2.0, float(saved.get("arena", self.arena_scale))))
             self.centre_scale = max(0.35, min(2.0, float(saved.get("centre", self.centre_scale))))
-            self.orbit = float(saved.get("orbit", 0.0)) % 360
-            self.tilt = max(-12.0, min(55.0, float(saved.get("tilt", 0.0))))
+            if isinstance(saved.get("angles"), dict):  # (each view's own: CHANGE 111)
+                for m, (o, t) in saved["angles"].items():
+                    if m in MODES:
+                        self.angles[m] = [float(o) % 360, max(-12.0, min(55.0, float(t)))]
+            else:  # (saved before each view had its own: the one swing goes to the view in use)
+                self.orbit = float(saved.get("orbit", 0.0)) % 360
+                self.tilt = max(-12.0, min(55.0, float(saved.get("tilt", 0.0))))
+            if isinstance(saved.get("pans"), dict):
+                for m, p in saved["pans"].items():
+                    if m in MODES:
+                        self.pans[m] = max(-12.0, min(12.0, float(p)))
         except (TypeError, ValueError, AttributeError):
             pass
 
@@ -197,7 +231,13 @@ class GameCamera:
         self.look += (look - self.look) * a
         self.fov += (fov - self.fov) * min(1.0, dt * 4)
         cam = self.base.camera
-        cam.setPos(self.pos + shake)
-        cam.lookAt(self.look)
+        shift = Vec3(0)
+        if self.pans[self.mode]:  # moved sideways (CHANGE 112): the camera and what it looks at, across the view
+            right = Vec3(self.look - self.pos).cross(Vec3(0, 0, 1))
+            if right.length() > 1e-6:
+                right.normalize()
+                shift = right * self.pans[self.mode]
+        cam.setPos(self.pos + shake + shift)
+        cam.lookAt(self.look + shift)
         self.base.camLens.setFov(self.fov)
         self.base.camLens.setNear(0.05 if focus_mode == "fpv" else 0.2)

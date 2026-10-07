@@ -8,22 +8,27 @@ A game's window inherits HudKit (with ShowBase) and calls setup() once, naming i
 whose colour names should follow the look. Tabs and sections a game or a user mod adds are registered with
 add_tab(), never written into this file.
 """
+import copy
 import json
 import os
+import sys
 
-from direct.gui.DirectGui import DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame, DirectLabel
+from direct.gui.DirectGui import (DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame, DirectLabel,
+                                  DirectSlider)
 from direct.gui.OnscreenText import OnscreenText
-from panda3d.core import MouseButton, TextNode
+from panda3d.core import MouseButton, PGItem, TextNode, WindowProperties
 
 from engine import editor
 
 APP = None  # the window (so any button click can end typing in a text box): set by setup_app
-THEMED = [__import__(__name__)]  # modules whose colour names are swapped by set_theme (this one, and the games')
+SEND = None  # the window's send(message) to its server: set by setup_app
+THEMED = [sys.modules[__name__]]  # modules whose colour names are swapped by set_theme (this one, and the games')
+# (__import__("engine.hud") gave the package, not this module, so the kit's own drawing stayed dark in light mode)
 
 
-def setup_app(app):
-    global APP
-    APP = app
+def setup_app(app, send=None):
+    global APP, SEND
+    APP, SEND = app, send
 
 
 def load_json(path):
@@ -102,7 +107,8 @@ TIPS = {
            "instead of typed commands.",
     "VARIABLE": "A variable is a name that holds a value. Change the value and the program behaves differently.",
     "STRING": "A string is text: letters, digits, spaces and symbols, in quotes. \"Richy\" is a string. "
-              "Its type is str.",
+              "Its type is str. A string is made of chars: a char is one character from the ASCII set of "
+              "characters, a letter, a digit, a space or a symbol.",
     "INTEGER": "An integer is a whole number: 0, 25, 100 or -3, with no decimal point. Its type is int.",
     "LIST": "A list holds several values in order, in square brackets: [220, 60, 50]. Its type is list.",
     "str": "str: the string type. A string is text, made of chars. A char is one character from the ASCII set of "
@@ -186,6 +192,12 @@ class HudKit:
     teacher = False
     CODE_PANEL = (-0.86, 0.01, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
     CODE_ROWS = 19                           # lines of code it shows at once (longer code scrolls)
+    reflections = ()                         # the objectives answered in writing (a box in the Mission tab)
+    user_mods = {}                           # the game's user mods: key -> (title, what it does)
+    STAGE_WORD = "ARENA"                     # the Mods tab's heading for the game's own items (hazards and so on)
+    MODS_PER_PAGE = 7                        # user mods on one page of the Mods tab (under those items)
+    LIMITS_TITLE = "LIMITS"                  # the Limits tab's heading, and its note on the size setting
+    LIMITS_NOTE = "Size: 100 is the standard size."
 
     def init_hud(self):
         """Called once by the game's window, before any panel is drawn."""
@@ -193,12 +205,30 @@ class HudKit:
         self.panel_bar, self.panel_drag, self.last_aspect = [], None, None
         self.head_bottom = 0.875
         self.tip = None  # the description of the word the mouse is over (CHANGE 44 and 45)
+        self.open_objective = None  # the Mission tab: the objective whose guidance is dropped down (CHANGE 53)
+        self.missions = None  # the server's missions message: the mission, its objectives, the learner's record
+        self.mod_info, self.mods_page = {}, 0  # user mods: their makers, the votes and who is in this group
+        self.warnings, self.warnings_seen = [], 0  # teacher: the Warnings tab, and how many of them have been seen
+        self.limit_sliders, self.limits_draft, self.limits_moved = {}, None, False  # teacher: the Limits tab
+        self.my_name = ""     # the player's name (a learner's tick on the Mods tab is a vote in their name)
         self.text_size = SETTINGS.get("text_size") if SETTINGS.get("text_size") in TEXT_SIZES else "medium"
+        self.fullscreen, self.windowed = False, None  # (CHANGE 108)
+        self.slots, self.slot_pick, self.slot_confirm = {}, 1, None  # saved designs (CHANGE 83): who -> slot -> design
+        self.history, self.load_from = None, None  # (CHANGE 84, 86: the teacher's Load from row)
+        self.loaded_note = ""
+        self.full_button = button(self.aspect2d, "[ ]", 1.735, 0.965, self.toggle_fullscreen, None, 0.024, (0.2, 0.22, 0.28, 0.9))
+        self.full_button["sortOrder"] = 20  # (above the side panel header)
+        self.full_button.bind(DGG.WITHIN, lambda e: self.show_tip("Full screen: the game fills the screen, no title bar "
+                                                                 "or taskbar. Press again for a window."))
+        self.full_button.bind(DGG.WITHOUT, lambda e: self.hide_tip())
+        if SETTINGS.get("fullscreen"):
+            self.taskMgr.doMethodLater(0.5, lambda t: self.toggle_fullscreen() and None, "full screen at the start")
         self.panel_scroll = 0.0  # how far a side panel taller than the screen has been slid up (CHANGE 40)
         self.invert_scroll = bool(SETTINGS.get("invert_scroll"))  # the mouse wheel the other way up (Settings)
         self.invert_zoom = bool(SETTINGS.get("invert_zoom"))      # ...and for the camera's zoom, its own switch
         self.entries, self.entry_text, self.typing = {}, {}, None  # text boxes on screen, what they held, which has the keyboard
         self.code_editor = None
+        self.custom_colour = None  # the garage's custom colour block: the colour the code last set (CHANGE 48)
         self.code_at, self.code_drag = [0.0, 0.0], None  # how far the code panel has been dragged from its first place
         self.code_size, self.code_resize = [0.0, 0.0], None  # ...and how much wider and taller it has been made (CHANGE 60)
 
@@ -212,7 +242,7 @@ class HudKit:
             word(f, "HUD", 0.81, 0.937, 0.036, YELLOW, "HUD")
             label(f, "/", 0.905, 0.937, 0.036, GREY)
             word(f, "GUI", 0.935, 0.937, 0.036, YELLOW, "GUI")
-            label(f, "hover over a word in capitals\nto see what it means", 1.74, 0.952, 0.017, GREY,
+            label(f, "hover over a word in capitals\nto see what it means", 1.68, 0.952, 0.017, GREY,
                   TextNode.ARight)
         for i, (key, text) in enumerate(tabs):
             b = button(f, tab_text(key, text) if tab_text else text, left + (i % across + 0.5) * (width / across),
@@ -223,11 +253,166 @@ class HudKit:
         self.panel_body = self.panel.attachNewNode("body")
         return self.panel_body, 0.84 if teacher else 0.83
 
+    # ---------- saved designs (CHANGE 83 to 87): five slots, the history, the teacher's loading ----------
+    UNIT = "robot"          # (the game's word: robot, fighter)
+    ALL_LEARNERS = "All learners"
+
+    def took_slots(self, m):
+        """A slots or history message from the server."""
+        if m["type"] == "slots":
+            self.slots[m["who"]] = m.get("slots", {})
+        else:
+            self.history = m.get("items", [])
+        return self.tab in ("garage", "learners")
+
+    def slot_action(self, do, n, who=None):
+        """SAVE HERE, LOAD or DELETE on slot n: a save over a full slot and a delete ask first (press again)."""
+        mine = self.slots.get(who or self.my_name, {})
+        if do in ("save", "delete") and str(n) in mine and self.slot_confirm != (do, n):
+            self.slot_confirm = (do, n)
+            self.rebuild_panels()
+            return
+        self.slot_confirm = None
+        if do == "load":
+            self.take_design(mine[str(n)]["design"])
+            self.loaded_note = f"Loaded {mine[str(n)]['name']} from slot {n}: press BUILD to use it."
+        elif do == "save":
+            SEND({"type": "slot", "do": "save", "n": n, "design": self.cur()})
+        elif do == "delete":
+            SEND({"type": "slot", "do": "delete", "n": n})
+        self.rebuild_panels()
+
+    def take_design(self, design):
+        """A saved design goes into the garage (the draft being edited), ready to build."""
+        d = self.cur()
+        d.clear()
+        d.update(copy.deepcopy(design))
+        self.entry_text.pop(self.name_key(), None)
+        if self.name_key() in self.entries:
+            self.entries[self.name_key()].enterText(str(d.get("name", "")))
+        self.code_shown = None
+
+    def build_slots(self, f, y, view=None):
+        """The garage's SAVED ROBOTS row(s). A learner: their five slots. The teacher's own garage: theirs. The
+        Learner view: Load from the learner's slots, the teacher's own, or the history (LOAD only)."""
+        unit = self.UNIT.upper()
+        if view == self.ALL_LEARNERS:
+            label(f, f"Build one {self.UNIT} here, then BUILD FOR ALL LEARNERS: every learner gets exactly it, and "
+                     f"anyone who joins later. Their saved slots are not touched.", 0.82, y, 0.021, GREY, wrap=46)
+            y -= 0.07
+            return self.build_load_from(f, y, view)
+        if view:
+            return self.build_load_from(f, y, view)
+        mine = self.slots.get(self.my_name, {})
+        label(f, f"SAVED {unit}S", 0.82, y, 0.029, YELLOW)
+        label(f, "pick a slot, then save, load or delete", 1.74, y, 0.02, GREY, TextNode.ARight)
+        y -= 0.045
+        for n in range(1, 6):
+            held = mine.get(str(n))
+            button(f, f"{n}: {held['name'] if held else 'empty'}", 0.9 + (n - 1) * 0.17, y + 0.008, self.pick_slot, [n],
+                   0.022, ON if self.slot_pick == n else OFF)
+        y -= 0.05
+        n, held = self.slot_pick, mine.get(str(self.slot_pick))
+        if self.slot_confirm == ("save", n):
+            label(f, f"Overwrite {held['name']}?", 0.84, y, 0.024, ORANGE)
+            button(f, "YES, SAVE", 1.12, y + 0.008, self.slot_action, ["save", n], 0.022, (0.6, 0.35, 0.1, 1))
+            button(f, "No", 1.3, y + 0.008, self.cancel_slot, None, 0.022)
+        elif self.slot_confirm == ("delete", n):
+            label(f, f"Delete {held['name']}?", 0.84, y, 0.024, ORANGE)
+            button(f, "YES, DELETE", 1.12, y + 0.008, self.slot_action, ["delete", n], 0.022, (0.6, 0.2, 0.15, 1))
+            button(f, "No", 1.3, y + 0.008, self.cancel_slot, None, 0.022)
+        else:
+            button(f, "SAVE HERE", 0.9, y + 0.008, self.slot_action, ["save", n], 0.022, (0.15, 0.45, 0.65, 1))
+            if held:
+                button(f, "LOAD", 1.1, y + 0.008, self.slot_action, ["load", n], 0.022)
+                button(f, "DELETE", 1.24, y + 0.008, self.slot_action, ["delete", n], 0.022)
+            label(f, self.loaded_note, 1.4, y, 0.02, GREEN, wrap=22)
+        y -= 0.06
+        return y
+
+    def pick_slot(self, n):
+        self.slot_pick, self.slot_confirm = n, None
+        self.rebuild_panels()
+
+    def cancel_slot(self):
+        self.slot_confirm = None
+        self.rebuild_panels()
+
+    def build_load_from(self, f, y, view):
+        """The teacher's Learner view: load a saved design into this garage from the learner's slots, the teacher's
+        own, or the history of every save (CHANGE 86)."""
+        choices = [("mine", "My saved")] + ([("theirs", f"{view}'s saved")] if view != self.ALL_LEARNERS else []) + \
+            [("history", "History")]
+        label(f, "Load from", 0.82, y, 0.026, YELLOW)
+        for i, (key, text) in enumerate(choices):
+            button(f, text, 0.98 + i * 0.22, y + 0.008, self.set_load_from, [key, view], 0.022,
+                   ON if self.load_from == key else OFF)
+        label(f, self.loaded_note, 1.74, y - 0.035, 0.02, GREEN, TextNode.ARight)
+        y -= 0.05
+        if self.load_from == "history":
+            items = self.history or []
+            if not items:
+                label(f, "Nothing saved yet." if self.history is not None else "Loading...", 0.84, y, 0.022, GREY)
+                y -= 0.04
+            for it in items[:12]:
+                label(f, f"{it['when']}  {it['who']}  slot {it['slot']}:  {it['name']}", 0.84, y, 0.021)
+                button(f, "LOAD", 1.6, y + 0.008, self.load_item, [it["design"], it["name"]], 0.02)
+                y -= 0.036
+        elif self.load_from in ("mine", "theirs"):
+            who = self.my_name if self.load_from == "mine" else view
+            slots = self.slots.get(who)
+            if slots is None:
+                label(f, "Loading...", 0.84, y, 0.022, GREY)
+                y -= 0.04
+            elif not slots:
+                label(f, "No saved " + self.UNIT + "s.", 0.84, y, 0.022, GREY)
+                y -= 0.04
+            for n, held in sorted(slots.items() if slots else []):
+                label(f, f"slot {n}:  {held['name']}", 0.84, y, 0.022)
+                button(f, "LOAD", 1.6, y + 0.008, self.load_item, [held["design"], held["name"]], 0.02)
+                y -= 0.036
+        return y - 0.02
+
+    def set_load_from(self, key, view):
+        self.load_from = key
+        if key == "history":
+            SEND({"type": "history"})
+        elif key == "theirs":
+            SEND({"type": "slots_of", "name": view})
+        self.rebuild_panels()
+
+    def load_item(self, design, name):
+        self.take_design(design)
+        self.loaded_note = f"Loaded {name}: press BUILD to use it."
+        self.rebuild_panels()
+
+    def toggle_fullscreen(self):
+        """CHANGE 108: a borderless window the size of the screen, or back to the window it was."""
+        win = getattr(self, "win", None)
+        if win is None or not hasattr(win, "requestProperties"):
+            return
+        wp = WindowProperties()
+        if not self.fullscreen:
+            cur = win.getProperties()
+            self.windowed = (cur.getXSize(), cur.getYSize(), cur.getXOrigin(), cur.getYOrigin())
+            wp.setUndecorated(True)
+            wp.setOrigin(0, 0)
+            wp.setSize(self.pipe.getDisplayWidth(), self.pipe.getDisplayHeight())
+        else:
+            w, h, x, y = self.windowed or (1280, 720, 60, 60)
+            wp.setUndecorated(False)
+            wp.setOrigin(max(0, x), max(0, y))
+            wp.setSize(w, h)
+        win.requestProperties(wp)
+        self.fullscreen = not self.fullscreen
+        self.full_button["text"] = "> <" if self.fullscreen else "[ ]"
+        remember("fullscreen", self.fullscreen)
+
     def hud_prefs(self):
         """What a learner's profile keeps of these settings (so they follow them to any computer)."""
         return {"code_at": [round(v, 3) for v in self.code_at], "code_size": [round(v, 3) for v in self.code_size],
                 "text_size": self.text_size, "theme": THEME, "invert_scroll": self.invert_scroll,
-                "invert_zoom": self.invert_zoom}
+                "invert_zoom": self.invert_zoom, "last_tab": self.tab or getattr(self, "last_tab", None)}
 
     def restore_hud_prefs(self, prefs):
         try:  # where they left the code panel
@@ -251,6 +436,20 @@ class HudKit:
             if "invert_zoom" in prefs:
                 self.invert_zoom = bool(prefs["invert_zoom"])
                 remember("invert_zoom", self.invert_zoom)
+        if isinstance(prefs.get("last_tab"), str):  # (CHANGE 103: I opens the HUD on the tab last used)
+            self.last_tab = prefs["last_tab"]
+
+    def toggle_panel(self):
+        """I (CHANGE 103): the side panel closes, or opens on the tab last used."""
+        if self.tab:
+            self.last_tab, self.tab = self.tab, None
+        else:
+            self.tab = getattr(self, "last_tab", None) or self.FIRST_TAB
+        self.code_shown = None
+        self.rebuild_panels()
+
+    FIRST_TAB = "missions"   # (the game sets it: the tab I opens before any has been used)
+    panel_floor = -1.0       # the screen's y the side panel may reach down to (above the key list: CHANGE 104)
 
     def show_tip(self, text):
         """A word's description, beside the mouse (to its left: the panel is at the right edge of the screen)."""
@@ -258,11 +457,12 @@ class HudKit:
         at = self.mouse_at()
         if at is None:
             return
-        self.tip = DirectFrame(frameColor=(0.1, 0.12, 0.18, 0.97), frameSize=(-0.76, 0, -0.1, 0.03),
-                               pos=(max(at[0] - 0.02, 0.78 - self.getAspectRatio()), 0, at[1] - 0.03))
-        t = label(self.tip, text, -0.74, 0.0, 0.023, WHITE, wrap=31)
+        s = self.text_scale()  # (CHANGE 105: the description follows the text size; CHANGE 110: and the theme)
+        self.tip = DirectFrame(frameColor=HANDLE, frameSize=(-0.76 * s, 0, -0.1, 0.03 * s),
+                               pos=(max(at[0] - 0.02, 0.78 * s - self.getAspectRatio()), 0, at[1] - 0.03))
+        t = label(self.tip, text, -0.74 * s, 0.0, 0.023 * s, WHITE, wrap=31)
         rows = t.textNode.getNumRows()
-        self.tip["frameSize"] = (-0.76, 0, -0.023 * 1.2 * rows - 0.01, 0.03)
+        self.tip["frameSize"] = (-0.76 * s, 0, -0.023 * s * 1.2 * rows - 0.01, 0.03 * s)
 
     def hide_tip(self):
         if getattr(self, "tip", None) is not None:
@@ -284,9 +484,8 @@ class HudKit:
         px, pz = 1.76 * (1 - s), 0.97 * (1 - s)
         self.panel.setPos(px, 0, pz)
         top = self.head_bottom                   # the body shows from here (panel units)...
-        bottom = max(-0.93, (-1.0 - pz) / s)     # ...down to the screen's bottom (or the panel's)
-        lo, hi = self.panel_body.getTightBounds()
-        content_bottom = lo.z if lo is not None else bottom
+        bottom = max(-0.93, (self.panel_floor - pz) / s)  # ...down to the key list (CHANGE 104), or the panel's bottom
+        content_bottom = self.body_bottom(bottom)
         most = max(0.0, bottom - content_bottom + 0.03)  # how far the body can slide up
         self.panel_scroll = max(0.0, min(most, self.panel_scroll))
         self.panel_body.setZ(self.panel_scroll)
@@ -314,6 +513,19 @@ class HudKit:
         thumb.bind(DGG.B1PRESS, self.bar_press)
         self.panel_bar = [track, thumb]
         self.panel_bar_geometry = (top, bottom, length, most)
+
+    def body_bottom(self, if_empty):
+        """The lowest point of the tab's drawing, in panel units (with the body unslid). The tight bounds only
+        measure the plain text: a button, tick box, slider or entry box (a PGItem) draws its frame and text in
+        its own state nodes, which aren't measured, so a button at the very bottom of a tab is measured here
+        from its position and frame."""
+        body = self.panel_body
+        lo, hi = body.getTightBounds()
+        lowest = lo.z - body.getZ() if lo is not None else if_empty
+        for n in body.findAllMatches("**/+PGItem"):
+            frame = n.node().getFrame()
+            lowest = min(lowest, n.getZ(body) + frame[2] * n.getSz(body))
+        return lowest
 
     def slide_panel(self, step):
         self.panel_scroll += 0.2 * step
@@ -416,6 +628,18 @@ class HudKit:
                    ON if on == self.invert_zoom else OFF)
         y -= 0.045
         label(f, "Normal: wheel up zooms in. Inverted: wheel up zooms out.", 0.82, y, 0.02, GREY)
+        y -= 0.07
+        label(f, "Version", 0.82, y, 0.03)
+        label(f, self.version_text(), 1.12, y, 0.024, GREY)  # (CHANGE 106)
+
+    VERSION = ""    # the game sets these: its release number...
+    LIVE_ID = None  # ...and the live update's id when it is running one (lab_version.live_id())
+
+    def version_text(self):
+        text = f"Club Coders {self.VERSION}" if self.VERSION else "unknown"
+        if self.LIVE_ID:
+            text += f"  with live update {str(self.LIVE_ID)[:8]}"
+        return text
 
     def start_typing(self, key):
         if self.typing == "code" and key != "code" and self.code_editor is not None:
@@ -458,8 +682,33 @@ class HudKit:
         if key == self.typing:  # redrawn while typing: carry on typing in the new box
             e["focus"] = 1
             e.setCursorPosition(len(e.get()))
+        e.bind(DGG.B1PRESS, lambda ev, e=e: self.taskMgr.doMethodLater(0, self.place_cursor, "entry click", [e]))
         self.entries[key] = e
         return e
+
+    def place_cursor(self, e, task=None):
+        """CHANGE 92: a click in a text box puts the cursor at the letter clicked (from the click's x and the
+        width of the text up to each letter), on every line of a box with several."""
+        try:
+            at = self.mouse_at()
+            if at is None or e.isEmpty():
+                return
+            local = e.getRelativePoint(self.aspect2d, (at[0], 0, at[1]))  # (in the box's own units: the text's)
+            text = e.get()
+            tn = TextNode("measure")
+            tn.setFont(e.guiItem.getTextDef(0).getFont())
+            lines = text.split("\n")
+            row = max(0, min(len(lines) - 1, int((0.8 - local.z) / 1.2)))  # (DirectEntry lines are 1.2 apart)
+            line = lines[row]
+            before = sum(len(l) + 1 for l in lines[:row])
+            best, best_d = 0, None
+            for i in range(len(line) + 1):
+                d = abs(tn.calcWidth(line[:i]) - local.x)
+                if best_d is None or d < best_d:
+                    best, best_d = i, d
+            e.setCursorPosition(before + best)
+        except Exception:  # (a box being destroyed, or a font without widths: the click still focuses it)
+            pass
 
     def code_rect(self):
         """The code panel's frame: its first size, plus how much wider and taller it has been dragged."""
@@ -530,3 +779,319 @@ class HudKit:
             self.code_resize = ((x0, y0), (w0, h0), list(self.code_size))
             self.refresh_code_panel()
         return task.cont
+
+    # ---------- the Mission tab (CHANGE 50 to 53, 56): the objectives, from the server's missions message ----------
+    def build_missions(self, f, y, m=None, preview=False):
+        m = m or self.missions
+        self.top_speed_text = None
+        if not m:
+            label(f, "Waiting for missions...", 0.82, y, 0.03, GREY)
+            return
+        title = label(f, f"MISSION {m['lesson']}: {m['title']}", 0.82, y, 0.034, YELLOW, wrap=26)
+        y -= 0.045 * title.textNode.getNumRows() + 0.005
+        label(f, "Objectives. Click one to see what to do; a done one shows what you did.", 0.82, y, 0.021, GREY)
+        y -= 0.045
+        # (CHANGE 53) each objective is its title: done, the result is under it; not done, clicking the title drops
+        # down its explanation and guidance. The teacher's Learner view shows everything.
+        for i, mm in enumerate(m["missions"]):
+            tick = "DONE" if mm["done"] else ("TEACHER" if mm["check"] == "teacher" else "TO DO")
+            letter = f"{'abcdefgh'[i]}. " if i < 8 else ""
+            text = f"[{tick}]  {letter}{mm['title']}"
+            if preview:
+                label(f, text, 0.82, y, 0.03, GREEN if mm["done"] else WHITE)
+            else:
+                opened = self.open_objective == mm["id"]
+                bright = tuple(min(1.0, c * 1.25) for c in GREEN[:3]) + (1,)  # (bold green when clicked: CHANGE 95)
+                colour = (bright if opened else GREEN) if mm["done"] else (YELLOW if opened else WHITE)
+                text_button(f, text, 0.82, y, self.toggle_objective, [mm["id"]], 0.033 if opened and mm["done"] else 0.03,
+                            colour)
+            outcomes = label(f, " ".join(mm["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
+            if mm["done"]:  # (CHANGE 95: a tick at the end of a done title, drawn: the font has no tick glyph)
+                self.tick_mark(f, 1.74 - 0.022 * outcomes.textNode.calcWidth(" ".join(mm["outcomes"])) - 0.045, y + 0.008)
+            y -= 0.04
+            open_ = preview or self.open_objective == mm["id"]
+            if mm["done"]:  # (the result; and the guidance too when it is dropped down: CHANGE 56)
+                t = label(f, mm["detail"], 0.84, y, 0.024, GREEN, wrap=36)
+                y -= 0.03 * t.textNode.getNumRows() + 0.01
+            if open_:
+                t = label(f, mm["text"], 0.84, y, 0.024, GREY, wrap=36)
+                y -= 0.03 * t.textNode.getNumRows() + 0.01
+            if preview:  # the teacher sees what the learner typed, not boxes to type in
+                typed = m["text"].get(mm["id"])
+                if typed and not mm["done"]:
+                    label(f, f"They wrote: {typed}", 0.86, y, 0.022, BLUE, wrap=38)
+                    y -= 0.045
+                y -= 0.01
+                continue
+            if mm["id"] in self.reflections and not mm["done"] and open_:
+                self.entry(f, f"reflect_{mm['id']}", 0.84, y, 30, 2, initial=m["text"].get(mm["id"], ""), scale=0.026)
+                button(f, "Save", 1.66, y - 0.02, self.save_reflection, [mm["id"]], 0.026)
+                y -= 0.09
+            y -= 0.01
+        if m["lesson"] >= 3:
+            status = ("autopilot ON" if m["autopilot"] else "uploaded (press P for autopilot)") if m["brain"] \
+                else "not uploaded yet (edit brains/my_brain.py, then press U)"
+            label(f, f"Brain: {status}", 0.82, max(y, -0.8), 0.026, GREEN if m["brain"] else GREY)
+            if m.get("brain_error"):
+                label(f, f"Brain stopped: {m['brain_error']}", 0.82, max(y, -0.8) - 0.045, 0.024, RED, wrap=38)
+
+    @staticmethod
+    def tick_mark(f, x, y, size=0.022, colour=None):
+        """A tick drawn from two bars (the HUD's font has no tick character)."""
+        c = colour or GREEN
+        short = DirectFrame(parent=f, frameColor=c, frameSize=(-0.004, 0.004, 0, size * 0.55),
+                            pos=(x - size * 0.3, 0, y - size * 0.1))
+        short.setR(-40)
+        long_ = DirectFrame(parent=f, frameColor=c, frameSize=(-0.004, 0.004, 0, size), pos=(x, 0, y - size * 0.25))
+        long_.setR(35)
+
+    def toggle_objective(self, mid):
+        """Drop down an objective's guidance in the Mission tab, or fold it away again."""
+        self.open_objective = None if self.open_objective == mid else mid
+        self.rebuild_panels()
+
+    def save_reflection(self, mission):
+        SEND({"type": "reflection", "mission": mission, "text": self.entries[f"reflect_{mission}"].get()})
+
+    # ---------- the Mods tab (CHANGE 4 to 8, 55, 71): the game's items and the user mods, with votes ----------
+    def mod_title(self, key):
+        """A user mod's name with its maker's in front: "Sam's Spike pit"."""
+        maker = (self.mod_info.get("makers") or {}).get(key)
+        title = self.user_mods[key][0]
+        return f"{maker}'s {title}" if maker else title
+
+    def mod_order(self):
+        """Every user mod as (key, its maker is in this group), with this group's own mods first."""
+        makers = self.mod_info.get("makers", {})
+        here = {n.lower() for n in self.mod_info.get("here", [])}
+        mods = [(k, bool(makers.get(k)) and makers[k].lower() in here) for k in self.user_mods]
+        return sorted(mods, key=lambda m: not m[1])  # (a stable sort: otherwise the order they were made in)
+
+    @staticmethod
+    def votes_text(voters, form="{}"):
+        n = len(voters or [])
+        return form.format(f"{n} vote{'' if n == 1 else 's'}") if n else ""
+
+    def build_mods(self, f, y, as_learner=False):
+        """The Mods tab: the arena's items, then the user mods. The teacher's ticks switch them on and off; a
+        learner's tick is a vote for it (the teacher sees how many votes, and whose).
+        as_learner: the teacher's preview of what a learner sees (the Learner view): the ticks do nothing."""
+        L = self.lesson
+        teacher = self.teacher and not as_learner
+        vote = (lambda msg: None) if as_learner else SEND
+        mods_on, votes, asked = L.get("user_mods", {}), self.mod_info.get("votes", {}), self.mod_info.get("arena_votes", {})
+        in_vote = L.get("mods_in_vote", {})  # (CHANGE 55: a mod not in the vote is hidden from learners, unless on)
+        arena_vote = L.get("arena_in_vote", {})  # (the same for the arena's hazards and Resident Robots)
+        label(f, self.STAGE_WORD, 0.82, y, 0.036, YELLOW)
+        label(f, "Your tick switches it on or off; \"in the vote\": learners see it and can vote for it." if teacher else
+              "Tick what you'd like in the game: your teacher sees the votes.", 1.74, y, 0.021, GREY, TextNode.ARight)
+        y -= 0.06
+        items = self.stage_items()  # (the game's: its hazards and the like, with how the teacher switches each)
+        if teacher and items:  # (CHANGE 101: every item into or out of the vote at once)
+            self.vote_all_row(f, y, "arena_in_vote", [it[0] for it in items])
+            y -= 0.045
+        if not teacher:  # (an item out of the vote is hidden, unless it is on)
+            items = [it for it in items if arena_vote.get(it[0], True) or it[2]]
+        for key, text, on, switch in items:
+            voters = asked.get(key, [])
+            if teacher:
+                check(f, " " + text, 0.84, y, on, switch, 0.024)
+                check(f, " in the vote", 1.3, y, arena_vote.get(key, True),
+                      lambda v, k=key: self.set_lesson({"arena_in_vote": {k: bool(v)}}), 0.022, GREY)
+                if voters:
+                    label(f, f"{len(voters)}: {', '.join(voters)}", 1.74, y, 0.02, BLUE, TextNode.ARight)
+            elif arena_vote.get(key, True):
+                check(f, " " + text + self.votes_text(voters, "  ({})") + ("   ON" if on else ""), 0.84, y,
+                      self.my_name in voters, lambda v, k=key: vote({"type": "arena_vote", "item": k, "on": bool(v)}),
+                      0.024, GREEN if on else WHITE)
+            else:
+                label(f, text + "   ON", 0.86, y, 0.024, GREEN)
+            y -= 0.036
+        y -= 0.03
+        label(f, "USER MODS", 0.82, y, 0.036, YELLOW)
+        y -= 0.05
+        label(f, "Learners' ideas, built into the game. Tick a mod to switch it on or off: it works straight away.\n"
+                 "Green: made by a learner in this group. \"In the vote\": learners see it and can vote for it." if teacher
+              else "Learners' ideas, built into the game. Tick the ones you'd like in the game: your teacher\n"
+                   "sees the votes and switches mods on.", 0.82, y, 0.021, GREY)
+        y -= 0.085
+        order = self.mod_order()
+        if teacher and order:  # (CHANGE 101)
+            self.vote_all_row(f, y, "mods_in_vote", [k for k, _ in order])
+            y -= 0.045
+        if not teacher:
+            order = [(k, lit) for k, lit in order if in_vote.get(k, True) or mods_on.get(k)]
+        if not order:
+            label(f, "No user mods yet.", 0.84, y, 0.026, GREY)
+        pages = max(1, (len(order) + self.MODS_PER_PAGE - 1) // self.MODS_PER_PAGE)
+        self.mods_page = min(self.mods_page, pages - 1)
+        for key, lit in order[self.mods_page * self.MODS_PER_PAGE:(self.mods_page + 1) * self.MODS_PER_PAGE]:
+            voters, on = votes.get(key, []), bool(mods_on.get(key))
+            if teacher:
+                check(f, " " + self.mod_title(key), 0.84, y, on,
+                      lambda v, k=key: self.set_lesson({"user_mods": {k: bool(v)}}), 0.028, GREEN if lit else WHITE)
+                check(f, " in the vote", 1.47, y, in_vote.get(key, True),
+                      lambda v, k=key: self.set_lesson({"mods_in_vote": {k: bool(v)}}), 0.022, GREY)
+                if voters:  # (under the tick boxes: the names)
+                    label(f, self.votes_text(voters, "{}: ") + ", ".join(voters), 1.74, y - 0.04, 0.021, BLUE,
+                          TextNode.ARight)
+            elif in_vote.get(key, True):
+                check(f, " " + self.mod_title(key), 0.84, y, self.my_name in voters,
+                      lambda v, k=key: vote({"type": "mod_vote", "mod": k, "on": bool(v)}), 0.028)
+                label(f, self.votes_text(voters, "{}   ") + ("ON" if on else "off"), 1.74, y, 0.024,
+                      GREEN if on else GREY, TextNode.ARight)
+            else:  # on, but not in the vote: shown, with no tick to vote with
+                label(f, self.mod_title(key), 0.86, y, 0.028, GREEN)
+                label(f, "ON", 1.74, y, 0.024, GREEN, TextNode.ARight)
+            y -= 0.04
+            what = self.user_mods[key][1]
+            narrow = teacher and bool(voters)
+            label(f, what, 0.89, y, 0.021, GREY, wrap=30 if narrow else 40)
+            y -= 0.03 * (len(what) // (40 if narrow else 62) + 1) + 0.025
+        if pages > 1:
+            button(f, "Back", 1.0, -0.87, self.page_mods, [-1], 0.023)
+            label(f, f"page {self.mods_page + 1} of {pages}", 1.27, -0.875, 0.021, GREY, TextNode.ACenter)
+            button(f, "More", 1.52, -0.87, self.page_mods, [1], 0.023)
+
+    def vote_all_row(self, f, y, key, names):
+        """Select all / Deselect all: every item in the vote, or none (then tick the few wanted)."""
+        label(f, "In the vote:", 0.84, y, 0.022, GREY)
+        button(f, "Select all", 1.08, y + 0.008, self.set_lesson, [{key: {n: True for n in names}}], 0.022)
+        button(f, "Deselect all", 1.3, y + 0.008, self.set_lesson, [{key: {n: False for n in names}}], 0.022)
+
+    def page_mods(self, delta):
+        self.mods_page = max(0, self.mods_page + delta)
+        self.rebuild_panels()
+
+    def stage_items(self):
+        """The game's own items for the Mods tab: [(key, text, on, switch(value))], the teacher's switch for each."""
+        return []
+
+    # ---------- the Warnings tab (CHANGE 34): a learner changed, in the code, what the garage hides ----------
+    def build_warnings(self, f, y):
+        label(f, "WARNINGS", 0.82, y, 0.036, YELLOW)
+        y -= 0.05
+        label(f, "A learner changed, in the code, a value this lesson's garage doesn't let them change.\n"
+                 "The change was used (the limits still held). They haven't been told that you can see it.",
+              0.82, y, 0.02, GREY)
+        y -= 0.085
+        if not self.warnings:
+            label(f, "No warnings this session.", 0.82, y, 0.028, GREY)
+        for w in reversed(self.warnings[-14:]):  # the newest first
+            changes = ",  ".join(f"{what} {self.warning_value(old)} to {self.warning_value(new)}"
+                                 for what, old, new in w["changes"])
+            text = label(f, f"{w['time']}  {w['who']}:  {changes}", 0.82, y, 0.024, WHITE, wrap=37)
+            y -= 0.03 * max(1, text.textNode.getNumRows()) + 0.02
+            if y < -0.86:
+                break
+        if len(self.warnings) > 14:
+            label(f, f"...and {len(self.warnings) - 14} earlier", 0.82, -0.9, 0.022, GREY)
+
+    @staticmethod
+    def warning_value(v):
+        return f"{v:g}" if isinstance(v, float) else str(v)
+
+    def warnings_tab_text(self, text):
+        """The Warnings tab's name counts the warnings not seen yet."""
+        if self.tab == "warnings":
+            self.warnings_seen = len(self.warnings)
+        unseen = len(self.warnings) - self.warnings_seen
+        return f"{text} ({unseen})" if unseen > 0 else text
+
+    def took_warnings(self, m):
+        """The server's warnings message (the teacher's)."""
+        self.warnings = m.get("list", [])
+        self.warnings_seen = min(self.warnings_seen, len(self.warnings))
+
+    # ---------- the Limits tab (CHANGE 31, 62): the ranges learners can choose from ----------
+    def build_limits(self, f, y):
+        """Two sliders for every setting and every point: the lowest and the highest a learner can choose. Each
+        runs over the whole range (the teacher's own robot can use all of it). Letting a slider go sends the new
+        limits to the class server, which keeps them between sessions and pulls back any robot outside them."""
+        full = self.full_limits()
+        limits = self.limits_draft = copy.deepcopy(self.lesson.get("limits") or self.default_limits())
+        self.limit_sliders = {}
+        label(f, self.LIMITS_TITLE, 0.82, y, 0.036, YELLOW)
+        y -= 0.05
+        label(f, "What the learners can choose from. Drag a slider, then let go: a robot outside the new limits\n"
+                 "is pulled back to the nearest value allowed. Your own design can use every range in full.",
+              0.82, y, 0.02, GREY)
+        y -= 0.085
+
+        def row(group, key, text, yy, lo_full, hi_full, value):
+            label(f, text, 0.82, yy, 0.027)
+            for which, x in ((0, 1.17), (1, 1.53)):
+                s = DirectSlider(parent=f, range=(lo_full, hi_full), value=value[which], pageSize=5, scale=0.13,
+                                 pos=(x, 0, yy + 0.008), command=self.limit_moved, extraArgs=[group, key, which],
+                                 thumb_frameSize=(-0.05, 0.05, -0.16, 0.16))
+                self.limit_sliders[(group, key, which)] = (s, label(f, f"{value[which]:g}", x + 0.145, yy, 0.026))
+
+        for group, title, unit in (("settings", "SETTINGS  (percent)", "%"), ("points", "POINTS", "")):
+            label(f, title, 0.82, y, 0.03, YELLOW)
+            label(f, "lowest", 1.17, y, 0.024, GREY, TextNode.ACenter)
+            label(f, "highest", 1.53, y, 0.024, GREY, TextNode.ACenter)
+            y -= 0.055
+            for key in limits[group]:
+                row(group, key, self.pretty(key), y, *full[group][key], limits[group][key])
+                y -= 0.055
+            y -= 0.02
+        label(f, "Points to share", 0.82, y, 0.027)
+        s = DirectSlider(parent=f, range=(0, full["points_total"]), value=limits["points_total"], pageSize=20, scale=0.13,
+                         pos=(1.17, 0, y + 0.008), command=self.limit_moved, extraArgs=["points_total", None, 0],
+                         thumb_frameSize=(-0.05, 0.05, -0.16, 0.16))
+        self.limit_sliders[("points_total", None, 0)] = (s, label(f, str(limits["points_total"]), 1.315, y, 0.026))
+        y -= 0.08
+        # (CHANGE 62) the standard limit is 50: each setting from its lowest up to 50% (size from 50% up to its
+        # highest), each point 5 to 50. A robot outside the new limits is pulled back to the nearest value allowed.
+        standard = {"settings": {k: ([50, v[1]] if k == "size" else [v[0], 50]) for k, v in self.rules["settings"].items()},
+                    "points": {k: [self.rules["stat_min"], self.rules["stat_max"]] for k in self.rules["stats"]},
+                    "points_total": self.rules["points_total"]}
+        button(f, "Standard limits (50)", 0.97, y, self.set_lesson, [{"limits": standard}], 0.028)
+        label(f, self.LIMITS_NOTE, 0.82, y - 0.06, 0.022, GREY)
+
+    def limit_moved(self, group, key, which):
+        """A limit's slider is being dragged: its number follows, and its lowest never passes its highest (the
+        other slider is pushed along). Nothing is sent until the slider is let go (see tick)."""
+        if (group, key, which) not in self.limit_sliders or self.limits_draft is None:
+            return  # (the slider is still being made)
+        s, text = self.limit_sliders[(group, key, which)]
+        if group == "points_total":
+            v = int(round(s["value"] / 5) * 5)
+            if v != self.limits_draft["points_total"]:
+                self.limits_draft["points_total"], self.limits_moved = v, True
+            text.setText(str(v))
+            return
+        lo_full, hi_full = (self.full_limits())[group][key]
+        v = max(lo_full, min(hi_full, int(round(s["value"]))))
+        pair = self.limits_draft[group][key]
+        if v == pair[which]:
+            return
+        pair[which], self.limits_moved = v, True
+        text.setText(f"{v:g}")
+        other = 1 - which
+        if (pair[0] > pair[1]) and (group, key, other) in self.limit_sliders:
+            pair[other] = v
+            s2, text2 = self.limit_sliders[(group, key, other)]
+            s2["value"] = v
+            text2.setText(f"{v:g}")
+
+    def limits_released(self):
+        """Each frame: a limit's slider let go sends the new limits to the class server."""
+        if self.limits_moved and not (self.mouseWatcherNode is not None and
+                                      self.mouseWatcherNode.is_button_down(MouseButton.one())):
+            self.limits_moved = False
+            self.set_lesson({"limits": self.limits_draft})
+
+    def full_limits(self):
+        """The widest ranges (the game's)."""
+        return self.rules.get("full") or self.default_limits()
+
+    def default_limits(self):
+        """The standard ranges (the game's)."""
+        return {"settings": {k: [v[0], v[1]] for k, v in self.rules["settings"].items()},
+                "points": {k: [self.rules["stat_min"], self.rules["stat_max"]] for k in self.rules["stats"]},
+                "points_total": self.rules["points_total"]}
+
+    def pretty(self, key):
+        """A setting's name as the Limits tab shows it (the game may have nicer ones)."""
+        return key.replace("_", " ").capitalize()

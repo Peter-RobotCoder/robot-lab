@@ -59,6 +59,9 @@ def check_code(tree):
             continue
         if isinstance(node, ast.FunctionDef):
             continue
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                and isinstance(node.value, ast.Constant):  # a plain setting, e.g. VEHICLE = "fear" (CHANGE 98)
+            continue
         if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["ROBOT"]:
             continue
         raise RuleError(f"line {node.lineno}: only ROBOT = {{...}}, functions and 'import math' "

@@ -20,6 +20,8 @@ protecting the body. The body at zero is a knockout, as always.
 No graphics here: this runs on the teacher's server.
 """
 import math
+
+import lab_version  # noqa: F401  (puts the engine, shared by every game, on the path)
 import random
 
 from panda3d.bullet import (BulletBoxShape, BulletCylinderShape, BulletHingeConstraint, BulletRigidBodyNode,
@@ -30,6 +32,7 @@ STEP, SUBSTEP = 1 / 60, 1 / 180
 MAX_SPEED = 30.0  # m/s: nothing in the arena is ever really this fast (the quickest robot does 23, the hardest hit
 #                   throws one at 7), so anything faster is the physics getting two big robots untangled: held to this
 ARENA = 20.0  # metres square
+MAX_ARENAS = 6  # cages side by side (CHANGE 75): every learner can practise in one of their own
 
 # Game rules. mods/rules.py can change any of these (the teacher approves every change).
 DEFAULT_RULES = {
@@ -52,6 +55,7 @@ RULES = dict(DEFAULT_RULES)
 STATS = ("speed", "attack", "armour", "control")
 # What learners get unless the teacher changes it (the teacher's Limits tab; see default_limits and full_limits):
 POINTS_TOTAL, STAT_MIN, STAT_MAX = 100, 5, 50
+STANDARD_MASS = 30.0  # kg: the standard robot (25 armour points, size 100%); weight is measured against it
 SETTINGS = {  # name: (lowest, highest, default, what it means)
     "forward_speed": (10, 100, 80, "% of your top speed when driving forwards"),
     "reverse_speed": (10, 100, 60, "% of your top speed when reversing"),
@@ -83,59 +87,35 @@ FULL_STAT = (0, 100)       # each of the four points
 FULL_POINTS_TOTAL = 400    # the most points there can be to share
 
 
+LIMITS = None  # the engine's limits Spec (made below, once the engine can be imported)
+
+
+def _limits():
+    global LIMITS
+    if LIMITS is None:
+        from engine.limits import Spec
+        LIMITS = Spec(SETTINGS, FULL_SETTINGS, STATS, (STAT_MIN, STAT_MAX), FULL_STAT, POINTS_TOTAL, FULL_POINTS_TOTAL)
+    return LIMITS
+
+
 def default_limits():
-    """The learners' ranges as they are until the teacher changes them: each setting's lowest and highest, each
-    point's lowest and highest, and how many points there are to share."""
-    return {"settings": {k: [lo, hi] for k, (lo, hi, _, _) in SETTINGS.items()},
-            "points": {k: [STAT_MIN, STAT_MAX] for k in STATS}, "points_total": POINTS_TOTAL}
+    """The learners' ranges as they are until the teacher changes them."""
+    return _limits().default()
 
 
 def full_limits():
     """The widest ranges: the teacher's own robot is checked against these."""
-    return {"settings": {k: list(v) for k, v in FULL_SETTINGS.items()},
-            "points": {k: list(FULL_STAT) for k in STATS}, "points_total": FULL_POINTS_TOTAL}
+    return _limits().full()
 
 
 def clean_limits(new, old=None):
-    """Limits sent by the teacher's window (or loaded from a file), made safe: every range inside the widest one,
-    its lowest never above its highest. Anything missing or odd stays as it was (old, or the defaults)."""
-    out, full = old or default_limits(), full_limits()
-    out = {"settings": {k: list(v) for k, v in out["settings"].items()},
-           "points": {k: list(v) for k, v in out["points"].items()}, "points_total": out["points_total"]}
-    new = new if isinstance(new, dict) else {}
-    for group in ("settings", "points"):
-        for k, pair in (new.get(group) if isinstance(new.get(group), dict) else {}).items():
-            if k not in out[group] or not (isinstance(pair, (list, tuple)) and len(pair) == 2):
-                continue
-            if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in pair):
-                continue
-            lo_full, hi_full = full[group][k]
-            lo, hi = (max(lo_full, min(hi_full, v)) for v in pair)
-            if group == "points":
-                lo, hi = int(round(lo)), int(round(hi))
-            out[group][k] = [min(lo, hi), max(lo, hi)]
-    total = new.get("points_total")
-    if isinstance(total, (int, float)) and not isinstance(total, bool):
-        out["points_total"] = int(max(0, min(FULL_POINTS_TOTAL, round(total))))
-    return out
+    """Limits sent by the teacher's window (or loaded from a file), made safe."""
+    return _limits().clean(new, old)
 
 
 def fit_design(d, limits):
-    """A design pulled back inside the limits (the teacher has narrowed them): each value goes to the nearest one
-    allowed, then points come off the biggest until the total fits. Returns the design (a copy if it changed)."""
-    new = {**d, "points": dict(d["points"]), "settings": dict(d["settings"])}
-    for k, (lo, hi) in limits["settings"].items():
-        new["settings"][k] = max(lo, min(hi, new["settings"][k]))
-    for k, (lo, hi) in limits["points"].items():
-        new["points"][k] = int(max(lo, min(hi, new["points"][k])))
-    over = sum(new["points"].values()) - limits["points_total"]
-    while over > 0:
-        free = [k for k in STATS if new["points"][k] > limits["points"][k][0]]
-        if not free:
-            break
-        new["points"][max(free, key=lambda k: new["points"][k])] -= 1
-        over -= 1
-    return new if (new["points"], new["settings"]) != (d["points"], d["settings"]) else d
+    """A design pulled back inside the limits (the teacher has narrowed them)."""
+    return _limits().fit(d, limits)
 
 
 def default_design(name="Robot", colour=(200, 120, 40), weapon="wedge"):
@@ -148,22 +128,7 @@ def check_design(d, limits=None):
     """Return a list of problems (empty = fine). Used by the server and shown to learners.
     limits: the ranges to hold it to (the learners' ranges the teacher has set, or full_limits() for the teacher's
     own robot); left out, the ranges are the standard ones (default_limits)."""
-    limits = limits or default_limits()
-    problems = []
-    pts = d.get("points", {})
-    if set(pts) != set(STATS):
-        problems.append(f"points must have exactly: {', '.join(STATS)}")
-    else:
-        for k, v in pts.items():
-            lo, hi = limits["points"][k]
-            if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
-                problems.append(f"{k} must be a whole number from {lo} to {hi}")
-        if all(isinstance(v, int) for v in pts.values()) and sum(pts.values()) > limits["points_total"]:
-            problems.append(f"{sum(pts.values())} points used: the most you can spend is {limits['points_total']}")
-    for k, (lo, hi) in limits["settings"].items():
-        v = d.get("settings", {}).get(k)
-        if not isinstance(v, (int, float)) or isinstance(v, bool) or not lo <= v <= hi:
-            problems.append(f"{k} must be from {lo:g} to {hi:g}")
+    problems = _limits().problems(d, limits)
     if "model" in d:
         if d["model"] not in HOUSE_BY_NAME:
             problems.append(f"model must be one of {', '.join(HOUSE_BY_NAME)} (or leave it out)")
@@ -178,16 +143,20 @@ def build_stats(d):
     """Turn a design into physics numbers. Kept simple so learners can read the formulas."""
     p, s = d["points"], d["settings"]
     size = s["size"] / 100
-    top_speed = 3 + 0.2 * p["speed"]                      # m/s: 4 (5 points) to 13 (50 points)
-    accel = (1.5 + 0.12 * p["speed"]) * (0.3 + 0.7 * s["acceleration"] / 100)
     grip, mass = 1.2 + 0.035 * p["control"], (22 + 0.3 * p["armour"]) * size ** 2
+    # weight (CHANGE 114): a heavy robot is slower to get going and a little slower flat out. 1.0 for the standard
+    # robot (30 kg); half the mass gives 1.41, double gives 0.71 (the square root, so size doesn't swamp it)
+    weight = (STANDARD_MASS / mass) ** 0.5
+    top_speed = (3 + 0.2 * p["speed"]) * (0.5 + 0.5 * weight)   # m/s: 4 (5 points) to 13 (50 points), standard weight
+    accel = (1.5 + 0.12 * p["speed"]) * (0.3 + 0.7 * s["acceleration"] / 100) * weight
     return {
         "push": mass * accel,                               # newtons: how hard it pushes another robot (see PUSH_GRIP)
         "hold": PUSH_GRIP * grip * mass * 9.81,             # newtons: the push it takes to slide it along
         "size": size,
         "forward_max": top_speed * s["forward_speed"] / 100,
         "reverse_max": top_speed * s["reverse_speed"] / 100,
-        "accel": (1.5 + 0.12 * p["speed"]) * (0.3 + 0.7 * s["acceleration"] / 100),  # m/s per second
+        "accel": accel,                                     # m/s per second (scaled down by weight: CHANGE 114)
+        "weight": weight,                                   # 1.0 standard; lighter > 1, heavier < 1
         "turn_rate": math.radians((60 + 4 * p["control"]) * s["turn_speed"] / 100) / max(size, 0.5),
         "grip": 1.2 + 0.035 * p["control"],
         "self_right": 4.0 - 0.06 * p["control"],            # seconds upside down before self-righting
@@ -277,6 +246,53 @@ HOUSE_BY_NAME = {name: (weapon, colour, corner) for name, weapon, colour, corner
 CPZ = 4.8  # corner patrol zone: how far each Resident Robot's square reaches from its corner (room to drive right in)
 # a Resident Robot driven by a player (the teacher can allow it in the garage): heavy, but it can be knocked out
 PLAYABLE_HOUSE_STATS = dict(HOUSE_STATS, armour=400.0, forward_max=3.6, reverse_max=2.6, power=1.5)
+
+
+# ---------- the robot as variables (the engine's schema: the code panel and the garage's tables) ----------
+CODE_NOTES = {  # the comment on each setting's line of the robot's code (CHANGE 49)
+    "forward_speed": "% of top speed, forwards", "reverse_speed": "% of top speed, in reverse",
+    "turn_speed": "% of the fastest turn", "acceleration": "% of hardest acceleration",
+    "size": "% of the standard size"}
+
+
+def _model_changed(d, ctx):
+    """A Resident Robot's weapon is its own; back to a learner's design, the weapon must be a learner's."""
+    if d.get("model"):
+        d["weapon"] = ctx.house.get(d["model"], d.get("weapon"))
+    elif d.get("weapon") not in ctx.all_weapons:
+        d["weapon"] = "wedge"
+
+
+def _weapon_changed(d, ctx):
+    if d.get("model"):  # (driving a Resident Robot: its weapon stays)
+        d["weapon"] = ctx.house.get(d["model"], d["weapon"])
+
+
+def _weapon_text(ctx, d):
+    """Under the weapon row: what it does (a Resident Robot's, with its fixed stats)."""
+    if d.get("model"):
+        return (ctx.rules["house_weapons"].get(d["weapon"], d["weapon"]) + "\nResident Robots are heavy (190 kg), "
+                "with armour 400 and big wheels. Their stats are fixed, so points and settings aren't used.")
+    return ctx.rules["weapons"].get(d["weapon"], "")
+
+
+def schema():
+    """The robot's variables, in the HUD's groups. ctx (from the window): title, points_total, weapons (allowed
+    this mission), all_weapons, house (Resident Robot -> its weapon), rules."""
+    from engine.schema import Var
+    driving = lambda d: bool(d.get("model"))  # noqa: E731  (a Resident Robot: its stats are its own)
+    return ([Var(k, ("settings", k), "int", "settings", tool=k, note=CODE_NOTES[k], unless=driving) for k in SETTINGS] +
+            [Var(f"{k}_points", ("points", k), "int", "points", tool="points_table", note=f"points for {k}",
+                 unless=driving) for k in STATS] +
+            [Var("robot_name", ("name",), "str", "strings", tool="name_and_colour", note="a string: text made of chars"),
+             Var("weapon", ("weapon",), "choice", "lists", tool="choose_weapon", options=lambda ctx: ctx.weapons,
+                 valid=lambda ctx: ctx.all_weapons, list_name="weapons", list_note="the weapons allowed this mission",
+                 after=_weapon_changed, fixed=driving, describe=_weapon_text, always=True,
+                 allowed_values=lambda tools: tools.get("weapons", [])),
+             Var("model", ("model",), "choice", "strings", tool="house_robots", note="driving a Resident Robot",
+                 optional=True, options=lambda ctx: list(ctx.house), after=_model_changed, none_text="My design",
+                 per_row=5, step=0.13),
+             Var("colour", ("colour",), "rgb", "lists", tool="name_and_colour", note="red, green, blue: 0 to 255")])
 
 
 def house_list(value):
@@ -930,8 +946,15 @@ class Arena:
         self.spike_out = 0.0
         self.pit_z = self.PIT_OPEN_Z if self.pit_open else self.PIT_CLOSED_Z
         self.bodies, self.constraints = [], []  # everything build() made
+        self.index = 0         # which arena this is, when there are several (Arenas)
+        self.id_source = None  # where a new robot's id comes from when there are several arenas (unique across them)
         self.build()
         self.set_house_robots(self.hazards.get("house_robots"))
+
+    def new_id(self):
+        if self.id_source is not None:
+            return self.id_source()
+        return max([r.id for r in self.robots], default=-1) + 1
 
     def set_hazards(self, hazards):
         """Switch hazards on or off mid-round. Nothing disappears: a hazard that is off just rests (saws down,
@@ -1126,8 +1149,7 @@ class Arena:
         used = {r.start_index for r in self.robots}
         idx = start if start is not None else next(i for i in range(len(self.STARTS)) if i not in used)
         x, y, heading = self.STARTS[idx]
-        rid = max([r.id for r in self.robots], default=-1) + 1
-        r = Robot(self, rid, design, Point3(x, y, 0.5), heading, brain, owner)
+        r = Robot(self, self.new_id(), design, Point3(x, y, 0.5), heading, brain, owner)
         r.start_index = idx
         self.robots.append(r)
         self.owner.update({name: r for name in r.parts})
@@ -1140,8 +1162,7 @@ class Arena:
                 continue
             x, y = corner[0] * (h - 1.7), corner[1] * (h - 1.7)
             heading = math.degrees(math.atan2(corner[0], -corner[1]))  # facing the middle
-            rid = max([r.id for r in self.robots], default=-1) + 1
-            r = Robot(self, rid, house_design(name, weapon, colour), Point3(x, y, 0.6), heading, house_brain,
+            r = Robot(self, self.new_id(), house_design(name, weapon, colour), Point3(x, y, 0.6), heading, house_brain,
                       "Resident Robot", stats=HOUSE_STATS, house=True)
             r.corner, r.start_index = corner, None
             self.robots.append(r)
@@ -1636,3 +1657,84 @@ class Arena:
         impacts, streams = self.impacts, self.streams
         self.impacts, self.streams = [], []
         return impacts, streams
+
+
+class Arenas:
+    """Several arenas (cages side by side), stepped together: a Bullet world each, with the same hazards and
+    Resident Robots in every one (CHANGE 75). The server talks to this as it talked to one Arena: the clock,
+    the events and the settings are shared, and each robot is in one arena (robot.arena, with its index)."""
+
+    def __init__(self, count=1, hazards=None, user_mods=None):
+        self.events = []
+        self._next_id = 0
+        self.arenas = []
+        for i in range(max(1, min(MAX_ARENAS, int(count)))):
+            a = Arena(hazards=hazards, user_mods=user_mods, seed=i + 1)
+            a.index, a.id_source, a.events = i, self.next_id, self.events
+            self.arenas.append(a)
+        for a in self.arenas:  # (the Resident Robots were built before the id source was set: number them again)
+            for r in a.robots:
+                r.id = self.next_id()
+
+    def next_id(self):
+        self._next_id += 1
+        return self._next_id - 1
+
+    def __len__(self):
+        return len(self.arenas)
+
+    def __iter__(self):
+        return iter(self.arenas)
+
+    def __getitem__(self, i):
+        return self.arenas[i]
+
+    # the shared things: read from the first arena, set on every one
+    def _get(self, key):
+        return getattr(self.arenas[0], key)
+
+    def _set(self, key, value):
+        for a in self.arenas:
+            setattr(a, key, value)
+
+    time = property(lambda self: self._get("time"))
+    hazards = property(lambda self: self._get("hazards"))
+    user_mods = property(lambda self: self._get("user_mods"))
+    practice = property(lambda self: self._get("practice"), lambda self, v: self._set("practice", v))
+    frozen = property(lambda self: self._get("frozen"), lambda self, v: self._set("frozen", v))
+    real_damage = property(lambda self: self._get("real_damage"), lambda self, v: self._set("real_damage", v))
+    flame_pit_cm = property(lambda self: self._get("flame_pit_cm"), lambda self, v: self._set("flame_pit_cm", v))
+
+    @property
+    def robots(self):
+        return [r for a in self.arenas for r in a.robots]
+
+    def add_robot(self, design, brain=chase_brain, owner="cpu", start=None, arena=0):
+        """arena: its index, or the Arena itself."""
+        a = arena if isinstance(arena, Arena) else self.arenas[max(0, min(len(self.arenas) - 1, int(arena)))]
+        return a.add_robot(design, brain=brain, owner=owner, start=start)
+
+    def remove_robot(self, r):
+        r.arena.remove_robot(r)
+
+    def set_hazards(self, hazards):
+        for a in self.arenas:
+            a.set_hazards(hazards)
+
+    def set_user_mods(self, values):
+        for a in self.arenas:
+            a.set_user_mods(values)
+
+    def set_pit(self, open_, instant=False):
+        for a in self.arenas:
+            a.set_pit(open_, instant)
+
+    def restart(self):
+        for a in self.arenas:
+            a.restart()
+
+    def step(self):
+        for a in self.arenas:
+            a.step()
+        if len(self.events) > 200:
+            del self.events[:-50]

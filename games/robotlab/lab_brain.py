@@ -141,7 +141,9 @@ def view_data(robot, now):
             "upside_down": bool(robot.np.getQuat().getUp().z < 0.3),
             "weapon_ready": bool(now >= robot.fire_until + 0.9), "weapon_rpm": round(robot.weapon_rpm),
             "time": round(now, 2), "pit": list(sim.Arena.PIT[:2]),
-            "distance_to_wall": round(min(half - abs(p.x), half - abs(p.y)), 2)}
+            "distance_to_wall": round(min(half - abs(p.x), half - abs(p.y)), 2),
+            # (CHANGE 98) half the robot's width, and the arena's size: the brain measures from each side's wheels
+            "half_width": round(float(robot.shape["half"].x), 2), "arena": sim.ARENA}
 
 
 class Autopilot:

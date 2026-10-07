@@ -54,7 +54,8 @@ ALL_TOOLS = ["points_table", "forward_speed", "reverse_speed", "turn_speed", "ac
 
 
 def tools(*on, weapons=("wedge", "spinner", "drum", "hammer")):
-    t = {k: k in on for k in ALL_TOOLS + ["house_robots"]}  # (Resident Robots in the garage: the teacher turns it on)
+    t = {k: k in on for k in ALL_TOOLS + ["house_robots", "brains"]}  # (Resident Robots in the garage, and brains
+    #                                                                  (U and P): the teacher turns them on)
     t["weapons"] = list(weapons)
     return t
 
@@ -69,13 +70,13 @@ LESSONS = {
             tools=tools(*ALL_TOOLS)),
     3: dict(title="Selection and functions: write a robot brain", mode="practice",
             hazards={"pit": True, "floor_flipper": True, "saws": True, "spikes": False, "house_robots": False},
-            tools=tools(*ALL_TOOLS)),
+            tools=tools(*ALL_TOOLS, "brains")),
     4: dict(title="Using AI to code, safely", mode="battle",
             hazards={"pit": True, "floor_flipper": True, "saws": True, "spikes": True, "house_robots": True},
-            tools=tools(*ALL_TOOLS)),
+            tools=tools(*ALL_TOOLS, "brains")),
     5: dict(title="Invent, compete and evaluate", mode="battle",
             hazards={"pit": True, "floor_flipper": True, "saws": True, "spikes": True, "house_robots": True},
-            tools=tools(*ALL_TOOLS)),
+            tools=tools(*ALL_TOOLS, "brains")),
 }
 
 # ---------- missions ----------
@@ -84,7 +85,7 @@ MISSIONS = {
     # Mission 1 (CHANGE 50 to 53): what the learner sees is the title; the text drops down when the title is
     # clicked, and is the explanation and the guidance. The Garage (the GUI) shows the robot as variables.
     "1a": (1, "Change a STRING VARIABLE with the GUI",
-           "In the Garage (G), under STRING VARIABLES, type a new name for your robot in the STRING VALUE box and "
+           "In the Garage (press I for the HUD), under STRING VARIABLES, type a new name for your robot in the STRING VALUE box and "
            "press REBUILD MY ROBOT. A string is text: letters, digits and spaces, in quotes. Its type is str.",
            ["VAR", "DATA"], "auto"),
     "1b": (1, "Change an INTEGER VARIABLE with the GUI",
@@ -105,10 +106,14 @@ MISSIONS = {
            "defence, the arena, the Resident Robots... almost anything you can imagine. No personal information. "
            "When the teacher keeps the change, look at what it did and answer the review questions.",
            ["AISAFE", "AIREVIEW"], "auto"),
-    "2a": (2, "Spend exactly 100 points", "Share all 100 points between speed, attack, armour and control.",
-           ["ALG", "VAR"], "auto"),
-    "2b": (2, "Invalid test data", "Try to build a robot that breaks the rules (for example more than 100 "
-                                  "points) and read the error message.", ["VALID", "TEST"], "auto"),
+    "2a": (2, "Spend exactly 100 points with the GUI", "In the Garage, share all 100 points between speed, attack, "
+                                                       "armour and control: the Points table must say 0 left. Press "
+                                                       "REBUILD MY ROBOT.", ["ALG", "VAR"], "auto"),
+    "2b": (2, "Hack the code to spend more than 100 points", "Mission 1 d showed the code can change what the "
+                                                          "garage can't. Press C, set the points so they add up to more "
+                                                          "than 100, press APPLY CODE then REBUILD MY ROBOT, and read "
+                                                          "the error message: invalid test data is refused.",
+           ["VALID", "TEST"], "auto"),
     "2c": (2, "Boundary test data", "Build a robot with one category at exactly 5 or exactly 50.",
            ["VALID", "TEST"], "auto"),
     "2d": (2, "Design from evidence", "After rebuilding, land 3 hits, then write why your design works.",
@@ -182,7 +187,7 @@ GUIDE = {  # lesson: {outcome: lesson piece}
     1: {
         "VAR": dict(
             task="Change variables with the GUI, then in the code",
-            do=["Open the Garage (G): the robot is shown as variables. Under STRING VARIABLES type a new "
+            do=["Open the Garage (I opens the HUD): the robot is shown as variables. Under STRING VARIABLES type a new "
                 "robot_name; under INTEGER VARIABLES slide turn_speed and size. Press REBUILD MY ROBOT.",
                 "Drive: what did each change do?",
                 "Press C. Find the line  turn_speed: int = 100  - that is the variable you changed. Change a value "
@@ -231,11 +236,10 @@ GUIDE = {  # lesson: {outcome: lesson piece}
     },
     2: {
         "VAR": dict(
-            task="Set the 100 points in the code",
-            do=["Press C to see your robot as code.",
-                "Change speed_points, attack_points, armour_points and control_points so they add up to exactly 100 "
-                "(e.g. 30, 30, 25, 15).",
-                "Press APPLY CODE. The line under them must say: points used: 100 of 100.",
+            task="Spend exactly 100 points with the GUI (objective a)",
+            do=["Open the Garage (I). Under INTEGER VARIABLES, the Points table shares 100 points.",
+                "Use the -5, -, + and +5 buttons on speed_points, attack_points, armour_points and control_points "
+                "so they add up to exactly 100 (e.g. 30, 30, 25, 15): the table must say 0 left.",
                 "Press REBUILD MY ROBOT and test it."],
             teach="The points are four integer variables. The program adds them up to check the total. "
                   "Raising one value means lowering another: every choice is a trade-off.",
@@ -249,11 +253,12 @@ GUIDE = {  # lesson: {outcome: lesson piece}
                   "The rules are constraints: 100 in total, and 5 to 50 each.",
             success="They explain their numbers as a plan that meets both rules."),
         "VALID": dict(
-            task="Break the rules on purpose",
-            do=["In the code set speed_points to 60 (more than 50). APPLY and read the error.",
-                "Make the total 110. APPLY and read the error.",
+            task="Break the rules on purpose, in the code (objectives b and c)",
+            do=["Press C. Set speed_points to 60 (more than 50). APPLY CODE: it refuses (value too high).",
+                "Make the four points add up to 110. APPLY CODE, then REBUILD MY ROBOT: the build is refused and "
+                "says why (objective b: invalid data from the code).",
                 "Put a word instead of a number, e.g. \"fast\". APPLY and read the error.",
-                "Boundary: set armour_points to exactly 5, then exactly 50. Both should be accepted."],
+                "Boundary: set armour_points to exactly 5, then exactly 50. Both should be accepted (objective c)."],
             teach="Validation checks input before it is used. Normal data (25), boundary data (5 and 50, the "
                   "edges that are still allowed) and invalid data (51, 110, text) should all be tested.",
             success="They can give an example of normal, boundary and invalid data and what the program did."),

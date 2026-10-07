@@ -104,6 +104,54 @@ def clean(text):
     return "".join(ch for ch in str(text).replace("\t", "    ") if ch >= " " and ch != "\x7f")
 
 
+CLIPBOARD = [""]  # the editor's own clipboard (CHANGE 88); the system's is used too where it can be reached
+
+
+def clipboard_get():
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        if not u32.OpenClipboard(None):
+            return CLIPBOARD[0]
+        try:
+            h = u32.GetClipboardData(13)  # CF_UNICODETEXT
+            if not h:
+                return CLIPBOARD[0]
+            k32.GlobalLock.restype = ctypes.c_void_p
+            p = k32.GlobalLock(ctypes.c_void_p(h))
+            text = ctypes.wstring_at(p) if p else ""
+            k32.GlobalUnlock(ctypes.c_void_p(h))
+            return text
+        finally:
+            u32.CloseClipboard()
+    except Exception:
+        return CLIPBOARD[0]
+
+
+def clipboard_set(text):
+    CLIPBOARD[0] = text
+    try:
+        import ctypes
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        if not u32.OpenClipboard(None):
+            return
+        try:
+            u32.EmptyClipboard()
+            data = text.encode("utf-16-le") + b"\x00\x00"
+            k32.GlobalAlloc.restype = ctypes.c_void_p
+            h = k32.GlobalAlloc(0x0042, len(data))  # GMEM_MOVEABLE | GMEM_ZEROINIT
+            k32.GlobalLock.restype = ctypes.c_void_p
+            p = k32.GlobalLock(ctypes.c_void_p(h))
+            ctypes.memmove(p, data, len(data))
+            k32.GlobalUnlock(ctypes.c_void_p(h))
+            u32.SetClipboardData(13, ctypes.c_void_p(h))
+        finally:
+            u32.CloseClipboard()
+    except Exception:
+        pass
+
+
 class CodeEditor(DirectObject):
     def __init__(self, base, parent, state, x, top, width, rows, scale=0.022, on_enter=None, on_focus=None,
                  read_only=False):
@@ -135,6 +183,12 @@ class CodeEditor(DirectObject):
                                                                                     self.line_h - scale * 0.45))
         self.cursor = DirectFrame(parent=parent, frameColor=CURSOR,
                                   frameSize=(0, scale * 0.09, -scale * 0.35, scale * 1.05))
+        self.anchor = None  # the other end of the selection (CHANGE 88), [line, col], or None
+        self.dragging = False
+        self.sel_backs = [DirectFrame(parent=parent, frameColor=(0.25, 0.4, 0.7, 0.55),
+                                      frameSize=(0, 0.01, -scale * 0.35, scale * 1.05)) for _ in range(rows)]
+        for b in self.sel_backs:
+            b.hide()
         extra = {"font": self.font} if self.font is not None else {}
         # how many letters fit across the box: a longer line is cut at the box's edge, not drawn over it
         self.cols = max(10, int((x + width - self.code_x - scale * 0.3) / max(1e-6, self.text_width("M"))))
@@ -156,11 +210,18 @@ class CodeEditor(DirectObject):
         for key, fn, args in (("backspace", self.erase, [-1]), ("delete", self.erase, [0]),
                               ("arrow_left", self.move, [0, -1]), ("arrow_right", self.move, [0, 1]),
                               ("arrow_up", self.move, [-1, 0]), ("arrow_down", self.move, [1, 0]),
+                              ("shift-arrow_left", self.move, [0, -1, True]), ("shift-arrow_right", self.move, [0, 1, True]),
+                              ("shift-arrow_up", self.move, [-1, 0, True]), ("shift-arrow_down", self.move, [1, 0, True]),
                               ("home", self.move_to, [0]), ("end", self.move_to, [None]),
-                              ("tab", self.typed, ["    "]), ("shift-enter", self.new_line, [])):
+                              ("shift-home", self.move_to, [0, True]), ("shift-end", self.move_to, [None, True]),
+                              ("tab", self.typed, ["    "]), ("shift-enter", self.new_line, []),
+                              ("enter", self.new_line, [])):  # (Return makes a new line: CHANGE 88)
             self.accept(key, self.when_focused, [fn, args])
             self.accept(key + "-repeat", self.when_focused, [fn, args])
-        self.accept("enter", self.when_focused, [self.enter, []])
+        for key, fn in (("control-c", self.copy), ("control-x", self.cut), ("control-v", self.paste),
+                        ("control-a", self.select_all)):
+            self.accept(key, self.when_focused, [fn, []])
+        self.accept("mouse1-up", self.drag_end)
         self.blink = base.taskMgr.doMethodLater(0.5, self.blink_cursor, "code cursor")
         self.tidy()
         self.refresh()
@@ -213,6 +274,20 @@ class CodeEditor(DirectObject):
             else:
                 self.numbers[i].setText("")
                 self.texts[i].setText("")
+        sel = self.selection()  # (the selected text, highlighted on each row it covers: CHANGE 88)
+        for i in range(self.rows):
+            n = first + i
+            if sel and n < len(self.lines) and sel[0][0] <= n <= sel[1][0]:
+                text = self.lines[n][:self.cols]
+                c0 = sel[0][1] if n == sel[0][0] else 0
+                c1 = sel[1][1] if n == sel[1][0] else len(text) + 1
+                x0, x1 = self.text_width(text[:c0]), self.text_width(text[:min(c1, len(text))]) + \
+                    (self.text_width(" ") if c1 > len(text) else 0)
+                self.sel_backs[i]["frameSize"] = (0, max(0.004, x1 - x0), -self.scale * 0.35, self.scale * 1.05)
+                self.sel_backs[i].setPos(self.code_x + x0, 0, self.row_y(i))
+                self.sel_backs[i].show()
+            else:
+                self.sel_backs[i].hide()
         row = line - first
         if self.focused and 0 <= row < self.rows:
             y = self.row_y(row)
@@ -238,8 +313,92 @@ class CodeEditor(DirectObject):
             return
         m = event.getMouse()
         p = self.parent.getRelativePoint(self.base.render2d, Point3(m.getX(), 0, m.getY()))
+        self.anchor = None
         self.place(p.x, p.z)
         self.focus()
+        self.anchor = list(self.state["cursor"])  # dragging from here selects (CHANGE 88)
+        self.dragging = True
+        self.base.taskMgr.add(self.drag_task, "code drag select")
+
+    def drag_task(self, task):
+        if not self.dragging:
+            return task.done
+        mw = self.base.mouseWatcherNode
+        if mw is not None and mw.hasMouse():
+            p = self.parent.getRelativePoint(self.base.render2d, Point3(mw.getMouseX(), 0, mw.getMouseY()))
+            self.place(p.x, p.z)
+        return task.cont
+
+    def drag_end(self):
+        if self.dragging:
+            self.dragging = False
+            if self.anchor == list(self.state["cursor"]):
+                self.anchor = None
+                self.refresh()
+
+    # ---------- the selection (CHANGE 88) ----------
+    def selection(self):
+        """((line, col), (line, col)) from the first end to the last, or None."""
+        if self.anchor is None or self.anchor == list(self.state["cursor"]):
+            return None
+        a, b = tuple(self.anchor), tuple(self.state["cursor"])
+        return (a, b) if a < b else (b, a)
+
+    def selected_text(self):
+        sel = self.selection()
+        if not sel:
+            return ""
+        (l0, c0), (l1, c1) = sel
+        if l0 == l1:
+            return self.lines[l0][c0:c1]
+        return "\n".join([self.lines[l0][c0:]] + self.lines[l0 + 1:l1] + [self.lines[l1][:c1]])
+
+    def delete_selection(self):
+        """The selected text goes; the cursor lands where it started. Returns True if anything went."""
+        sel = self.selection()
+        if not sel:
+            return False
+        (l0, c0), (l1, c1) = sel
+        self.lines[l0:l1 + 1] = [self.lines[l0][:c0] + self.lines[l1][c1:]]
+        self.state["cursor"][:] = [l0, c0]
+        self.anchor = None
+        return True
+
+    def select_all(self):
+        self.anchor = [0, 0]
+        self.state["cursor"][:] = [len(self.lines) - 1, len(self.lines[-1])]
+        self.refresh()
+
+    def copy(self):
+        text = self.selected_text()
+        if text:
+            clipboard_set(text)
+
+    def cut(self):
+        self.copy()
+        if self.delete_selection():
+            self.changed()
+
+    def paste(self):
+        text = clipboard_get().replace("\r\n", "\n").replace("\r", "\n")
+        if not text:
+            return
+        self.delete_selection()
+        line, col = self.state["cursor"]
+        parts = [clean(p) for p in text.split("\n")][:MAX_LINES]
+        if len(self.lines) + len(parts) - 1 > MAX_LINES:
+            parts = parts[:max(1, MAX_LINES - len(self.lines) + 1)]
+        before, after = self.lines[line][:col], self.lines[line][col:]
+        parts[0] = (before + parts[0])[:MAX_LENGTH]
+        parts[-1] = (parts[-1] + after)[:MAX_LENGTH] if len(parts) > 1 else parts[0]
+        if len(parts) == 1:
+            parts[0] = (before + clean(text) + after)[:MAX_LENGTH]
+            end_col = min(len(parts[0]), len(before) + len(clean(text)))
+        else:
+            end_col = len(parts[-1]) - len(after)
+        self.lines[line:line + 1] = parts
+        self.state["cursor"][:] = [line + len(parts) - 1, max(0, end_col)]
+        self.changed()
 
     def place(self, x, y):
         row = int((self.top - self.scale * 0.3 - y) / self.line_h)
@@ -277,6 +436,8 @@ class CodeEditor(DirectObject):
         if not self.focused:
             return
         key = clean(key)
+        if key and self.delete_selection():  # (typing over a selection replaces it: CHANGE 88)
+            pass
         line, col = self.state["cursor"]
         if key and len(self.lines[line]) + len(key) <= MAX_LENGTH:
             self.lines[line] = self.lines[line][:col] + key + self.lines[line][col:]
@@ -284,7 +445,11 @@ class CodeEditor(DirectObject):
             self.changed()
 
     def erase(self, back):
-        """Backspace (back = -1) or Delete (0): at the end of a line they join it to the next one."""
+        """Backspace (back = -1) or Delete (0): at the end of a line they join it to the next one. With a
+        selection, either deletes the selection (CHANGE 88)."""
+        if self.delete_selection():
+            self.changed()
+            return
         lines, (line, col) = self.lines, self.state["cursor"]
         if back and col == 0:
             if line == 0:
@@ -300,6 +465,7 @@ class CodeEditor(DirectObject):
         self.changed()
 
     def new_line(self):
+        self.delete_selection()
         lines, (line, col) = self.lines, self.state["cursor"]
         if len(lines) < MAX_LINES:
             indent = len(lines[line]) - len(lines[line].lstrip(" "))
@@ -307,7 +473,12 @@ class CodeEditor(DirectObject):
             self.state["cursor"][:] = [line + 1, min(indent, col)]
             self.changed()
 
-    def move(self, down, right):
+    def move(self, down, right, select=False):
+        """The arrow keys; with Shift they extend the selection from where it started (CHANGE 88)."""
+        if select and self.anchor is None:
+            self.anchor = list(self.state["cursor"])
+        elif not select:
+            self.anchor = None
         lines, (line, col) = self.lines, self.state["cursor"]
         if down:
             line = max(0, min(len(lines) - 1, line + down))
@@ -321,8 +492,12 @@ class CodeEditor(DirectObject):
         self.state["cursor"][:] = [line, col]
         self.changed()
 
-    def move_to(self, col):
-        """Home (0) or End (None)."""
+    def move_to(self, col, select=False):
+        """Home (0) or End (None); with Shift, selecting."""
+        if select and self.anchor is None:
+            self.anchor = list(self.state["cursor"])
+        elif not select:
+            self.anchor = None
         line = self.state["cursor"][0]
         self.state["cursor"][1] = len(self.lines[line]) if col is None else col
         self.changed()

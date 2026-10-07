@@ -83,17 +83,30 @@ LESSONS = {
 # ---------- missions ----------
 # id: (lesson, title, what to do, outcome codes, how it is checked)
 MISSIONS = {
-    "1a": (1, "Change a variable", "Move one of the % sliders and press BUILD MY FIGHTER.", ["VAR"], "auto"),
-    "1b": (1, "Predict, then test", "How many punches will it take to knock out your sparring partner? Type your "
-                                   "guess, press Save, then punch them 3 times (blocked punches count): the game "
-                                   "measures it.",
-           ["VAR", "TEST", "ABS"], "auto"),
-    "1c": (1, "Text, numbers and lists", "Change your fighter's name and colour, build it, then press C to see "
-                                        "your fighter as code.", ["DATA"], "auto"),
-    "1d": (1, "Your first AI request", "Press I and ask the AI to change how your fighter looks (colours, eyes, "
-                                      "headband, name). No personal information.", ["AISAFE"], "auto"),
-    "1e": (1, "Check the AI's work", "When the teacher keeps the change, look at your fighter and answer the review "
-                                    "questions.", ["AIREVIEW", "TEST"], "auto"),
+    # Mission 1 (as Robot Lab's: CHANGE 50 to 53): what the learner sees is the title; the text drops down when the
+    # title is clicked, and is the explanation and the guidance. The Garage (the GUI) shows the fighter as variables.
+    "1a": (1, "Change a STRING VARIABLE with the GUI",
+           "In the Garage (G), under STRING VARIABLES, type a new name for your fighter in the STRING VALUE box and "
+           "press BUILD MY FIGHTER. A string is text: letters, digits and spaces, in quotes. Its type is str.",
+           ["VAR", "DATA"], "auto"),
+    "1b": (1, "Change an INTEGER VARIABLE with the GUI",
+           "In the Garage, under INTEGER VARIABLES, slide walk_speed and size to new values and press BUILD MY "
+           "FIGHTER. An integer is a whole number (type int). Fight: what did each one change?",
+           ["VAR", "DATA"], "auto"),
+    "1c": (1, "Change a LIST VARIABLE with the GUI",
+           "In the Garage, under VARIABLE LISTS, click a colour block and press BUILD MY FIGHTER. The colour is a "
+           "list of three integers, [red, green, blue], each from 0 (none) to 255 (full). Its type is list.",
+           ["DATA", "VAR"], "auto"),
+    "1d": (1, "Hack the code",
+           "Press C to open the code editor: your fighter as Python, every variable with its type. Change a value "
+           "there and press BUILD MY FIGHTER in the code panel. The extra power here: you can see ALL the "
+           "variables, even the ones the Garage doesn't show.",
+           ["VAR", "DATA", "ALG"], "auto"),
+    "1e": (1, "Safe use of AI",
+           "Press I and use an AI request card to ask for a change in the game: your fighter, your special, your "
+           "style, the stage, the bosses... almost anything you can imagine. No personal information. When the "
+           "teacher keeps the change, look at what it did and answer the review questions.",
+           ["AISAFE", "AIREVIEW"], "auto"),
     "2a": (2, "Spend exactly 100 points", "Share all 100 points between power, speed, defence and stamina.",
            ["ALG", "VAR"], "auto"),
     "2b": (2, "Invalid test data", "Try to build a fighter that breaks the rules (for example more than 100 "
@@ -162,7 +175,7 @@ def brain_features(source):
 
 
 # AI request cards: which mission a card or a review completes in each lesson
-AI_CARD_MISSION = {1: "1d", 3: "3f", 4: "4a"}
+AI_CARD_MISSION = {1: "1e", 3: "3f", 4: "4a"}
 AI_REVIEW_MISSION = {1: "1e", 2: "2f", 4: "4b", 5: "5d"}
 AI_TARGETS = {"fighter": "My fighter", "stage": "The stage", "rules": "The rules", "game": "The game (teacher only)"}
 
