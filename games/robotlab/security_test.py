@@ -119,6 +119,8 @@ def main():
         check("Too many wrong tries are blocked for a minute", why[0] in (4004, 4008) and "Wait a minute" in why[1],
               str(why))
 
+        teacher.send(json.dumps({"type": "lesson", "lesson": {"tools": {"brains": True}}}))  # (CHANGE 99: brains on)
+        time.sleep(1)
         bomb = "def brain(me, enemies):\n    x = 10 ** 10 ** 8\n    return 1, 0, False\n"
         amy.send(json.dumps({"type": "brain", "source": bomb}))
         res = wait_for(amy, "brain_result")

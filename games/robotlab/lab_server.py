@@ -816,6 +816,9 @@ class LabServer:
     async def on_message(self, p, m):
         kind = m.get("type")
         if kind == "brain" and p.role == "learner":  # loaded in its own process, away from the game loop
+            if not self.lesson.get("tools", {}).get("brains", True):  # (CHANGE 99: off until the teacher ticks it)
+                await self.send(p.ws, {"type": "notice", "text": "Brains aren't switched on for this mission yet."})
+                return
             await self.upload_brain(p, str(m.get("source", "")))
             return
         if kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab
