@@ -85,7 +85,8 @@ from engine.hud import (DARK, SWATCHES, TEXT_SIZES, TIPS, button, check, label, 
 from engine.hud import YELLOW, WHITE, GREY, RED, GREEN, BLUE, ORANGE, PANEL, ON, OFF, BOX, HANDLE  # noqa: E402,F401
 SETTINGS = hud.setup(SETTINGS_DIR, sys.modules[__name__])  # this computer's settings; this module's colours follow the look
 # learners edit brains/my_brain.py: next to Robot Lab.exe in the download, next to this file otherwise
-BRAINS = os.path.join(os.path.dirname(sys.executable), "brains", "robotlab") if lab_version.FROZEN else os.path.join(HERE, "brains")  # (Club Coders: each game has its own brains folder)
+BRAINS = (os.path.join(os.path.dirname(sys.executable), "brains", "robotlab") if lab_version.FROZEN  # (the built
+          else os.path.join(HERE, "brains"))  # app keeps each game's brains folder beside the exe: brains\robotlab)
 
 
 

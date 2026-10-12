@@ -45,8 +45,22 @@ pretends the network is a school's Wi-Fi.
 The design sheet is 100 points between speed, acceleration and grip (10 to 60 each), as Robot Lab's robots:
 `--stats` for now; a garage comes with the lessons.
 
+## The teaching layer (12 October 2026)
+
+Kart Lab has the same lessons, missions and panel as Robot Lab and Fight Lab, on the engine's framework:
+
+| File | What |
+| --- | --- |
+| `kart_missions.py` | Robot Lab's five lessons re-worded for karts: the same learning outcomes (VAR, DATA, ... EVAL), mission ids (1a to 5d), tools, guide, AI card rules; the teacher edits the text in the Outcomes tab |
+| `kart_teaching.py` | which builds, laps, brains and reflections complete which objectives (`engine.teaching`) |
+| `kart_profiles.py`, `kart_mods.py`, `mods/` | learners' accounts (scrypt), the karts as files (`mods/karts/<name>.py`), the track and rules files |
+| `ai_pipeline.py` | AI cards: a kart, the track, the rules or the game, through the engine's pipeline |
+| `kart_hud.py` + the panel in `kart_client.py` | the login screen; learner tabs Mission, Garage (the kart as variables, with APPLY CODE), AI card, My card, Mods, Settings; teacher tabs Controls, User mods, Races (a league of races), Learners, Accounts, Outcomes, AI cards, Changes, Limits, Warnings, My kart, Settings |
+| `smoke_test.py`, `security_test.py` | the same checks Fight Lab has, for the kart |
+
+Practice mode keeps the track open (the lesson's default); race mode is the teacher's START RACE. The server's
+data (profiles, evidence, AI requests, the saved lesson) lives in `data/` here, or `KARTLAB_DATA`.
+
 ## What is not here yet
 
-Lessons, missions, AI cards and a garage; items beyond dash pads and oil; more proper tracks. Those are the
-next steps in `../GENRES.md` (Race Lab) now that the engine can carry them. The club's wrapping is in place:
-the game is `kartlab` to the launcher, the club desk, the deploy scripts, the exporter and the release build.
+A kart preview in the garage, items beyond dash pads and oil, more proper tracks (`../GENRES.md`, Race Lab).

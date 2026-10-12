@@ -3,6 +3,11 @@
 Your brain is one Python function in one file. The game calls it 60 times a second while autopilot is on and
 does what it returns. Start from `demo_brain.py`.
 
+Where it lives: in the game, press **Tab** for the panel and open the **Code** tab to write it there and upload
+it; or edit `my_brain.py` in this folder (in the downloaded app: `brains\kartlab\my_brain.py` next to the app)
+and press **U** in the game to upload it. **P** switches the autopilot on and off. The teacher turns brains on
+from the lesson where you write one.
+
 ```python
 def brain(me, track, rivals):
     target = track.point_ahead(8 + me.speed / 10)

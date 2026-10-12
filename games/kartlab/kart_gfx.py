@@ -786,6 +786,7 @@ class ChaseCamera:
         self.cam_yaw = None
         self.pos = self.look = None
         self.fov = 70.0
+        self.zoom = 1.0  # the mouse wheel: under 1 is closer (a narrower view), over 1 wider
         self.tv_points = None
         self.tv_track = None
         self.tv_index = 0
@@ -796,6 +797,22 @@ class ChaseCamera:
 
     def cycle(self):
         self.set_mode(self.MODES[(self.MODES.index(self.mode) + 1) % len(self.MODES)])
+
+    def wheel(self, factor):
+        """The mouse wheel (the HUD kit's: when it isn't sliding a side panel): zoom the view a little."""
+        self.zoom = max(0.6, min(1.5, self.zoom * (factor ** 0.5)))
+
+    def settings(self):
+        """What a learner's profile keeps of the camera."""
+        return {"mode": self.mode, "zoom": round(self.zoom, 2)}
+
+    def restore(self, saved):
+        if isinstance(saved, dict):
+            self.set_mode(saved.get("mode", self.mode))
+            try:
+                self.zoom = max(0.6, min(1.5, float(saved.get("zoom", 1.0))))
+            except (TypeError, ValueError):
+                pass
 
     def set_mode(self, mode):
         if mode in self.MODES:
@@ -857,7 +874,7 @@ class ChaseCamera:
         cam = self.base.camera
         cam.setPos(self.pos)
         cam.lookAt(self.look)
-        self.base.camLens.setFov(self.fov)
+        self.base.camLens.setFov(max(20.0, min(110.0, self.fov * self.zoom)))
         self.base.camLens.setNear(near)
         follow_sun(x, y, z)
 
@@ -906,6 +923,7 @@ class Hud:
         self.base = base
         self.root = base.aspect2d.attachNewNode("kart hud")
         self.aspect = None
+        self.inset = 0.0  # how far in from the right edge the right-hand readouts sit (a side panel is open)
         r = self.root
         self.lap = _Text(r, 0, 0, 0.075, WHITE, TextNode.ALeft)
         self.place = _Text(r, 0, 0, 0.075, WHITE, TextNode.ARight)
@@ -918,7 +936,7 @@ class Hud:
         self.wrong.set("WRONG WAY")
         self.wrong.np.hide()
         self.wrong_shown = False
-        self.status_text = _Text(r, 0, 0, 0.032, GREY)
+        self.status_text = _Text(r, 0, 0, 0.028, GREY, TextNode.ARight)
         # the boost meter: a dark bar, a fill, and marks at the mini and super turbos
         self.bar_back = DirectFrame(parent=r, frameColor=(0.05, 0.05, 0.07, 0.85),
                                     frameSize=(-0.008, self.BAR_W + 0.008, -0.008, self.BAR_H + 0.008))
@@ -947,17 +965,23 @@ class Hud:
         if track is not None:
             self.minimap(track)
 
+    def set_inset(self, inset):
+        """A side panel is open on the right (inset: how wide, in screen units): the right-hand readouts move in."""
+        if inset != self.inset:
+            self.inset, self.aspect = inset, None
+
     def layout(self):
         """Pin everything to the corners for the window's shape (checked each frame: it changes on a resize)."""
         a = self.base.getAspectRatio()
         if a == self.aspect:
             return
         self.aspect = a
+        right = a - self.inset
         self.lap.pos(-a + 0.05, 0.9)
-        self.place.pos(a - 0.05, 0.9)
-        self.speed.pos(a - 0.05, -0.93)
-        self.status_text.pos(0, -0.97)
-        self.bar_back.setPos(a - 0.05 - self.BAR_W, 0, -0.84)
+        self.place.pos(right - 0.05, 0.9)
+        self.speed.pos(right - 0.05, -0.9)
+        self.status_text.pos(a - 0.05, -0.975)
+        self.bar_back.setPos(right - 0.05 - self.BAR_W, 0, -0.82)
         self.mini.setPos(-a + 0.05 + self.MINI / 2, 0, -0.95 + self.MINI / 2)
 
     def minimap(self, track):

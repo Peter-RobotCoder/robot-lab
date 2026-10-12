@@ -77,7 +77,7 @@ install -d -m 700 -o robotlab -g robotlab "$DATA/$NAME"
 CODE=$(python3 -c "import secrets; a='abcdefghjkmnpqrstuvwxyz23456789'; print('-'.join(''.join(secrets.choice(a) for _ in range(4)) for _ in range(2)))")
 umask 027
 cat > "$ETC/$NAME.env" <<EOF
-# $NAME: $ADDRESS (robotlab-add-class). Its game (robotlab or fightlab) and its own class code;
+# $NAME: $ADDRESS (robotlab-add-class). Its game (robotlab, fightlab or kartlab) and its own class code;
 # the teacher code is shared.
 PORT=$PORT
 GAME=$GAME
@@ -114,8 +114,5 @@ else
     exit 1
 fi
 echo
-echo "  Class code for $NAME (for its learners' welcome letters):   $CODE"
-echo
-echo "Learners type it in the Club Coders app, which opens $(title "$GAME") for them."
-echo "Your teacher window for $NAME: in the $(title "$GAME") folder, teacher_settings.json with"
-echo "  {\"server\": \"$ADDRESS\", \"teacher_code\": \"<the teacher code: sudo cat /etc/robotlab.env>\"}"
+echo "In the Club Coders app's Teacher screen, make a group whose game is $(title "$GAME") and launch it: your"
+echo "teacher window opens from there, and the group's learners log in with their usual username and password."

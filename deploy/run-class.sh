@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Starts one class's game server (run by robotlab@<class>.service). The class's game is GAME in
-# /etc/robotlab/<class>.env: robotlab (Robot Lab, the default) or fightlab (Fight Lab).
+# /etc/robotlab/<class>.env: robotlab (Robot Lab, the default), fightlab (Fight Lab) or kartlab (Kart Lab).
 # The game's code is the release's (/opt/robotlab/app/games/<game>), or a live update the teacher sent
 # (robotlab-live: /opt/robotlab/live/<game>/<id>, used from the class's next restart).
 # Each game keeps the class's data in its own place: Robot Lab in /var/lib/robotlab/<class>, Fight Lab in
-# /var/lib/robotlab/<class>/fightlab, so a class that changes game keeps both.
+# /var/lib/robotlab/<class>/fightlab, Kart Lab in /var/lib/robotlab/<class>/kartlab, so a class that changes
+# game keeps them all.
 set -euo pipefail
 CLASS="$1"
 APP=/opt/robotlab/app

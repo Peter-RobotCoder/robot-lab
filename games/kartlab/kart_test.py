@@ -32,6 +32,7 @@ import kart_track  # noqa: E402
 
 PY = sys.executable
 TMP = tempfile.mkdtemp(prefix="kartlab_test_")
+os.environ["KARTLAB_DATA"] = TMP  # (the teaching layer, profiles and evidence: here, never in the real data folder)
 results = []
 
 
@@ -224,16 +225,24 @@ def server_end_to_end():
         schema = wire.Schema("kart", sim.SCHEMA_FIELDS)
         url = f"ws://127.0.0.1:{port}"
         amy = connect(url, compression=None, open_timeout=5)
-        amy.send(json.dumps({"type": "hello", "name": "Amy", "code": "CLUB42", "version": kart_version.VERSION}))
+        amy.send(json.dumps({"type": "hello", "name": "Amy", "password": "amy12345", "code": "CLUB42",
+                             "version": kart_version.VERSION}))  # (a laptop test server: a new username makes a profile)
         welcome = json.loads(amy.recv(5))
         assert welcome["type"] == "welcome" and welcome["kart"] is not None, welcome
+        assert welcome["lesson"]["lesson_number"] == 1 and "tools" in welcome["lesson"], welcome["lesson"]
+        assert welcome["rules"]["points_total"] == 100 and "full" in welcome["rules"], welcome["rules"]
         teacher = connect(url, compression=None, open_timeout=5)
         teacher.send(json.dumps({"type": "hello", "name": "Teacher", "code": "TEACH99", "version": kart_version.VERSION}))
         assert json.loads(teacher.recv(5))["role"] == "teacher"
-        amy.send(json.dumps({"type": "design", "design": {"speed": 50, "acceleration": 30, "grip": 20}}))
+        amy.send(json.dumps({"type": "design", "design": {"name": "Comet", "colour": [0, 200, 255],
+                                                          "speed": 50, "acceleration": 30, "grip": 20}}))
+        teacher.send(json.dumps({"type": "lesson_number", "n": 2}))    # the teaching framework's messages
+        amy.send(json.dumps({"type": "prediction", "value": 40}))
+        amy.send(json.dumps({"type": "reflection", "mission": "2e", "text": "grip keeps me on the track in the hairpin"}))
         amy.send(b"\x07junk")  # (a bad binary frame must not hurt)
         my_id = welcome["kart"]
         seq, snaps, acks, race_msgs, t0 = 0, [], set(), 0, time.time()
+        design_ok, missions, lesson_msgs = None, None, 0
         last_send = 0.0
         while time.time() - t0 < 7.5:  # (the race starts after 1 s, the countdown takes 4)
             now = time.time()
@@ -255,6 +264,16 @@ def server_end_to_end():
                 m = json.loads(raw)
                 if m["type"] == "race":
                     race_msgs += 1
+                elif m["type"] == "design_result":
+                    design_ok = (m["ok"], m["design"])
+                elif m["type"] == "missions":
+                    missions = m
+                elif m["type"] == "lesson":
+                    lesson_msgs += 1
+        assert design_ok and design_ok[0] and design_ok[1]["name"] == "Comet" and design_ok[1]["speed"] == 50, design_ok
+        assert missions and missions["lesson"] == 2 and missions["prediction"] == 40, missions and missions["lesson"]
+        assert "2e" in missions["text"] and any(x["id"] == "2a" for x in missions["missions"]), missions["missions"]
+        assert lesson_msgs >= 1
         assert len(snaps) > 120, f"only {len(snaps)} snapshots in 7.5 s"
         gaps = [b[0] - a[0] for a, b in zip(snaps[-60:], snaps[-59:])]
         rate = 1 / (sum(gaps) / len(gaps))
@@ -293,11 +312,114 @@ def windows():
         stop(proc)
 
 
+def designs_and_limits():
+    """The design as variables: the schema, the checks (normal, boundary and invalid data) and the teacher's limits."""
+    names = [v.name for v in sim.schema()]
+    assert names == ["speed", "acceleration", "grip", "kart_name", "colour"], names
+    d = sim.default_design("Test")
+    assert sim.check_design(d) == [], sim.check_design(d)
+    assert sim.check_design(dict(d, speed=60, acceleration=30, grip=10)) == []           # boundary values
+    assert any("61" not in p and "60" in p for p in sim.check_design(dict(d, speed=61)))  # invalid: too high
+    assert any("points used" in p for p in sim.check_design(dict(d, speed=50, acceleration=40, grip=20)))
+    assert any("whole number" in p for p in sim.check_design(dict(d, speed="fast")))
+    assert sim.check_design(dict(d, colour=[0, 300, 0])) and sim.check_design(dict(d, name=""))
+    narrow = sim.clean_limits({"points": {"speed": [10, 40]}, "points_total": 90}, sim.default_limits())
+    assert narrow["points"]["speed"] == [10, 40] and narrow["points_total"] == 90, narrow
+    fitted = sim.fit_design(dict(d, speed=55, acceleration=25, grip=20), narrow)
+    assert fitted["speed"] == 40 and sum(fitted[k] for k in sim.STATS) <= 90, fitted
+    assert sim.fit_design(d, sim.default_limits()) is d, "a design inside the limits comes back as it is"
+    assert sim.code_limits(narrow)["points"]["speed"] == [10, 60], sim.code_limits(narrow)
+    assert sim.full_limits()["points_total"] == 100
+    import kart_missions as km
+    assert set(km.LESSONS) == {1, 2, 3, 4, 5} and all(k in km.OUTCOMES for k in ("VAR", "AISAFE", "EVAL"))
+    for mid, (lesson, title, text, outcomes, how) in km.MISSIONS.items():
+        assert lesson in km.LESSONS and all(o in km.OUTCOMES for o in outcomes) and how in ("auto", "teacher"), mid
+    assert "60" in km.points_words("exactly 10 or exactly 60", sim.default_limits())
+    assert km.points_words("Spend exactly 100 points", narrow) == "Spend exactly 90 points"
+    assert {"if", "own_function", "memory"} <= km.brain_features(
+        "def near(t):\n    return t.bend_ahead > 20\ndef brain(me, track, rivals):\n    me.memory['x'] = 1\n"
+        "    if near(track):\n        return 0.5, 0\n    return 1, 0\n")
+
+
+def profiles_and_missions():
+    """Accounts (scrypt, the teacher's rules) and the missions the server completes from what a learner does."""
+    import kart_profiles
+    import kart_server
+    kart_profiles.PROFILES = os.path.join(TMP, "profiles")
+    try:
+        kart_profiles.create("Vi", "short")
+        raise AssertionError("a 5-letter password was accepted")
+    except kart_profiles.LoginError as e:
+        assert "6 characters" in str(e)
+    prof = kart_profiles.create("Vi", "rocket42")
+    assert prof["hash"].startswith("scrypt$") and "rocket42" not in json.dumps(prof)
+    assert kart_profiles.login("Vi", "rocket42")[0]["name"] == "Vi"
+    try:
+        kart_profiles.login("Vi", "wrong-one")
+        raise AssertionError("a wrong password was accepted")
+    except kart_profiles.LoginError:
+        pass
+    kart_profiles.set_password("Vi", "comet123")
+    assert kart_profiles.login("Vi", "comet123")[1] is False and "Vi" in kart_profiles.all_names()
+
+    srv = kart_server.KartServer()
+    p = kart_server.Player(None, "learner", "Vi", (220, 60, 50))
+    p.profile = kart_profiles.load("Vi")
+    srv.players[object()] = p
+    srv.teaching.login(p)
+    srv.rebuild()
+    assert p.kart is not None and p.unit is not None and p.unit in srv.race.units.values()
+    t = srv.teaching
+    done = lambda: set(t.record("Vi").done)  # noqa: E731
+    # lesson 1: a, b and c with the GUI, d from the code
+    old = dict(p.design)
+    new = dict(old, name="Comet", speed=40, grip=27)
+    t.on_design(p, new, [], True, old=old, by_code=False)
+    assert {"1a", "1b"} <= done(), done()
+    new2 = dict(new, colour=[0, 200, 255])
+    t.on_design(p, new2, [], True, old=new, by_code=False)
+    assert "1c" in done(), done()
+    t.on_design(p, dict(new2, acceleration=35, grip=25), [], True, old=new2, by_code=True)
+    assert "1d" in done(), done()
+    # lesson 2: the budget, invalid and boundary data, a prediction and a timed lap, a reflection
+    t.apply_lesson(2)
+    srv.rebuild()
+    t.on_design(p, dict(new2, speed=60, acceleration=30, grip=10), [], True, old=new2, by_code=False)
+    assert {"2a", "2c"} <= done(), done()
+    t.on_design(p, dict(new2, speed=60, acceleration=60, grip=10), ["130 points used"], False, old=new2, by_code=True)
+    assert "2b" in done(), done()
+    replies = t.on_message(p, {"type": "prediction", "value": 40})
+    assert replies and replies[0][1]["prediction"] == 40
+    t.on_message(p, {"type": "reflection", "mission": "2e", "text": "grip keeps me on the track in the hairpin bend"})
+    srv.race.lap_times[p.kart] = [38.5]          # (as the race records a lap)
+    t.tick(10.0)
+    assert {"2d", "2e"} <= done(), done()
+    assert t.missions_msg(p)["best_lap"] == 38.5
+    # lesson 3: a brain with selection, a function and memory
+    t.apply_lesson(3)
+    srv.rebuild()
+    r = t.record("Vi")
+    r.brain_features = {"if", "own_function", "memory"}
+    t.brain_checks(p, r)
+    assert {"3b", "3c", "3d"} <= done(), done()
+    # the evidence export and the desk's report carry the outcomes
+    assert open(t.export(), encoding="utf-8").read().startswith("Learner")
+    report = t.session_report("2000-01-01", {})
+    assert report["totals"]["Vi"]["VAR"] >= 2 and "Vi" in report["done"], report["totals"]
+    # a learner's kart file, and deleting the learner removes everything
+    t.save_design("Vi", p.design)
+    assert os.path.exists(t.design_file("Vi"))
+    text = t.delete_learner("Vi")
+    assert "Deleted" in text and not os.path.exists(t.design_file("Vi")) and kart_profiles.load("Vi") is None
+
+
 QUICK = "quick" in sys.argv  # (just the simulation checks, no server and no windows)
 check("Every file compiles", compile_all)
 check("The track answers consistently", track_answers)
 check("The kart is deterministic, held by barriers, drifts and slides", kart_physics)
 check("Prediction agrees with the server through 83 ms of delay and absorbs a bump", prediction_no_network)
+check("Designs are checked as variables, inside the teacher's limits", designs_and_limits)
+check("Accounts and missions: what a learner does completes the right objectives", profiles_and_missions)
 if not QUICK:
     check("The server runs a race for two windows at 30 snapshots a second", server_end_to_end)
 if not QUICK and "server" not in sys.argv:  # ("server": everything but the windows)

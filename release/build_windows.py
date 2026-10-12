@@ -34,8 +34,8 @@ GAMES = {"robotlab": ("Robot Lab", "lab_server.py", "ROBOTLAB_DATA",
                       "import fight_version; from engine import rw_textures, rw_sound; import fight_sound; "
                       "rw_textures.ensure(); rw_sound.ensure(); fight_sound.ensure()"),
          "kartlab": ("Kart Lab", "kart_server.py", "KARTLAB_DATA",
-                     "import kart_version; from engine import rw_textures, rw_sound; "
-                     "rw_textures.ensure(); rw_sound.ensure()")}
+                     "import kart_version; from engine import rw_textures, rw_sound; import kart_sound; "
+                     "rw_textures.ensure(); rw_sound.ensure(); kart_sound.ensure()")}
 # (the textures and sounds are made into engine/assets, which the app carries beside games/)
 
 READ_ME = """CLUB CODERS
@@ -45,7 +45,8 @@ READ_ME = """CLUB CODERS
 2. Type the class code from your welcome letter and press GO. Your class's game opens:
    log in with the username and password from your welcome letter.
 3. From the lesson where you write a brain, it's in the brains folder next to this file:
-   brains\\robotlab\\my_brain.py (Robot Lab) or brains\\fightlab\\my_brain.py (Fight Lab).
+   brains\\robotlab\\my_brain.py (Robot Lab), brains\\fightlab\\my_brain.py (Fight Lab) or
+   brains\\kartlab\\my_brain.py (Kart Lab).
    Open it with Notepad, then press U in the game to upload it.
 
 Only use a nickname or first name as your username. Never put personal information in the game.

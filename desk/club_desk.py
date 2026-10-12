@@ -447,8 +447,9 @@ def client_address(ws):
 
 # ---------- the connections ----------
 class Desk:
-    def __init__(self, store, games, teacher_password):
+    def __init__(self, store, games, teacher_password, reload=None):
         self.store, self.games, self.teacher_password = store, games, teacher_password
+        self.reload = reload  # () -> {game: info}: re-read the server's classes (a class added since the desk started)
         self.teachers = set()    # teacher connections
         self.tick = None
         self.waiting = {}        # learner connections waiting for their group: ws -> name
@@ -612,9 +613,12 @@ class Desk:
         elif kind == "launch":
             s.launch(m.get("group", ""), m.get("lesson", 1))
             live = s.live
+            if live["game"] not in self.games and self.reload:  # (robotlab-add-class since the desk started)
+                self.games = {**self.games, **self.reload()}
             if live["game"] not in self.games:
                 s.stop()
-                raise DeskError(f"{GAMES[live['game']]} isn't set up on this server yet.")
+                raise DeskError(f"{GAMES[live['game']]} isn't set up on this server yet (sudo robotlab-add-class "
+                                f"classN --game {live['game']}).")
             reply = {"ok": True, "done": f"{live['group']} is live: open your teacher window, set it up, then press "
                                          f"LAUNCH LEARNERS' WINDOWS"}
         elif kind == "open_learners":  # the teacher is ready: the waiting learners go in (and anyone who logs in)
@@ -658,7 +662,7 @@ async def main():
             games = {g: (v if isinstance(v, dict) else {"address": v}) for g, v in json.load(f).items()}
     else:
         games = server_games()
-    desk = Desk(Store(DATA), games, teacher_password)
+    desk = Desk(Store(DATA), games, teacher_password, reload=None if args.games else server_games)
     async def refresh():  # (the teacher's screen follows the live session: who's here, what they've completed)
         seconds = 0
         while True:

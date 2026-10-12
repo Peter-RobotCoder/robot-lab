@@ -79,7 +79,8 @@ from engine import garage, schema  # noqa: E402
 from engine.hud import DARK, button, check, label, load_json, remember, text_button, word  # noqa: E402,F401
 from engine.hud import YELLOW, WHITE, GREY, RED, GREEN, BLUE, ORANGE, PANEL, ON, OFF, BOX, HANDLE  # noqa: E402,F401
 SETTINGS = hud.setup(SETTINGS_DIR, sys.modules[__name__])  # this computer's settings; this module's colours follow the look
-BRAINS = os.path.join(os.path.dirname(sys.executable), "brains", "fightlab") if fight_version.FROZEN else os.path.join(HERE, "brains")  # (Club Coders: each game has its own brains folder)
+BRAINS = (os.path.join(os.path.dirname(sys.executable), "brains", "fightlab") if fight_version.FROZEN  # (the built
+          else os.path.join(HERE, "brains"))  # app keeps each game's brains folder beside the exe: brains\fightlab)
 
 
 

@@ -15,11 +15,26 @@ The design sheet: 100 points between speed, acceleration and grip (10 to 60 each
 """
 import math
 
+import kart_version  # noqa: F401  (puts the engine, shared by every game, on the path)
 import kart_track
 
 STEP = 1 / 60
 POINTS_TOTAL, STAT_MIN, STAT_MAX = 100, 10, 60
 STATS = ("speed", "acceleration", "grip")
+SETTINGS = {}  # (a kart has no settings beyond its points; the engine's limits and garage expect the name)
+FULL_STAT, FULL_POINTS_TOTAL = (STAT_MIN, STAT_MAX), POINTS_TOTAL  # the widest ranges the teacher may open
+STAT_NOTES = {"speed": "points for top speed", "acceleration": "points for acceleration",
+              "grip": "points for grip: how fast a slide dies, and how sharply it steers"}
+LIMITS = None  # the engine's limits Spec (made below, once the engine can be imported)
+
+# Rules an approved AI request may change (mods/rules.py): the race's, on the server only. Nothing a window
+# predicts with is here, so a rule change can't make a window and the server disagree about a kart.
+DEFAULT_RULES = {"laps": 3, "cpu_karts": 3, "countdown_seconds": 4.0, "bump_distance": 1.7, "bump_slowdown": 0.3}
+RULES = dict(DEFAULT_RULES)
+
+# Features learners asked for through AI cards that the teacher switches on and off (the engine's user mods):
+# key: (name for the teacher's Controls, one sentence). Off by default; Race.user_mods says which are on.
+USER_MODS = {}
 
 DRIFT, USE, RESPAWN = 1, 2, 4   # the input's buttons
 FLAG_DRIFT_L, FLAG_DRIFT_R, FLAG_FINISHED, FLAG_WRONG_WAY, FLAG_BOOSTING = 1, 2, 4, 8, 16
@@ -44,8 +59,90 @@ def default_design(name="Kart", colour=(220, 60, 50)):
     return {"name": name, "colour": list(colour), "speed": 34, "acceleration": 33, "grip": 33}
 
 
-def fit_design(d):
-    """A design inside the rules: each stat 10 to 60, 100 points in all (the extra or the shortfall spread out)."""
+# ---------- the kart as variables (the engine's schema: the code panel and the garage's tables) ----------
+def schema():
+    """The kart's variables, in the HUD's groups: three integer points, a string name and a colour list. The
+    design is the flat dictionary default_design() makes."""
+    from engine.schema import Var
+    return ([Var(k, (k,), "int", "points", tool=k, note=STAT_NOTES[k]) for k in STATS] +  # (each point is its own
+            #  garage tool, as Robot Lab's settings are: lesson 1 shows them one by one, lesson 2 adds the
+            #  100-point table, tool "points_table")
+            [Var("kart_name", ("name",), "str", "strings", tool="name_and_colour",
+                 note="a string: text made of chars", max_len=12),
+             Var("colour", ("colour",), "rgb", "lists", tool="name_and_colour", note="red, green, blue: 0 to 255")])
+
+
+design_schema = schema
+
+
+# ---------- the learners' limits (the engine's Spec works on points and settings groups; a kart's points are
+# flat in its design, so the design is shown to it in that shape) ----------
+def _limits():
+    global LIMITS
+    if LIMITS is None:
+        from engine.limits import Spec
+        LIMITS = Spec(SETTINGS, {}, STATS, (STAT_MIN, STAT_MAX), FULL_STAT, POINTS_TOTAL, FULL_POINTS_TOTAL)
+    return LIMITS
+
+
+def _nested(d):
+    return {"points": {k: d.get(k) for k in STATS}, "settings": {}}
+
+
+def default_limits():
+    """The learners' ranges as they are until the teacher changes them (the Limits tab narrows them)."""
+    return _limits().default()
+
+
+def code_limits(limits):
+    """What the code may set: up to twice the teacher's limit, or the maximum, whichever is smaller."""
+    return _limits().code_room(limits)
+
+
+def full_limits():
+    """The widest ranges: the teacher's own kart is checked against these."""
+    return _limits().full()
+
+
+def clean_limits(new, old=None):
+    """Limits sent by the teacher's window (or loaded from a file), made safe."""
+    return _limits().clean(new, old)
+
+
+def check_design(d, limits=None):
+    """Return a list of problems (empty = fine). Used by the server and shown to learners. limits: the ranges to
+    hold it to (the learners', as the teacher set them, or full_limits() for the teacher's own kart)."""
+    if not isinstance(d, dict):
+        return ["the design must be a dictionary"]
+    problems = []
+    if not isinstance(d.get("name"), str) or not d["name"].strip():
+        problems.append("name must be some text")
+    elif len(d["name"]) > 12:
+        problems.append("name can be at most 12 characters")
+    c = d.get("colour")
+    if not (isinstance(c, list) and len(c) == 3 and all(isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255
+                                                         for v in c)):
+        problems.append("colour must be three whole numbers from 0 to 255, [red, green, blue]")
+    limits = limits or default_limits()
+    for k in STATS:
+        lo, hi = limits["points"][k]
+        v = d.get(k)
+        if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
+            problems.append(f"{k} must be a whole number from {lo} to {hi}")
+    vals = [d.get(k) for k in STATS]
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in vals) and sum(vals) > limits["points_total"]:
+        problems.append(f"{sum(vals)} points used: the most you can spend is {limits['points_total']}")
+    return problems
+
+
+def fit_design(d, limits=None):
+    """A design inside the rules: each stat 10 to 60 (or the teacher's narrower limits), 100 points in all (the
+    extra or the shortfall spread out). With limits, a design already inside them comes back as it is."""
+    if limits is not None:
+        nested = _limits().fit(_nested(d), limits)
+        if nested["points"] == _nested(d)["points"]:
+            return d
+        return {**d, **nested["points"]}
     out = dict(d)
     vals = [max(STAT_MIN, min(STAT_MAX, int(out.get(k, 33)))) for k in STATS]
     over = sum(vals) - POINTS_TOTAL
@@ -193,16 +290,30 @@ class Race:
         self.finish = {}        # id -> the tick it finished
         self.events = []        # (tick, text)
         self.bumps = []         # (tick, id, other id) this tick, for the windows' sound and sparks
+        self.hits = {}          # id -> bumps with another kart since it joined (the missions watch these)
+        self.lap_times = {}     # id -> [seconds for each lap completed this race]
+        self.lap_start = {}     # id -> the tick its current lap began
+        self.practice = True    # a practice (free driving) or a race that counts (the teaching layer reads it)
+        self.user_mods = {}     # the engine's user mods switched on (USER_MODS): nothing uses them yet
+
+    @property
+    def time(self):
+        """The race's clock, in ticks (the teaching layer stamps its events with it, as the race does its own)."""
+        return self.tick
+
+    def set_user_mods(self, switches):
+        self.user_mods = {k: bool(v) for k, v in (switches or {}).items() if k in USER_MODS}
 
     def add(self, kid, design):
         design = fit_design(design)
         k = new_kart(kid, design, 0.0, 0.0, 0.0)
         self.karts[kid], self.designs[kid], self.stats[kid] = k, design, stats_of(design)
+        self.hits.setdefault(kid, 0)
         self.to_grid()
         return k
 
     def remove(self, kid):
-        for d in (self.karts, self.designs, self.stats, self.finish):
+        for d in (self.karts, self.designs, self.stats, self.finish, self.hits, self.lap_times, self.lap_start):
             d.pop(kid, None)
 
     def to_grid(self):
@@ -214,14 +325,16 @@ class Race:
             k.update(lap=0, cp=0, flags=0, charge=0)
             place(self.track, k, s, lat)
         self.finish = {}
+        self.lap_times, self.lap_start = {}, {}
         self.phase = FLAGS_GRID
         self.go_tick = None
 
     def start(self):
         """3, 2, 1, GO: nobody moves until go_tick."""
         self.to_grid()
-        self.go_tick = self.tick + COUNTDOWN_TICKS
+        self.go_tick = self.tick + max(60, int(RULES.get("countdown_seconds", 4.0) / STEP))
         self.phase = FLAGS_RACE
+        self.lap_start = {kid: self.go_tick for kid in self.karts}
         self.events.append((self.tick, "On your marks..."))
 
     def frozen(self):
@@ -271,18 +384,21 @@ class Race:
                 b = self.karts[ids[j]]
                 dx, dy = b["x"] - a["x"], b["y"] - a["y"]
                 d = math.hypot(dx, dy)
-                if d >= BUMP_DISTANCE or d < 1e-6:
+                reach, slow = RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3)
+                if d >= reach or d < 1e-6:
                     continue
-                push = (BUMP_DISTANCE - d) / 2
+                push = (reach - d) / 2
                 nx, ny = dx / d, dy / d
                 a["x"] -= nx * push
                 a["y"] -= ny * push
                 b["x"] += nx * push
                 b["y"] += ny * push
                 # the faster one loses a little speed to the slower (bounded, so nobody is sent flying)
-                a["v"], b["v"] = a["v"] * 0.97 - 0.3 * min(1.0, max(0.0, a["v"] - b["v"])), \
-                    b["v"] * 0.97 - 0.3 * min(1.0, max(0.0, b["v"] - a["v"]))
+                a["v"], b["v"] = a["v"] * 0.97 - slow * min(1.0, max(0.0, a["v"] - b["v"])), \
+                    b["v"] * 0.97 - slow * min(1.0, max(0.0, b["v"] - a["v"]))
                 self.bumps.append((self.tick, ids[i], ids[j]))
+                self.hits[ids[i]] = self.hits.get(ids[i], 0) + 1
+                self.hits[ids[j]] = self.hits.get(ids[j], 0) + 1
 
     def gates(self, kid, k):
         """Gate, lap and finish bookkeeping from where the kart is along the track."""
@@ -299,6 +415,9 @@ class Race:
             if zone == 0:
                 k["lap"] += 1
                 k["cp"] = 1
+                began = self.lap_start.get(kid, self.go_tick if self.go_tick is not None else self.tick)
+                self.lap_times.setdefault(kid, []).append(round((self.tick - began) * STEP, 2))
+                self.lap_start[kid] = self.tick
                 if k["lap"] >= self.laps and kid not in self.finish:
                     self.finish[kid] = self.tick
                     k["flags"] |= FLAG_FINISHED
