@@ -48,10 +48,12 @@ ap.add_argument("--teacher", action="store_true")
 ap.add_argument("--host", default=None,
                 help="server address (default: this computer); 'class' = the one in teacher_settings.json")
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
-ap.add_argument("--gfx", choices=["low", "medium", "high"], default="medium", help="use low on old laptops")
+ap.add_argument("--gfx", choices=["auto", "basic", "low", "medium", "high"], default="auto",
+                help="graphics: auto picks for this computer (and remembers); low or basic on old laptops")
 ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=6)
 ap.add_argument("--offscreen", action="store_true")
+ap.add_argument("--no-interp", action="store_true", help="draw each snapshot as it arrives (no blending between them)")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
 ap.add_argument("--show-code", action="store_true", help=argparse.SUPPRESS)  # (tests: open the code panel)
@@ -115,8 +117,10 @@ title = f"Fight Lab - {'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if 
 if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
-loadPrcFileData("", f"win-size 1280 720\nwindow-title {title}\nframebuffer-multisample 1\nmultisamples 4\n"
-                    f"win-origin {x} 80\n")
+from engine import gfx_tiers  # noqa: E402
+GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx)  # (auto: this computer's saved tier, else what its driver suggested)
+loadPrcFileData("", f"win-size 1280 720\nwindow-title {title}\nwin-origin {x} 80\n"
+                    + gfx_tiers.prc_for(GFX))  # (texture size, mipmaps, multisamples: read as the window opens)
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\naudio-library-name null\n")
 
@@ -137,6 +141,7 @@ import fight_model  # noqa: E402
 from fight_gfx import StageVisual  # noqa: E402
 from fight_hud import FightHUD  # noqa: E402
 from engine.net import Net  # noqa: E402
+from engine import interp  # noqa: E402
 
 CODE_ROWS = 19     # lines of code the code panel shows at once (longer code scrolls)
 CODE_PANEL = (-0.86, 0.12, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
@@ -152,11 +157,11 @@ PRETTY = {"walk_speed": "Walk speed", "sidestep_speed": "Sidestep speed", "jump_
           "attack_speed": "Attack speed", "size": "Size", "points_table": "Points table",
           "choose_special": "Choose special", "combo_editor": "Combo editor", "name_and_colour": "Name and colour",
           "body_choice": "Robot or human", "code_view": "Code view", "stats_readout": "Stats readout",
-          "bosses": "Play as a boss", "fighting_style": "Fighting style"}
+          "bosses": "Play as a boss", "fighting_style": "Fighting style", "brains": "Autopilot (U and P)"}
 HAZARD_NAMES = {"ring_out": "Ring-outs (no ropes)", "electric_ropes": "Electric ropes", "fire_jets": "Fire jets",
                 "slippery": "Slippery ice", "spikes": "Spikes"}
-LEARNER_TABS = [("missions", "Mission (M)"), ("garage", "Garage (G)"), ("ai", "AI card (I)"), ("card", "My card (K)"),
-                ("mods", "Mods (J)"), ("settings", "Settings (L)")]  # (S is kick, so the Settings key is L here)
+LEARNER_TABS = [("missions", "Mission"), ("garage", "Garage"), ("ai", "AI card"), ("card", "My card"),
+                ("mods", "Mods"), ("settings", "Settings")]  # (one key, I, opens and closes the HUD: CHANGE 103)
 TEACHER_TABS = [("teacher", "Controls"), ("mods", "User mods"), ("matches", "Matches"), ("learners", "Learners"),
                 ("accounts", "Accounts"), ("outcomes", "Outcomes"), ("cards", "AI cards"), ("changes", "Changes"),
                 ("limits", "Limits"), ("warnings", "Warnings"), ("garage", "My fighter"), ("settings", "Settings")]  # (two rows)
@@ -182,6 +187,7 @@ def send(msg):
 class Lab(hud.HudKit, ShowBase):
     UNIT, CPU_VIEW = "fighter", "Computer fighter"
     VERSION, LIVE_ID = fight_version.VERSION, fight_version.live_id()
+    FIRST_TAB = "teacher" if TEACHER else "missions"
     teacher = TEACHER
     CODE_PANEL, CODE_ROWS = CODE_PANEL, CODE_ROWS
     reflections = tuple(fm.REFLECTIONS)
@@ -202,8 +208,10 @@ class Lab(hud.HudKit, ShowBase):
         self.schema = sim.schema()  # the fighter's variables: the code panel (and the garage's tables) come from it
         self.code_changed = False  # the design holds a value changed in the code (Mission 1: hack the code)
         self.code_hack = False  # the design holds a value changed in the code that this mission's garage hides
-        fight_gfx.init(self, args.gfx)
-        self.fx = fight_fx.Effects(self.render, args.gfx)
+        gfx_tiers.detect(self, SETTINGS_DIR)  # (the window is open: what the driver says, for the next run's tier)
+        fight_gfx.init(self, GFX)
+        self.gfx_tier = fight_gfx.tier()  # (the tier in use: lower than GFX when the driver couldn't run that one)
+        self.fx = fight_fx.Effects(self.render, "low" if self.gfx_tier in ("basic", "low") else self.gfx_tier)
         self.snd = fight_sound.FightSounds(self, on=not args.offscreen)
         self.muted = False
         self.pending_rebuild = False  # a panel redraw waiting until typing stops
@@ -222,7 +230,9 @@ class Lab(hud.HudKit, ShowBase):
             error = self.connect(name, args.password or "")
             if error:
                 if TEACHER:
-                    raise SystemExit(error)
+                    self.show_refusal(error)  # (on screen: the .bat shows no console)
+                    self.taskMgr.add(self.update, "update")
+                    return
                 self.show_login(error)
         else:
             self.show_login()
@@ -266,6 +276,28 @@ class Lab(hud.HudKit, ShowBase):
             if m["type"] == "closed":
                 return None, m.get("reason") or "The server closed the connection (wrong class code, the class " \
                                                 "is full, or a teacher is already on)."
+
+    def show_refusal(self, error):
+        """The teacher's window couldn't start: say why, with Try again and Close."""
+        print(error, flush=True)
+        self.login_panel = DirectFrame(frameColor=(0.05, 0.06, 0.09, 1), frameSize=(-3, 3, -1.2, 1.2))
+        f = DirectFrame(parent=self.login_panel, frameColor=PANEL, frameSize=(-0.72, 0.72, -0.3, 0.36))
+        label(f, "FIGHT LAB  -  TEACHER", 0, 0.24, 0.06, YELLOW, TextNode.ACenter)
+        label(f, error, 0, 0.1, 0.034, RED, TextNode.ACenter, wrap=36)
+        hint = ("Another teacher window is open (on this computer or another): close it, then try again. If none is, "
+                "restart the game server (on the server: sudo systemctl restart robotlab@class1)."
+                if "already connected" in error else "")
+        label(f, hint, 0, -0.06, 0.026, GREY, TextNode.ACenter, wrap=48)
+        button(f, "Try again", -0.16, -0.22, self.try_again, (), 0.04, (0.15, 0.55, 0.25, 1))
+        button(f, "Close", 0.2, -0.22, self.userExit, (), 0.04)
+
+    def try_again(self):
+        if getattr(self, "login_panel", None) is not None:
+            self.login_panel.destroy()
+            self.login_panel = None
+        error = self.connect(name, args.password or "")
+        if error:
+            self.show_refusal(error)
 
     def show_login(self, error=""):
         self.login_panel = DirectFrame(frameColor=(0.05, 0.06, 0.09, 1), frameSize=(-3, 3, -1.2, 1.2))  # backdrop
@@ -345,6 +377,8 @@ class Lab(hud.HudKit, ShowBase):
         if self.win is not None and not args.offscreen:
             self.win.requestProperties(props)
         self.started = True
+        self.gfx_monitor = getattr(self, "gfx_monitor", None) or fight_gfx.start_monitor(
+            self, SETTINGS_DIR, args.gfx, self.banner_note, judge=not LOCAL)  # (a laptop test shares the GPU)
         self.lesson, self.rules = welcome["lesson"], welcome["rules"]
         self.design = welcome["design"]          # the last design the server accepted
         self.draft = copy.deepcopy(self.design)  # what is being edited in the garage
@@ -374,6 +408,10 @@ class Lab(hud.HudKit, ShowBase):
         self.ring_of = {}        # fighter id -> ring index
         self.watch = None        # the ring being watched (None = your own)
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
+        # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
+        self.snaps, self.latest = interp.Snapshots(interp.FIGHT_SPEC), None
+        self.ctrl_seq, self.ctrl_sent, self.ctrl_ms = 0, {}, None  # numbered controls, and the measured control delay
+        self.perf_at = 0.0
         self.fx_waiting = []
         self.reconnect_thread = None
         self.last_anim, self.last_phase, self.last_winner = {}, {}, {}  # (for sounds)
@@ -381,20 +419,26 @@ class Lab(hud.HudKit, ShowBase):
         self.last_control = None
         self.panel = self.code_panel = None
         self.tab = args.tab or ("teacher" if TEACHER else "missions")
+        if args.tab == "outcomes_edit":  # (tests: the Outcomes tab on its missions editor)
+            self.tab, self.editing_missions = "outcomes", True
         self.show_code = bool(args.show_code)
         self.reconnecting = False
         if args.scroll:
             self.taskMgr.doMethodLater(3, lambda t: (setattr(self, "panel_scroll", args.scroll), self.place_panel())
                                        and None, "test scroll")
         self.restore_prefs(welcome.get("prefs", {}))
+        tabs = [t for t, _ in (TEACHER_TABS if TEACHER else LEARNER_TABS)]
+        if not args.tab and getattr(self, "last_tab", None) in tabs:  # (CHANGE 103: back on the tab last used)
+            self.tab = self.last_tab
+            self.rebuild_panels()
         send({"type": "slot", "do": "list"})  # (my saved designs: CHANGE 83)
         for key, action in PRESS_KEYS.items():  # fighting keys: sent the moment they're pressed
             self.key(key, self.press, action)
-        self.key("g", self.open_tab, "garage")
+        self.key("i", self.toggle_panel)  # (CHANGE 103: the one HUD key)
         self.key("c", self.toggle_code)
         self.key("h", self.toggle_help)
         self.key("u", self.upload_brain)
-        self.key("p", send, {"type": "autopilot"})
+        self.key("p", self.autopilot_key)
         self.key("v", self.cam.cycle)
         self.key("q", self.cam.turn, 20)       # swing the view round the ring (or drag with the right mouse button)
         self.key("e", self.cam.turn, -20)
@@ -410,16 +454,8 @@ class Lab(hud.HudKit, ShowBase):
             self.key(key, self.cam.wheel, factor)
         for key, factor, step in (("wheel_up", 0.88, -1), ("wheel_down", 1 / 0.88, 1)):
             self.key(key, self.wheel, factor, step)  # (the wheel slides a tall side panel, or zooms)
-        self.key("l", self.open_tab, "settings")
-        self.key("j", self.open_tab, "mods")
         self.key("page_up", self.slide_panel, -1)
         self.key("page_down", self.slide_panel, 1)
-        if TEACHER:
-            self.key("t", self.cycle_teacher_tabs)
-        else:
-            self.key("m", self.open_tab, "missions")
-            self.key("k", self.open_tab, "card")
-            self.key("i", self.open_tab, "ai")
         self.hud()
         self.try_starting = None  # (teacher: a test server on this laptop is starting: see try_here)
         if TRY:
@@ -458,6 +494,8 @@ class Lab(hud.HudKit, ShowBase):
         """A learner's camera view and half-typed AI card, from their profile."""
         self.cam.restore(prefs.get("camera", {}))
         self.restore_hud_prefs(prefs)  # (the code panel's place and size, text size, look, the wheel)
+        if isinstance(prefs.get("sound"), dict):  # (their own sound settings: CHANGE 107)
+            self.sound_prefs = rw_sound.sound_settings(prefs["sound"])
         for k in CARD_FIELDS:
             if prefs.get("card", {}).get(k):
                 self.entry_text[f"card_{k}"] = str(prefs["card"][k])[:2000]
@@ -470,7 +508,8 @@ class Lab(hud.HudKit, ShowBase):
         for k in CARD_FIELDS:
             e = self.entries.get(f"card_{k}")
             card[k] = e.get() if e is not None else self.entry_text.get(f"card_{k}", "")
-        return {"camera": self.cam.settings(), "card": card, "card_target": self.card_target, **self.hud_prefs()}
+        return {"camera": self.cam.settings(), "card": card, "card_target": self.card_target, **self.hud_prefs(),
+                **({"sound": self.sound_prefs} if getattr(self, "sound_prefs", None) else {})}
 
     def key(self, key, fn, *extra):
         """A game shortcut key. It does nothing while you are typing in a text box."""
@@ -528,9 +567,10 @@ class Lab(hud.HudKit, ShowBase):
         self.banner = OnscreenText("", pos=(-0.3, -0.35), scale=0.05, fg=YELLOW, shadow=(0, 0, 0, 1), mayChange=True,
                                    wordwrap=40)
         keys = ("Arrows move (up/down sidestep)  A punch/combo  S kick  D special  W throw  Space jump  Shift block  "
-                "X crouch  " + ("T panels  " if TEACHER else "M missions  I AI card  ") +
-                "G garage  J mods  C code  L settings  U brain  P autopilot  V view  Q/E or right-drag turn  H help")
-        self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021 * self.text_scale(), GREY)
+                "X crouch  I HUD  C code  " + ("" if TEACHER else "U brain  P autopilot  ") +
+                "V view  [ ] ring  Q/E or right-drag turn  H help")
+        self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021 * min(1.15, self.text_scale()), GREY)
+        self.panel_floor = -0.94  # (the side panel stops above the key list: CHANGE 104)
         self.layout_rings()
 
     def toggle_rings(self):
@@ -594,6 +634,8 @@ class Lab(hud.HudKit, ShowBase):
 
     def toggle_help(self):
         self.help.hide() if not self.help.isHidden() else self.help.show()
+        self.panel_floor = -1.0 if self.help.isHidden() else -0.94  # (CHANGE 104)
+        self.place_panel()
 
     def toggle_code(self):
         self.show_code = not self.show_code
@@ -691,8 +733,7 @@ class Lab(hud.HudKit, ShowBase):
             if view:
                 check(f, " learner sees", 1.52, yy, seen.get(tool), lambda v, t=tool: self.set_lesson({"tools": {t: bool(v)}}),
                       0.022)
-        label(f, ("EVERY LEARNER'S FIGHTER (what they all get)" if view == self.ALL_LEARNERS else
-               f"{view.upper()}'S FIGHTER (what they see and change)") if view else
+        label(f, ("EVERY LEARNER'S FIGHTER" if view == self.ALL_LEARNERS else f"{view.upper()}'S FIGHTER") if view else
               ("MY FIGHTER" if TEACHER else "GARAGE  -  your fighter as variables"), 0.82, y, 0.034 if view else 0.038,
               YELLOW)
         y -= 0.06
@@ -1062,6 +1103,25 @@ class Lab(hud.HudKit, ShowBase):
         else:
             self.send_design()
 
+    def outside_limits(self, values):
+        """CHANGE 91: each value in the code stays within the teacher's limits; the points total is not checked here."""
+        limits, out = self.limits(), []
+        if not TEACHER:  # (CHANGE 124: the code has room to twice the teacher's limit, or the maximum)
+            limits = sim.code_limits(limits)
+        for var in self.schema:
+            if var.name not in values or var.group not in ("points", "settings"):
+                continue
+            path = var.path if isinstance(var.path, (tuple, list)) else (var.path,)
+            rng = limits.get(var.group, {}).get(path[-1])
+            v = values[var.name]
+            if not rng or not isinstance(v, (int, float)) or isinstance(v, bool):
+                continue
+            if v > rng[1]:
+                out.append(f"value too high for {var.name} (most allowed: {rng[1]:g})")
+            elif v < rng[0]:
+                out.append(f"value too low for {var.name} (least allowed: {rng[0]:g})")
+        return out
+
     def apply_code(self):
         """Read the edited code as data (never run it), and change the design to match. True if all of it was used.
         Everything in the code can be changed, even what this mission's garage hides (hidden: those values). The
@@ -1088,6 +1148,12 @@ class Lab(hud.HudKit, ShowBase):
             if var.name == "special":
                 return bool(tools.get("choose_special")) and value in tools.get("specials", [])
             return bool(tools.get(var.tool, True))
+        refused = self.outside_limits(values)  # (CHANGE 91: a value past the teacher's limits is refused outright)
+        if refused:
+            self.code_msg = ("Unable to compile: " + "; ".join(refused[:2]), RED)
+            self.code_shown = None
+            self.rebuild_panels()
+            return False
         changed, hidden, problems = schema.apply_values(self.schema, d, values, ctx, allowed)
         if changed and not self.viewing():
             self.code_changed = True  # (the next build is sent as the code's: Mission 1, hack the code)
@@ -1145,7 +1211,20 @@ class Lab(hud.HudKit, ShowBase):
     def save_reflection(self, mission):
         send({"type": "reflection", "mission": mission, "text": self.entries[f"reflect_{mission}"].get()})
 
+    def brains_on(self):
+        """CHANGE 99: the teacher's Autopilot tick in Controls. Off, U and P do nothing for learners."""
+        if TEACHER or self.lesson.get("tools", {}).get("brains", True):
+            return True
+        self.banner_note("Brains aren't switched on for this mission yet.", 3)
+        return False
+
+    def autopilot_key(self):
+        if self.brains_on():
+            send({"type": "autopilot"})
+
     def upload_brain(self):
+        if not self.brains_on():
+            return
         for path in (os.path.join(BRAINS, f"{name}.py"), os.path.join(BRAINS, "my_brain.py")):
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as fh:
@@ -1197,8 +1276,8 @@ class Lab(hud.HudKit, ShowBase):
                 DirectFrame(parent=f, frameColor=(0.15, 0.17, 0.22, 1), pos=(0.84, 0, y - 0.045),
                             frameSize=(0, 0.78, -0.009 - (rows - 1) * 0.026, 0.024))
             else:
-                self.entry(f, f"card_{key}", 0.84, y - 0.045, 30, rows, scale=0.026)
-            y -= 0.1 + (rows - 1) * 0.026
+                self.textbox(f, f"card_{key}", 0.84, y - 0.02, 0.8, rows, scale=0.024)  # (wraps and scrolls)
+            y -= 0.075 + rows * 0.036  # (the box's height)
         for key, text in (("privacy", "No personal information (names, school, email, address)"),
                           ("review", "I will review and test the AI's code"),
                           ("credit", "I will say where AI helped")):
@@ -1321,25 +1400,13 @@ class Lab(hud.HudKit, ShowBase):
             check(f, " " + mod_name, 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.043, mods_on.get(key),
                   lambda v, k=key: self.set_lesson({"user_mods": {k: bool(v)}}), 0.026)
         y -= 0.043 * max(1, (len(sim.USER_MODS) + 1) // 2)
-        snd = rw_sound.sound_settings(L.get("sound"))
-        label(f, "Sound", 0.82, y, 0.028, YELLOW)
-        for i, (key, text) in enumerate(rw_sound.MUSIC.items()):
-            button(f, text, 1.0 + i * 0.13, y + 0.008, self.set_lesson, [{"sound": {"music": key}}], 0.021,
-                   ON if snd["music"] == key else OFF)
-        self.volume_row(f, y, "music_volume", snd)
-        y -= 0.043
-        for key, text in (("crowd", "Crowd"), ("effects", "Hits and moves")):
-            check(f, " " + text, 0.84, y, snd[key], lambda v, k=key: self.set_lesson({"sound": {k: bool(v)}}), 0.024)
-            self.volume_row(f, y, {"crowd": "crowd_volume", "effects": "volume"}[key], snd)
-            y -= 0.043
-        y -= 0.01
         label(f, "Learners can see and change  (or use the Learners tab)", 0.82, y, 0.026, YELLOW)
         y -= 0.045
         keys = ["points_table", "walk_speed", "sidestep_speed", "jump_height", "attack_speed", "size",
                 "name_and_colour", "body_choice", "choose_special", "combo_editor", "code_view", "stats_readout", "bosses",
-                "fighting_style"]
+                "fighting_style", "brains"]
         for i, k in enumerate(keys):
-            check(f, PRETTY[k], 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.041, L["tools"].get(k),
+            check(f, PRETTY[k], 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.041, L["tools"].get(k, k == "brains"),
                   lambda v, k=k: self.set_lesson({"tools": {k: bool(v)}}), 0.024)
         y -= 0.041 * ((len(keys) + 1) // 2) + 0.01
         label(f, "Specials allowed", 0.82, y, 0.024)
@@ -1459,8 +1526,38 @@ class Lab(hud.HudKit, ShowBase):
     def volume_row(self, f, y, key, snd):
         """A volume from 0 to 10 with - and + buttons."""
         label(f, f"vol {round(snd[key] * 10)}", 1.58, y, 0.021, GREY)
-        button(f, "-", 1.66, y + 0.008, self.set_lesson, [{"sound": {key: round(snd[key] - 0.1, 2)}}], 0.021)
-        button(f, "+", 1.72, y + 0.008, self.set_lesson, [{"sound": {key: round(snd[key] + 0.1, 2)}}], 0.021)
+        button(f, "-", 1.66, y + 0.008, self.set_sound, [{key: round(snd[key] - 0.1, 2)}], 0.021)
+        button(f, "+", 1.72, y + 0.008, self.set_sound, [{key: round(snd[key] + 0.1, 2)}], 0.021)
+
+    def my_sound(self):
+        """This window's own sound settings (CHANGE 107): the teacher's on this computer, a learner's with their profile."""
+        own = getattr(self, "sound_prefs", None)
+        if own is None:
+            own = SETTINGS.get("sound") if TEACHER else None
+        return rw_sound.sound_settings(own if own is not None else self.lesson.get("sound"))
+
+    def set_sound(self, change):
+        self.sound_prefs = rw_sound.sound_settings(self.my_sound(), change)
+        remember("sound", self.sound_prefs)
+        self.prefs_at = 0.0
+        self.rebuild_panels()
+
+    def build_settings(self, f, y):
+        hud.HudKit.build_settings(self, f, y)
+        y = self.body_bottom(y) - 0.07
+        snd = self.my_sound()
+        label(f, "Sound  (yours: each has its own volume, all kept for next time)", 0.82, y, 0.028, YELLOW)
+        y -= 0.05
+        label(f, "Music", 0.84, y, 0.024)
+        for i, (key, text) in enumerate(rw_sound.MUSIC.items()):
+            button(f, text, 1.0 + i * 0.13, y + 0.008, self.set_sound, [{"music": key}], 0.021,
+                   ON if snd["music"] == key else OFF)
+        self.volume_row(f, y, "music_volume", snd)
+        y -= 0.043
+        for key, text in (("crowd", "Crowd"), ("effects", "Hits and moves")):
+            check(f, " " + text, 0.84, y, snd[key], lambda v, k=key: self.set_sound({k: bool(v)}), 0.024)
+            self.volume_row(f, y, {"crowd": "crowd_volume", "effects": "volume"}[key], snd)
+            y -= 0.043
 
     def set_lesson(self, change):
         send({"type": "lesson", "lesson": change})
@@ -1652,13 +1749,17 @@ class Lab(hud.HudKit, ShowBase):
         if not learners:
             label(f, "No learners are connected yet.", 0.82, y, 0.028, GREY)
             return
-        if self.view_name not in learners:
-            self.set_view(learners[0], redraw=False)
+        if self.view_name not in learners or (self.view_name == self.ALL_LEARNERS and len(learners) > 1
+                                                and not getattr(self, "view_picked", False)):
+            self.set_view(learners[0], redraw=False)  # (never All learners by default)
         across = max(0.16, min(0.2, 0.86 / len(learners)))
         for i, n in enumerate(learners):
             button(f, n, 0.9 + i * across, y + 0.008, self.set_view, [n], 0.028 if len(learners) < 5 else 0.022,
                    ON if n == self.view_name else OFF)
         y -= 0.065
+        # how their window is doing (frame rate, ping, graphics tier, network stalls): kept fresh by show_perf
+        self.perf_label, self.perf_frame = label(f, "", 0.82, y + 0.022, 0.021, GREY), f
+        y -= 0.034
         who = self.view_name
         is_computer = computer is not None and who == computer["name"]
         tabs = (("garage", "Garage"), ("missions", "Mission"), ("ai", "AI card"), ("mods", "Mods"), ("brain", "Brain")) \
@@ -1728,6 +1829,7 @@ class Lab(hud.HudKit, ShowBase):
         self.banner_note("Uploading my_brain.py for the computer fighter...")
 
     def set_view(self, learner, redraw=True):
+        self.view_picked = redraw  # (the teacher chose it, rather than the first in the list)
         self.view_name = learner
         d = next((c["design"] for c in self.class_list if c["name"] == learner), None)
         if d is not None:
@@ -1923,11 +2025,143 @@ class Lab(hud.HudKit, ShowBase):
         self.rebuild_panels()
 
     # ---------- teacher: outcomes and evidence ----------
+    # ---------- the missions as learners see them, editable (CHANGE 97) ----------
+    def toggle_outcome_obj(self, mid):
+        self.open_outcome_obj = None if getattr(self, "open_outcome_obj", None) == mid else mid
+        self.rebuild_panels()
+
+    def automate_objective(self, mid, n, title, text, check="teacher"):
+        """AUTOMATE: an AI request card (target: the game) asking Claude to write this objective's automatic check,
+        so learners' windows tick it by themselves. The teacher sends it from the AI cards tab."""
+        unit = self.UNIT
+        asked = ("Automate the check for" if check == "teacher" else
+                 "Check that the automatic check still fits the wording of, and fix it if not,")
+        card = {"goal": f"{asked} Mission {n} objective {mid}, '{title}'. The game should tick it for a "
+                        f"learner by itself, as the other objectives are checked by their id in the teaching module "
+                        f"(build_checks when they build, tick_checks every half second, brain_checks for brains), when "
+                        f"they do this: {text} If it can't be checked automatically, say why and suggest wording that "
+                        f"could be.",
+                "variables": f"The objective's id is {mid}. self.complete(p.name, '{mid}', detail) marks it done with a "
+                             f"detail saying what the learner did (their {unit}'s values before and after).",
+                "test": f"Log in as a learner on a laptop test server, do objective {mid} as the text says, and watch the "
+                        f"Mission tab: it should show DONE with the detail within a few seconds. Also check it does not "
+                        f"tick when the learner has not done it.",
+                "predict": f"Objective {mid} ticks itself a moment after a learner does it, with no click from the teacher.",
+                "privacy": True, "review": True, "credit": True, "target": "game"}
+        send({"type": "ai_card", "card": card})
+        self.banner_note(f"Automate {mid}: an AI request card is waiting in the AI cards tab. Check and send it to Claude.", 8)
+
+    def toggle_mission_editor(self):
+        self.editing_missions = not getattr(self, "editing_missions", False)
+        self.rebuild_panels()
+
+    def build_mission_editor(self, f, y):
+        t = self.teaching or {}
+        n_ = getattr(self, "guide_lesson", None) or t.get("lesson", 1)
+        label(f, "MISSIONS AS LEARNERS SEE THEM", 0.82, y, 0.032, YELLOW)
+        button(f, "Back to outcomes", 1.58, y + 0.008, self.toggle_mission_editor, None, 0.02)
+        y -= 0.05
+        label(f, "Change the words, add an objective or take one out: every learner sees it. The checks follow an "
+                 "objective's id, not its words (an added one has no check: tick it for a learner by hand). After "
+                 "editing, ask Claude separately whether the checks still fit.", 0.82, y, 0.02, GREY, wrap=72)
+        y -= 0.085
+        label(f, "Mission", 0.82, y, 0.028, YELLOW)
+        for n in fm.LESSONS:
+            button(f, str(n), 1.0 + (n - 1) * 0.08, y + 0.008, self.pick_edit_lesson, [n], 0.028,
+                   ON if n == n_ else OFF)
+        edits = t.get("edits", {})
+        if edits.get("changed") or edits.get("removed") or edits.get("added"):
+            button(f, "Reset all to standard", 1.46, y + 0.008, send, [{"type": "missions_edit", "do": "reset"}], 0.022,
+                   (0.6, 0.2, 0.15, 1))
+        y -= 0.06
+        L = self.lesson
+        check(f, " Show learners: pause every game and open every learner's Mission tab", 0.84, y,
+              L.get("show_missions"), lambda v: self.set_lesson({"show_missions": bool(v)}), 0.024,
+              GREEN if L.get("show_missions") else None)
+        y -= 0.05
+        objectives = t.get("edited", {}).get(str(n_), {})
+        hidden = set(t.get("edits", {}).get("hidden", []))
+        grid = t.get("grid", {})
+        for i, (mid, v) in enumerate(objectives.items()):
+            letter = "abcdefgh"[i] if i < 8 else "+"
+            label(f, f"{letter}.", 0.82, y, 0.026, WHITE)
+            check(f, " learners see it", 1.3, y, mid not in hidden,
+                  lambda on, k=mid: send({"type": "missions_edit", "do": "show" if on else "hide", "id": k}), 0.02)
+            label(f, f"id {mid}  {' '.join(v[3]) or 'no check'}", 1.74, y, 0.017, BLUE, TextNode.ARight)
+            self.entry(f, f"mtitle_{mid}", 0.86, y - 0.04, 28, 1, initial=v[1], scale=0.024)
+            y -= 0.09
+            self.textbox(f, f"mtext_{mid}", 0.86, y + 0.03, 0.72, 7, initial=v[2], scale=0.022)  # (the whole text)
+            button(f, "Save", 1.62, y + 0.008, self.save_objective, [mid], 0.022, (0.15, 0.55, 0.25, 1))
+            button(f, "Remove", 1.62, y - 0.04, send, [{"type": "missions_edit", "do": "remove", "id": mid}], 0.02,
+                   (0.6, 0.2, 0.15, 1))
+            button(f, "Automate", 1.62, y - 0.088, self.automate_objective, [mid, n_, v[1], v[2], v[4]], 0.019,
+                   (0.15, 0.45, 0.65, 1))  # (ask Claude for the automatic check, or to check the one there fits)
+            y -= 0.235
+            names = [n for n in grid if n != name]  # (every learner the server knows: green has done it, red not yet)
+            if names:
+                for j, name_ in enumerate(names):
+                    done = mid in grid[name_].get("missions", [])
+                    label(f, name_[:10], 0.86 + (j % 6) * 0.148, y - (j // 6) * 0.03, 0.02,
+                          GREEN if done else RED)
+                y -= 0.03 * ((len(names) + 5) // 6) + 0.012
+        y -= 0.02
+        label(f, "Add an objective", 0.82, y, 0.028, YELLOW)
+        y -= 0.045
+        self.entry(f, "mnew_title", 0.86, y, 24, 1, initial="", scale=0.024)
+        label(f, "title", 1.5, y, 0.019, GREY)
+        y -= 0.05
+        self.textbox(f, "mnew_text", 0.86, y + 0.03, 0.72, 5, initial="", scale=0.022)
+        button(f, "Add", 1.62, y + 0.008, self.add_objective, [n_], 0.022, (0.15, 0.55, 0.25, 1))
+        y -= 0.19
+        label(f, "As a file", 0.82, y, 0.028, YELLOW)
+        y -= 0.045
+        button(f, "EXPORT", 0.9, y + 0.008, send, [{"type": "missions_export"}], 0.022)
+        button(f, "IMPORT", 1.06, y + 0.008, self.import_missions_file, None, 0.022, (0.15, 0.45, 0.65, 1))
+        label(f, f"missions_fightlab.json in this folder's evidence folder: export, edit it in any editor, import.",
+              0.84, y - 0.04, 0.019, GREY, wrap=46)
+        y -= 0.1
+
+    def import_missions_file(self):
+        path = os.path.join(HERE, "evidence", "missions_fightlab.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            self.banner_note("No missions_fightlab.json yet: press EXPORT first", 4)
+            return
+        except ValueError as e:
+            self.banner_note(f"The file isn't valid JSON: {e}", 6)
+            return
+        send({"type": "missions_import", "data": data})
+
+    def pick_edit_lesson(self, n):
+        self.guide_lesson = n
+        self.rebuild_panels()
+
+    def save_objective(self, mid):
+        title = self.entries[f"mtitle_{mid}"].get() if f"mtitle_{mid}" in self.entries else ""
+        text = self.entries[f"mtext_{mid}"].get() if f"mtext_{mid}" in self.entries else ""
+        send({"type": "missions_edit", "do": "change", "id": mid, "title": title, "text": text})
+        self.banner_note("Saved: every learner sees it", 2)
+
+    def add_objective(self, n):
+        title = self.entries["mnew_title"].get() if "mnew_title" in self.entries else ""
+        text = self.entries["mnew_text"].get() if "mnew_text" in self.entries else ""
+        if not title.strip():
+            self.banner_note("Give the objective a title first", 2)
+            return
+        self.entry_text.pop("mnew_title", None)
+        self.entry_text.pop("mnew_text", None)
+        send({"type": "missions_edit", "do": "add", "lesson": n, "title": title, "text": text})
+
     def build_outcomes(self, f, y):
         t = self.teaching
-        label(f, "LEARNING OUTCOMES  -  evidence so far", 0.82, y, 0.034, YELLOW)
+        if getattr(self, "editing_missions", False):
+            return self.build_mission_editor(f, y)
+        label(f, "LEARNING OUTCOMES", 0.82, y, 0.034, YELLOW)
         if not t:
             return
+        button(f, "Edit the missions", 1.58, y + 0.008, self.toggle_mission_editor, None, 0.022)  # (CHANGE 97)
         y -= 0.06
         codes = list(t["outcomes"])
         learners = list(t["grid"])
@@ -1935,12 +2169,27 @@ class Lab(hud.HudKit, ShowBase):
         for j, n in enumerate(learners[:4]):
             label(f, n[:8], 1.28 + j * 0.12, y, 0.024, GREY, TextNode.ACenter)
         y -= 0.04
+        n_ = t["lesson"]
+        this = t.get("edited", {}).get(str(n_), {})
         for code_ in codes:
-            label(f, t["outcomes"][code_][0], 0.82, y, 0.024, WHITE)
+            taught = any(code_ in v[3] for v in this.values())  # (outcomes this mission teaches stand out)
+            label(f, t["outcomes"][code_][0], 0.82, y, 0.024, BLUE if taught else WHITE)
             for j, n in enumerate(learners[:4]):
                 c = t["grid"][n]["outcomes"].get(code_, 0)
                 label(f, str(c) if c else "-", 1.28 + j * 0.12, y, 0.026, GREEN if c else GREY, TextNode.ACenter)
             y -= 0.036
+            if taught:  # this mission's objectives that give the outcome: click one for its description
+                for i, (mid, v) in enumerate(this.items()):
+                    if code_ not in v[3]:
+                        continue
+                    letter = "abcdefgh"[i] if i < 8 else "+"
+                    opened = getattr(self, "open_outcome_obj", None) == mid
+                    text_button(f, f"{letter}. {v[1]}", 0.9, y, self.toggle_outcome_obj, [mid], 0.023,
+                                YELLOW if opened else WHITE)
+                    y -= 0.036
+                    if opened:
+                        tt = label(f, v[2], 0.92, y, 0.021, GREY, wrap=40)
+                        y -= 0.027 * tt.textNode.getNumRows() + 0.012
         y -= 0.02
         label(f, f"Teacher-checked missions (lesson {t['lesson']})", 0.82, y, 0.028, YELLOW)
         y -= 0.045
@@ -2226,7 +2475,12 @@ class Lab(hud.HudKit, ShowBase):
         if not self.started:  # still on the log-in screen
             return task.cont
         self.read_network()
+        if not args.no_interp:  # the picture for this moment: between two of the server's snapshots
+            blended = self.snaps.sample(now)
+            if blended is not None:
+                self.state = blended
         self.send_controls(now)
+        self.send_perf(now)
         watched = self.watched_ring()
         ring = next((r for r in (self.state or {}).get("rings", []) if r["i"] == watched), None)
         if self.state and self.roster:
@@ -2244,7 +2498,7 @@ class Lab(hud.HudKit, ShowBase):
         self.fight_hud.update(ring, {k: v[:2] for k, v in self.names.items()}, self.my_id,
                               (self.state or {}).get("t", 0.0), dt, self.lesson.get("rounds_to_win", 2),
                               f"RING {watched + 1}" if watched is not None and watched != self.my_ring() else "")
-        snd = rw_sound.sound_settings(self.lesson.get("sound"))
+        snd = self.my_sound()
         if self.muted:
             self.snd.layers("off", 0, False, 0, False, 0)
         else:
@@ -2284,10 +2538,14 @@ class Lab(hud.HudKit, ShowBase):
                 ring_list = [r["i"] for r in m.get("rings", [])]
                 if self.tab == "matches" and ring_list != [r["i"] for r in (self.state or {}).get("rings", [])]:
                     rebuild = True
-                if TEACHER and self.tab == "teacher" and bool(m.get("paused")) != bool((self.state or {}).get("paused")):
+                if TEACHER and self.tab == "teacher" and bool(m.get("paused")) != bool((self.latest or {}).get("paused")):
                     rebuild = True  # (the Pause button lights up: CHANGE 102)
-                self.state = m
+                self.latest = m
+                self.snaps.push(m)
+                if args.no_interp:
+                    self.state = m
                 self.fx_waiting.append(m.get("fx", []))
+                self.note_ack(m)
             elif kind == "roster":
                 self.apply_roster(m)
             elif kind == "welcome":  # back after a dropped connection (or a server restart)
@@ -2315,6 +2573,7 @@ class Lab(hud.HudKit, ShowBase):
                             self.view_drafts.pop(c["name"], None)
                             self.entry_text.pop("name_" + c["name"], None)
                             self.code_shown = None
+                self.show_missions_changed(self.lesson, m["lesson"])  # (CHANGE 122)
                 self.lesson, self.class_list, self.tournament, self.mod_info = m["lesson"], m["class"], m.get("tournament"), mods
             elif kind in ("slots", "history"):  # saved designs (CHANGE 83 to 86)
                 rebuild = self.took_slots(m) or rebuild
@@ -2357,7 +2616,7 @@ class Lab(hud.HudKit, ShowBase):
                     for k in CARD_FIELDS:
                         self.entry_text.pop(f"card_{k}", None)
                         if f"card_{k}" in self.entries:
-                            self.entries[f"card_{k}"].enterText("")
+                            self.set_entry(f"card_{k}", "")  # (a modern text box: set, not DirectEntry's enterText)
                 else:
                     self.card_msg = ("Not sent: " + " ".join(m["problems"]), RED)
                 try:  # show it straight away, even before the panel redraws
@@ -2370,6 +2629,13 @@ class Lab(hud.HudKit, ShowBase):
                 self.banner_note(("Brain: " + m["error"]) if m["ok"] else "Brain problem: " + m["error"], 5)
             elif kind == "restart_client":
                 self.restart_window()
+            elif kind == "missions_file":  # the missions as a file the teacher can edit (CHANGE 97)
+                folder = os.path.join(HERE, "evidence")
+                os.makedirs(folder, exist_ok=True)
+                path = os.path.join(folder, os.path.basename(str(m["name"])))
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(m["text"])
+                self.banner_note(f"Missions saved on this computer: {path}", 6)
             elif kind == "evidence_csv":  # the teacher's copy of the evidence export
                 folder = os.path.join(HERE, "evidence")
                 os.makedirs(folder, exist_ok=True)
@@ -2489,7 +2755,9 @@ class Lab(hud.HudKit, ShowBase):
         down = self.mouseWatcherNode.is_button_down
         press = getattr(self, "pending_press", None)
         self.pending_press = None
-        if self.typing:  # arrows and space move the text cursor, not the fighter
+        behind = getattr(self.win, "getProperties", None) and not self.win.getProperties().getForeground()
+        if self.typing or behind:  # arrows and space move the text cursor, not the fighter; and a key held
+            # as the window loses focus would never let go (its key-up never arrives): no input while behind
             control = (0.0, 0.0, "")
             press = None
         else:
@@ -2497,17 +2765,57 @@ class Lab(hud.HudKit, ShowBase):
             block, crouch = down(KeyboardButton.shift()), down(KeyboardButton.asciiKey("x"))
             hold = "low_block" if block and crouch else "block" if block else "crouch" if crouch else ""
             control = (round(fwd, 2), round(side, 2), hold)
-        if press or force or control != self.last_control or now - self.last_send > 0.25:
-            msg = {"type": "control", "f": control[0], "s": control[1], "hold": control[2]}
+        # a change or a press goes at once; otherwise the control is repeated 30 times a second, numbered, so a message
+        # lost or held up on the way is made good by the next one (the server ignores one that arrives out of order)
+        if press or force or control != self.last_control or now - self.last_send > 1 / 30:
+            self.ctrl_seq = (self.ctrl_seq + 1) % 65536
+            msg = {"type": "control", "seq": self.ctrl_seq, "f": control[0], "s": control[1], "hold": control[2]}
             if press:
                 msg["press"] = press
             send(msg)
+            self.ctrl_sent[self.ctrl_seq] = now
+            if len(self.ctrl_sent) > 90:
+                for k in sorted(self.ctrl_sent)[:30]:
+                    del self.ctrl_sent[k]
             self.last_control, self.last_send = control, now
+
+    def note_ack(self, m):
+        """A snapshot says which of our controls the server had applied: how long a key press takes to show."""
+        my_id = getattr(self, "my_id", None)
+        seq = (m.get("acks") or {}).get(str(my_id)) if my_id is not None else None
+        sent = self.ctrl_sent.get(seq)
+        if sent is not None:
+            ms = (m.get(interp.RECEIVED, time.perf_counter()) - sent) * 1000
+            self.ctrl_ms = ms if self.ctrl_ms is None else self.ctrl_ms * 0.8 + ms * 0.2
+
+    def show_perf(self, now):
+        """Teacher: the line under the Learner view's names saying how that learner's window is doing."""
+        lab = getattr(self, "perf_label", None)
+        if lab is None or now - getattr(self, "perf_shown", 0.0) < 1:
+            return
+        if self.perf_frame.isEmpty():  # (the panel has been redrawn: the label went with it)
+            self.perf_label = None
+            return
+        self.perf_shown = now
+        lab.setText(interp.perf_line(self.view_name, (self.roster or {}).get("perf", {})))
+
+    def send_perf(self, now):
+        """Every few seconds: how this window is doing, for the teacher's grid (frame rate, ping, graphics tier,
+        network stalls and the blending delay)."""
+        if TEACHER:
+            self.show_perf(now)
+        if now - self.perf_at < 3:
+            return
+        self.perf_at = now
+        rep = self.snaps.report()
+        send({"type": "perf", "fps": round(self.clock.getAverageFrameRate()), "ping": round(self.ping_ms),
+              "tier": getattr(self, "gfx_tier", None) or args.gfx, "stalls": rep["stalls"], "delay": rep["delay_ms"],
+              "ctrl": None if self.ctrl_ms is None else round(self.ctrl_ms)})
 
     # ---------- sounds and drawing ----------
     def event_sounds(self, st, now):
         """Moves starting (a whoosh), the bell, knockouts and wins, and the crowd's reactions."""
-        snd = rw_sound.sound_settings(self.lesson.get("sound"))
+        snd = self.my_sound()
         if self.muted or not snd["effects"]:
             return
         vol = snd["volume"]
@@ -2540,7 +2848,7 @@ class Lab(hud.HudKit, ShowBase):
         # sparks, flashes and hit sounds
         watched = watched_ring["i"] if watched_ring else None
         all_f = [(f, r["i"]) for r in st["rings"] for f in r["f"]]
-        snd = rw_sound.sound_settings(self.lesson.get("sound"))
+        snd = self.my_sound()
         for fx in self.fx_waiting:
             for pos, dmg, kind in fx:
                 victim = min(all_f, key=lambda fr: sum((a - b) ** 2 for a, b in zip(fr[0]["pos"], pos)), default=None)
@@ -2591,7 +2899,8 @@ class Lab(hud.HudKit, ShowBase):
         if t:
             mode += f"   TOURNAMENT: {'CHAMPION ' + t['champion'] if t.get('champion') else t['title']}"
         self.mode_text.setText(mode)
-        self.status_text.setText(f"{self.clock.getAverageFrameRate():.0f} fps   ping {self.ping_ms:.0f} ms")
+        self.status_text.setText(f"{self.clock.getAverageFrameRate():.0f} fps   ping {self.ping_ms:.0f} ms"
+                                 f"  gfx {self.gfx_tier}")
         self.feed.setText("\n".join(st["events"]))
 
 

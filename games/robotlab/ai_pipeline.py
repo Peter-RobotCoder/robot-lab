@@ -59,8 +59,10 @@ GAME_GUIDE = """HOW THE GAME IS BUILT (Python 3, Panda3D with Bullet physics)
 - mods/: plain-data files (robots, arena, rules) checked by rw_mods.py.
 A new game feature usually needs the physics in lab_sim.py AND how it looks in rw_gfx.py (and a control in
 lab_client.py / lab_server.py if the teacher or learner switches it). A new weapon needs: an entry in WEAPONS,
-a shape in shapes(), its body in Robot.__init__, how it moves in Robot.tick, what it does in weapon_contact,
-and its model in RobotVisual.
+a shape in shapes(), its body in Robot.__init__, how it moves in Robot.tick, what it does in weapon_contact
+(or in a check of its own each step, like flame_hits and laser_shots), and its model in RobotVisual. That is
+all: the garage then offers it, the teacher allows it in Weapons allowed, and the learner's name goes in front
+of it by itself (never put a name in the code).
 
 RULES FOR A GAME CHANGE
 - Keep everything that already works working. Change as little as the request needs.
@@ -72,6 +74,9 @@ RULES FOR A GAME CHANGE
 
 
 USER_MOD_GUIDE = """MAKE IT A SWITCHABLE USER MOD (the teacher switches it on and off in Controls)
+- EXCEPT A WEAPON. A weapon (anything a robot fires, swings, spins or burns with) is never a user mod: make it a
+  new weapon type instead (an entry in WEAPONS, as "A new weapon needs" says above), so each learner chooses it
+  for their own robot. Nothing goes in USER_MODS for it.
 - Add ONE entry to USER_MODS in lab_sim.py: a short key (lower case letters and _), a name for the teacher's
   Controls (up to 20 characters) and one sentence saying what it does. Never put anyone's name in it: the game
   puts the learner's first name in front by itself ("Sam's Spike pit").

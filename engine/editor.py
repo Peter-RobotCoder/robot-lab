@@ -34,12 +34,14 @@ DARK_BACK = ((0.118, 0.118, 0.118, 1), (0.17, 0.17, 0.19, 1), (0.52, 0.52, 0.52,
 LIGHT_BACK = ((1, 1, 1, 1), (0.93, 0.94, 0.97, 1), (0.55, 0.55, 0.6, 1), (0.1, 0.1, 0.1, 1))
 COLOURS = dict(DARK_COLOURS)
 BACK, LINE_BACK, GUTTER, CURSOR = DARK_BACK
+BOX_BACK, BOX_TEXT = (0.15, 0.17, 0.22, 1), (1, 1, 1, 1)  # a text box's background and words (TextBox)
 
 
 def set_theme(name):
     """The dark or the light look for code drawn after this (the window redraws its code panel)."""
-    global BACK, LINE_BACK, GUTTER, CURSOR
+    global BACK, LINE_BACK, GUTTER, CURSOR, BOX_BACK, BOX_TEXT
     light = name == "light"
+    BOX_BACK, BOX_TEXT = ((1, 1, 1, 1), (0.08, 0.09, 0.12, 1)) if light else ((0.15, 0.17, 0.22, 1), (1, 1, 1, 1))
     COLOURS.clear()
     COLOURS.update(LIGHT_COLOURS if light else DARK_COLOURS)
     BACK, LINE_BACK, GUTTER, CURSOR = LIGHT_BACK if light else DARK_BACK
@@ -512,3 +514,352 @@ class CodeEditor(DirectObject):
             self.base.taskMgr.remove(self.blink)
         for node in [self.back, self.line_back, self.cursor] + self.numbers + self.texts:
             node.destroy()
+
+
+class TextBox(DirectObject):
+    """A multi-line text box: prose that wraps at the box's edge, any length (it scrolls), the cursor placed by a
+    click, text selected by dragging or Shift with the arrows, Ctrl+C, X, V and A, Return for a new paragraph.
+    text: the words; on_change(text) is called after every edit; on_focus(key) / on_blur(key) tell the window
+    which box is being typed in (its game keys rest meanwhile)."""
+
+    def __init__(self, base, parent, key, x, top, width, rows, text="", scale=0.024, on_change=None, on_focus=None,
+                 on_blur=None, max_length=20000):
+        DirectObject.__init__(self)
+        self.base, self.parent, self.key = base, parent, key
+        self.x, self.top, self.width, self.rows, self.scale = x, top, width, rows, scale
+        self.on_change, self.on_focus, self.on_blur, self.max_length = on_change, on_focus, on_blur, max_length
+        self.text = clean_text(text)
+        self.cursor, self.anchor, self.scroll = len(self.text), None, 0
+        self.focused, self.dragging = False, False
+        self.line_h = scale * 1.5
+        self.measure = TextNode("measure")
+        self.pad = scale * 0.4
+        height = rows * self.line_h + self.pad * 2
+        self.back = DirectFrame(parent=parent, frameColor=BOX_BACK, frameSize=(x, x + width, top - height, top),
+                                state=DGG.NORMAL)
+        self.back.bind(DGG.B1PRESS, self.click)
+        self.cursor_bar = DirectFrame(parent=parent, frameColor=CURSOR,
+                                      frameSize=(0, scale * 0.08, -scale * 0.3, scale * 1.0))
+        self.sel_backs = [DirectFrame(parent=parent, frameColor=(0.25, 0.4, 0.7, 0.55),
+                                      frameSize=(0, 0.01, -scale * 0.3, scale * 1.0)) for _ in range(rows)]
+        self.texts = [OnscreenText("", pos=(x + self.pad, self.row_y(i)), scale=scale, fg=BOX_TEXT,
+                                   align=TextNode.ALeft, parent=parent, mayChange=True) for i in range(rows)]
+        self.more = OnscreenText("", pos=(x + width - self.pad, top - height + self.pad * 0.6), scale=scale * 0.7,
+                                 fg=GUTTER, align=TextNode.ARight, parent=parent, mayChange=True)
+        for b in self.sel_backs:
+            b.hide()
+        self.cursor_bar.hide()
+        if getattr(base, "buttonThrowers", None):  # (letters arrive as "keystroke" events only once this is set:
+            base.buttonThrowers[0].node().setKeystrokeEvent("keystroke")  # the code editor used to be the only one to)
+        self.accept("keystroke", self.typed)
+        for key_, fn, args in (("backspace", self.erase, [-1]), ("delete", self.erase, [0]),
+                               ("arrow_left", self.move, [-1, False]), ("arrow_right", self.move, [1, False]),
+                               ("shift-arrow_left", self.move, [-1, True]), ("shift-arrow_right", self.move, [1, True]),
+                               ("arrow_up", self.move_row, [-1, False]), ("arrow_down", self.move_row, [1, False]),
+                               ("shift-arrow_up", self.move_row, [-1, True]), ("shift-arrow_down", self.move_row, [1, True]),
+                               ("home", self.move_end, [-1, False]), ("end", self.move_end, [1, False]),
+                               ("shift-home", self.move_end, [-1, True]), ("shift-end", self.move_end, [1, True]),
+                               ("enter", self.typed, ["\n"]), ("shift-enter", self.typed, ["\n"]),
+                               ("tab", self.typed, ["    "])):
+            self.accept(key_, self.when_focused, [fn, args])
+            self.accept(key_ + "-repeat", self.when_focused, [fn, args])
+        for key_, fn in (("control-c", self.copy), ("control-x", self.cut), ("control-v", self.paste),
+                         ("control-a", self.select_all)):
+            self.accept(key_, self.when_focused, [fn, []])
+        self.accept("mouse1-up", self.drag_end)
+        self.accept("wheel_up", self.when_over, [self.wheel, [-1]])
+        self.accept("wheel_down", self.when_over, [self.wheel, [1]])
+        self.refresh()
+
+    # ---------- geometry ----------
+    def row_y(self, i):
+        return self.top - self.pad - self.line_h * (i + 1) + self.scale * 0.35
+
+    def text_width(self, text):
+        return self.measure.calcWidth(text) * self.scale
+
+    def wrapped(self):
+        """The text as rows: [(start index, row text)], each paragraph wrapped at the box's edge."""
+        limit = self.width - self.pad * 2 - self.scale * 0.3
+        rows, i = [], 0
+        for para in self.text.split("\n"):
+            start = i
+            words, line, line_start = para.split(" "), "", i
+            if para == "":
+                rows.append((i, ""))
+            else:
+                line = ""
+                for w in words:
+                    trial = w if line == "" else line + " " + w
+                    if line != "" and self.text_width(trial) > limit:
+                        rows.append((line_start, line))
+                        line_start += len(line) + 1
+                        line = w
+                    else:
+                        line = trial
+                    while self.text_width(line) > limit and len(line) > 1:  # (one word wider than the box)
+                        cut = max(1, int(len(line) * limit / self.text_width(line)))
+                        rows.append((line_start, line[:cut]))
+                        line_start += cut
+                        line = line[cut:]
+                rows.append((line_start, line))
+            i = start + len(para) + 1
+        return rows
+
+    def row_of(self, index, rows):
+        for n, (start, text) in enumerate(rows):
+            if start <= index <= start + len(text):
+                if n + 1 < len(rows) and rows[n + 1][0] == index and not (n < len(rows) and rows[n][0] + len(text) < index):
+                    pass
+                return n
+        return len(rows) - 1
+
+    # ---------- drawing ----------
+    def refresh(self):
+        rows = self.wrapped()
+        self.cursor = max(0, min(len(self.text), self.cursor))
+        cur_row = self.row_of(self.cursor, rows)
+        if self.focused:  # keep the cursor's row in view
+            if cur_row < self.scroll:
+                self.scroll = cur_row
+            elif cur_row >= self.scroll + self.rows:
+                self.scroll = cur_row - self.rows + 1
+        self.scroll = max(0, min(max(0, len(rows) - self.rows), self.scroll))
+        sel = self.selection()
+        for i in range(self.rows):
+            n = self.scroll + i
+            if n < len(rows):
+                start, text = rows[n]
+                self.texts[i].setText(text)
+                if sel and sel[0] < start + len(text) + 1 and sel[1] > start:
+                    a, b = max(sel[0], start), min(sel[1], start + len(text) + (1 if n + 1 < len(rows) else 0))
+                    x0 = self.text_width(text[:a - start])
+                    x1 = self.text_width(text[:min(b - start, len(text))]) + (self.text_width(" ") if b - start > len(text) else 0)
+                    self.sel_backs[i]["frameSize"] = (0, max(0.004, x1 - x0), -self.scale * 0.3, self.scale * 1.0)
+                    self.sel_backs[i].setPos(self.x + self.pad + x0, 0, self.row_y(i))
+                    self.sel_backs[i].show()
+                else:
+                    self.sel_backs[i].hide()
+            else:
+                self.texts[i].setText("")
+                self.sel_backs[i].hide()
+        hidden = len(rows) - self.rows
+        self.more.setText(f"{len(rows) - self.scroll - self.rows} more below" if hidden > 0 and self.scroll < hidden
+                          else (f"{self.scroll} more above" if self.scroll > 0 else ""))
+        row = cur_row - self.scroll
+        if self.focused and 0 <= row < self.rows:
+            start, text = rows[cur_row]
+            self.cursor_bar.setPos(self.x + self.pad + self.text_width(text[:self.cursor - start]), 0, self.row_y(row))
+            self.cursor_bar.show()
+        else:
+            self.cursor_bar.hide()
+
+    # ---------- the mouse ----------
+    def mouse_index(self):
+        mw = self.base.mouseWatcherNode
+        if mw is None or not mw.hasMouse():
+            return None
+        p = self.parent.getRelativePoint(self.base.render2d, Point3(mw.getMouseX(), 0, mw.getMouseY()))
+        rows = self.wrapped()
+        row = int((self.top - self.pad - p.z) / self.line_h)
+        n = max(0, min(len(rows) - 1, self.scroll + max(0, min(self.rows - 1, row))))
+        start, text = rows[n]
+        want = p.x - self.x - self.pad
+        col = min(range(len(text) + 1), key=lambda c: abs(self.text_width(text[:c]) - want))
+        return start + col
+
+    def over(self):
+        mw = self.base.mouseWatcherNode
+        if mw is None or not mw.hasMouse():
+            return False
+        p = self.parent.getRelativePoint(self.base.render2d, Point3(mw.getMouseX(), 0, mw.getMouseY()))
+        fs = self.back["frameSize"]
+        return fs[0] <= p.x <= fs[1] and fs[2] <= p.z <= fs[3]
+
+    def when_over(self, fn, args):
+        if self.over():
+            fn(*args)
+
+    def click(self, event=None):
+        i = self.mouse_index()
+        if i is None:
+            return
+        self.focus()
+        self.cursor, self.anchor = i, i
+        self.dragging = True
+        self.base.taskMgr.add(self.drag_task, f"textbox drag {self.key}")
+        self.refresh()
+
+    def drag_task(self, task):
+        if not self.dragging:
+            return task.done
+        i = self.mouse_index()
+        if i is not None and i != self.cursor:
+            self.cursor = i
+            self.refresh()
+        return task.cont
+
+    def drag_end(self):
+        if self.dragging:
+            self.dragging = False
+            if self.anchor == self.cursor:
+                self.anchor = None
+            self.refresh()
+
+    def wheel(self, step):
+        self.scroll += step
+        self.refresh()
+
+    # ---------- focus ----------
+    def focus(self):
+        if not self.focused:
+            self.focused = True
+            if self.on_focus:
+                self.on_focus(self.key)
+        self.refresh()
+
+    def blur(self):
+        if self.focused:
+            self.focused = False
+            self.anchor = None
+            if self.on_blur:
+                self.on_blur(self.key)
+            self.refresh()
+
+    def when_focused(self, fn, args):
+        if self.focused:
+            fn(*args)
+
+    # ---------- the selection ----------
+    def selection(self):
+        if self.anchor is None or self.anchor == self.cursor:
+            return None
+        return (min(self.anchor, self.cursor), max(self.anchor, self.cursor))
+
+    def selected_text(self):
+        sel = self.selection()
+        return self.text[sel[0]:sel[1]] if sel else ""
+
+    def delete_selection(self):
+        sel = self.selection()
+        if not sel:
+            return False
+        self.text = self.text[:sel[0]] + self.text[sel[1]:]
+        self.cursor, self.anchor = sel[0], None
+        return True
+
+    def select_all(self):
+        self.anchor, self.cursor = 0, len(self.text)
+        self.refresh()
+
+    def copy(self):
+        if self.selected_text():
+            clipboard_set(self.selected_text())
+
+    def cut(self):
+        self.copy()
+        if self.delete_selection():
+            self.changed()
+
+    def paste(self):
+        text = clean_text(clipboard_get())
+        if not text:
+            return
+        self.delete_selection()
+        self.insert(text)
+
+    # ---------- editing ----------
+    def changed(self):
+        self.refresh()
+        if self.on_change:
+            self.on_change(self.text)
+
+    def insert(self, text):
+        room = self.max_length - len(self.text)
+        text = text[:max(0, room)]
+        if not text:
+            return
+        self.text = self.text[:self.cursor] + text + self.text[self.cursor:]
+        self.cursor += len(text)
+        self.anchor = None
+        self.changed()
+
+    def typed(self, key):
+        if not self.focused:
+            return
+        key = clean_text(key)
+        if not key:
+            return
+        self.delete_selection()
+        self.insert(key)
+
+    def erase(self, back):
+        if self.delete_selection():
+            self.changed()
+            return
+        if back and self.cursor > 0:
+            self.text = self.text[:self.cursor - 1] + self.text[self.cursor:]
+            self.cursor -= 1
+        elif not back and self.cursor < len(self.text):
+            self.text = self.text[:self.cursor] + self.text[self.cursor + 1:]
+        self.changed()
+
+    def start_select(self, select):
+        if select and self.anchor is None:
+            self.anchor = self.cursor
+        elif not select:
+            self.anchor = None
+
+    def move(self, step, select):
+        self.start_select(select)
+        self.cursor = max(0, min(len(self.text), self.cursor + step))
+        self.refresh()
+
+    def move_row(self, step, select):
+        self.start_select(select)
+        rows = self.wrapped()
+        n = self.row_of(self.cursor, rows)
+        start, text = rows[n]
+        x = self.text_width(text[:self.cursor - start])
+        m = max(0, min(len(rows) - 1, n + step))
+        if m == n:
+            self.cursor = 0 if step < 0 else len(self.text)
+        else:
+            s2, t2 = rows[m]
+            col = min(range(len(t2) + 1), key=lambda c: abs(self.text_width(t2[:c]) - x))
+            self.cursor = s2 + col
+        self.refresh()
+
+    def move_end(self, step, select):
+        self.start_select(select)
+        rows = self.wrapped()
+        start, text = rows[self.row_of(self.cursor, rows)]
+        self.cursor = start if step < 0 else start + len(text)
+        self.refresh()
+
+    # ---------- for the window ----------
+    def get(self):
+        return self.text
+
+    def set(self, text):
+        self.text = clean_text(text)
+        self.cursor, self.anchor = min(self.cursor, len(self.text)), None
+        self.refresh()
+
+    def destroy(self):
+        self.ignoreAll()
+        self.dragging = False
+        for n in [self.back, self.cursor_bar, self.more] + self.sel_backs + self.texts:
+            try:
+                n.destroy()
+            except Exception:
+                try:
+                    n.removeNode()
+                except Exception:
+                    pass
+
+
+def clean_text(text):
+    """Prose as a text box keeps it: no tabs or control characters, but new lines stay."""
+    text = str(text).replace("\r\n", "\n").replace("\r", "\n").replace("\t", "    ")
+    return "".join(ch for ch in text if ch >= " " or ch == "\n")

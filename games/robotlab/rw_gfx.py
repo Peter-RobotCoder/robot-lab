@@ -2,7 +2,8 @@
 
 Call init(base, quality) once, then build ArenaVisual and RobotVisual. The same classes work in the
 single-player showcase (robot_wars.py) and in Robot Lab (lab_client.py).
-quality: "low" (no shadows or surface detail: old laptops), "medium", "high".
+quality: a graphics tier from engine.gfx_tiers: "basic" (Panda's own shaders, the paint texture only: the oldest
+laptops), "low" (simplepbr without shadows or surface detail), "medium", "high".
 """
 import math
 import os
@@ -14,7 +15,7 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker, DirectionalL
                           TransparencyAttrib, Vec3)
 
 import lab_sim as sim
-from engine import rw_textures
+from engine import gfx_tiers, rw_textures
 from engine.rw_mesh import Mesh, bevel_box, cylinder, plate_y, prism
 
 _state = {}
@@ -39,7 +40,7 @@ class Materials:
                 t.setFormat(Texture.F_srgb)
             t.setMinfilter(SamplerState.FT_linear_mipmap_linear)
             t.setMagfilter(SamplerState.FT_linear)
-            t.setAnisotropicDegree(8 if self.quality != "low" else 2)
+            t.setAnisotropicDegree(gfx_tiers.SETTINGS[self.quality]["aniso"])
             t.setWrapU(SamplerState.WM_repeat)
             t.setWrapV(SamplerState.WM_repeat)
             self.cache[key] = t
@@ -56,8 +57,9 @@ class Materials:
         np_.setMaterial(m, 1)
         if name:
             np_.setTexture(TextureStage.getDefault(), self.tex(name, "albedo"), 1)
-            np_.setTexture(self.ts_mr, self.tex(name, "mr"), 1)
-            np_.setTexture(self.ts_normal, self.tex(name, "normal"), 1)
+            if gfx_tiers.SETTINGS[self.quality]["simplepbr"]:  # (basic: Panda's shaders know nothing of these)
+                np_.setTexture(self.ts_mr, self.tex(name, "mr"), 1)
+                np_.setTexture(self.ts_normal, self.tex(name, "normal"), 1)
         return np_
 
 
@@ -75,16 +77,17 @@ def part(parent, mesh, name=None, colour=(1, 1, 1), rough=1.0, metal=1.0, emissi
 
 # ---------- lighting ----------
 def init(base, quality="high"):
-    """Lights, reflections and the PBR pipeline. Returns the simplepbr pipeline."""
-    import simplepbr
+    """Lights, reflections and the PBR pipeline for a graphics tier (engine.gfx_tiers). Returns the simplepbr
+    pipeline, or None when the tier used is "basic" (asked for, or because the driver couldn't run the others)."""
+    quality = quality if quality in gfx_tiers.TIERS else gfx_tiers.DEFAULT
+    tier = gfx_tiers.SETTINGS[quality]
     _state["mats"] = Materials(base.loader, quality)
     base.setBackgroundColor(0.02, 0.02, 0.03)
     render = base.render
     sun = DirectionalLight("key")
     sun.setColor((1.5, 1.42, 1.3, 1))
-    if quality != "low":
-        size = 4096 if quality == "high" else 2048
-        sun.setShadowCaster(True, size, size)
+    if tier["shadow"]:
+        sun.setShadowCaster(True, tier["shadow"], tier["shadow"])
         sun.getLens().setFilmSize(26, 26)
         sun.getLens().setNearFar(5, 60)
     sun_np = render.attachNewNode(sun)
@@ -107,18 +110,37 @@ def init(base, quality="high"):
     amb = AmbientLight("fill")
     amb.setColor((0.05, 0.055, 0.07, 1))
     render.setLight(render.attachNewNode(amb))
-    env = None
-    try:
-        cube = base.loader.loadCubeMap(Filename.fromOsSpecific(os.path.join(rw_textures.TEX, "env_#.png")))
-        env = simplepbr.EnvMap(cube, prefiltered_size=64, prefiltered_samples=16, blocking_prepare=True)
-    except Exception:
-        env = None
-    pipeline = simplepbr.init(msaa_samples=4 if quality != "low" else 0, max_lights=8,
-                              use_normal_maps=quality != "low", use_occlusion_maps=quality != "low",
-                              enable_shadows=quality != "low", exposure=0.7, env_map=env)
-    render.setAntialias(AntialiasAttrib.MMultisample)
-    _state["quality"] = quality
+
+    def env_map(simplepbr):  # the reflections (medium and high only)
+        try:
+            cube = base.loader.loadCubeMap(Filename.fromOsSpecific(os.path.join(rw_textures.TEX, "env_#.png")))
+            return simplepbr.EnvMap(cube, prefiltered_size=64, prefiltered_samples=16, blocking_prepare=True)
+        except Exception:
+            return None
+    pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.7)
+    if used != quality:  # the driver couldn't run the tier asked for: the lights and materials follow the one used
+        print(f"gfx: {quality} graphics don't run here, using {used}", flush=True)
+        _state["mats"].quality = used
+        if not gfx_tiers.SETTINGS[used]["shadow"]:
+            sun.setShadowCaster(False)
+    if not gfx_tiers.SETTINGS[used]["simplepbr"]:
+        _state["tone"] = gfx_tiers.basic_look(base, exposure=0.7)  # (Panda's shaders: the lights come down, the tone curve is a post pass)
+    if gfx_tiers.SETTINGS[used]["msaa"]:
+        render.setAntialias(AntialiasAttrib.MMultisample)
+    _state.update(quality=used, pipeline=pipeline, sun=sun_np)
     return pipeline
+
+
+def tier():
+    """The graphics tier in use (the one init was given, or the lower one the driver could run)."""
+    return _state.get("quality", gfx_tiers.DEFAULT)
+
+
+def start_monitor(base, settings_dir, override=None, on_note=None, judge=True):
+    """Watch the frame times from now on (engine.gfx_tiers.Monitor): call it once play has started. judge=False
+    when the server runs on this same computer (a test): the knobs still turn, but no tier is saved."""
+    return gfx_tiers.Monitor(settings_dir, tier(), override=override, pipeline=_state.get("pipeline"),
+                             lights=[_state["sun"]], render=base.render, on_note=on_note, judge=judge).start(base)
 
 
 # ---------- the arena ----------
@@ -379,8 +401,51 @@ class ArenaVisual:
             if not no_cage:
                 bevel_box(0.03, 0.55, 0.3, 0.02, mesh=lit, offset=Vec3(h - 0.04, by, 0.75))
             self.boost_light = part(self.boost, lit, None, (0.02, 0.05, 0.02), 0.5, 0, emission=(0.2, 0.9, 0.3))
-        self.laser_on = mods["laser_beam"]  # the Laser beam user mod: a glowing red beam for each laser firing
-        self.lasers = []                    # (the beams are made in update(), as they're needed)
+        self.repair_light = None
+        if mods["repair_bay"]:  # the Repair bay user mod: a lit pad on the floor by the west wall with a white cross
+            bx, by, bs = A.REPAIR_BAY  # on it. Soft blue: it waits. Bright, pulsing: it is repairing a robot
+            bay_rim = Mesh(tile=0.8)
+            for dx, dy, hx, hy in ((0, bs / 2 + 0.08, bs / 2 + 0.16, 0.08), (0, -bs / 2 - 0.08, bs / 2 + 0.16, 0.08),
+                                   (bs / 2 + 0.08, 0, 0.08, bs / 2), (-bs / 2 - 0.08, 0, 0.08, bs / 2)):
+                bevel_box(hx, hy, 0.006, 0.0, mesh=bay_rim, offset=Vec3(bx + dx, by + dy, 0.006))
+            part(static, bay_rim, None, colour=(0.85, 0.88, 0.95), rough=0.6, metal=0.0)
+            lit = Mesh()
+            bevel_box(bs / 2, bs / 2, 0.008, 0.0, mesh=lit, offset=Vec3(bx, by, 0.008))
+            self.repair_light = part(self.root, lit, None, (0.02, 0.04, 0.08), 0.5, 0, emission=(0.2, 0.5, 1.0))
+            cross = Mesh()
+            bevel_box(bs * 0.3, 0.1, 0.006, 0.0, mesh=cross, offset=Vec3(bx, by, 0.022))
+            bevel_box(0.1, bs * 0.3, 0.006, 0.0, mesh=cross, offset=Vec3(bx, by, 0.022))
+            part(static, cross, None, colour=(1, 1, 1), rough=0.5, metal=0.0, emission=(1.5, 1.5, 1.6))
+        if mods["ramps"]:  # the Jump ramps user mod: a steel wedge for each ramp (the same wedge as the physics), with
+            L, W, H = A.RAMP_RUN, A.RAMP_WIDE, A.RAMP_HIGH  # hazard stripes down its sides and a lit green speed-burst
+            for cx, cy, d in A.RAMPS:                      # pad with arrow bars up the middle of its slope
+                xb, xt = cx - d * L / 2, cx + d * L / 2  # the bottom edge and the top edge
+                y0, y1 = cy - W / 2, cy + W / 2
+                n = Vec3(-d * H, 0, L)  # the slope's normal
+                n.normalize()
+
+                def on_slope(t, y, lift=0.0):  # a point on the slope: t from the bottom (0) to the top (1), lifted off it
+                    return Vec3(xb + d * t * L, y, t * H) + n * lift
+                deck, body, stripes, pad, bars = Mesh(tile=0.6), Mesh(tile=0.5), Mesh(tile=0.8), Mesh(), Mesh()
+                deck.poly([on_slope(0, y0), on_slope(0, y1), on_slope(1, y1), on_slope(1, y0)], n)
+                body.poly([Vec3(xt, y0, 0), Vec3(xt, y1, 0), Vec3(xt, y1, H), Vec3(xt, y0, H)], Vec3(d, 0, 0))  # the back
+                for y, side in ((y0, -1), (y1, 1)):
+                    body.poly([Vec3(xb, y, 0), Vec3(xt, y, 0), Vec3(xt, y, H)], Vec3(0, side, 0))
+                for ya, yb in ((y0, y0 + 0.15), (y1 - 0.15, y1)):
+                    stripes.poly([on_slope(0, ya, 0.006), on_slope(0, yb, 0.006), on_slope(1, yb, 0.006),
+                                  on_slope(1, ya, 0.006)], n)
+                pw = W * 0.3
+                pad.poly([on_slope(0.2, cy - pw, 0.008), on_slope(0.2, cy + pw, 0.008), on_slope(0.8, cy + pw, 0.008),
+                          on_slope(0.8, cy - pw, 0.008)], n)
+                for t in (0.35, 0.5, 0.65):
+                    bars.poly([on_slope(t - 0.03, cy - pw * 0.7, 0.014), on_slope(t - 0.03, cy + pw * 0.7, 0.014),
+                               on_slope(t + 0.03, cy + pw * 0.7, 0.014), on_slope(t + 0.03, cy - pw * 0.7, 0.014)], n)
+                part(static, deck, "diamond", colour=(0.75, 0.75, 0.78), rough=1.0, metal=1.0)
+                part(static, body, "steel", colour=(0.3, 0.3, 0.32), rough=1.0, metal=1.0)
+                part(static, stripes, "hazard", rough=1.0, metal=0.0)
+                part(static, pad, None, (0.02, 0.05, 0.02), 0.5, 0, emission=(0.2, 0.9, 0.3))
+                part(static, bars, None, (0.1, 0.1, 0.1), 0.5, 0, emission=(1.5, 1.5, 1.6))
+        self.lasers = []  # a glowing red beam for each laser firing (the beams are made in update(), as they're needed)
         self.spikes = None
         # a bank of spikes that shoots out of the wall and back in (rests inside the wall when off; with the
         # No cage user mod there's no wall, so no spikes)
@@ -486,8 +551,8 @@ class ArenaVisual:
         return saw, spin, blur, glow
 
     def build_laser(self):
-        """The Laser beam user mod: a beam 1 m long pointing along y (update() aims it and stretches it to its
-        length): a white-hot core inside a red glow."""
+        """A laser's beam, 1 m long pointing along y (update() aims it and stretches it to its length): a white-hot
+        core inside a red glow."""
         aim = self.root.attachNewNode("laser")
         beam = aim.attachNewNode("beam")
         part(beam, cylinder(0.02, 0.5, axis="y", seg=8, caps=False, offset=Vec3(0, 0.5, 0)), None, (0, 0, 0), 1, 0,
@@ -530,11 +595,14 @@ class ArenaVisual:
             glow = 0.9 + 0.35 * math.sin(t * 5)
             self.boost_light.getMaterial().setEmission((0.25 * glow, glow, 0.35 * glow, 1) if hz.get("boost", 1)
                                                        else (0.45, 0.06, 0.04, 1))
+        if self.repair_light is not None:  # the Repair bay user mod: bright and pulsing while it repairs a robot
+            glow = 2.0 + 1.2 * math.sin(t * 6) if hz.get("repair") else 0.6
+            self.repair_light.getMaterial().setEmission((0.2 * glow, 0.5 * glow, glow, 1))
         for node, phase in self.flames:  # the Flame pit user mod: from the pit's floor to the flames' height above it
             flicker = 0.88 + 0.12 * math.sin(t * 11 + phase) * math.sin(t * 6.3 + phase * 2)
             node.setSz(max(0.01, (sim.Arena.FLAME_PIT_DEPTH + hz.get("flames", 0.0)) * flicker))
-        if self.laser_on:  # the Laser beam user mod: a beam for each laser firing, from where it starts to its end
-            beams = hz.get("lasers") or []
+        beams = hz.get("lasers") or []  # lasers: a beam for each laser firing, from where it starts to its end
+        if beams or self.lasers:
             while len(self.lasers) < len(beams):
                 self.lasers.append(self.build_laser())
             for i, (aim, beam) in enumerate(self.lasers):
@@ -546,7 +614,6 @@ class ArenaVisual:
                 aim.lookAt(end)
                 beam.setSy((end - start).length())
                 aim.show()
-
     def set_score(self, text):
         self.scoreboard.setText(text)
 
@@ -604,7 +671,7 @@ class RobotVisual:
     def __init__(self, parent, design):
         size = sim.design_size(design)
         model = design.get("model") if design.get("model") in sim.HOUSE_BY_NAME else None
-        weapon = sim.HOUSE_BY_NAME[model][0] if model else design["weapon"]
+        weapon = sim.design_weapon(design)  # (a Resident Robot a player drives can have any weapon)
         self.house = bool(design.get("house")) or model is not None  # Resident Robot styling and big wheels
         # A robot outside the standard sizes is drawn as the nearest standard robot, made bigger or smaller all
         # over (k times), exactly as the physics builds it (sim.shapes).
@@ -776,6 +843,19 @@ class RobotVisual:
                      (0.75, 0.1, 0.08), pos=(s_ * h.x * 0.45, -h.y * 0.25, top + 0.13 * size / 1.6))
             part(self.chassis, bevel_box(n.x * 1.8, n.x * 1.8, 0.08, 0.02), "steel", (0.25, 0.25, 0.27),
                  pos=(sh["pivot"].x, sh["pivot"].y, sh["pivot"].z - 0.09))
+        elif weapon == "laser":  # an emitter on top: a steel box with cooling fins, a glowing red lens at the front
+            e = sh["emitter"]
+            part(self.weapon, bevel_box(e.x, e.y, e.z, 0.01), "steel", (0.3, 0.3, 0.33), rough=0.8, metal=1.0,
+                 pos=(0, e.y, 0))
+            for k_ in range(3):  # cooling fins along the top
+                part(self.weapon, bevel_box(e.x * 0.9, 0.012, 0.025, 0.004), "steel", (0.2, 0.2, 0.22),
+                     pos=(0, e.y * 0.6 + k_ * e.y * 0.4, e.z + 0.02))
+            part(self.weapon, cylinder(e.x * 0.7, 0.03, axis="y", seg=16), "steel", (0.15, 0.15, 0.16),
+                 pos=(0, e.y * 2 + 0.02, 0))
+            part(self.weapon, cylinder(e.x * 0.5, 0.02, axis="y", seg=16), None, (0, 0, 0), 0.3, 0, emission=(8, 1.5, 1),
+                 pos=(0, e.y * 2 + 0.05, 0))  # the lens
+            part(self.chassis, bevel_box(e.x * 1.6, e.x * 1.6, 0.06, 0.02), "steel", (0.25, 0.25, 0.27),
+                 pos=(sh["pivot"].x, sh["pivot"].y, sh["pivot"].z - 0.07))  # its mount
         elif weapon == "chainsaw":  # an arm that lowers a chainsaw bar; the chain runs round the bar
             a, b = sh["arm"], sh["bar"]
             part(self.weapon, bevel_box(a.x, a.y, a.z, 0.015), "paint", colour, rough=1.0, metal=1.0, pos=(0, a.y, 0))

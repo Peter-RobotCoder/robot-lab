@@ -72,6 +72,11 @@ def default_limits():
     return _limits().default()
 
 
+def code_limits(limits):
+    """What the code may set (CHANGE 124): up to twice the teacher's limit, or the maximum, whichever is smaller."""
+    return _limits().code_room(limits)
+
+
 def full_limits():
     """The widest ranges: the teacher's own fighter is checked against these."""
     return _limits().full()

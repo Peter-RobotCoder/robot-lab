@@ -13,9 +13,9 @@ DATA="/var/lib/robotlab/$CLASS"
 GAME="${GAME:-robotlab}"
 
 case "$GAME" in
-    robotlab|fightlab) ;;
+    robotlab|fightlab|kartlab) ;;
     *)
-        echo "Unknown GAME '$GAME' in /etc/robotlab/$CLASS.env: it can be robotlab or fightlab." >&2
+        echo "Unknown GAME '$GAME' in /etc/robotlab/$CLASS.env: it can be robotlab, fightlab or kartlab." >&2
         exit 1
         ;;
 esac
@@ -45,5 +45,10 @@ case "$GAME" in
         mkdir -p "$DATA/fightlab"
         export FIGHTLAB_DATA="$DATA/fightlab"
         exec "$PY" fight_server.py --class-server --port "$PORT"
+        ;;
+    kartlab)
+        mkdir -p "$DATA/kartlab"
+        export KARTLAB_DATA="$DATA/kartlab"
+        exec "$PY" kart_server.py --class-server --port "$PORT"
         ;;
 esac

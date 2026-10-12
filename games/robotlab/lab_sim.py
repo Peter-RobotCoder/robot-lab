@@ -24,8 +24,8 @@ import math
 import lab_version  # noqa: F401  (puts the engine, shared by every game, on the path)
 import random
 
-from panda3d.bullet import (BulletBoxShape, BulletCylinderShape, BulletHingeConstraint, BulletRigidBodyNode,
-                            BulletVehicle, BulletWorld, XUp, YUp, ZUp)
+from panda3d.bullet import (BulletBoxShape, BulletConvexHullShape, BulletCylinderShape, BulletHingeConstraint,
+                            BulletRigidBodyNode, BulletVehicle, BulletWorld, XUp, YUp, ZUp)
 from panda3d.core import NodePath, Point3, TransformState, Vec3
 
 STEP, SUBSTEP = 1 / 60, 1 / 180
@@ -68,10 +68,15 @@ WEAPONS = {
     "spinner": "horizontal spinner: a bar that stores energy and smashes sideways",
     "drum": "drum (vertical spinner): stores energy and throws robots upwards",
     "hammer": "hammer: an axe that swings down over the top",
+    # weapons that learners asked for (AI cards): a weapon is a weapon type here, never a user mod, so learners
+    # choose it in the garage and the teacher allows it in Weapons allowed. No names here: who made each one is
+    # kept with the class's own data (ai_pipeline.user_mod_makers), and the garage says "made by Sam"
+    "flame": "flame thrower: a jet of flame burns the robots in front and melts their tyres, so they slide",
+    "laser": "laser beam: fire shoots a beam that pushes the first robot in it away (no damage)",
 }
-HOUSE_WEAPONS = ("flame", "hammer", "chainsaw", "vdisc")  # Resident Robots only
+HOUSE_WEAPONS = ("flame", "hammer", "chainsaw", "vdisc")  # the Resident Robots' own
 # Every robot starts with its weapon off. Space is the one weapon key: it switches these weapons on and off
-# (they spin until switched off), and fires the others (wedge, hammer, flame, chainsaw) while it's pressed.
+# (they spin until switched off), and fires the others (wedge, hammer, flame, laser, chainsaw) while it's pressed.
 TOGGLE_WEAPONS = ("spinner", "drum", "vdisc")
 
 # Pushing. A robot's push is its motors' force: its mass x its acceleration (newtons). A robot that another robot
@@ -103,6 +108,11 @@ def default_limits():
     return _limits().default()
 
 
+def code_limits(limits):
+    """What the code may set (CHANGE 124): up to twice the teacher's limit, or the maximum, whichever is smaller."""
+    return _limits().code_room(limits)
+
+
 def full_limits():
     """The widest ranges: the teacher's own robot is checked against these."""
     return _limits().full()
@@ -132,11 +142,19 @@ def check_design(d, limits=None):
     if "model" in d:
         if d["model"] not in HOUSE_BY_NAME:
             problems.append(f"model must be one of {', '.join(HOUSE_BY_NAME)} (or leave it out)")
-        elif d.get("weapon") != HOUSE_BY_NAME[d["model"]][0]:
-            problems.append(f"{d['model']}'s weapon is {HOUSE_BY_NAME[d['model']][0]}")
+        elif d.get("weapon") not in WEAPONS and d.get("weapon") not in HOUSE_WEAPONS:  # (any weapon on a Resident Robot)
+            problems.append(f"weapon must be one of {', '.join(list(WEAPONS) + list(HOUSE_WEAPONS))}")
     elif d.get("weapon") not in WEAPONS:
         problems.append(f"weapon must be one of {', '.join(WEAPONS)}")
     return problems
+
+
+def design_weapon(d):
+    """The weapon a design is built with: its own, or (a Resident Robot without a proper one) the model's."""
+    model = d.get("model") if d.get("model") in HOUSE_BY_NAME else None
+    if model and d.get("weapon") not in WEAPONS and d.get("weapon") not in HOUSE_WEAPONS:
+        return HOUSE_BY_NAME[model][0]
+    return d.get("weapon", "wedge")
 
 
 def build_stats(d):
@@ -193,9 +211,26 @@ USER_MODS = {
     "flame_pit": ("Flame pit", "A pit of flames in the middle of the arena: the flames rise while a robot is in it, and after 3 seconds in the pit the robot is deactivated"),
     "double_flipper": ("Flipper on both ends", "A flipper robot has a second flipper on its back end: both lift when it fires"),
     "boost_pad": ("3 second boost", "A boost button on the floor by the east wall: the robot that touches it is faster for 3 seconds, then the button rests for 5 seconds"),
-    "laser_beam": ("Laser beam", "Fire also shoots a laser beam from the front of a robot: the first robot in the beam is pushed away (power 50)"),
+    "repair_bay": ("Repair bay", "A lit square on the floor by the west wall: a robot on it gets 5 armour back a second, and every 3 seconds on it one lost part goes back on"),
+    "ramps": ("Jump ramps", "Two ramps facing each other across the arena, each with a speed-burst pad: drive up one to fly through the air, and a robot that lands on another robot body slams it, so it goes flying and takes damage"),
 }
-LASER_POWER = 50      # laser beam: how hard it pushes, on the same scale as attack points (5 is weak, 50 the most)
+RAMP_BOOST_SECONDS = 1.0  # jump ramps: a robot on a ramp's pad has the boost button's speed (BOOST_SPEED, BOOST_ACCEL)
+#                           for this long after it leaves the pad...
+RAMP_AIR_SECONDS = 2.0    # ...it counts as flying off the ramp for this long after leaving it...
+RAMP_SLAM_MIN = 1.5       # ...and if it falls faster than this (m/s) onto another robot, that is a body slam:
+RAMP_SLAM_LAUNCH = 3.0    # the robot under it flies off at this speed (m/s) plus half the speed of the fall...
+RAMP_SLAM_DAMAGE = 4.0    # ...and takes this much damage for each m/s of the fall (never more than RAMP_SLAM_MAX)
+RAMP_SLAM_MAX = 30.0
+REPAIR_RATE = 5.0          # repair bay: the armour a robot on the bay gets back each second (its body and each part)...
+REPAIR_PART_SECONDS = 3.0  # ...and how long it must be on the bay for each lost part to go back on
+FLAME_THROWER_POWER = 50        # flame thrower (weapon): the flame's intensity, on the same scale as attack points (5 weak, 50 the most)
+FLAME_THROWER_BURN = 0.06       # ...the damage each burn does for each point of intensity: 3 damage at intensity 50
+FLAME_THROWER_EVERY = 0.25      # ...the seconds between burns while a robot stays in the flame
+FLAME_THROWER_RANGE = 3.0       # ...how far the flame reaches (metres)
+FLAME_THROWER_CONE = 26         # ...and how wide it spreads, in degrees each side of straight ahead
+FLAME_THROWER_MELT = 3.0        # ...a burned robot's tyres are melted for this many seconds...
+FLAME_THROWER_SLIP = 0.35       # ...and while they are, they have this share of their grip (they slide)
+LASER_POWER = 50      # laser beam (weapon): how hard it pushes, on the same scale as attack points (5 is weak, 50 the most)
 LASER_PUSH = 0.1      # ...the speed it gives the robot it hits for each point of power (m/s): 5 m/s at power 50
 LASER_RANGE = 12.0    # ...how far the beam reaches (metres)
 LASER_EVERY = 1.0     # ...the seconds between shots while fire is held
@@ -248,6 +283,21 @@ CPZ = 4.8  # corner patrol zone: how far each Resident Robot's square reaches fr
 PLAYABLE_HOUSE_STATS = dict(HOUSE_STATS, armour=400.0, forward_max=3.6, reverse_max=2.6, power=1.5)
 
 
+def playable_house_stats(d):
+    """A player's Resident Robot: PLAYABLE_HOUSE_STATS scaled by the design's settings, each against its standard
+    value (so a Resident Robot with the standard settings is as it comes). The points aren't used."""
+    s = d.get("settings", {})
+    scale = lambda k: s.get(k, SETTINGS[k][2]) / SETTINGS[k][2]  # noqa: E731
+    st = dict(PLAYABLE_HOUSE_STATS)
+    st["size"] = HOUSE_SIZE * scale("size")
+    st["forward_max"] *= scale("forward_speed")
+    st["reverse_max"] *= scale("reverse_speed")
+    st["turn_rate"] *= scale("turn_speed")
+    st["accel"] *= scale("acceleration")
+    st["mass"] *= scale("size") ** 2  # (bigger is heavier, as a standard robot is)
+    return st
+
+
 # ---------- the robot as variables (the engine's schema: the code panel and the garage's tables) ----------
 CODE_NOTES = {  # the comment on each setting's line of the robot's code (CHANGE 49)
     "forward_speed": "% of top speed, forwards", "reverse_speed": "% of top speed, in reverse",
@@ -256,7 +306,8 @@ CODE_NOTES = {  # the comment on each setting's line of the robot's code (CHANGE
 
 
 def _model_changed(d, ctx):
-    """A Resident Robot's weapon is its own; back to a learner's design, the weapon must be a learner's."""
+    """A Resident Robot comes with its own weapon (it can be changed after); back to a learner's design, the
+    weapon must be a learner's."""
     if d.get("model"):
         d["weapon"] = ctx.house.get(d["model"], d.get("weapon"))
     elif d.get("weapon") not in ctx.all_weapons:
@@ -264,31 +315,45 @@ def _model_changed(d, ctx):
 
 
 def _weapon_changed(d, ctx):
-    if d.get("model"):  # (driving a Resident Robot: its weapon stays)
-        d["weapon"] = ctx.house.get(d["model"], d["weapon"])
+    pass  # (a Resident Robot a player drives keeps the weapon chosen for it)
+
+
+def _weapon_options(ctx):
+    """The weapons offered: the mission's; driving a Resident Robot, the Resident Robots' own weapons too."""
+    extra = [w for w in dict.fromkeys(ctx.house.values()) if w not in ctx.weapons] if getattr(ctx, "model", None) else []
+    return list(ctx.weapons) + extra
+
+
+def _weapon_valid(ctx):
+    return list(ctx.all_weapons) + [w for w in dict.fromkeys(ctx.house.values()) if w not in ctx.all_weapons]
 
 
 def _weapon_text(ctx, d):
-    """Under the weapon row: what it does (a Resident Robot's, with its fixed stats)."""
+    """Under the weapon row: what it does (a Resident Robot's: what its settings do to it)."""
+    words = ctx.rules["weapons"].get(d["weapon"]) or ctx.rules["house_weapons"].get(d["weapon"], d["weapon"])
+    maker = (getattr(ctx, "makers", None) or {}).get(d["weapon"])
+    if maker:
+        words += f"  (made by {maker})"
     if d.get("model"):
-        return (ctx.rules["house_weapons"].get(d["weapon"], d["weapon"]) + "\nResident Robots are heavy (190 kg), "
-                "with armour 400 and big wheels. Their stats are fixed, so points and settings aren't used.")
-    return ctx.rules["weapons"].get(d["weapon"], "")
+        return (words + "\nResident Robots are heavy (190 kg) with armour 400 and big wheels. The points aren't "
+                "used; the settings scale it (100% = as it comes).")
+    return words
 
 
 def schema():
     """The robot's variables, in the HUD's groups. ctx (from the window): title, points_total, weapons (allowed
     this mission), all_weapons, house (Resident Robot -> its weapon), rules."""
     from engine.schema import Var
-    driving = lambda d: bool(d.get("model"))  # noqa: E731  (a Resident Robot: its stats are its own)
-    return ([Var(k, ("settings", k), "int", "settings", tool=k, note=CODE_NOTES[k], unless=driving) for k in SETTINGS] +
+    driving = lambda d: bool(d.get("model"))  # noqa: E731  (a Resident Robot: its points aren't used; its settings
+    #                                                     scale it, and its weapon can be changed)
+    return ([Var(k, ("settings", k), "int", "settings", tool=k, note=CODE_NOTES[k]) for k in SETTINGS] +
             [Var(f"{k}_points", ("points", k), "int", "points", tool="points_table", note=f"points for {k}",
                  unless=driving) for k in STATS] +
             [Var("robot_name", ("name",), "str", "strings", tool="name_and_colour", note="a string: text made of chars"),
-             Var("weapon", ("weapon",), "choice", "lists", tool="choose_weapon", options=lambda ctx: ctx.weapons,
-                 valid=lambda ctx: ctx.all_weapons, list_name="weapons", list_note="the weapons allowed this mission",
-                 after=_weapon_changed, fixed=driving, describe=_weapon_text, always=True,
-                 allowed_values=lambda tools: tools.get("weapons", [])),
+             Var("weapon", ("weapon",), "choice", "lists", tool="choose_weapon", options=_weapon_options,
+                 valid=_weapon_valid, list_name="weapons", list_note="the weapons allowed this mission",
+                 after=_weapon_changed, describe=_weapon_text, always=True,
+                 allowed_values=lambda tools: list(tools.get("weapons", [])) + list(HOUSE_WEAPONS)),
              Var("model", ("model",), "choice", "strings", tool="house_robots", note="driving a Resident Robot",
                  optional=True, options=lambda ctx: list(ctx.house), after=_model_changed, none_text="My design",
                  per_row=5, step=0.13),
@@ -305,8 +370,13 @@ def house_list(value):
 
 
 def design_size(d):
-    """How big a design's robot is (Resident Robot models are always Resident Robot size)."""
-    return HOUSE_SIZE if d.get("house") or d.get("model") in HOUSE_BY_NAME else d["settings"]["size"] / 100
+    """How big a design's robot is: the arena's own Resident Robots are always Resident Robot size; a Resident
+    Robot a player drives is that size scaled by its size setting (100% = as it comes)."""
+    if d.get("house"):
+        return HOUSE_SIZE
+    if d.get("model") in HOUSE_BY_NAME:
+        return HOUSE_SIZE * d.get("settings", {}).get("size", SETTINGS["size"][2]) / 100
+    return d["settings"]["size"] / 100
 
 
 def house_design(name, weapon, colour):
@@ -371,6 +441,9 @@ def standard_shapes(weapon, size):
     if weapon == "flame":      # a fixed nozzle on top, pointing forwards
         return dict(half=h, top=top, nozzle=Vec3(0.07 * size, 0.22 * size, 0.07 * size),
                     pivot=Point3(0, h.y - 0.25 * size, top + 0.12 * size), axis=Vec3(1, 0, 0))
+    if weapon == "laser":      # a fixed emitter on top, pointing forwards (the beam starts at its lens)
+        return dict(half=h, top=top, emitter=Vec3(0.06 * size, 0.18 * size, 0.05 * size),
+                    pivot=Point3(0, h.y - 0.3 * size, top + 0.08 * size), axis=Vec3(1, 0, 0))
     if weapon == "chainsaw":   # an arm on top that lowers a chainsaw bar onto whatever is in front
         return dict(half=h, top=top, arm=Vec3(0.06 * size, 0.3 * size, 0.05 * size),
                     bar=Vec3(0.025 * size, 0.42 * size, 0.07 * size), pivot=Point3(0, h.y * 0.35, top + 0.12),
@@ -439,9 +512,9 @@ class Robot:
         self.big = house or self.model is not None
         self.name = str(design["name"])[:20]
         self.colour = tuple(v / 255 for v in design["colour"])
-        self.weapon = HOUSE_BY_NAME[self.model][0] if self.model else design["weapon"]
+        self.weapon = design_weapon(design)  # (a Resident Robot a player drives can have any weapon)
         if stats is None and self.model:
-            stats = PLAYABLE_HOUSE_STATS
+            stats = playable_house_stats(design)
         self.stats = dict(stats) if stats else build_stats(design)
         self.shape = shapes(self.weapon, self.stats["size"], self.big)
         k = self.k = self.shape["k"]  # (1 for a standard size: see shapes. Everything below is made k times bigger)
@@ -461,7 +534,9 @@ class Robot:
         self.grip_now = None       # the grip its wheels have at the moment
         self.rear_np = self.rear_hinge = None  # the Flipper on both ends user mod: a second plate, on the back end
         self.boost_until = -10.0   # the boost button user mod: boosted until this time
-        self.laser_at = -10.0      # the laser beam user mod: when it last fired its laser
+        self.ramp_at = -10.0       # the jump ramps user mod: when it was last on a ramp
+        self.laser_at = -10.0      # a laser: when it last fired
+        self.melted_until = -10.0  # ...and a robot burned by one has melted tyres until this time
         self.launched = set()  # robots already launched by the current flip
         self.start = (pos, heading)
         self.corner = None
@@ -524,6 +599,9 @@ class Robot:
         elif self.weapon == "flame":
             wb.addShape(BulletBoxShape(sh["nozzle"]), TransformState.makePos(Point3(0, sh["nozzle"].y, 0)))
             wb.setMass(3)
+        elif self.weapon == "laser":
+            wb.addShape(BulletBoxShape(sh["emitter"]), TransformState.makePos(Point3(0, sh["emitter"].y, 0)))
+            wb.setMass(2)
         elif self.weapon == "chainsaw":
             a, b = sh["arm"], sh["bar"]
             wb.addShape(BulletBoxShape(a), TransformState.makePos(Point3(0, a.y, 0)))
@@ -549,7 +627,7 @@ class Robot:
             self.hinge.setLimit(-5, 115 if self.big or k > 1 else 150)  # (a long hammer doesn't lie as far back)
         elif self.weapon == "chainsaw":
             self.hinge.setLimit(-32, 45)
-        elif self.weapon == "flame":
+        elif self.weapon in ("flame", "laser"):
             self.hinge.setLimit(-1, 1)
         world.attachConstraint(self.hinge, True)  # True: a robot can't hit its own weapon
         self.park_weapon()
@@ -681,6 +759,8 @@ class Robot:
         st = self.stats
         self.throttle = throttle
         grip = st["grip"] * (PUSH_GRIP if now < self.pushed_until else 1.0)  # being pushed: its tyres slide
+        if now < self.melted_until:  # burned by a flame thrower: melted tyres slide too
+            grip *= FLAME_THROWER_SLIP
         if grip != self.grip_now:
             self.grip_now = grip
             for i in range(4):
@@ -710,11 +790,13 @@ class Robot:
             want = steer * st["turn_rate"]
             inertia = body.getMass() * ((2 * self.shape["half"].x) ** 2 + (2 * self.shape["half"].y) ** 2) / 12
             body.applyTorque(Vec3(0, 0, inertia * 40 * (want - yaw_rate)))
+        # standing still: with no input and nothing pushing it, a slow robot settles rather than creeping or
+        # turning on its brakes (the physics leaves tiny velocities that never quite die away)
+        if throttle == 0 and steer == 0 and now >= self.pushed_until and abs(v) < 0.4 and abs(yaw_rate) < 0.5:
+            body.setAngularVelocity(body.getAngularVelocity() * 0.5)
+            lv = body.getLinearVelocity()
+            body.setLinearVelocity(Vec3(lv.x * 0.7, lv.y * 0.7, lv.z))
 
-        # laser beam (user mod): fire also shoots the laser, once every LASER_EVERY seconds (see Arena.laser_shots).
-        # Resident Robots don't have one
-        if attack and self.arena.user_mods["laser_beam"] and not self.house and now >= self.laser_at + LASER_EVERY:
-            self.laser_at = now
 
         if "weapon" in self.lost:  # it has come off: nothing to drive
             return
@@ -732,6 +814,12 @@ class Robot:
             self.hinge.enableAngularMotor(True, 0.0, 200.0 * m)
             if attack and on and now >= self.fire_until + 0.7:
                 self.fire_until = now + 1.4  # a burst of flame
+        elif self.weapon == "laser":  # fire shoots the laser, once every LASER_EVERY seconds (see Arena.laser_shots)
+            self.hinge.enableAngularMotor(True, 0.0, 200.0 * m)
+            if attack and on and now >= self.laser_at + LASER_EVERY:
+                self.laser_at = now
+                self.fire_until = now + LASER_SECONDS
+                self.fires += 1
         elif self.weapon == "chainsaw":
             if attack and on:
                 self.fire_until = now + 0.6  # keeps sawing while there's something to saw
@@ -797,7 +885,8 @@ class Robot:
     def reset(self, keep_health=False):
         pos, heading = self.start
         self.jump_at, self.slam_until, self.boost_until = None, -10.0, -10.0
-        self.laser_at = -10.0
+        self.laser_at = self.ramp_at = -10.0
+        self.melted_until = -10.0
         for np_ in (self.np, self.weapon_np):
             np_.node().setLinearVelocity(Vec3(0))
             np_.node().setAngularVelocity(Vec3(0))
@@ -828,6 +917,22 @@ class Robot:
         self.part_hp = dict(self.part_max)
         if lost_weapon and self.arena.user_mods["double_flipper"]:  # (its back flipper went with its weapon)
             self.set_rear_flipper(True)
+
+    def rebuild(self, part):
+        """Repair bay (user mod): one lost part goes back on, like new (a weapon back on its hinge, as it rests)."""
+        self.lost.discard(part)
+        self.part_hp[part] = self.part_max[part]
+        if part == "weapon":
+            wb = self.weapon_np.node()
+            wb.setLinearVelocity(self.np.node().getLinearVelocity())
+            wb.setAngularVelocity(Vec3(0))
+            self.park_weapon()
+            self.arena.world.attachConstraint(self.hinge, True)
+            self.parts[wb.getName()] = "weapon"
+            if self.arena.user_mods["double_flipper"]:  # (its back flipper comes back with its weapon)
+                self.set_rear_flipper(True)
+        elif part.startswith("wheel"):
+            self.wheel_on(int(part[5:]), True)
 
     def wheel_on(self, i, on):
         """A wheel on (it holds the robot up and grips) or off (that corner drops and drags on the floor)."""
@@ -912,6 +1017,12 @@ class Arena:
     FLAME_PIT_DEPTH = 0.5                        # ...and how deep it is
     BOOST_PAD = (9.0, -3.0, 1.6)                # the boost button (user mod): centre x, y and size (on the floor by
     #                                             the east wall, so it is still there with the No cage user mod)
+    REPAIR_BAY = (-9.0, -4.0, 1.6)              # the repair bay (user mod): centre x, y and size (on the floor by the
+    #                                             west wall, clear of the wall spikes and the corner patrol zone)
+    RAMPS = ((6.7, -2.1, -1), (-6.7, -2.1, 1))  # the jump ramps (user mod): each one's centre x, y and the way a
+    #                                             robot drives up it (1 east, -1 west): one by each side wall, facing
+    #                                             each other, so robots fly towards the middle
+    RAMP_RUN, RAMP_WIDE, RAMP_HIGH = 2.6, 1.8, 0.7  # ...how long a ramp is along the floor, how wide, how high its top
     STARTS = ((-7.5, 0, -90), (7.5, 0, 90), (-3.5, -7.5, 0), (0, -7.5, 0), (3.5, 7.5, 180), (0, 7.5, 180))
 
     def __init__(self, root=None, hazards=None, seed=1, user_mods=None):
@@ -919,6 +1030,7 @@ class Arena:
         self.user_mods = user_mods_on(user_mods)  # the teacher's user mods (see USER_MODS)
         self.edge, self.spikes_in = [], True
         self.floor = []
+        self.ramps = []  # jump ramps (user mod): the ramps' bodies while the mod is on
         self.world.setGravity(Vec3(0, 0, -RULES["gravity"]))
         self.root = root if root is not None else NodePath("arena")
         self.rnd = random.Random(seed)
@@ -940,12 +1052,15 @@ class Arena:
         self.flame_height = 0.0           # ...how high the flames stand above the floor right now (metres)
         self.flame_pit_since = {}         # ...robot in the pit -> when it went in
         self.boost_ready_at = 0.0         # boost button (user mod): it works again from this time
-        self.lasers = []                  # laser beam (user mod): the beams showing now, each (start, end)
+        self.lasers = []                  # laser beams showing now, each (start, end)
+        self.repair_at = {}               # repair bay (user mod): robot on the bay -> when its next lost part goes back on
         self.saw_height = [0.0 for _ in self.SAWS]
         self.saw_hot_until = [0.0 for _ in self.SAWS]
         self.spike_out = 0.0
         self.pit_z = self.PIT_OPEN_Z if self.pit_open else self.PIT_CLOSED_Z
         self.bodies, self.constraints = [], []  # everything build() made
+        self.final = None      # the battle's result once it is decided (LabServer.result): it can't change
+        #                        after that, and no more damage is done
         self.index = 0         # which arena this is, when there are several (Arenas)
         self.id_source = None  # where a new robot's id comes from when there are several arenas (unique across them)
         self.build()
@@ -978,10 +1093,18 @@ class Arena:
             self.boost_ready_at = 0.0
             for r in self.robots:
                 r.boost_until = -10.0
-        if self.user_mods["laser_beam"] != before["laser_beam"]:
-            self.lasers = []
+        if self.user_mods["repair_bay"] != before["repair_bay"]:
+            self.repair_at = {}
+        if self.user_mods["ramps"] != before["ramps"]:
             for r in self.robots:
-                r.laser_at = -10.0
+                r.ramp_at = -10.0
+                if self.user_mods["ramps"] and any(abs(r.pos.x - cx) < self.RAMP_RUN / 2 + 0.5
+                                                   and abs(r.pos.y - cy) < self.RAMP_WIDE / 2 + 0.5 for cx, cy, _ in self.RAMPS):
+                    lift = self.RAMP_HIGH + 0.3  # a ramp is about to appear under it: lift it clear
+                    r.np.setZ(r.np.getZ() + lift)
+                    if "weapon" not in r.lost:
+                        r.weapon_np.setZ(r.weapon_np.getZ() + lift)
+            self.build_ramps()
         switched = [k for k in in_pit if self.user_mods[k] != before[k]]
         if "flame_pit" in switched:  # (switched on, the flames start from nothing and rise to their baseline)
             self.flame_height = 0.0
@@ -1045,6 +1168,41 @@ class Arena:
         self.spikes = self.add_kinematic("spikes", BulletBoxShape(Vec3(0.3, (y1 - y0) / 2 + 0.1, 0.42)),
                                          Point3(self.spike_x(0.0), (y0 + y1) / 2, 0.45))
         self.build_edge()
+        self.build_ramps()
+
+    def build_ramps(self):
+        """Jump ramps (user mod): a solid wedge for each ramp, its slope rising from the floor to RAMP_HIGH at the
+        top, with a straight back. Built again when the mod is switched, so the ramps come and go mid-round."""
+        for np_ in self.ramps:
+            self.world.removeRigidBody(np_.node())
+            self.bodies.remove(np_)
+            np_.removeNode()
+        self.ramps = []
+        if not self.user_mods["ramps"]:
+            return
+        for i, (cx, cy, d) in enumerate(self.RAMPS):
+            xb, xt = cx - d * self.RAMP_RUN / 2, cx + d * self.RAMP_RUN / 2  # the bottom edge and the top edge
+            shape = BulletConvexHullShape()
+            for y in (cy - self.RAMP_WIDE / 2, cy + self.RAMP_WIDE / 2):
+                for x, z in ((xb, -0.05), (xt, -0.05), (xt, self.RAMP_HIGH)):
+                    shape.addPoint(Point3(x, y, z))
+            shape.setMargin(0.01)
+            node = BulletRigidBodyNode(f"ramp{i}")
+            node.addShape(shape)
+            np_ = self.root.attachNewNode(node)
+            self.world.attachRigidBody(node)
+            self.bodies.append(np_)
+            self.ramps.append(np_)
+
+    def on_ramp(self, r):
+        """Jump ramps (user mod): is this robot on a ramp's slope? How far up it is (0 at the bottom, 1 at the top),
+        or None if it isn't on one."""
+        p = r.pos
+        for cx, cy, d in self.RAMPS:
+            t = (p.x - cx) * d / self.RAMP_RUN + 0.5
+            if 0 <= t <= 1 and abs(p.y - cy) < self.RAMP_WIDE / 2 + 0.2 and -0.1 < p.z - t * self.RAMP_HIGH < 0.8:
+                return t
+        return None
 
     def build_floor(self):
         """The floor, with its holes. Built again when the Spike pit user mod is switched: the mod cuts a square
@@ -1179,6 +1337,7 @@ class Arena:
             r.reset()
         self.cooldown.clear()
         self.flying.clear()
+        self.final = None
         self.events.append((self.time, "FIGHT!"))
 
     # ---------- every tick ----------
@@ -1190,6 +1349,8 @@ class Arena:
         for r in self.robots:
             r.tick([e for e in live if e is not r and not e.house], now)
             r.swing = r.weapon_np.node().getAngularVelocity().length()  # before the step: a hit stops the swing
+        if self.user_mods["ramps"]:
+            self.ramps_tick(now)
         self.world.doPhysics(STEP, 6, SUBSTEP)
         for r in self.robots:  # (see MAX_SPEED)
             for body in (r.np.node(), r.weapon_np.node()) + ((r.rear_np.node(),) if r.rear_np is not None else ()):
@@ -1206,8 +1367,9 @@ class Arena:
             self.flame_pit_burn(now)
         if self.user_mods["boost_pad"]:
             self.boost_pad_touch(now)
-        if self.user_mods["laser_beam"]:
-            self.laser_shots(now)
+        self.laser_shots(now)
+        if self.user_mods["repair_bay"]:
+            self.repair_bay_fix(now)
         self.check_knockouts(now)
 
     def move_hazards(self, now):
@@ -1238,6 +1400,8 @@ class Arena:
             attacker.hits += 1
         if self.practice:  # count it, but nobody loses armour
             self.events.append((now, f"{text} (practice)"))
+            return
+        if self.final is not None:  # the battle is over: hits still show, but nothing changes the result
             return
         victim.health -= self.share_damage(victim, damage, p, where, now) if self.real_damage else damage
         victim.damage_taken += damage
@@ -1321,7 +1485,9 @@ class Arena:
             for pusher, pushed in ((a0, a1), (a1, a0)):
                 if pusher.driving_into(pushed):
                     pushed.pushed_until = now + 0.15
-        wall = n0.startswith(("wall", "screen")) or n1.startswith(("wall", "screen"))
+            if self.user_mods["ramps"]:
+                self.ramp_slam(a0, a1, n0, n1, mp, now)
+        wall = n0.startswith(("wall", "screen", "ramp")) or n1.startswith(("wall", "screen", "ramp"))
         robots = a0 is not None and a1 is not None and a0 is not a1 and \
             a0.parts.get(n0) == "chassis" and a1.parts.get(n1) == "chassis"
         r = a0 or a1
@@ -1472,6 +1638,49 @@ class Arena:
             if self.practice and not r.house:  # no damage in practice: it comes back, as it does from the drop zone
                 self.knock_out(r, now, f"{r.name} is stuck in the spike pit!")
 
+    def ramps_tick(self, now):
+        """Jump ramps (user mod), before the physics step: a robot on a ramp is on its speed-burst pad, so it has
+        the boost button's speed (see Robot.tick), and one that drives off the top takes off. In the air off a ramp
+        it remembers how fast it is falling, for the body slam (see ramp_slam). Resident Robots don't get the burst."""
+        for r in self.robots:
+            if r.knocked_out:
+                continue
+            was_on = now - r.ramp_at < STEP * 1.5  # (on a ramp last tick)
+            vz = r.np.node().getLinearVelocity().z
+            if self.on_ramp(r) is not None:
+                r.ramp_at = now
+                if not r.house and not self.frozen:
+                    r.boost_until = max(r.boost_until, now + RAMP_BOOST_SECONDS)
+            elif now < r.ramp_at + RAMP_AIR_SECONDS:
+                if was_on and vz > 0.5:
+                    self.events.append((now, f"{r.name} takes off!"))
+                r.drop = max(0.0, -vz)
+
+    def ramp_slam(self, a0, a1, n0, n1, mp, now):
+        """Jump ramps (user mod): a robot falling from a ramp's jump onto another robot body slams it. The robot
+        under it goes flying (and is hurt again when it lands, like a hammer slam's victim) and takes damage for the
+        speed of the fall. A Resident Robot is too heavy to fly, but is hurt. One slam a jump."""
+        for hi, lo, mine, theirs in ((a0, a1, n0, n1), (a1, a0, n1, n0)):
+            key = ("ramp_slam", hi.id, lo.id)
+            if (hi.parts.get(mine) != "chassis" or lo.parts.get(theirs) == "loose" or hi.knocked_out or lo.knocked_out
+                    or not STEP * 1.5 <= now - hi.ramp_at < RAMP_AIR_SECONDS or hi.drop < RAMP_SLAM_MIN
+                    or hi.pos.z < lo.pos.z + 0.1 or now < self.cooldown.get(key, 0)):
+                continue
+            vb = lo.np.node()
+            away = Vec3(lo.pos.x - hi.pos.x, lo.pos.y - hi.pos.y, 0)
+            if not away.normalize():
+                away = Vec3(hi.forward.x, hi.forward.y, 0)
+                away.normalize()
+            if not lo.big:
+                speed = min(RULES["max_launch_speed"], RAMP_SLAM_LAUNCH + 0.5 * hi.drop)
+                vb.applyCentralImpulse((away * 0.6 + Vec3(0, 0, 0.8)) * speed * vb.getMass())
+                self.flying[lo] = [hi, now, 0.0]
+            self.hit(hi, lo, min(RAMP_SLAM_MAX, RAMP_SLAM_DAMAGE * hi.drop), now, f"{hi.name} BODY SLAMS {lo.name}",
+                     mp.getPositionWorldOnA(), "hammer", lo.parts.get(theirs))
+            self.cooldown[key] = now + 1.0
+            hi.ramp_at = -10.0
+            return
+
     def boost_pad_touch(self, now):
         """Boost button (user mod): the first robot to drive onto it is boosted for BOOST_SECONDS (faster and with
         more push: see Robot.tick). The button then rests for BOOST_REST seconds, so a robot chasing it can't boost
@@ -1487,8 +1696,33 @@ class Arena:
             self.events.append((now, f"{r.name} {BOOST_SECONDS:.0f} Second Boost"))
             return
 
+    def repair_bay_fix(self, now):
+        """Repair bay (user mod): a robot on the bay gets REPAIR_RATE armour back each second (its body and, with
+        real damage, every part still on it), and for every REPAIR_PART_SECONDS on the bay one lost part goes back
+        on. Resident Robots don't use it, and nothing is repaired during the countdown."""
+        kx, ky, ks = self.REPAIR_BAY
+        on_bay = [r for r in self.robots if not r.house and not r.knocked_out
+                  and abs(r.pos.x - kx) <= ks / 2 and abs(r.pos.y - ky) <= ks / 2 and -0.2 < r.pos.z < 0.8]
+        self.repair_at = {r: t for r, t in self.repair_at.items() if r in on_bay}
+        if self.frozen:
+            return
+        mend = REPAIR_RATE * STEP
+        for r in on_bay:
+            if r not in self.repair_at:
+                self.repair_at[r] = now + REPAIR_PART_SECONDS
+                self.events.append((now, f"{r.name} is in the repair bay"))
+            r.health = min(r.stats["armour"], r.health + mend)
+            for part in PARTS:
+                if part not in r.lost:
+                    r.part_hp[part] = min(r.part_max[part], r.part_hp[part] + mend)
+            if r.lost and now >= self.repair_at[r]:
+                part = next(p for p in PARTS if p in r.lost)
+                r.rebuild(part)
+                self.repair_at[r] = now + REPAIR_PART_SECONDS
+                self.events.append((now, f"{r.name}'s {'wheel' if part.startswith('wheel') else part} is back on!"))
+
     def laser(self, a):
-        """Laser beam (user mod): where a robot's beam starts and ends, and the robot it hits (None if it hits
+        """A laser: where a robot's beam starts and ends, and the robot it hits (None if it hits
         nobody). The beam goes level from the top of the robot's front, the way the robot faces, to the first
         robot in its way: with none in its way, to the end of its range or the arena's edge."""
         flat = Vec3(a.forward.x, a.forward.y, 0)
@@ -1518,12 +1752,12 @@ class Arena:
         return start, start + flat * max(0.0, reach), hit
 
     def laser_shots(self, now):
-        """Laser beam (user mod): the robot in the beam of a laser that has just fired is pushed away, along the
+        """Lasers: the robot in the beam of a laser that has just fired is pushed away, along the
         beam. The push is a speed (LASER_POWER x LASER_PUSH m/s, never more than max_launch_speed), so a heavy
         robot is pushed as fast as a light one: a Resident Robot much less. A laser does no damage."""
         self.lasers = []
         for a in self.robots:
-            if a.knocked_out or now >= a.laser_at + LASER_SECONDS:
+            if a.weapon != "laser" or "weapon" in a.lost or a.knocked_out or now >= a.laser_at + LASER_SECONDS:
                 continue
             beam = self.laser(a)
             if beam is None:
@@ -1544,24 +1778,9 @@ class Arena:
             self.impacts.append(((end.x, end.y, max(0.1, end.z)), 4.0, "laser"))
             self.events.append((now, f"{a.name}'s laser pushes {v.name}"))
 
-    def flame_pit_burn(self, now):
-        """Flame pit (user mod): the flames climb while a robot is down in the pit, and a robot that has been in
-        for FLAME_PIT_SECONDS is deactivated. With nobody in, they sink back to the baseline the teacher set."""
-        inside = [r for r in self.robots if not r.knocked_out and self.in_flame_pit(r)]
-        self.flame_pit_since = {r: t for r, t in self.flame_pit_since.items() if r in inside}
-        longest = 0.0
-        for r in inside:
-            if r not in self.flame_pit_since:
-                self.flame_pit_since[r] = now
-                self.events.append((now, f"{r.name} is in the flame pit!"))
-            longest = max(longest, now - self.flame_pit_since[r])
-            if now - self.flame_pit_since[r] >= FLAME_PIT_SECONDS and not r.house:  # (Resident Robots are put back)
-                self.knock_out(r, now, f"{r.name} is deactivated by the flame pit!")
-        want = self.flame_pit_cm / 100 * (1 + (FLAME_PIT_RISE - 1) * min(1.0, longest / FLAME_PIT_SECONDS))
-        self.flame_height += (want - self.flame_height) * 0.1
-
     def flame_hits(self, now):
-        """Flame throwers burn anything in a cone in front of the nozzle."""
+        """Flame throwers burn anything in a cone in front of the nozzle (FLAME_THROWER_POWER x FLAME_THROWER_BURN
+        damage, once every FLAME_THROWER_EVERY seconds), and melt its tyres: it slides for FLAME_THROWER_MELT seconds."""
         for a in self.robots:
             if not a.flaming(now):
                 continue
@@ -1577,9 +1796,10 @@ class Arena:
                     continue
                 key = ("flame", a.id, v.id)
                 if now >= self.cooldown.get(key, 0):
-                    self.hit(a, v, 3.0 * RULES["hazard_damage"], now, f"{a.name} TORCHES {v.name}",
-                             v.pos + Vec3(0, 0, 0.3), "flame")
-                    self.cooldown[key] = now + 0.25
+                    v.melted_until = now + FLAME_THROWER_MELT
+                    self.hit(a, v, FLAME_THROWER_POWER * FLAME_THROWER_BURN * RULES["hazard_damage"], now,
+                             f"{a.name} TORCHES {v.name}", v.pos + Vec3(0, 0, 0.3), "flame")
+                    self.cooldown[key] = now + FLAME_THROWER_EVERY
 
     def check_knockouts(self, now):
         h = ARENA / 2
@@ -1648,9 +1868,10 @@ class Arena:
                 **({"flames": round(self.flame_height, 2)} if self.user_mods["flame_pit"] else {}),
                 # boost button (user mod): 1 while it will work, 0 while it rests (only sent while it's on)
                 **({"boost": 1 if self.time >= self.boost_ready_at else 0} if self.user_mods["boost_pad"] else {}),
-                # laser beam (user mod): each beam showing now, start x, y, z then end x, y, z (only sent while it's on)
-                **({"lasers": [[round(c, 2) for c in (*s, *e)] for s, e in self.lasers]}
-                   if self.user_mods["laser_beam"] else {})}
+                # lasers: each beam showing now, start x, y, z then end x, y, z (only sent while there is one)
+                **({"lasers": [[round(c, 2) for c in (*s, *e)] for s, e in self.lasers]} if self.lasers else {}),
+                # repair bay (user mod): 1 while a robot is on it being repaired, else 0 (only sent while it's on)
+                **({"repair": 1 if self.repair_at else 0} if self.user_mods["repair_bay"] else {})}
 
     def take_fx(self):
         """New hits and spark showers since the last call (then forgets them)."""

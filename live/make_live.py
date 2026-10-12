@@ -48,7 +48,7 @@ import tempfile  # noqa: E402
 import zipfile  # noqa: E402
 
 CLUB = os.path.dirname(CC)
-TOOLS_BRANCH = "refs/heads/club-coders"
+TOOLS_BRANCH = "refs/heads/main"  # (one branch since 6 October 2026: the tools are committed on main)
 
 KEY_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "ClubCoders")
 KEY_FILE = os.path.join(KEY_DIR, "live_signing_key.json")
@@ -142,7 +142,7 @@ def sign(data):
 
 # ---------- checks ----------
 def tools_unchanged():
-    """The club's tool files must be exactly as committed on the club-coders branch, with no extra Python files next
+    """The club's tool files must be exactly as committed on main, with no extra Python files next
     to them: anything that changed them could be after the key's passphrase. (This catches changes by mistake or by
     simple tampering; code that can run as you on this laptop could still do harm, which is why every change is
     reviewed before it's kept or signed.)"""

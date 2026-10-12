@@ -32,7 +32,10 @@ GAMES = {"robotlab": ("Robot Lab", "lab_server.py", "ROBOTLAB_DATA",
                       "rw_textures.ensure(); rw_sound.ensure()"),
          "fightlab": ("Fight Lab", "fight_server.py", "FIGHTLAB_DATA",
                       "import fight_version; from engine import rw_textures, rw_sound; import fight_sound; "
-                      "rw_textures.ensure(); rw_sound.ensure(); fight_sound.ensure()")}
+                      "rw_textures.ensure(); rw_sound.ensure(); fight_sound.ensure()"),
+         "kartlab": ("Kart Lab", "kart_server.py", "KARTLAB_DATA",
+                     "import kart_version; from engine import rw_textures, rw_sound; "
+                     "rw_textures.ensure(); rw_sound.ensure()")}
 # (the textures and sounds are made into engine/assets, which the app carries beside games/)
 
 READ_ME = """CLUB CODERS
@@ -73,6 +76,10 @@ def main():
     if not args.server.startswith("wss://"):
         raise SystemExit("The class server's address must start with wss:// (set the ROBOTLAB_SERVER repository "
                          "variable on GitHub, or use --server).")
+    if args.check and args.tag:
+        raise SystemExit("--check needs a test build: a tagged (release) build only talks to wss:// servers, so it "
+                         "would never log in to the check's laptop desk. Run --check without --tag; the tag is for "
+                         "the GitHub release workflow.")
 
     os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
     config = {"server": args.server, "version": v}
@@ -136,6 +143,17 @@ def check():
             m = json.loads(ws.recv(timeout=15))
             if want in m or "error" in m:
                 return m
+
+    def log(name):  # (the desk's and servers' output, shown when the check fails)
+        return open(os.path.join(tmp, f"{name}.log"), "w", encoding="utf-8", errors="replace")
+
+    def show_logs():
+        for name in sorted(os.listdir(tmp)):
+            if name.endswith(".log"):
+                with open(os.path.join(tmp, name), encoding="utf-8", errors="replace") as f:
+                    text = f.read().strip()
+                if text:
+                    print(f"--- {name}\n{text[-1500:]}", file=sys.stderr)
     try:
         games = {}
         for game, (title, server, data_env, _) in GAMES.items():
@@ -145,12 +163,12 @@ def check():
                 [sys.executable, server, "--class-server", "--port", str(port)], cwd=os.path.join(ROOT, "games", game),
                 env=dict(env, **{data_env: os.path.join(tmp, game)},
                          CLUBCODERS_DESK_INBOX=os.path.join(desk_data, "inbox", game)),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                stdout=log(f"server-{game}"), stderr=subprocess.STDOUT))
         with open(os.path.join(tmp, "games.json"), "w", encoding="utf-8") as f:
             json.dump(games, f)
         procs.append(subprocess.Popen([sys.executable, os.path.join("desk", "club_desk.py"), "--port", str(desk_port),
                                        "--games", os.path.join(tmp, "games.json")], cwd=ROOT, env=env,
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                                      stdout=log("desk"), stderr=subprocess.STDOUT))
         time.sleep(8)
         with connect(f"ws://127.0.0.1:{desk_port}") as t:
             ask(t, {"type": "teacher", "password": "build-check-teacher-code"})
@@ -166,6 +184,9 @@ def check():
                 m = ask(t, {"type": "launch", "group": f"{game} group", "lesson": 1})
                 if not m.get("ok"):
                     raise SystemExit(f"The desk couldn't launch {title}: {m.get('error')}")
+                m = ask(t, {"type": "open_learners"})  # (since CHANGE 117 the teacher goes in first and presses
+                if not m.get("ok"):                     # LAUNCH LEARNERS' WINDOWS; until then learners wait)
+                    raise SystemExit(f"The desk wouldn't let learners into {title}: {m.get('error')}")
                 time.sleep(4)
                 shot = os.path.join(tmp, f"{game}.png")
                 subprocess.run([os.path.join(APP, "Club Coders.exe"), "--server", f"ws://127.0.0.1:{desk_port}",
@@ -176,6 +197,11 @@ def check():
                     raise SystemExit(f"The built app didn't open {title} for the launched group (no screenshot).")
                 print(f"Check passed: the learner's login opened {title}, logged in and drew it: {shot}")
                 ask(t, {"type": "stop"})
+    except BaseException:
+        for p in procs:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+        show_logs()
+        raise
     finally:
         for p in procs:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)

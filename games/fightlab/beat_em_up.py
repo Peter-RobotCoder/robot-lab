@@ -11,7 +11,7 @@ Fight:   Arrow keys move (towards / away, and up / down to SIDESTEP round them)
 Other:   V change view   mouse wheel or + / - zoom   right-drag or Q / E swing round the ring (Home resets)
          R rematch   Enter choose again   P pause
          M music (8-bit, rock, your own, off)   H hide help   Esc quit
-Options: --gfx low|medium|high (use low on old laptops)   --you blaze --cpu kaito   --level expert   --no-sound
+Options: --gfx basic|low|medium|high (use low or basic on old laptops)   --you blaze --cpu kaito   --level expert   --no-sound
 """
 import argparse
 import math
@@ -22,7 +22,7 @@ import time
 from panda3d.core import loadPrcFileData
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--gfx", choices=["low", "medium", "high"], default="high")
+ap.add_argument("--gfx", choices=["basic", "low", "medium", "high"], default="high")
 ap.add_argument("--you", default="blaze", help="which fighter file in mods/fighters you play (or a boss's name)")
 ap.add_argument("--cpu", default="kaito", help="which fighter the computer plays")
 ap.add_argument("--no-sound", action="store_true")
@@ -41,6 +41,10 @@ args = ap.parse_args()
 
 loadPrcFileData("", "win-size 1600 900\nwindow-title BEAT 'EM UP - Fight Lab\nframebuffer-multisample 1\n"
                     "multisamples 4\nsync-video true\n")
+import fight_version  # noqa: E402
+sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
+from engine import gfx_tiers  # noqa: E402
+loadPrcFileData("", gfx_tiers.prc_for(args.gfx))  # (texture size, mipmaps, multisamples; basic draws in sRGB)
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\nwin-size 1280 720\naudio-library-name null\n")
 
@@ -49,8 +53,6 @@ from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
 from panda3d.core import Filename, KeyboardButton, Point3, TextNode, Vec3  # noqa: E402
 
-import fight_version  # noqa: E402
-sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
 import cpu_brains  # noqa: E402
 import fight_fx  # noqa: E402
 import fight_gfx  # noqa: E402

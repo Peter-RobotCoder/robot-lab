@@ -57,7 +57,8 @@ NO_HAZARDS = {"ring_out": False, "electric_ropes": False, "fire_jets": False, "s
 
 
 def tools(*on, specials=("blast", "uppercut", "spin_kick", "slam")):
-    t = {k: k in on for k in ALL_TOOLS + ["bosses"]}  # (playing as a boss: the teacher turns it on)
+    t = {k: k in on for k in ALL_TOOLS + ["bosses", "brains"]}  # (playing as a boss, and brains (U and P): the
+    #                                                               teacher turns them on; CHANGE 99)
     t["specials"] = list(specials)
     return t
 
@@ -73,11 +74,11 @@ LESSONS = {
     2: dict(title="Trade-offs, lists and robust programs: points and combos", mode="practice",
             hazards=hazards("ring_out", "fire_jets"), tools=tools(*ALL_TOOLS)),
     3: dict(title="Selection and functions: write a fighter brain", mode="practice",
-            hazards=hazards("ring_out", "fire_jets", "slippery"), tools=tools(*ALL_TOOLS)),
+            hazards=hazards("ring_out", "fire_jets", "slippery"), tools=tools(*ALL_TOOLS, "brains")),
     4: dict(title="Using AI to code, safely", mode="battle",
-            hazards=hazards("electric_ropes", "fire_jets", "slippery"), tools=tools(*ALL_TOOLS)),
+            hazards=hazards("electric_ropes", "fire_jets", "slippery"), tools=tools(*ALL_TOOLS, "brains")),
     5: dict(title="Invent, compete and evaluate", mode="battle",
-            hazards=hazards("ring_out", "fire_jets", "slippery"), tools=tools(*ALL_TOOLS)),
+            hazards=hazards("ring_out", "fire_jets", "slippery"), tools=tools(*ALL_TOOLS, "brains")),
 }
 
 # ---------- missions ----------
@@ -86,7 +87,7 @@ MISSIONS = {
     # Mission 1 (as Robot Lab's: CHANGE 50 to 53): what the learner sees is the title; the text drops down when the
     # title is clicked, and is the explanation and the guidance. The Garage (the GUI) shows the fighter as variables.
     "1a": (1, "Change a STRING VARIABLE with the GUI",
-           "In the Garage (G), under STRING VARIABLES, type a new name for your fighter in the STRING VALUE box and "
+           "In the Garage (press I for the HUD), under STRING VARIABLES, type a new name for your fighter in the STRING VALUE box and "
            "press BUILD MY FIGHTER. A string is text: letters, digits and spaces, in quotes. Its type is str.",
            ["VAR", "DATA"], "auto"),
     "1b": (1, "Change an INTEGER VARIABLE with the GUI",

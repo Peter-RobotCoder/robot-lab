@@ -61,6 +61,22 @@ class Record:
         self.autopilot = False
 
 
+def tidy_words(text, most):
+    """A teacher's words for an objective: spaces tidied within each line, the paragraph breaks kept (a blank line
+    stays one blank line), control characters out, at most `most` letters."""
+    text = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    out, blank = [], False
+    for line in lines:
+        if line:
+            out.append(line)
+            blank = False
+        elif not blank and out:
+            out.append("")
+            blank = True
+    return "\n".join(out).strip()[:most]
+
+
 class Teaching:
     record_class = Record
     reflections = {}  # mission id -> the words a reflection needs to count (the game's)
@@ -267,6 +283,12 @@ class Teaching:
             if kind == "missions_edit":  # CHANGE 97: the teacher's wording of the missions
                 self.edit_missions(m)
                 return "broadcast"
+            if kind == "missions_export":  # the missions as a file on the teacher's computer
+                return [(p.ws, {"type": "missions_file", "name": f"missions_{getattr(self.g, 'slug_word', 'game')}.json",
+                                "text": self.missions_file_text()})]
+            if kind == "missions_import":
+                text = self.import_missions(m.get("data"))
+                return [(p.ws, {"type": "notice", "text": text}), "broadcast"]
             if kind == "slots_of":  # CHANGE 86: the teacher reads a learner's saved designs (or their own)
                 who = m.get("name")
                 if who == p.name or not who:
@@ -356,7 +378,7 @@ class Teaching:
         with open(os.path.join(self.cards_dir, f"{cid:03d}_{p.name}.md"), "w", encoding="utf-8") as f:
             f.write(self.g.missions.ai_prompt(card, p.name))
         mission = self.g.missions.AI_CARD_MISSION.get(self.lesson_number)
-        if mission:
+        if mission and p.role == "learner":  # (the teacher's own cards, e.g. Automate, aren't a learner's evidence)
             self.complete(p.name, mission, f"AI request #{cid} ({self.g.missions.AI_TARGETS[target]}): {card['goal']}")
         return {"type": "ai_card_result", "ok": True, "problems": [], "tips": tips}
 
@@ -452,7 +474,7 @@ class Teaching:
                         "outcomes": {k: v[:2] for k, v in self.g.missions.OUTCOMES.items()},
                         "missions": {k: v[:2] + (v[4],) for k, v in self.g.missions.MISSIONS.items()},
                         # (CHANGE 97) every lesson's objectives as learners see them, with the teacher's edits
-                        "edited": {str(n): {k: list(v) for k, v in self.objectives(n).items()}
+                        "edited": {str(n): {k: list(v) for k, v in self.objectives(n, everything=True).items()}
                                    for n in self.g.missions.LESSONS},
                         "edits": self.mission_edits()})]
 
@@ -520,6 +542,7 @@ class Teaching:
         return None
 
     # ---------- the missions' words, as the teacher edited them (CHANGE 97) ----------
+
     def edits_file(self):
         return os.path.join(self.g.data, "missions_edits.json")
 
@@ -535,6 +558,7 @@ class Teaching:
             self._edits.setdefault("changed", {})
             self._edits.setdefault("removed", [])
             self._edits.setdefault("added", {})
+            self._edits.setdefault("hidden", [])  # (not shown to learners yet: CHANGE 122)
         return self._edits
 
     def keep_edits(self):
@@ -544,27 +568,75 @@ class Teaching:
         except OSError:
             pass
 
-    def objectives(self, lesson):
+    def objectives(self, lesson, everything=False):
         """The lesson's objectives as the learners see them: the built-in ones with the teacher's wording, less the
-        ones taken out, plus the ones added (id -> (lesson, title, text, outcomes, check))."""
+        ones taken out and the ones hidden for now, plus the ones added (id -> (lesson, title, text, outcomes,
+        check)). everything: the hidden ones too (the teacher's editor)."""
         e = self.mission_edits()
         out = {}
         for k, v in self.g.missions.missions_for(lesson).items():
-            if k in e["removed"]:
+            if k in e["removed"] or (k in e["hidden"] and not everything):
                 continue
             c = e["changed"].get(k, {})
             out[k] = (v[0], c.get("title") or v[1], c.get("text") or v[2], v[3], v[4])
         for k, (n, title, text) in e["added"].items():
-            if n == lesson:
+            if n == lesson and (everything or k not in e["hidden"]):
                 out[k] = (lesson, title, text, [], "teacher")
         return out
+
+    def missions_file_text(self):
+        """Every mission as the learners see it, as a pretty-printed JSON file the teacher can edit."""
+        out = {}
+        for n, lesson in self.g.missions.LESSONS.items():
+            out[str(n)] = {"title": lesson["title"],
+                           "objectives": {k: {"title": v[1], "text": v[2], "outcomes": list(v[3]), "check": v[4]}
+                                          for k, v in self.objectives(n).items()}}
+        return json.dumps({"_how": "Edit title and text (outcomes and check are information). Add an objective "
+                                   "as a new id under a mission; delete one to take it out. Then IMPORT in the "
+                                   "Outcomes tab.", "missions": out}, indent=2, ensure_ascii=False)
+
+    def import_missions(self, data):
+        """The teacher's edited file back in: returns a message for the teacher."""
+        missions = data.get("missions") if isinstance(data, dict) else None
+        if not isinstance(missions, dict):
+            return "That file has no missions in it."
+        e = {"changed": {}, "removed": [], "added": {}}
+        changed = added = removed = 0
+        for n_text, lesson in missions.items():
+            try:
+                n = int(n_text)
+            except (TypeError, ValueError):
+                continue
+            if n not in self.g.missions.LESSONS or not isinstance(lesson, dict):
+                continue
+            objs = lesson.get("objectives") if isinstance(lesson.get("objectives"), dict) else {}
+            builtin = self.g.missions.missions_for(n)
+            for k, v in builtin.items():
+                if k not in objs:
+                    e["removed"].append(k)
+                    removed += 1
+            for k, o in objs.items():
+                if not isinstance(o, dict) or not isinstance(k, str):
+                    continue
+                title = tidy_words(o.get("title", ""), 120)
+                text = tidy_words(o.get("text", ""), 4000)
+                if k in builtin:
+                    if (title, text) != (builtin[k][1], builtin[k][2]):
+                        e["changed"][k] = {"title": title, "text": text}
+                        changed += 1
+                else:
+                    e["added"][k[:12]] = [n, title or "Objective", text]
+                    added += 1
+        self._edits = e
+        self.keep_edits()
+        return f"Missions imported: {changed} changed, {added} added, {removed} taken out."
 
     def edit_missions(self, m):
         """The teacher's edits: change an objective's words, add one, take one out, or reset to the built-in text."""
         e = self.mission_edits()
         do = m.get("do")
         if do == "change" and isinstance(m.get("id"), str):
-            words = {k: " ".join(str(m.get(k, "")).split())[:600] for k in ("title", "text")}
+            words = {k: tidy_words(m.get(k, ""), 4000) for k in ("title", "text")}
             if m["id"] in e["added"]:
                 n = e["added"][m["id"]][0]
                 e["added"][m["id"]] = [n, words["title"] or "Objective", words["text"]]
@@ -578,15 +650,20 @@ class Teaching:
             k = f"{n}t{1 + sum(1 for i in e['added'] if e['added'][i][0] == n) + len(e['removed'])}"
             while k in e["added"] or k in self.g.missions.MISSIONS:
                 k += "x"
-            e["added"][k] = [n, " ".join(str(m.get("title", "")).split())[:120] or "New objective",
-                             " ".join(str(m.get("text", "")).split())[:600]]
+            e["added"][k] = [n, tidy_words(m.get("title", ""), 120) or "New objective",
+                             tidy_words(m.get("text", ""), 4000)]
+        elif do in ("hide", "show") and isinstance(m.get("id"), str):  # (CHANGE 122)
+            if do == "hide" and m["id"] not in e["hidden"]:
+                e["hidden"].append(m["id"])
+            elif do == "show":
+                e["hidden"] = [k for k in e["hidden"] if k != m["id"]]
         elif do == "remove" and isinstance(m.get("id"), str):
             if m["id"] in e["added"]:
                 e["added"].pop(m["id"])
             elif m["id"] in self.g.missions.MISSIONS and m["id"] not in e["removed"]:
                 e["removed"].append(m["id"])
         elif do == "reset":
-            self._edits = {"changed": {}, "removed": [], "added": {}}
+            self._edits = {"changed": {}, "removed": [], "added": {}, "hidden": []}
         else:
             return
         self.keep_edits()
@@ -665,6 +742,8 @@ class Teaching:
         d = dict(design)
         if "style" in old and "style" not in d:
             d["style"] = old["style"]
+        if isinstance(d.get("style"), dict) and "number" in d["style"]:  # (the name painted on the deck follows
+            d["style"] = {**d["style"], "number": d["name"]}            # the robot's name, not its first one)
         os.makedirs(self.g.designs, exist_ok=True)
         with open(self.design_file(name), "w", encoding="utf-8") as f:
             f.write(self.g.design_text(d, name))

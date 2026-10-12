@@ -42,7 +42,7 @@ sys.path.insert(0, next((p for p in (os.path.dirname(HERE), os.path.dirname(os.p
                          if os.path.isdir(os.path.join(p, "engine"))), HERE))
 from engine import club_ticket  # noqa: E402
 
-GAMES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab"}
+GAMES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab", "kartlab": "Kart Lab"}
 ETC = "/etc/robotlab"
 DATA = os.environ.get("CLUBCODERS_DESK_DATA", "/var/lib/robotlab/desk")
 PORT = 8779
@@ -310,13 +310,21 @@ class Store:
             raise DeskError("Lessons are 1 to 5.")
         g = self.groups[group]
         self.live = {"id": secrets.token_hex(4), "group": group, "game": g["game"], "lesson": lesson,
-                     "learners": list(g["learners"]), "started": now()}
+                     "learners": list(g["learners"]), "started": now(),
+                     "learners_in": False}  # (the teacher goes in first; the learners when they press the button)
         self.save()
         self.session_notes = {}
         try:  # (an old report from the game's last session must not be read as this one's)
             os.remove(os.path.join(self.data, "reports", f"{g['game']}.json"))
         except OSError:
             pass
+
+    def open_to_learners(self):
+        """LAUNCH LEARNERS' WINDOWS: from now on the live group's learners are sent into the game."""
+        if not self.live:
+            raise DeskError("Nothing is live: launch a group first.")
+        self.live["learners_in"] = True
+        self.save()
 
     def report(self):
         """What the live group's game server says is happening (present learners, what they completed, cards)."""
@@ -412,7 +420,8 @@ def server_games(etc=ETC):
             game = read_env(os.path.join(etc, name)).get("GAME", "robotlab")
             if game in GAMES and game not in games:
                 games[game] = {"address": f"wss://{domain}" + ("" if cls == "class1" else f"/{cls}"),
-                               "running": os.path.join("/var/lib/robotlab", cls, *(["fightlab"] if game == "fightlab"
+                               # (Robot Lab keeps the class's data at the top; the other games in their own folder)
+                               "running": os.path.join("/var/lib/robotlab", cls, *([game] if game != "robotlab"
                                                                                   else []), "running_code")}
     return games
 
@@ -451,6 +460,8 @@ class Desk:
         """Where a learner goes now: their live group's game, with a ticket; or None."""
         live = self.store.live
         if not live or name not in live.get("learners", []) or live["game"] not in self.games:
+            return None
+        if not live.get("learners_in", True):  # (the teacher hasn't launched the learners' windows yet)
             return None
         info = self.games[live["game"]]
         return {"go": {"game": live["game"], "address": info["address"], "lesson": live["lesson"],
@@ -604,7 +615,12 @@ class Desk:
             if live["game"] not in self.games:
                 s.stop()
                 raise DeskError(f"{GAMES[live['game']]} isn't set up on this server yet.")
-            reply = {"ok": True, "done": f"{live['group']} is live: press Open teacher window when you're ready"}
+            reply = {"ok": True, "done": f"{live['group']} is live: open your teacher window, set it up, then press "
+                                         f"LAUNCH LEARNERS' WINDOWS"}
+        elif kind == "open_learners":  # the teacher is ready: the waiting learners go in (and anyone who logs in)
+            s.open_to_learners()
+            await self.send_waiting()
+            reply = {"ok": True, "done": "The learners' windows are opening"}
         elif kind == "teacher_window":  # (open the live group's teacher window again)
             if not s.live:
                 raise DeskError("Nothing is live: launch a group first.")

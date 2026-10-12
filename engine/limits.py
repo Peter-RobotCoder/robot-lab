@@ -20,6 +20,17 @@ class Spec:
         return {"settings": {k: [v[0], v[1]] for k, v in self.settings.items()},
                 "points": {k: list(self.stat_range) for k in self.stats}, "points_total": self.points_total}
 
+    def code_room(self, limits):
+        """CHANGE 124: what the code may set: each setting and point up to twice the teacher's highest, or the
+        widest allowed, whichever is smaller; the lowest as the teacher set it; the points total as it is."""
+        full = self.full()
+        out = {"settings": {}, "points": {}, "points_total": limits["points_total"]}
+        for k, (lo, hi) in limits["settings"].items():
+            out["settings"][k] = [lo, min(hi * 2, full["settings"][k][1])]
+        for k, (lo, hi) in limits["points"].items():
+            out["points"][k] = [lo, min(hi * 2, full["points"][k][1])]
+        return out
+
     def full(self):
         """The widest ranges: the teacher's own design is checked against these."""
         return {"settings": {k: list(v) for k, v in self.full_settings.items()},

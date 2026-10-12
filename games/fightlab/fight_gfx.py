@@ -1,7 +1,8 @@
 """Fight Lab graphics: PBR materials, lights, the fight hall with its rings, and the fighters.
 
 Call init(base, quality) once, then build a StageVisual and a FighterVisual for each fighter.
-quality: "low" (no shadows or surface detail: old laptops), "medium", "high".
+quality: a graphics tier from engine.gfx_tiers: "basic" (Panda's own shaders, the paint texture only: the oldest
+laptops), "low" (simplepbr without shadows or surface detail), "medium", "high".
 
 The fighters are built from simple shapes (boxes and cylinders) joined like a skeleton:
     root (feet, heading) > hips > waist (chest) > neck (head)
@@ -21,7 +22,7 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, C
                           TextureStage, Vec3)
 
 import fight_sim as sim
-from engine import rw_textures
+from engine import gfx_tiers, rw_textures
 from engine.rw_mesh import Mesh, bevel_box, cylinder
 
 _state = {}
@@ -48,7 +49,7 @@ class Materials:
                 t.setFormat(Texture.F_srgb)
             t.setMinfilter(SamplerState.FT_linear_mipmap_linear)
             t.setMagfilter(SamplerState.FT_linear)
-            t.setAnisotropicDegree(8 if self.quality != "low" else 2)
+            t.setAnisotropicDegree(gfx_tiers.SETTINGS[self.quality]["aniso"])
             t.setWrapU(SamplerState.WM_repeat)
             t.setWrapV(SamplerState.WM_repeat)
             self.cache[key] = t
@@ -70,8 +71,9 @@ class Materials:
         np_.setMaterial(m, 1)
         if name:
             np_.setTexture(TextureStage.getDefault(), self.tex(name, "albedo"), 1)
-            np_.setTexture(self.ts_mr, self.tex(name, "mr"), 1)
-            np_.setTexture(self.ts_normal, self.tex(name, "normal"), 1)
+            if gfx_tiers.SETTINGS[self.quality]["simplepbr"]:  # (basic: Panda's shaders know nothing of these)
+                np_.setTexture(self.ts_mr, self.tex(name, "mr"), 1)
+                np_.setTexture(self.ts_normal, self.tex(name, "normal"), 1)
         return np_
 
 
@@ -149,17 +151,18 @@ def capsule(r, length, mesh=None, offset=Vec3(0), down=True, seg=14):
 
 # ---------- lighting ----------
 def init(base, quality="high"):
-    """Lights, reflections and the PBR pipeline. Returns the simplepbr pipeline."""
-    import simplepbr
+    """Lights, reflections and the PBR pipeline for a graphics tier (engine.gfx_tiers). Returns the simplepbr
+    pipeline, or None when the tier used is "basic" (asked for, or because the driver couldn't run the others)."""
+    quality = quality if quality in gfx_tiers.TIERS else gfx_tiers.DEFAULT
+    tier = gfx_tiers.SETTINGS[quality]
     _state["mats"] = Materials(base.loader, quality)
     _state["render"] = base.render
     base.setBackgroundColor(0.01, 0.01, 0.02)
     render = base.render
     sun = DirectionalLight("key")
     sun.setColor((1.1, 1.05, 1.0, 1))
-    if quality != "low":
-        size = 4096 if quality == "high" else 2048
-        sun.setShadowCaster(True, size, size)
+    if tier["shadow"]:
+        sun.setShadowCaster(True, tier["shadow"], tier["shadow"])
         sun.setCameraMask(SHADOW_MASK)
         sun.getLens().setFilmSize(16, 16)
         sun.getLens().setNearFar(5, 60)
@@ -171,18 +174,37 @@ def init(base, quality="high"):
     amb = AmbientLight("fill")
     amb.setColor((0.07, 0.07, 0.1, 1))
     render.setLight(render.attachNewNode(amb))
-    env = None
-    try:
-        cube = base.loader.loadCubeMap(Filename.fromOsSpecific(os.path.join(rw_textures.TEX, "env_#.png")))
-        env = simplepbr.EnvMap(cube, prefiltered_size=64, prefiltered_samples=16, blocking_prepare=True)
-    except Exception:
-        env = None
-    pipeline = simplepbr.init(msaa_samples=4 if quality != "low" else 0, max_lights=8,
-                              use_normal_maps=quality != "low", use_occlusion_maps=quality != "low",
-                              enable_shadows=quality != "low", exposure=0.8, env_map=env)
-    render.setAntialias(AntialiasAttrib.MMultisample)
-    _state["quality"] = quality
+
+    def env_map(simplepbr):  # the reflections (medium and high only)
+        try:
+            cube = base.loader.loadCubeMap(Filename.fromOsSpecific(os.path.join(rw_textures.TEX, "env_#.png")))
+            return simplepbr.EnvMap(cube, prefiltered_size=64, prefiltered_samples=16, blocking_prepare=True)
+        except Exception:
+            return None
+    pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.8)
+    if used != quality:  # the driver couldn't run the tier asked for: the lights and materials follow the one used
+        print(f"gfx: {quality} graphics don't run here, using {used}", flush=True)
+        _state["mats"].quality = used
+        if not gfx_tiers.SETTINGS[used]["shadow"]:
+            sun.setShadowCaster(False)
+    if not gfx_tiers.SETTINGS[used]["simplepbr"]:
+        _state["tone"] = gfx_tiers.basic_look(base, exposure=0.8)  # (Panda's shaders: the lights come down, the tone curve is a post pass)
+    if gfx_tiers.SETTINGS[used]["msaa"]:
+        render.setAntialias(AntialiasAttrib.MMultisample)
+    _state.update(quality=used, pipeline=pipeline)
     return pipeline
+
+
+def tier():
+    """The graphics tier in use (the one init was given, or the lower one the driver could run)."""
+    return _state.get("quality", gfx_tiers.DEFAULT)
+
+
+def start_monitor(base, settings_dir, override=None, on_note=None, judge=True):
+    """Watch the frame times from now on (engine.gfx_tiers.Monitor): call it once play has started. judge=False
+    when the server runs on this same computer (a test): the knobs still turn, but no tier is saved."""
+    return gfx_tiers.Monitor(settings_dir, tier(), override=override, pipeline=_state.get("pipeline"),
+                             lights=[_state["sun"]], render=base.render, on_note=on_note, judge=judge).start(base)
 
 
 def aim_sun(centres):

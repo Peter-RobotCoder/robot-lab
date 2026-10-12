@@ -288,8 +288,7 @@ class HudKit:
         d.clear()
         d.update(copy.deepcopy(design))
         self.entry_text.pop(self.name_key(), None)
-        if self.name_key() in self.entries:
-            self.entries[self.name_key()].enterText(str(d.get("name", "")))
+        self.set_entry(self.name_key(), str(d.get("name", "")))  # (the garage's box is open: it takes the name)
         self.code_shown = None
 
     def build_slots(self, f, y, view=None):
@@ -438,6 +437,20 @@ class HudKit:
                 remember("invert_zoom", self.invert_zoom)
         if isinstance(prefs.get("last_tab"), str):  # (CHANGE 103: I opens the HUD on the tab last used)
             self.last_tab = prefs["last_tab"]
+
+    def show_missions_changed(self, old, new):
+        """CHANGE 122: the teacher's Show learners tick: every learner's Mission tab opens (the games are paused
+        by the server); unticked, it closes again."""
+        if self.teacher or bool(old.get("show_missions")) == bool(new.get("show_missions")):
+            return
+        if new.get("show_missions"):
+            if self.tab != "missions":
+                self.last_tab = self.tab
+            self.tab = "missions"
+        elif self.tab == "missions":
+            self.tab = None
+        self.code_shown = None
+        self.rebuild_panels()
 
     def toggle_panel(self):
         """I (CHANGE 103): the side panel closes, or opens on the tab last used."""
@@ -644,6 +657,15 @@ class HudKit:
     def start_typing(self, key):
         if self.typing == "code" and key != "code" and self.code_editor is not None:
             self.code_editor.blur()  # (typing moves from the code to a text box)
+        if self.typing not in (None, key):  # (the box typed in before lets go of the keyboard)
+            e = self.entries.get(self.typing)
+            try:
+                if isinstance(e, editor.TextBox):
+                    e.blur()
+                elif e is not None:
+                    e["focus"] = 0
+            except Exception:
+                pass
         self.typing = key
 
     def type_code(self):
@@ -660,9 +682,26 @@ class HudKit:
         self.typing = None
         if e is not None:
             try:
-                e["focus"] = 0
+                if isinstance(e, editor.TextBox):
+                    e.blur()
+                else:
+                    e["focus"] = 0
             except Exception:
                 pass
+
+    def set_entry(self, key, text):
+        """Put text in a text box on screen, whichever kind it is (a DirectEntry or an editor.TextBox).
+        Nothing happens if the box isn't there."""
+        e = self.entries.get(key)
+        if e is None:
+            return
+        try:
+            if isinstance(e, editor.TextBox):
+                e.set(text)
+            else:
+                e.enterText(text)
+        except Exception:
+            pass
 
     def keep_typing(self):
         """Remember what is typed in text boxes, so redrawing a panel doesn't lose it."""
@@ -671,7 +710,22 @@ class HudKit:
                 self.entry_text[key] = e.get()
             except Exception:
                 pass
+            if isinstance(e, editor.TextBox):  # (its key events go with the panel)
+                e.destroy()
         self.entries = {}
+
+    def textbox(self, parent, key, x, y, width, rows, initial="", scale=0.024):
+        """A modern multi-line text box (editor.TextBox): wraps, scrolls, any length, click anywhere, select by
+        dragging or Shift+arrows, Ctrl+C/X/V/A. Its text is kept over redraws (entry_text) and read with .get()."""
+        box = editor.TextBox(self, parent, key, x, y, width, rows, text=self.entry_text.get(key, initial),
+                             scale=scale, on_change=lambda t, k=key: self.entry_text.__setitem__(k, t),
+                             on_focus=self.start_typing, on_blur=self.stop_typing)
+        if self.typing == key:
+            box.focus()
+            box.cursor = len(box.text)
+            box.refresh()
+        self.entries[key] = box
+        return box
 
     def entry(self, parent, key, x, y, width=18, lines=1, initial="", command=None, scale=0.03, obscured=False):
         e = DirectEntry(parent=parent, initialText=self.entry_text.get(key, initial), scale=scale, width=width,
@@ -796,7 +850,7 @@ class HudKit:
         for i, mm in enumerate(m["missions"]):
             tick = "DONE" if mm["done"] else ("TEACHER" if mm["check"] == "teacher" else "TO DO")
             letter = f"{'abcdefgh'[i]}. " if i < 8 else ""
-            text = f"[{tick}]  {letter}{mm['title']}"
+            text = f"[{tick}]  {letter}{mm['title']}" if preview else f"{letter}{mm['title']}"  # (CHANGE 123)
             if preview:
                 label(f, text, 0.82, y, 0.03, GREEN if mm["done"] else WHITE)
             else:
@@ -805,9 +859,13 @@ class HudKit:
                 colour = (bright if opened else GREEN) if mm["done"] else (YELLOW if opened else WHITE)
                 text_button(f, text, 0.82, y, self.toggle_objective, [mm["id"]], 0.033 if opened and mm["done"] else 0.03,
                             colour)
-            outcomes = label(f, " ".join(mm["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
+            if preview:  # (the outcome codes: the teacher's view only, CHANGE 123)
+                outcomes = label(f, " ".join(mm["outcomes"]), 1.74, y, 0.022, BLUE, TextNode.ARight)
+                width = 0.022 * outcomes.textNode.calcWidth(" ".join(mm["outcomes"]))
+            else:
+                width = 0.0
             if mm["done"]:  # (CHANGE 95: a tick at the end of a done title, drawn: the font has no tick glyph)
-                self.tick_mark(f, 1.74 - 0.022 * outcomes.textNode.calcWidth(" ".join(mm["outcomes"])) - 0.045, y + 0.008)
+                self.tick_mark(f, 1.74 - width - 0.045, y + 0.008)
             y -= 0.04
             open_ = preview or self.open_objective == mm["id"]
             if mm["done"]:  # (the result; and the guidance too when it is dropped down: CHANGE 56)

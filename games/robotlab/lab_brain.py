@@ -15,6 +15,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 
 import brain_rules as rules
 import lab_sim as sim
@@ -44,6 +45,7 @@ class SandboxedBrain:
                                      stderr=subprocess.DEVNULL, cwd=HERE, creationflags=flags)
         self.replies = queue.Queue()
         threading.Thread(target=self._read, args=(self.proc, self.replies), daemon=True).start()
+        self.pending, self.last = None, None  # the question not answered yet (when it was asked), and the last answer
         reply = self._ask({"source": self.source, "fname": self.fname}, LOAD_SECONDS, "brain took too long to load")
         if "error" in reply:
             self.close()
@@ -59,6 +61,7 @@ class SandboxedBrain:
         replies.put({"error": "brain stopped (it may have used too much memory)", "dead": True})
 
     def _ask(self, msg, seconds, too_long=TOO_LONG):
+        self._settle(seconds)
         if not self.alive():
             return {"error": "brain stopped (it may have used too much memory)"}
         try:
@@ -78,15 +81,56 @@ class SandboxedBrain:
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
 
+    IDLE = (0.0, 0.0, False)
+
     def tick(self, me, enemies):
-        """One tick: returns (throttle, steer, attack), or raises BrainError."""
-        reply = self._ask({"me": me, "enemies": enemies}, TICK_SECONDS)
-        if "error" in reply:
-            raise BrainError(reply["error"])
-        return tuple(reply["r"])
+        """One tick: the brain's answer, or raises BrainError.
+
+        Asynchronous: the question is sent and the brain's answer to the *previous* question is returned at once, so
+        a slow brain never holds up the physics step for everyone (it sees the game one tick, 17 ms, late). A brain
+        that hasn't answered within TICK_SECONDS is stopped; until its first answer the brain does nothing."""
+        now = time.perf_counter()
+        if self.pending is not None:
+            try:
+                reply = self.replies.get_nowait()
+            except queue.Empty:
+                if now - self.pending > TICK_SECONDS:
+                    self.close()
+                    raise BrainError(TOO_LONG)
+                return self.last if self.last is not None else self.IDLE  # (not answered yet: as before)
+            self.pending = None
+            if reply.get("dead"):
+                self.close()
+            if "error" in reply:
+                raise BrainError(reply["error"])
+            self.last = tuple(reply["r"])
+        if not self.alive():
+            raise BrainError("brain stopped (it may have used too much memory)")
+        try:
+            question = json.dumps({"me": me, "enemies": enemies}, separators=(",", ":")).encode("utf-8")
+            self.proc.stdin.write(question + b"\n")
+            self.proc.stdin.flush()
+        except OSError:
+            self.close()
+            raise BrainError("brain stopped (it may have used too much memory)")
+        self.pending = now
+        return self.last if self.last is not None else self.IDLE
+
+    def _settle(self, seconds):
+        """Wait for the answer to a question still pending (before asking something else on the same pipe)."""
+        if self.pending is None:
+            return
+        try:
+            reply = self.replies.get(timeout=max(0.05, seconds))
+            if reply.get("dead"):
+                self.close()
+        except queue.Empty:
+            self.close()
+        self.pending = None
 
     def reset(self):
         """Forget me.memory (and start again if the brain had stopped)."""
+        self.last = None
         if self.alive():
             self._ask({"reset": True}, LOAD_SECONDS)
         else:

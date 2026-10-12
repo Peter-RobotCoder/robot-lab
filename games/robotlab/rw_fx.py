@@ -28,7 +28,7 @@ class Effects:
     def __init__(self, render, quality="high"):
         self.render = render
         self.rnd = random.Random()
-        n_sparks = 400 if quality != "low" else 120
+        n_sparks = 400 if quality not in ("low", "basic") else 120
         # sparks: tiny glowing streaks, added on top of the scene (additive blend)
         self.spark_root = render.attachNewNode("sparks")
         self.spark_root.setLightOff(1)
@@ -53,7 +53,7 @@ class Effects:
         self.smoke_root.setDepthWrite(False)
         self.smoke_root.setBin("fixed", 20)
         self.puffs = []
-        for _ in range(90 if quality != "low" else 30):
+        for _ in range(90 if quality not in ("low", "basic") else 30):
             p = self.smoke_root.attachNewNode(cm.generate())
             p.setTexture(dot)
             p.setBillboardPointEye()
@@ -67,7 +67,7 @@ class Effects:
         self.fire_root.setDepthWrite(False)
         self.fire_root.setBin("fixed", 25)
         self.flames = []
-        for _ in range(160 if quality != "low" else 50):
+        for _ in range(160 if quality not in ("low", "basic") else 50):
             f = self.fire_root.attachNewNode(cm.generate())
             f.setTexture(dot)
             f.setBillboardPointEye()

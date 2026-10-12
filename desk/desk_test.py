@@ -155,12 +155,20 @@ try:
 
     go = {}
 
+    def learner_waits():
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"})
+            assert m.get("ok") and not m.get("go"), m  # (the teacher hasn't launched the learners' windows yet)
+    check("learner in the live group: logs in and waits until the teacher launches the learners' windows", learner_waits)
+
     def learner_go():
+        m = ask(teacher, {"type": "open_learners"})
+        assert m.get("ok"), m
         with connect(f"ws://127.0.0.1:{DESK}") as ws:
             m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="go")
             assert m.get("go") and m["go"]["game"] == "robotlab" and m["go"]["lesson"] == 3, m
             go.update(m["go"])
-    check("learner in the live group: logs in and is sent to Robot Lab with a ticket", learner_go)
+    check("learner in the live group: after LAUNCH LEARNERS' WINDOWS, is sent to Robot Lab with a ticket", learner_go)
 
     def game_accepts():
         time.sleep(3)  # (the game server reads live.json every 2 s)
@@ -194,6 +202,7 @@ try:
         m = ask(teacher, {"type": "stop"})  # (lesson 3 was launched: relaunch on lesson 1, whose first mission is easy)
         m = ask(teacher, {"type": "launch", "group": "Tuesday", "lesson": 1})
         assert m.get("ok"), m
+        assert ask(teacher, {"type": "open_learners"}).get("ok")
         time.sleep(3)
         with connect(f"ws://127.0.0.1:{DESK}") as ws:
             go.update(ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="go")["go"])
@@ -263,6 +272,7 @@ try:
             assert m.get("waiting") and m.get("name") == "Sam", m
             m = ask(teacher, {"type": "launch", "group": "Tuesday", "lesson": 2})
             assert m.get("ok"), m
+            assert ask(teacher, {"type": "open_learners"}).get("ok")  # (the teacher launches the learners' windows)
             m = json.loads(ws.recv(timeout=10))
             assert m.get("go") and m["go"]["lesson"] == 2 and m["go"].get("live_id"), m
             # they close that game's window themselves: the desk doesn't open the same game again by itself

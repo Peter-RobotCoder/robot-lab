@@ -7,7 +7,7 @@ Drive:   Arrow keys   Space is the weapon key: it fires a flipper or hammer, and
 Camera:  C or V change view (third person, first person, zoomed arena follow, full arena)
          mouse wheel or + / - zoom in and out (every view)
 Other:   R rematch   P pause   M music (8-bit, rock, your own, off)   H hide help   Esc quit
-Options: --gfx low|medium|high (use low on old laptops)   --drive titan --cpu razorback   --no-sound
+Options: --gfx basic|low|medium|high (use low or basic on old laptops)   --drive titan --cpu razorback   --no-sound
 """
 import argparse
 import math
@@ -18,7 +18,7 @@ import time
 from panda3d.core import loadPrcFileData
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--gfx", choices=["low", "medium", "high"], default="high")
+ap.add_argument("--gfx", choices=["basic", "low", "medium", "high"], default="high")
 ap.add_argument("--drive", default="titan", help="which robot file in mods/robots you drive")
 ap.add_argument("--cpu", default="razorback", help="which robot the computer drives")
 ap.add_argument("--no-sound", action="store_true")
@@ -36,6 +36,10 @@ args = ap.parse_args()
 
 loadPrcFileData("", "win-size 1600 900\nwindow-title ROBOT WARS - Robot Lab\nframebuffer-multisample 1\n"
                     "multisamples 4\nsync-video true\n")
+import lab_version  # noqa: E402
+sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
+from engine import gfx_tiers  # noqa: E402
+loadPrcFileData("", gfx_tiers.prc_for(args.gfx))  # (texture size, mipmaps, multisamples; basic draws in sRGB)
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\nwin-size 1280 720\naudio-library-name null\n")
 
@@ -44,8 +48,6 @@ from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
 from panda3d.core import Filename, KeyboardButton, Point3, TextNode  # noqa: E402
 
-import lab_version  # noqa: E402
-sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
 import cpu_brains  # noqa: E402
 import lab_sim as sim  # noqa: E402
 import rw_fx  # noqa: E402

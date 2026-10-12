@@ -73,7 +73,7 @@ class Effects:
     def __init__(self, render, quality="high"):
         self.render = render
         self.rnd = random.Random()
-        low = quality == "low"
+        low = quality in ("low", "basic")
         cm = CardMaker("card")
         cm.setFrame(-0.5, 0.5, -0.5, 0.5)
         dot, ring = soft_dot_texture(), ring_texture()

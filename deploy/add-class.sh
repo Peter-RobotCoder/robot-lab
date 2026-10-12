@@ -29,12 +29,12 @@ DATA=/var/lib/robotlab
 
 [ "$(id -u)" -eq 0 ] || { echo "Please run this as root: sudo robotlab-add-class $NAME" >&2; exit 1; }
 [[ "$NAME" =~ ^class[0-9]{1,2}$ ]] || { echo "Class names are class1, class2 ... (not '$NAME')." >&2; exit 1; }
-[ -z "$GAME" ] || [[ "$GAME" =~ ^(robotlab|fightlab)$ ]] || { echo "The game can be robotlab or fightlab (not '$GAME')." >&2; exit 1; }
+[ -z "$GAME" ] || [[ "$GAME" =~ ^(robotlab|fightlab|kartlab)$ ]] || { echo "The game can be robotlab, fightlab or kartlab (not '$GAME')." >&2; exit 1; }
 [ -f "$ETC/domain" ] || { echo "Run setup.sh first." >&2; exit 1; }
 DOMAIN=$(cat "$ETC/domain")
 ADDRESS="wss://$DOMAIN/$NAME"
 [ "$NAME" != "class1" ] || ADDRESS="wss://$DOMAIN"
-title() { [ "$1" = "fightlab" ] && echo "Fight Lab" || echo "Robot Lab"; }
+title() { case "$1" in fightlab) echo "Fight Lab" ;; kartlab) echo "Kart Lab" ;; *) echo "Robot Lab" ;; esac; }
 
 # ---------- an existing class: change its game ----------
 if [ -f "$ETC/$NAME.env" ]; then

@@ -61,8 +61,12 @@ GAMES = {
     "fightlab": {"title": "Fight Lab", "client": "fight_client.py", "login_env": "FIGHTLAB_LOGIN",
                  "reopen_env": "FIGHTLAB_REOPENED",
                  "local": "ws://127.0.0.1:8781", "dev": "BeatEmUp"},
+    "kartlab": {"title": "Kart Lab", "client": "kart_client.py", "login_env": "KARTLAB_LOGIN",
+                "reopen_env": "KARTLAB_REOPENED",
+                "local": "ws://127.0.0.1:8782", "dev": "kart"},
 }
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx")
+GFX_CHOICES = ("auto", "low", "medium", "high")  # the Graphics button on the first screen (auto: the game picks)
 
 
 def load_json(path):
@@ -202,7 +206,9 @@ def live_code(game, address, wanted):
     if not wanted or wanted == release_code_id(bundled):
         return None
     if not re.fullmatch(live_format.ID_PATTERN, wanted):
-        raise live_format.LiveError(f"'{wanted}' isn't a live update's id")
+        raise live_format.LiveError(f"The class server is running a different Club Coders release (code {wanted}) from "
+                                    f"this app ({release_config().get('version', '?')}): download the latest Club "
+                                    f"Coders and open it instead.")
     key, version = release_config().get("live_key"), release_config().get("version")
     if not key:
         raise live_format.LiveError("this copy of the app doesn't take live updates: download the newest Club Coders")
@@ -389,6 +395,7 @@ def launcher(args, passed_on):
             super().__init__()
             self.setBackgroundColor(0.05, 0.06, 0.09)
             self.local = (saved.get("where") == "local") if "where" in saved else not FROZEN
+            self.gfx = saved.get("gfx") if saved.get("gfx") in GFX_CHOICES else "auto"  # graphics tier for the games
             if args.login or args.teacher_password:
                 self.local = False
             self.link = None
@@ -465,6 +472,7 @@ def launcher(args, passed_on):
                 label(f, "Use the username and password from your welcome letter. Your class's game opens by itself.",
                       0, -0.25, 0.033, grey, wrap=55)
             button(f, "Teacher", 1.3, -0.72, self.show, ["teacher_login"], 0.035)
+            button(f, f"Graphics: {self.gfx.title()}", -1.22, -0.72, self.cycle_gfx, (), 0.035)
             if self.newer:  # this app is out of date: say so here, before anyone logs in, with the way to the new one
                 self.newer_shown = True
                 label(f, f"Club Coders {self.newer} is out. This is {version}: download the new one to play with "
@@ -637,6 +645,12 @@ def launcher(args, passed_on):
             ses = st.get("session") or {}
             present, done, notes = ses.get("present", []), ses.get("done", {}), ses.get("notes", {})
             label(f, "THIS SESSION", -1.44, 0.6, 0.045, yellow, TextNode.ALeft)
+            if not live.get("learners_in", True):  # (the teacher goes in first: CHANGE 117)
+                button(f, "LAUNCH LEARNERS' WINDOWS", 0.55, 0.61, self.open_learners, (), 0.036, (0.15, 0.55, 0.25, 1))
+                label(f, "learners are waiting on their screens until you press it", 0.55, 0.555, 0.026, grey,
+                      TextNode.ACenter)
+            else:
+                label(f, "learners' windows launched", 0.55, 0.6, 0.03, (0.5, 0.95, 0.55, 1), TextNode.ACenter)
             label(f, f"{len(present)} of {len(live['learners'])} learners here   -   "
                      f"{sum(done.values())} missions completed   -   {ses.get('cards', 0)} AI cards", -1.44, 0.52,
                   0.036, white, TextNode.ALeft)
@@ -811,7 +825,7 @@ def launcher(args, passed_on):
                     self.say("Your teacher window is already open.", grey)
                 elif address_ok(w.get("address")):
                     self.teacher_proc = start_game(w["game"], ["--host", w["address"], "--teacher", "--name", "Teacher",
-                                                              "--ticket", w["ticket"]] + passed_on, wait=False,
+                                                              "--ticket", w["ticket"]] + self.game_args(), wait=False,
                                                    code=w.get("code"))
             if m.get("change_password"):
                 self.me = m.get("name", self.me)
@@ -824,7 +838,7 @@ def launcher(args, passed_on):
                 if g.get("game") in GAMES and address_ok(g.get("address")):
                     self.say(f"Opening {GAMES[g['game']]['title']}...", green)
                     self.graphicsEngine.renderFrame()
-                    argv = ["--host", g["address"], "--ticket", g["ticket"]] + passed_on
+                    argv = ["--host", g["address"], "--ticket", g["ticket"]] + self.game_args()
                     if args.wait:  # (tests: run the game to its end, then exit with its result)
                         self.finish(start_game(g["game"], argv, wait=True, code=g.get("code")))
                     else:  # (CHANGE 54) the app stays open behind the game, still logged in: when the game window
@@ -851,13 +865,23 @@ def launcher(args, passed_on):
                 self.pending = msg
 
         # ---------- learners ----------
+        def cycle_gfx(self):
+            """Auto / Low / Medium / High: the games get it as --gfx (Auto passes nothing: the game picks)."""
+            self.gfx = GFX_CHOICES[(GFX_CHOICES.index(self.gfx) + 1) % len(GFX_CHOICES)]
+            remember("gfx", self.gfx)
+            self.draw()
+
+        def game_args(self):
+            """What every game window is opened with: the graphics choice, then the options passed to this app."""
+            return ([] if self.gfx == "auto" else ["--gfx", self.gfx]) + passed_on
+
         def set_where(self, local):
             self.local = local
             remember("where", "local" if local else "online")
             self.draw()
 
         def open_local(self, game):
-            start_game(game, ["--host", GAMES[game]["local"]] + passed_on, wait=args.wait)
+            start_game(game, ["--host", GAMES[game]["local"]] + self.game_args(), wait=args.wait)
             self.finish()
 
         def log_in(self, user=None, password=None):
@@ -996,6 +1020,9 @@ def launcher(args, passed_on):
         def launch(self, group, lesson):
             self.say(f"Launching {group}...", grey)
             self.ask_desk({"type": "launch", "group": group, "lesson": lesson})
+
+        def open_learners(self):
+            self.ask_desk({"type": "open_learners"})
 
         def open_teacher_window(self):
             self.ask_desk({"type": "teacher_window"})

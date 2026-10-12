@@ -64,7 +64,7 @@ def apply_mods(t, files):
     return "Applied: " + ", ".join(written) if written else "Nothing to apply"
 
 
-GAME = teaching.Game(missions=fm, profiles=fight_profiles, brain=fight_brain, sim=sim, data=DATA, designs=FIGHTERS_DIR,
+GAME = teaching.Game(slug_word="fightlab", missions=fm, profiles=fight_profiles, brain=fight_brain, sim=sim, data=DATA, designs=FIGHTERS_DIR,
                      design_text=fighter_file_text, load_design=fight_mods.load_fighter, mod_error=fight_mods.ModError,
                      apply_mods=apply_mods, slug=slug, unit=lambda p: p.fighter, world=lambda server: server.stage,
                      units=lambda stage: stage.fighters(), rebuild=lambda server: server.rebuild_stage())

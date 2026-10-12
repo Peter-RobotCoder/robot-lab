@@ -60,7 +60,7 @@ def apply_mods(t, files):
     return "Applied: " + ", ".join(written) if written else "Nothing to apply"
 
 
-GAME = teaching.Game(missions=lm, profiles=lab_profiles, brain=lab_brain, sim=sim, data=DATA, designs=ROBOTS_DIR,
+GAME = teaching.Game(slug_word="robotlab", missions=lm, profiles=lab_profiles, brain=lab_brain, sim=sim, data=DATA, designs=ROBOTS_DIR,
                      design_text=robot_file_text, load_design=rw_mods.load_robot, mod_error=rw_mods.ModError,
                      apply_mods=apply_mods, slug=slug, unit=lambda p: p.robot, world=lambda server: server.arena,
                      units=lambda arena: arena.robots, rebuild=lambda server: server.rebuild_arena())

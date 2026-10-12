@@ -31,6 +31,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -380,16 +381,18 @@ def record_change(change):
 # ---------- who made each user mod: its maker's name goes in front ("Sam's Spike pit") ----------
 
 def user_mod_keys(source):
-    """The user mods in a copy of the game's sim (its bytes, or None): the keys of USER_MODS."""
+    """The user mods and the weapons in a copy of the game's sim (its bytes, or None): the keys of USER_MODS and of
+    WEAPONS (a weapon a learner asked for is a weapon type, and carries their name the same way)."""
     try:
         tree = ast.parse(source or b"")
     except (SyntaxError, ValueError):
         return set()
+    keys = set()
     for node in tree.body:
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict) and any(
-                isinstance(t, ast.Name) and t.id == "USER_MODS" for t in node.targets):
-            return {k.value for k in node.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
-    return set()
+                isinstance(t, ast.Name) and t.id in ("USER_MODS", "WEAPONS") for t in node.targets):
+            keys |= {k.value for k in node.value.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    return keys
 
 
 def maker_name(text):
@@ -497,6 +500,20 @@ def rollback(n):
 
 def reapply(n):
     return _switch(n, "after")
+
+
+def forget(n):
+    """Take a mod that is switched off out of the list for good (its stored before and after files go too). For a
+    mod that has been overtaken: the same lines changed again since, or its idea is in the game another way."""
+    log = history()
+    e = next((e for e in log if e["n"] == n), None)
+    if e is None:
+        return {"ok": False, "message": f"No mod {n}"}
+    if e["status"] != "rolled back":
+        return {"ok": False, "message": f"Switch mod {n} off before removing it"}
+    _save_history([x for x in log if x["n"] != n])
+    shutil.rmtree(os.path.join(CHANGES, str(n)), ignore_errors=True)
+    return {"ok": True, "message": ""}
 
 
 def merge(n):

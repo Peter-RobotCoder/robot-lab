@@ -69,7 +69,13 @@ def read_live():
         return None
 BRAIN_UPLOAD_GAP = 3.0                     # seconds between one learner's brain uploads
 MAX_LEARNERS = 4
-SEND_RATE = 1 / 20
+SEND_RATE = 1 / 30       # state snapshots a second (the windows blend between them: engine.interp)
+T0 = time.perf_counter()  # the server's clock for the stamp on every snapshot
+
+
+def server_ms():
+    """Milliseconds since the server started: the stamp the windows blend their picture by."""
+    return int((time.perf_counter() - T0) * 1000) & 0xFFFFFFFF
 HERE = os.path.dirname(os.path.abspath(__file__))
 CARD_NOTE_FILE = os.path.join(fight_teaching.DATA, "card_note_saved.json")  # the teacher's words on the AI card
 LIMITS_FILE = os.path.join(fight_teaching.DATA, "limits_saved.json")  # the learners' ranges, kept between sessions
@@ -127,6 +133,8 @@ class Player:
         self.fighter = None
         self.start_colour = list(colour)
         self.profile = None
+        self.ctrl_seq = None  # the number of the last control message applied (the window numbers them)
+        self.perf = None      # the window's own report: frame rate, ping, graphics tier, network stalls
 
 
 class Tournament:
@@ -765,9 +773,12 @@ class FightServer:
     async def on_message(self, p, m):
         kind = m.get("type")
         if kind == "brain" and p.role == "learner":  # loaded in its own process, away from the game loop
+            if not self.lesson.get("tools", {}).get("brains", True):  # (CHANGE 99: off until the teacher ticks it)
+                await self.send(p.ws, {"type": "notice", "text": "Brains aren't switched on for this mission yet."})
+                return
             await self.upload_brain(p, str(m.get("source", "")))
             return
-        if kind not in ("control", "ping", "design", "design_for", "cpu_brain"):
+        if kind not in ("control", "ping", "perf", "design", "design_for", "cpu_brain"):
             replies = self.teaching.on_message(p, m)
             if replies is not None:
                 broadcast = replies == "broadcast" or "broadcast" in replies
@@ -784,12 +795,18 @@ class FightServer:
             except (TypeError, ValueError):
                 return
             hold = m.get("hold") if m.get("hold") in sim.HOLDS else ""
+            if not newer_control(p, m.get("seq")):
+                if m.get("press") in sim.PRESSES and p.fighter.brain is None:  # (a press is never thrown away)
+                    p.fighter.press(m["press"], self.stage.time)
+                return  # (an older control that arrived after a newer one: ignored)
             if p.fighter.brain is None:  # (autopilot drives when it's on)
                 p.fighter.control = (fwd, side, hold)
                 if m.get("press") in sim.PRESSES:
                     p.fighter.press(m["press"], self.stage.time)
         elif kind == "ping":
-            await self.send(p.ws, {"type": "pong", "t": m.get("t")})
+            await self.send(p.ws, {"type": "pong", "t": m.get("t"), "sm": server_ms()})
+        elif kind == "perf":  # the window's report on itself, for the teacher's grid
+            p.perf = {k: m.get(k) for k in ("fps", "ping", "tier", "stalls", "delay", "ctrl") if k in m}
         elif kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab
             votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
                 (self.arena_votes, m.get("item"), STAGE_ITEMS)
@@ -805,7 +822,10 @@ class FightServer:
             # from the code panel a learner can change what the garage hides (while the lesson has the Code view)
             hack = bool(m.get("code")) and p.role == "learner" and bool(self.lesson["tools"].get("code_view"))
             new = self.clean_design(p, m.get("design", {}), everything=hack)
-            problems = sim.check_design(new, self.limits_for(p))
+            limits = self.limits_for(p)
+            if hack:  # (CHANGE 124: the code may go to twice the teacher's limit, or the maximum)
+                limits = sim.code_limits(limits)
+            problems = sim.check_design(new, limits)
             old = p.design  # (the missions compare the two: what the build changed, and how)
             outside = self.outside_lesson(old, new) if hack and not problems else []
             if not problems:
@@ -1013,6 +1033,9 @@ class FightServer:
             except (TypeError, ValueError):
                 self.lesson["round_time"], self.lesson["rounds_to_win"] = 60, 2
             self.stage.round_seconds = self.lesson["round_time"]
+            if "show_missions" in update:  # CHANGE 122: every learner's Mission tab opens and the game pauses
+                self.lesson["show_missions"] = self.paused = bool(update["show_missions"])
+                self.stage_event("PAUSED: look at your Mission tab" if self.paused else "GO!")
             if "rings" in update:  # CHANGE 75: how many rings (0 = automatic), and who is in which
                 try:
                     n = max(0, min(sim.MAX_RINGS, int(update["rings"])))
@@ -1127,7 +1150,10 @@ class FightServer:
         st, now = self.stage, self.stage.time
         rings = [sim.ring_state(r, now) for r in st.rings]
         fx = st.take_fx()
-        return {"type": "state", "t": round(now, 2), "rings": rings,
+        return {"type": "state", "t": round(now, 2), "sm": server_ms(), "rings": rings,
+                # the number of each window's last control applied (by its fighter's id): see newer_control
+                "acks": {p.fighter.id: p.ctrl_seq for p in self.players.values()
+                         if p.fighter is not None and p.ctrl_seq is not None},
                 "fx": [[[round(v, 2) for v in pos], round(dmg, 1), kind] for pos, dmg, kind in fx[-24:]],
                 "events": [e for t, e in st.events if now - t < 4 and e][-4:],
                 "paused": self.paused, "practice": st.practice, "rs": sim.RULES["ring_size"]}
@@ -1136,6 +1162,7 @@ class FightServer:
         return {"type": "roster", "version": self.roster_version,
                 "fighters": [{"id": f.id, "owner": f.owner, "design": f.design, "ring": f.ring.index, "slot": f.slot}
                              for f in self.stage.fighters()],
+                "perf": {p.name: p.perf for p in self.players.values() if p.perf},  # each window's own report
                 "rings": [r.index for r in self.stage.rings], "hazards": self.stage.hazards, "look": self.look,
                 "user_mods": self.stage.user_mods,
                 "rs": sim.RULES["ring_size"],
@@ -1336,13 +1363,24 @@ class FightServer:
 
     async def send_loop(self):
         sent_version, ticks = {}, 0
+        next_send = time.perf_counter()
         while True:
-            await asyncio.sleep(SEND_RATE)
+            # on a deadline, not "sleep then send": a plain sleep oversleeps a little every time and the rate drifts
+            next_send += SEND_RATE
+            now = time.perf_counter()
+            if next_send < now - 4 * SEND_RATE:  # a long stall (a slow brain, a busy machine): don't try to catch up
+                next_send = now
+            await asyncio.sleep(max(0.0, next_send - now))
             if not self.players:
                 continue
             ticks += 1
-            if ticks % 20 == 0:  # once a second: missions and the teacher's outcome grid
+            if ticks % 30 == 0:  # once a second: missions and the teacher's outcome grid, and each window's report
                 await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
+                perf_version = tuple(sorted((p.name, json.dumps(p.perf, sort_keys=True)) for p in self.players.values()
+                                            if p.perf))
+                if perf_version != getattr(self, "perf_version", None):
+                    self.perf_version = perf_version
+                    self.roster_version += 1  # (the roster carries the reports to the teacher)
             state = json.dumps(self.state(), separators=(",", ":"))
             roster = None
             for ws, p in list(self.players.items()):
@@ -1356,15 +1394,32 @@ class FightServer:
                     await ws.send(state)
                 except websockets.ConnectionClosed:
                     pass
+            await asyncio.sleep(0)  # (send() rarely yields: let the receiving side run before the next physics step)
 
 
-def backed_up(ws, limit=256 * 1024):
+def backed_up(ws, limit=64 * 1024):
     """True if a window hasn't read what it was sent (so sending more would only make everyone wait)."""
     transport = getattr(ws, "transport", None)
     try:
         return transport is not None and transport.get_write_buffer_size() > limit
     except Exception:
         return False
+
+
+def newer_control(p, seq):
+    """Is this control message newer than the last one applied for this player? The windows number their control
+    messages (16 bits, wrapping); one that overtakes an older one on the way must not be undone by it. Unnumbered
+    messages (older windows, tests) always count. Remembers the number."""
+    if seq is None:
+        return True
+    try:
+        seq = int(seq) % 65536
+    except (TypeError, ValueError):
+        return True
+    if p.ctrl_seq is not None and 0 < (p.ctrl_seq - seq) % 65536 < 32768:
+        return False
+    p.ctrl_seq = seq
+    return True
 
 
 def code_role(code):
@@ -1399,8 +1454,20 @@ def check_class_server_codes():
     return None
 
 
+def fine_timer():
+    """Windows wakes a sleeping loop only every 15.6 ms unless asked for a finer clock: a laptop test server would
+    run its 60 Hz physics late by that much every tick (measured: median 15.6 ms late, 2.7 ms with this)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.winmm.timeBeginPeriod(1)
+        except Exception:
+            pass
+
+
 async def main():
     global CLASS_SERVER, OPEN_SIGNUP
+    fine_timer()
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8781)
     ap.add_argument("--bind", default="127.0.0.1",
@@ -1419,7 +1486,9 @@ async def main():
     if CLASS_SERVER:  # (the front door tells the Club Coders app which code this class runs)
         with open(os.path.join(fight_teaching.DATA, "running_code"), "w", encoding="utf-8") as f:
             f.write(fight_version.CODE)
-    async with websockets.serve(server.handler, args.bind, args.port):
+    # keepalive pings every 5 s (a window that has gone is noticed in 15 s, not 40), a short queue of unread
+    # messages from each window (a window's controls are only worth anything fresh)
+    async with websockets.serve(server.handler, args.bind, args.port, ping_interval=5, ping_timeout=10, max_queue=8):
         if CLASS_SERVER:
             print(f"Fight Lab class server {fight_version.VERSION} on {args.bind}:{args.port}. "
                   f"Accounts are made by the teacher.")
