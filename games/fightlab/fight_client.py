@@ -48,6 +48,8 @@ ap.add_argument("--teacher", action="store_true")
 ap.add_argument("--host", default=None,
                 help="server address (default: this computer); 'class' = the one in teacher_settings.json")
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
+ap.add_argument("--window", help="the window: 1280x720, 1600x900 ... 3840x2160 or full "
+                                 "(else this computer's last choice; CHANGE 126)")
 ap.add_argument("--gfx", choices=["auto", "basic", "low", "medium", "high"], default="auto",
                 help="graphics: auto picks for this computer (and remembers); low or basic on old laptops")
 ap.add_argument("--screenshot")
@@ -120,7 +122,7 @@ if TRY:
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 from engine import gfx_tiers  # noqa: E402
 GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx)  # (auto: this computer's saved tier, else what its driver suggested)
-loadPrcFileData("", f"win-size 1280 720\nwindow-title {title}\nwin-origin {x} 80\n"
+loadPrcFileData("", hud.window_arg(args.window, x) + f"window-title {title}\n"  # (the size: CHANGE 126)
                     + gfx_tiers.prc_for(GFX))  # (texture size, mipmaps, multisamples: read as the window opens)
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\naudio-library-name null\n")

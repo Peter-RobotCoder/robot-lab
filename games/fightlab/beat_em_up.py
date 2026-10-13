@@ -23,6 +23,7 @@ from panda3d.core import loadPrcFileData
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--gfx", choices=["basic", "low", "medium", "high"], default="high")
+ap.add_argument("--window", default="1600x900", help="the window, as 1920x1080 (CHANGE 126)")
 ap.add_argument("--you", default="blaze", help="which fighter file in mods/fighters you play (or a boss's name)")
 ap.add_argument("--cpu", default="kaito", help="which fighter the computer plays")
 ap.add_argument("--no-sound", action="store_true")
@@ -39,7 +40,11 @@ ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--skip-intro", action="store_true")
 args = ap.parse_args()
 
-loadPrcFileData("", "win-size 1600 900\nwindow-title BEAT 'EM UP - Fight Lab\nframebuffer-multisample 1\n"
+try:
+    WIN_W, WIN_H = (int(v) for v in args.window.lower().split("x"))
+except ValueError:
+    WIN_W, WIN_H = 1600, 900
+loadPrcFileData("", f"win-size {WIN_W} {WIN_H}\nwindow-title BEAT 'EM UP - Fight Lab\nframebuffer-multisample 1\n"
                     "multisamples 4\nsync-video true\n")
 import fight_version  # noqa: E402
 sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)

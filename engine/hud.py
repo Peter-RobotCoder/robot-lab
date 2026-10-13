@@ -68,6 +68,55 @@ def remember(key, value):
         pass
 
 
+# The window's size (CHANGE 126): a choice on the Settings tab and the launcher, kept on this computer as
+# "window": "1600x900". Full screen is its own switch ("fullscreen"), as it was.
+WINDOW_SIZES = ((1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3200, 1800), (3840, 2160))
+DEFAULT_WINDOW = WINDOW_SIZES[0]
+
+
+def parse_window(text):
+    """"1600x900" -> (1600, 900), when it is one of the sizes offered; otherwise None."""
+    try:
+        w, h = (int(v) for v in str(text).lower().replace(" ", "").split("x"))
+    except (TypeError, ValueError):
+        return None
+    return (w, h) if (w, h) in WINDOW_SIZES else None
+
+
+def window_size(choice=None):
+    """The size the game opens at: --window if given, else this computer's choice, else 1280 x 720."""
+    return parse_window(choice) or parse_window(SETTINGS.get("window")) or DEFAULT_WINDOW
+
+
+def window_prc(choice=None, x=None, y=80):
+    """The prc lines that open the window at that size (and place: x is None for Panda's own choice)."""
+    w, h = window_size(choice)
+    lines = f"win-size {w} {h}\n"
+    if x is not None:
+        lines += f"win-origin {x} {y}\n"
+    return lines
+
+
+def window_arg(choice, x=None, y=80):
+    """A window opened with --window (the launcher's Window button): "1600x900" or "full". The choice is kept on
+    this computer, so the game's own Settings tab and the launcher agree; the prc lines to open with come back."""
+    if choice == "full":
+        SETTINGS["fullscreen"] = True
+        remember("fullscreen", True)
+    elif parse_window(choice):
+        w, h = parse_window(choice)
+        SETTINGS["window"], SETTINGS["fullscreen"] = f"{w}x{h}", False
+        remember("window", SETTINGS["window"])
+        remember("fullscreen", False)
+    return window_prc(None, x, y)
+
+
+def sizes_for(display_w, display_h):
+    """The window sizes that fit this screen (the first always does: a smaller screen gets a window that overlaps)."""
+    fits = [(w, h) for w, h in WINDOW_SIZES if w <= display_w and h <= display_h]
+    return fits or [DEFAULT_WINDOW]
+
+
 # The panels' colours: a dark look and a light one (CHANGE 57). set_theme swaps the names below; the HUD over the
 # arena (the health bars, the key list, the banners) is always the dark look.
 DARK = {"YELLOW": (1, .9, .35, 1), "WHITE": (1, 1, 1, 1), "GREY": (.75, .8, .9, 1), "RED": (1, .45, .4, 1),
@@ -223,6 +272,8 @@ class HudKit:
         self.full_button.bind(DGG.WITHOUT, lambda e: self.hide_tip())
         if SETTINGS.get("fullscreen"):
             self.taskMgr.doMethodLater(0.5, lambda t: self.toggle_fullscreen() and None, "full screen at the start")
+        else:
+            self.fit_window()  # (CHANGE 126: a remembered size that runs off this screen is moved or shrunk)
         self.panel_scroll = 0.0  # how far a side panel taller than the screen has been slid up (CHANGE 40)
         self.invert_scroll = bool(SETTINGS.get("invert_scroll"))  # the mouse wheel the other way up (Settings)
         self.invert_zoom = bool(SETTINGS.get("invert_zoom"))      # ...and for the camera's zoom, its own switch
@@ -398,7 +449,7 @@ class HudKit:
             wp.setOrigin(0, 0)
             wp.setSize(self.pipe.getDisplayWidth(), self.pipe.getDisplayHeight())
         else:
-            w, h, x, y = self.windowed or (1280, 720, 60, 60)
+            w, h, x, y = self.windowed or (*window_size(), 60, 60)
             wp.setUndecorated(False)
             wp.setOrigin(max(0, x), max(0, y))
             wp.setSize(w, h)
@@ -406,6 +457,62 @@ class HudKit:
         self.fullscreen = not self.fullscreen
         self.full_button["text"] = "> <" if self.fullscreen else "[ ]"
         remember("fullscreen", self.fullscreen)
+        if self.tab == "settings":
+            self.rebuild_panels()
+
+    def display_size(self):
+        pipe = getattr(self, "pipe", None)
+        if pipe is None:
+            return (1920, 1080)
+        return (pipe.getDisplayWidth() or 1920, pipe.getDisplayHeight() or 1080)
+
+    def set_window_size(self, size):
+        """CHANGE 126: the Settings tab's Window row. The window takes this size (out of full screen if it was in),
+        placed to fit the screen, and the choice is kept on this computer for next time."""
+        win = getattr(self, "win", None)
+        if size not in WINDOW_SIZES or win is None or not hasattr(win, "requestProperties"):
+            return
+        w, h = size
+        remember("window", f"{w}x{h}")
+        if self.fullscreen:
+            self.windowed = (w, h, 60, 60)
+            self.toggle_fullscreen()
+            return
+        dw, dh = self.display_size()
+        cur = win.getProperties()
+        x = min(max(0, cur.getXOrigin()), max(0, dw - w))
+        y = min(max(0, cur.getYOrigin()), max(0, dh - h - 40))
+        wp = WindowProperties()
+        wp.setSize(w, h)
+        wp.setOrigin(x, y)
+        win.requestProperties(wp)
+        if self.tab == "settings":
+            self.rebuild_panels()
+
+    def fit_window(self):
+        """A window opened at a remembered size that runs off this screen (a laptop unplugged from its monitor) is
+        moved back on, or shrunk to the biggest size that fits."""
+        win = getattr(self, "win", None)
+        if win is None or not hasattr(win, "requestProperties") or not hasattr(win, "getProperties"):
+            return
+        dw, dh = self.display_size()
+        cur = win.getProperties()
+        w, h, x, y = cur.getXSize(), cur.getYSize(), cur.getXOrigin(), cur.getYOrigin()
+        fits = sizes_for(dw, dh)
+        nw, nh = (w, h) if (w, h) in fits or (w, h) not in WINDOW_SIZES else fits[-1]
+        nx, ny = min(max(0, x), max(0, dw - nw)), min(max(0, y), max(0, dh - nh - 40))
+        if (nw, nh, nx, ny) != (w, h, x, y):
+            wp = WindowProperties()
+            wp.setSize(nw, nh)
+            wp.setOrigin(nx, ny)
+            win.requestProperties(wp)
+
+    def current_window(self):
+        win = getattr(self, "win", None)
+        if win is None or not hasattr(win, "getProperties"):
+            return window_size()
+        cur = win.getProperties()
+        return (cur.getXSize(), cur.getYSize())
 
     def hud_prefs(self):
         """What a learner's profile keeps of these settings (so they follow them to any computer)."""
@@ -642,6 +749,19 @@ class HudKit:
         y -= 0.045
         label(f, "Normal: wheel up zooms in. Inverted: wheel up zooms out.", 0.82, y, 0.02, GREY)
         y -= 0.07
+        label(f, "Window", 0.82, y, 0.03)  # (CHANGE 126)
+        now = self.current_window()
+        fits = sizes_for(*self.display_size())
+        for i, size in enumerate(fits):  # three a line
+            w, h = size
+            button(f, f"{w} x {h}", 1.1 + (i % 3) * 0.22, y + 0.008 - (i // 3) * 0.045, self.set_window_size, [size],
+                   0.024, ON if size == now and not self.fullscreen else OFF)
+        y -= 0.045 * ((len(fits) + 2) // 3)
+        button(f, "Full screen", 1.1, y + 0.008, self.toggle_fullscreen, [], 0.024, ON if self.fullscreen else OFF)
+        y -= 0.045
+        label(f, "A bigger window is sharper, and asks more of the graphics (the Graphics button).\n"
+                 "Full screen fills the screen at its own size. Both kept on this computer.", 0.82, y, 0.02, GREY)
+        y -= 0.09
         label(f, "Version", 0.82, y, 0.03)
         label(f, self.version_text(), 1.12, y, 0.024, GREY)  # (CHANGE 106)
 

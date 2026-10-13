@@ -65,8 +65,12 @@ GAMES = {
                 "reopen_env": "KARTLAB_REOPENED",
                 "local": "ws://127.0.0.1:8782", "dev": "kart"},
 }
-PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx")
+PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx", "--window")
 GFX_CHOICES = ("auto", "low", "medium", "high")  # the Graphics button on the first screen (auto: the game picks)
+# the Window button (CHANGE 126): auto is the game's own remembered size (its Settings tab); the rest are passed
+# as --window, and the game remembers them too
+WINDOW_CHOICES = ("auto", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160", "full")
+WINDOW_TEXT = {"auto": "Auto", "full": "Full screen"}
 
 
 def load_json(path):
@@ -396,6 +400,7 @@ def launcher(args, passed_on):
             self.setBackgroundColor(0.05, 0.06, 0.09)
             self.local = (saved.get("where") == "local") if "where" in saved else not FROZEN
             self.gfx = saved.get("gfx") if saved.get("gfx") in GFX_CHOICES else "auto"  # graphics tier for the games
+            self.window = saved.get("window") if saved.get("window") in WINDOW_CHOICES else "auto"  # (CHANGE 126)
             if args.login or args.teacher_password:
                 self.local = False
             self.link = None
@@ -473,6 +478,8 @@ def launcher(args, passed_on):
                       0, -0.25, 0.033, grey, wrap=55)
             button(f, "Teacher", 1.3, -0.72, self.show, ["teacher_login"], 0.035)
             button(f, f"Graphics: {self.gfx.title()}", -1.22, -0.72, self.cycle_gfx, (), 0.035)
+            button(f, f"Window: {WINDOW_TEXT.get(self.window) or self.window.replace('x', ' x ')}", -0.8,
+                   -0.72, self.cycle_window, (), 0.035)
             if self.newer:  # this app is out of date: say so here, before anyone logs in, with the way to the new one
                 self.newer_shown = True
                 label(f, f"Club Coders {self.newer} is out. This is {version}: download the new one to play with "
@@ -871,9 +878,18 @@ def launcher(args, passed_on):
             remember("gfx", self.gfx)
             self.draw()
 
+        def cycle_window(self):
+            """Auto / 1280 x 720 / ... / Full screen: the games get it as --window (Auto passes nothing: the game
+            opens at the size its own Settings tab last chose)."""
+            self.window = WINDOW_CHOICES[(WINDOW_CHOICES.index(self.window) + 1) % len(WINDOW_CHOICES)]
+            remember("window", self.window)
+            self.draw()
+
         def game_args(self):
-            """What every game window is opened with: the graphics choice, then the options passed to this app."""
-            return ([] if self.gfx == "auto" else ["--gfx", self.gfx]) + passed_on
+            """What every game window is opened with: the graphics and window choices, then the options passed to
+            this app."""
+            return (([] if self.gfx == "auto" else ["--gfx", self.gfx])
+                    + ([] if self.window == "auto" else ["--window", self.window]) + passed_on)
 
         def set_where(self, local):
             self.local = local
