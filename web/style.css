@@ -78,3 +78,59 @@ a { color: var(--blue); }
     #places { display: none; }
     #events { max-width: 70vw; }
 }
+
+/* the teacher desk (CHANGE 129) */
+#desk { position: fixed; inset: 0; z-index: 8; overflow: auto; background: radial-gradient(ellipse at top, #182033, #0b0d14 70%); }
+#desk[hidden] { display: none; }
+#desk .deskcard { max-width: 1200px; margin: 0 auto; padding: 18px 16px 40px; }
+#desk .deskhead { display: flex; gap: 10px; align-items: center; }
+#desk h1 { margin: 0; color: var(--yellow); font-weight: 600; letter-spacing: 0.04em; font-size: 26px; }
+#desk h2 { font-size: 17px; margin: 18px 0 8px; color: var(--yellow); font-weight: 600; }
+#desk .spacer { flex: 1; }
+#desk .livebar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; padding: 10px 14px; background: var(--panel); border-radius: 8px; }
+#desk .livetext { color: var(--green); font-weight: 600; }
+#desk .tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid #2a2f3b; padding-bottom: 8px; }
+#dk-msg { min-height: 1.4em; margin: 8px 0 0; }
+#desk .deskbody { background: var(--panel); border-radius: 8px; padding: 4px 16px 16px; margin-top: 8px; }
+#desk .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+#desk table.wide { width: 100%; border-collapse: collapse; font-size: 14px; }
+#desk th, #desk td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #2a2f3b; vertical-align: middle; }
+#desk th { color: var(--grey); font-weight: 500; }
+#desk td.num { text-align: right; font-variant-numeric: tabular-nums; }
+#desk td.grow { width: 100%; }
+#desk td.grow input { width: 100%; }
+#desk td.away { color: var(--grey); }
+#desk td button { padding: 4px 8px; font-size: 13px; margin: 1px 0; }
+#desk .note { color: var(--grey); font-size: 13px; }
+#desk .ok { color: var(--green); }
+#desk .bad { color: var(--red); }
+#desk .starter { color: var(--blue); font-size: 13px; }
+#desk .formrow button { justify-self: start; }
+#desk .formrow { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: center; margin: 6px 0; max-width: 460px; }
+#desk .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+#desk .ticks { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px 10px; }
+#desk .ticks input { width: auto; }
+#desk button[disabled] { opacity: 0.5; cursor: default; }
+#btn-desk { padding: 4px 12px; font-size: 13px; background: #2f5f8f; }
+@media (max-width: 800px) { #desk .cols { grid-template-columns: 1fr; } }
+
+/* printing: only the records (the browser's print box can save them as a PDF) */
+#printout { display: none; }
+@media print {
+    html, body { background: #fff; color: #000; overflow: visible; height: auto; font: 10pt/1.3 Helvetica, Arial, sans-serif; }
+    body > *:not(#printout) { display: none !important; }
+    #printout { display: block; }
+    #printout .sheet { page-break-after: always; break-after: page; }
+    #printout .sheet:last-child { page-break-after: auto; break-after: auto; }
+    #printout h1 { font-size: 17pt; color: #1F4E8C; margin: 0 0 2px; }
+    #printout h2 { font-size: 11.5pt; color: #1F4E8C; margin: 10px 0 3px; }
+    #printout p { margin: 3px 0; }
+    #printout .small { font-size: 8pt; color: #555; }
+    #printout .green { color: #1B7A34; }
+    #printout table { border-collapse: collapse; width: 100%; font-size: 8.5pt; }
+    #printout th, #printout td { border: 0.4pt solid #bbb; padding: 2px 4px; text-align: left; vertical-align: top; }
+    #printout th { background: #E8EEF7; }
+    #printout .slips { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+    #printout .slip { border: 1px dashed #999; padding: 12px; break-inside: avoid; font-size: 11pt; }
+    @page { size: A4; margin: 14mm 16mm; }
+}

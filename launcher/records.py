@@ -19,8 +19,8 @@ import re
 import sys
 
 RECORDS = os.environ.get("CLUBCODERS_RECORDS") or os.path.join(os.path.expanduser("~"), "Documents", "Club Coders records")
-LESSON_FILES = {"robotlab": "lab_missions", "fightlab": "fight_missions"}
-TITLES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab"}
+LESSON_FILES = {"robotlab": "lab_missions", "fightlab": "fight_missions", "kartlab": "kart_missions"}
+TITLES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab", "kartlab": "Kart Lab"}
 
 
 def lesson_module(game, folder):

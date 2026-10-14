@@ -12,6 +12,7 @@
 import {KART_FIELDS, KIND_SNAPSHOT, kindOf, unpackSnapshot} from "./wire.js";
 import {Track, TRACKS} from "./track.js";
 import {KartScene, TIERS} from "./scene.js";
+import {DeskLink, renderDesk} from "./desk.js";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -27,6 +28,7 @@ const state = {
     snaps: [], offset: null, lastSeq: null, missed: 0, stalls: 0, pingMs: 0, lastPong: 0,
     events: [], eventKeys: new Set(), tab: "controls", scene: null, track: null, trackKey: "",
     fps: 0, frames: 0, fpsAt: performance.now(), leader: null, autoTier: params.get("auto") !== "0",
+    desk: null, deskUi: null, lessons: {}, watchGames: [], leaving: false,
 };
 
 // ---------- the page's version (a class server only admits its own release) ----------
@@ -59,57 +61,107 @@ function deskUrl() {
     return params.get("desk") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/desk`;
 }
 
+// The teacher desk (CHANGE 129): the page stays connected to the desk while logged in, and shows the Teacher screen
+// (desk.js); watching a class asks the desk for a teacher ticket for it.
 function deskLogin() {
     const password = $("deskpass").value;
     if (!password) return setStatus("The teacher password is needed.");
     setStatus("Logging in to the desk…", true);
-    let ws;
-    try { ws = new WebSocket(deskUrl()); } catch (e) { return setStatus(`Can't reach the desk: ${e.message}`); }
-    let step = "login", done = false;
-    const fail = text => { done = true; setStatus(text); try { ws.close(); } catch (e) { /* closed */ } };
-    ws.onopen = () => ws.send(JSON.stringify({type: "teacher", password}));
-    ws.onmessage = ev => {
-        let m;
-        try { m = JSON.parse(ev.data); } catch (e) { return; }
-        if (m.ok === false) return fail(m.error || "The desk said no.");
-        if (step === "login" && m.state) {
-            step = "list";
-            ws.send(JSON.stringify({type: "watch"}));
-        } else if (step === "list" && m.watch_games) {
-            step = "pick";
-            showGames(m.watch_games, game => {
-                step = "ticket";
-                setStatus("Getting a ticket…", true);
-                ws.send(JSON.stringify({type: "watch", game}));
-            });
-        } else if (step === "ticket" && m.watch) {
-            done = true;
-            ws.close();
-            state.ticket = m.watch;
-            $("games").hidden = true;
-            connect(m.watch.address, {ticket: m.watch.ticket, name: "Teacher"});
-        }
-    };
-    ws.onclose = () => {
-        if (!done && step !== "pick") setStatus(step === "login" ? "Couldn't reach the desk on this server." : "The desk closed the connection.");
-    };
-    try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({id: "teacher", password})); } catch (e) { /* not offered */ }
+    if (state.desk) state.desk.close();
+    state.deskUi = {tab: null, editing: null, confirm: null, message: null};
+    state.desk = new DeskLink(deskUrl(), password, {
+        ready: first => {
+            if (first) {
+                $("deskpass").value = "";
+                try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({id: "teacher", password})); } catch (e) { /* not offered */ }
+                try { localStorage.setItem("mode", "desk"); } catch (e) { /* private window */ }
+                setStatus("");
+                showDesk();
+                if (params.get("game")) watch(params.get("game"));
+            }
+            updateDeskButton();
+        },
+        changed: () => { if (deskShown()) drawDesk(); updateDeskButton(); },
+        message: (text, ok) => { state.deskUi.message = {text, ok}; if (deskShown()) drawDesk(); else if (!ok) toast(text); },
+        closed: text => {
+            state.desk = null;
+            updateDeskButton();
+            hideDesk();
+            dropView();
+            showLogin();
+            setStatus(text);
+        },
+    });
 }
 
 const DRAWN = new Set(["kartlab"]);  // the games this page can draw so far
 
-function showGames(games, pick) {
-    const box = $("games");
-    if (!games.length) { setStatus("No classes are set up on this server yet."); return; }
-    const wanted = params.get("game");
-    const auto = games.find(g => g.game === wanted) || (games.filter(g => DRAWN.has(g.game)).length === 1 && !wanted
-                                                       ? games.find(g => DRAWN.has(g.game)) : null);
-    box.innerHTML = games.map(g => `<button data-game="${g.game}" class="${DRAWN.has(g.game) ? "go" : ""}">${esc(g.name)}` +
-                                   `${DRAWN.has(g.game) ? "" : " (watch only: not drawn yet)"}</button>`).join("");
-    box.hidden = false;
-    box.querySelectorAll("button").forEach(b => b.onclick = () => pick(b.dataset.game));
-    setStatus("Which class?", true);
-    if (auto && games.length === 1) pick(auto.game);
+function deskShown() { return !$("desk").hidden; }
+
+function showDesk() {
+    if (!state.desk) return;
+    $("login").style.display = "none";
+    $("desk").hidden = false;
+    $("panel").classList.remove("open");
+    drawDesk();
+}
+
+function hideDesk() { $("desk").hidden = true; }
+
+function drawDesk() {
+    if (!state.desk || !state.desk.state) return;
+    renderDesk($("deskbody"), {
+        desk: state.desk, ui: state.deskUi, lessons: state.lessons, drawn: DRAWN, watchGames: state.watchGames,
+        watching: state.connected ? state.game : null, watch, rerender: drawDesk, back: hideDesk, leave: leaveView,
+        logout: deskLogout, stopped: leaveView, launched: game => { if (DRAWN.has(game)) watch(game); },
+    });
+}
+
+function deskSay(text, ok = false) {
+    if (!state.deskUi) return;
+    state.deskUi.message = {text, ok};
+    if (deskShown()) drawDesk();
+}
+
+function updateDeskButton() {
+    const b = $("btn-desk"), live = state.desk && state.desk.state && state.desk.state.live;
+    b.hidden = !state.desk;
+    b.textContent = live ? `TEACHER DESK · LIVE: ${live.group}` : "TEACHER DESK";
+}
+
+function watch(game) {
+    if (!state.desk) return;
+    if (!DRAWN.has(game)) return deskSay("That game isn't drawn in the browser yet: open its teacher window from the app.");
+    if (state.connected && state.ticket && state.ticket.game === game) { hideDesk(); return; }
+    deskSay("Opening the class view…", true);
+    state.desk.ask({type: "watch", game}, "watch").then(m => {
+        state.ticket = m.watch;
+        if (state.ws) { const old = state.ws; state.ws = null; state.connected = false; old.close(); }
+        connect(m.watch.address, {ticket: m.watch.ticket, name: "Teacher"});
+    }, e => deskSay(e.message));
+}
+
+function leaveView() {
+    if (state.ws) { state.leaving = true; state.ws.close(); }
+}
+
+function dropView() {  // (close the class connection without its close message: the caller says what happened)
+    if (!state.ws) return;
+    const old = state.ws;
+    state.ws = null;
+    state.connected = false;
+    old.close();
+}
+
+function deskLogout() {
+    const desk = state.desk;
+    state.desk = null;
+    if (desk) desk.close();
+    updateDeskButton();
+    hideDesk();
+    dropView();
+    showLogin();
+    setStatus("Logged out.", true);
 }
 
 function login() {
@@ -121,7 +173,6 @@ function setCodeMode(on) {
     state.codeMode = on;
     $("codeform").hidden = !on;
     $("deskform").hidden = on;
-    $("games").hidden = true;
     $("switchmode").textContent = on ? "Use the teacher password instead" : "Use a class server's code instead";
     setStatus("");
 }
@@ -142,6 +193,8 @@ function connect(address = null, how = null) {
     state.ws = ws;
     state.name = name;
     state.url = url;
+    state.snaps = [];  // (a fresh class: nothing from the last one's clock)
+    state.offset = state.lastSeq = null;
     ws.onopen = () => {
         const hello = how && how.ticket ? {type: "hello", name, ticket: how.ticket, version: state.version}
                                         : {type: "hello", name, code, version: state.version};
@@ -150,11 +203,20 @@ function connect(address = null, how = null) {
     };
     ws.onmessage = ev => onMessage(ev.data);
     ws.onclose = ev => {
-        const text = CLOSE_TEXT[ev.code] || ev.reason || (state.connected ? "The connection closed." : "Couldn't connect. Is the server there, and the address right?");
+        if (state.ws !== ws) return;  // (replaced by another class's connection)
+        let text = CLOSE_TEXT[ev.code] || ev.reason || (state.connected ? "The connection closed." : "Couldn't connect. Is the server there, and the address right?");
+        const left = state.leaving;
         state.connected = false;
         state.ws = null;
+        state.leaving = false;
+        if (state.desk) {  // (back to the Teacher screen, still logged in to the desk)
+            showDesk();
+            deskSay(left ? "You've left the class view." : `The class view closed: ${text}`, left);
+            return;
+        }
+        if (left) text = "Logged out.";
         showLogin();
-        setStatus(text);
+        setStatus(text, left);
     };
     ws.onerror = () => { /* onclose follows with the reason */ };
     try {
@@ -219,6 +281,7 @@ function onMessage(data) {
             state.lesson = m.lesson;
             setTrack(m.track);
             hideLogin();
+            hideDesk();
             $("where").textContent = `${state.url.replace(/^wss?:\/\//, "")} · ${m.role}`;
             addEvent(`Logged in as ${m.name} (${m.role})`);
             send({type: "ping", t: Date.now()});
@@ -323,7 +386,8 @@ function loop() {
             send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + (state.scene ? state.scene.tier : "?"), stalls: state.stalls, delay: DELAY_MS});
         }
     }
-    if (state.scene) {
+    const covered = $("login").style.display !== "none" || deskShown();  // (nothing to see behind them: don't draw)
+    if (state.scene && !covered) {
         const snap = sample(now);
         const states = new Map();
         if (snap) for (const e of snap.entities) states.set(e.id, e);
@@ -539,8 +603,10 @@ function renderPanel() {
           <p class="note">Club Coders Live ${esc(state.version || "")}: the teacher's view of a class in the browser, the first step of
             the browser window. It joins the class server as the teacher window does, draws the race from the same
             30-a-second snapshots, two snapshots behind so the picture is smooth, and sends the same commands.</p>
-          <p class="note">Not here yet: playing (a kart you drive), the learners' lessons and garage, Robot Lab and Fight Lab.
-            Those are the next steps.</p>
+          <p class="note">The TEACHER DESK button (top left) is the app's Teacher screen: learners, groups, Launch and Stop,
+            this session's notes and the printed records.</p>
+          <p class="note">Not here yet: playing (a kart you drive), the learners' lessons and garage, Robot Lab and Fight Lab
+            drawn, and the teacher window's AI cards and Outcomes tabs. Those are the next steps.</p>
           <p class="note">Keys: <b>Tab</b> opens and closes this panel.</p>`;
     }
 }
@@ -556,8 +622,9 @@ function setupUi() {
     $("deskpass").onkeydown = e => { if (e.key === "Enter") deskLogin(); };
     $("switchmode").onclick = e => { e.preventDefault(); setCodeMode(!state.codeMode); };
     $("toggle").onclick = () => $("panel").classList.toggle("open");
+    $("btn-desk").onclick = () => showDesk();
     document.addEventListener("keydown", e => {
-        if (e.key === "Tab" && state.connected) { e.preventDefault(); $("panel").classList.toggle("open"); }
+        if (e.key === "Tab" && state.connected && !deskShown() && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); $("panel").classList.toggle("open"); }
     });
     document.querySelectorAll("#panel header button").forEach(b => b.onclick = () => {
         document.querySelectorAll("#panel header button").forEach(x => x.classList.toggle("on", x === b));
@@ -594,6 +661,10 @@ async function main() {
     } catch (e) {
         setStatus(`This browser can't draw the game (WebGL): ${e.message}`);
     }
+    try {  // (the lessons' names, for the printed records)
+        const r = await fetch("lessons.json");
+        if (r.ok) state.lessons = await r.json();
+    } catch (e) { /* the records print the codes instead */ }
     const v = await pageVersion();
     $("pageversion").textContent = v || "(laptop test)";
     renderPerf();

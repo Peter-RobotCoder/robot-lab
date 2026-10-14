@@ -128,10 +128,18 @@ class Store:
             return default
 
     def _write(self, name, value):
+        """(Only ever from the event loop's thread: two saves at once would share the .tmp file.)"""
         path = os.path.join(self.data, name)
         with open(path + ".tmp", "w", encoding="utf-8") as f:
             json.dump(value, f, indent=2)
-        os.replace(path + ".tmp", path)
+        for attempt in range(20):  # (Windows: a virus scanner or indexer can hold the file for a moment)
+            try:
+                os.replace(path + ".tmp", path)
+                return
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.05)
 
     def save(self):
         self._write("learners.json", self.learners)
@@ -259,8 +267,9 @@ class Store:
             self.request(game, {"delete_learner": name})
         return name
 
-    def check_password(self, username, password):
-        """(name, record) if the password is right, else None (with the same limits as the games)."""
+    def check_password(self, username, password, save=True):
+        """(name, record) if the password is right, else None (with the same limits as the games). save=False when
+        run in a worker thread (the scrypt is slow): the caller saves on the event loop's thread."""
         name, rec = self.find(username)
         if rec is None:
             return None
@@ -271,7 +280,8 @@ class Store:
             WRONG_PASSWORDS.failed(key)
             return None
         rec["last_login"] = now()
-        self.save()
+        if save:
+            self.save()
         return name, rec
 
     # ---------- groups ----------
@@ -563,7 +573,9 @@ class Desk:
             self.done_with.pop(ws, None)
 
     async def learner_login(self, ws, where, m):
-        found = await asyncio.to_thread(self.store.check_password, m.get("name", ""), m.get("password", ""))
+        found = await asyncio.to_thread(self.store.check_password, m.get("name", ""), m.get("password", ""), False)
+        if found:
+            self.store.save()  # (its last login, saved here: never from the worker thread)
         if not found:
             BAD_LOGINS.failed(where)
             raise DeskError("Username or password not recognised. Ask your teacher if you've forgotten your password.")

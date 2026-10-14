@@ -1,0 +1,764 @@
+{
+ "fightlab": {
+  "lessons": {
+   "1": "Variables: tune your fighter",
+   "2": "Trade-offs, lists and robust programs: points and combos",
+   "3": "Selection and functions: write a fighter brain",
+   "4": "Using AI to code, safely",
+   "5": "Invent, compete and evaluate"
+  },
+  "missions": {
+   "1a": [
+    1,
+    "Change a STRING VARIABLE with the GUI",
+    [
+     "VAR",
+     "DATA"
+    ]
+   ],
+   "1b": [
+    1,
+    "Change an INTEGER VARIABLE with the GUI",
+    [
+     "VAR",
+     "DATA"
+    ]
+   ],
+   "1c": [
+    1,
+    "Change a LIST VARIABLE with the GUI",
+    [
+     "DATA",
+     "VAR"
+    ]
+   ],
+   "1d": [
+    1,
+    "Hack the code",
+    [
+     "VAR",
+     "DATA",
+     "ALG"
+    ]
+   ],
+   "1e": [
+    1,
+    "Safe use of AI",
+    [
+     "AISAFE",
+     "AIREVIEW"
+    ]
+   ],
+   "2a": [
+    2,
+    "Spend exactly 100 points",
+    [
+     "ALG",
+     "VAR"
+    ]
+   ],
+   "2b": [
+    2,
+    "Invalid test data",
+    [
+     "VALID",
+     "TEST"
+    ]
+   ],
+   "2c": [
+    2,
+    "Boundary test data",
+    [
+     "VALID",
+     "TEST"
+    ]
+   ],
+   "2d": [
+    2,
+    "Your combo is a list",
+    [
+     "DATA",
+     "ALG"
+    ]
+   ],
+   "2e": [
+    2,
+    "Design from evidence",
+    [
+     "EVAL",
+     "TEST"
+    ]
+   ],
+   "2f": [
+    2,
+    "AI rebalance",
+    [
+     "AIREVIEW",
+     "TEST"
+    ]
+   ],
+   "3a": [
+    3,
+    "A brain that runs",
+    [
+     "FUNC",
+     "VAR"
+    ]
+   ],
+   "3b": [
+    3,
+    "Make a decision",
+    [
+     "SEL"
+    ]
+   ],
+   "3c": [
+    3,
+    "Write your own function",
+    [
+     "FUNC",
+     "ALG"
+    ]
+   ],
+   "3d": [
+    3,
+    "Remember something",
+    [
+     "VAR",
+     "SEL"
+    ]
+   ],
+   "3e": [
+    3,
+    "A brain that lands hits",
+    [
+     "SEL",
+     "TEST"
+    ]
+   ],
+   "3f": [
+    3,
+    "Design the stage with AI",
+    [
+     "AISAFE",
+     "ALG"
+    ]
+   ],
+   "4a": [
+    4,
+    "Change the rules with AI",
+    [
+     "AISAFE",
+     "ALG"
+    ]
+   ],
+   "4b": [
+    4,
+    "Review the AI's code",
+    [
+     "AIREVIEW",
+     "TEST"
+    ]
+   ],
+   "4c": [
+    4,
+    "Spot the mistake",
+    [
+     "AIREVIEW"
+    ]
+   ],
+   "4d": [
+    4,
+    "Beat a boss",
+    [
+     "TEST",
+     "EVAL"
+    ]
+   ],
+   "5a": [
+    5,
+    "Tournament ready",
+    [
+     "EVAL",
+     "FUNC"
+    ]
+   ],
+   "5b": [
+    5,
+    "Evaluate",
+    [
+     "EVAL",
+     "AIREVIEW"
+    ]
+   ],
+   "5c": [
+    5,
+    "Explain your code",
+    [
+     "FUNC",
+     "EVAL"
+    ]
+   ],
+   "5d": [
+    5,
+    "A new feature with AI",
+    [
+     "EVAL",
+     "AIREVIEW"
+    ]
+   ]
+  },
+  "outcomes": {
+   "ABS": [
+    "Abstraction and modelling",
+    "Explain how the game models a fight with a few numbers (timing, reach, damage, health)"
+   ],
+   "AIREVIEW": [
+    "Checking AI code",
+    "Check AI-written code does what was asked, test it, explain it and say where AI helped"
+   ],
+   "AISAFE": [
+    "Safe use of AI",
+    "Write an AI request with no personal information and clear limits"
+   ],
+   "ALG": [
+    "Algorithms and decomposition",
+    "Break a problem into steps and choose values that meet a constraint"
+   ],
+   "DATA": [
+    "Data types and structures",
+    "Use text, whole numbers, lists and dictionaries"
+   ],
+   "EVAL": [
+    "Evaluate and reflect",
+    "Evaluate a design against evidence and say what to change next"
+   ],
+   "FUNC": [
+    "Functions",
+    "Write and call your own functions"
+   ],
+   "SEL": [
+    "Selection and Boolean logic",
+    "Use if / elif / else and conditions with and, or, not"
+   ],
+   "TEST": [
+    "Testing and evaluation",
+    "Predict, test, compare results and improve a design"
+   ],
+   "VALID": [
+    "Robust programs",
+    "Explain input validation and test with normal, boundary and invalid data"
+   ],
+   "VAR": [
+    "Variables",
+    "Use variables and assignment to change how a program behaves"
+   ]
+  },
+  "tasks": {},
+  "title": "Fight Lab"
+ },
+ "kartlab": {
+  "lessons": {
+   "1": "Variables: tune your kart",
+   "2": "Trade-offs and robust programs: the 100-point budget",
+   "3": "Selection and functions: write a kart brain",
+   "4": "Using AI to code, safely",
+   "5": "Invent, compete and evaluate: the grand prix"
+  },
+  "missions": {
+   "1a": [
+    1,
+    "Change a STRING VARIABLE with the GUI",
+    [
+     "VAR",
+     "DATA"
+    ]
+   ],
+   "1b": [
+    1,
+    "Change an INTEGER VARIABLE with the GUI",
+    [
+     "VAR",
+     "DATA"
+    ]
+   ],
+   "1c": [
+    1,
+    "Change a LIST VARIABLE with the GUI",
+    [
+     "DATA",
+     "VAR"
+    ]
+   ],
+   "1d": [
+    1,
+    "Hack the code",
+    [
+     "VAR",
+     "DATA",
+     "ALG"
+    ]
+   ],
+   "1e": [
+    1,
+    "Safe use of AI",
+    [
+     "AISAFE",
+     "AIREVIEW"
+    ]
+   ],
+   "2a": [
+    2,
+    "Spend exactly 100 points with the GUI",
+    [
+     "ALG",
+     "VAR"
+    ]
+   ],
+   "2b": [
+    2,
+    "Hack the code to spend more than 100 points",
+    [
+     "VALID",
+     "TEST"
+    ]
+   ],
+   "2c": [
+    2,
+    "Boundary test data",
+    [
+     "VALID",
+     "TEST"
+    ]
+   ],
+   "2d": [
+    2,
+    "Predict, then time a lap",
+    [
+     "TEST",
+     "ABS"
+    ]
+   ],
+   "2e": [
+    2,
+    "Design from evidence",
+    [
+     "EVAL",
+     "TEST"
+    ]
+   ],
+   "2f": [
+    2,
+    "AI rebalance",
+    [
+     "AIREVIEW",
+     "TEST"
+    ]
+   ],
+   "3a": [
+    3,
+    "A brain that runs",
+    [
+     "FUNC",
+     "VAR"
+    ]
+   ],
+   "3b": [
+    3,
+    "Make a decision",
+    [
+     "SEL"
+    ]
+   ],
+   "3c": [
+    3,
+    "Write your own function",
+    [
+     "FUNC",
+     "ALG"
+    ]
+   ],
+   "3d": [
+    3,
+    "Remember something",
+    [
+     "VAR",
+     "SEL"
+    ]
+   ],
+   "3e": [
+    3,
+    "A brain that laps",
+    [
+     "SEL",
+     "TEST"
+    ]
+   ],
+   "3f": [
+    3,
+    "Design the track with AI",
+    [
+     "AISAFE",
+     "ALG"
+    ]
+   ],
+   "4a": [
+    4,
+    "Change the rules with AI",
+    [
+     "AISAFE",
+     "ALG"
+    ]
+   ],
+   "4b": [
+    4,
+    "Review the AI's code",
+    [
+     "AIREVIEW",
+     "TEST"
+    ]
+   ],
+   "4c": [
+    4,
+    "Spot the mistake",
+    [
+     "AIREVIEW"
+    ]
+   ],
+   "4d": [
+    4,
+    "Beat an Ace",
+    [
+     "TEST",
+     "EVAL"
+    ]
+   ],
+   "5a": [
+    5,
+    "Grand prix ready",
+    [
+     "EVAL",
+     "FUNC"
+    ]
+   ],
+   "5b": [
+    5,
+    "Evaluate",
+    [
+     "EVAL",
+     "AIREVIEW"
+    ]
+   ],
+   "5c": [
+    5,
+    "Explain your code",
+    [
+     "FUNC",
+     "EVAL"
+    ]
+   ],
+   "5d": [
+    5,
+    "A new feature with AI",
+    [
+     "EVAL",
+     "AIREVIEW"
+    ]
+   ]
+  },
+  "outcomes": {
+   "ABS": [
+    "Abstraction and modelling",
+    "Explain how the game models a real kart's physics with a few numbers"
+   ],
+   "AIREVIEW": [
+    "Checking AI code",
+    "Check AI-written code does what was asked, test it, explain it and say where AI helped"
+   ],
+   "AISAFE": [
+    "Safe use of AI",
+    "Write an AI request with no personal information and clear limits"
+   ],
+   "ALG": [
+    "Algorithms and decomposition",
+    "Break a problem into steps and choose values that meet a constraint"
+   ],
+   "DATA": [
+    "Data types and structures",
+    "Use text, whole numbers, lists and dictionaries"
+   ],
+   "EVAL": [
+    "Evaluate and reflect",
+    "Evaluate a design against evidence and say what to change next"
+   ],
+   "FUNC": [
+    "Functions",
+    "Write and call your own functions"
+   ],
+   "SEL": [
+    "Selection and Boolean logic",
+    "Use if / elif / else and conditions with and, or, not"
+   ],
+   "TEST": [
+    "Testing and evaluation",
+    "Predict, test, compare results and improve a design"
+   ],
+   "VALID": [
+    "Robust programs",
+    "Explain input validation and test with normal, boundary and invalid data"
+   ],
+   "VAR": [
+    "Variables",
+    "Use variables and assignment to change how a program behaves"
+   ]
+  },
+  "tasks": {
+   "1": "Your kart is a set of variables. Change a string (its name), integers (speed, acceleration and grip) and a list (its colour) with the GUI, then hack the code to change them there, where every variable can be seen. Finish with a first safe AI request for a change in the game, then check what the AI did.",
+   "2": "Design a kart on a budget. Share exactly 100 points between speed, acceleration and grip in the code, prove the game rejects bad designs (invalid and boundary test data), then predict a lap time, race, and use the evidence to justify the design.",
+   "3": "Write a Python brain that drives the kart by itself. It must run without errors, make decisions with if / elif / else, use a function of your own and remember a state between ticks. Upload it (U), switch autopilot on (P) and watch it lap.",
+   "4": "Improve the game itself with AI. Write a safe, precise request to change a game rule, predict what it will do, then review the AI's code: does it work, was it tested, can you explain it? Then find a mistake hidden in AI-written code.",
+   "5": "Bring everything together for the class grand prix: a final design and an uploaded brain, one new feature of your own made with AI, then evaluate what worked using evidence from the races and explain your code to the group."
+  },
+  "title": "Kart Lab"
+ },
+ "robotlab": {
+  "lessons": {
+   "1": "Variables: tune your robot",
+   "2": "Trade-offs and robust programs: the 100-point budget",
+   "3": "Selection and functions: write a robot brain",
+   "4": "Using AI to code, safely",
+   "5": "Invent, compete and evaluate"
+  },
+  "missions": {
+   "1a": [
+    1,
+    "Change a STRING VARIABLE with the GUI",
+    [
+     "VAR",
+     "DATA"
+    ]
+   ],
+   "1b": [
+    1,
+    "Change an INTEGER VARIABLE with the GUI",
+    [
+     "VAR",
+     "DATA"
+    ]
+   ],
+   "1c": [
+    1,
+    "Change a LIST VARIABLE with the GUI",
+    [
+     "DATA",
+     "VAR"
+    ]
+   ],
+   "1d": [
+    1,
+    "Hack the code",
+    [
+     "VAR",
+     "DATA",
+     "ALG"
+    ]
+   ],
+   "1e": [
+    1,
+    "Safe use of AI",
+    [
+     "AISAFE",
+     "AIREVIEW"
+    ]
+   ],
+   "2a": [
+    2,
+    "Spend exactly 100 points with the GUI",
+    [
+     "ALG",
+     "VAR"
+    ]
+   ],
+   "2b": [
+    2,
+    "Hack the code to spend more than 100 points",
+    [
+     "VALID",
+     "TEST"
+    ]
+   ],
+   "2c": [
+    2,
+    "Boundary test data",
+    [
+     "VALID",
+     "TEST"
+    ]
+   ],
+   "2d": [
+    2,
+    "Design from evidence",
+    [
+     "EVAL",
+     "TEST"
+    ]
+   ],
+   "2e": [
+    2,
+    "AI rebalance",
+    [
+     "AIREVIEW",
+     "TEST"
+    ]
+   ],
+   "3a": [
+    3,
+    "A brain that runs",
+    [
+     "FUNC",
+     "VAR"
+    ]
+   ],
+   "3b": [
+    3,
+    "Make a decision",
+    [
+     "SEL"
+    ]
+   ],
+   "3c": [
+    3,
+    "Write your own function",
+    [
+     "FUNC",
+     "ALG"
+    ]
+   ],
+   "3d": [
+    3,
+    "Remember something",
+    [
+     "VAR",
+     "SEL"
+    ]
+   ],
+   "3e": [
+    3,
+    "Design the arena with AI",
+    [
+     "AISAFE",
+     "ALG"
+    ]
+   ],
+   "4a": [
+    4,
+    "Change the rules with AI",
+    [
+     "AISAFE",
+     "ALG"
+    ]
+   ],
+   "4b": [
+    4,
+    "Review the AI's code",
+    [
+     "AIREVIEW",
+     "TEST"
+    ]
+   ],
+   "4c": [
+    4,
+    "Spot the mistake",
+    [
+     "AIREVIEW"
+    ]
+   ],
+   "5a": [
+    5,
+    "Tournament ready",
+    [
+     "EVAL",
+     "FUNC"
+    ]
+   ],
+   "5b": [
+    5,
+    "Evaluate",
+    [
+     "EVAL",
+     "AIREVIEW"
+    ]
+   ],
+   "5c": [
+    5,
+    "Explain your code",
+    [
+     "FUNC",
+     "EVAL"
+    ]
+   ],
+   "5d": [
+    5,
+    "A new feature with AI",
+    [
+     "EVAL",
+     "AIREVIEW"
+    ]
+   ]
+  },
+  "outcomes": {
+   "ABS": [
+    "Abstraction and modelling",
+    "Explain how the game models real robot physics with a few numbers"
+   ],
+   "AIREVIEW": [
+    "Checking AI code",
+    "Check AI-written code does what was asked, test it, explain it and say where AI helped"
+   ],
+   "AISAFE": [
+    "Safe use of AI",
+    "Write an AI request with no personal information and clear limits"
+   ],
+   "ALG": [
+    "Algorithms and decomposition",
+    "Break a problem into steps and choose values that meet a constraint"
+   ],
+   "DATA": [
+    "Data types and structures",
+    "Use text, whole numbers, lists and dictionaries"
+   ],
+   "EVAL": [
+    "Evaluate and reflect",
+    "Evaluate a design against evidence and say what to change next"
+   ],
+   "FUNC": [
+    "Functions",
+    "Write and call your own functions"
+   ],
+   "SEL": [
+    "Selection and Boolean logic",
+    "Use if / elif / else and conditions with and, or, not"
+   ],
+   "TEST": [
+    "Testing and evaluation",
+    "Predict, test, compare results and improve a design"
+   ],
+   "VALID": [
+    "Robust programs",
+    "Explain input validation and test with normal, boundary and invalid data"
+   ],
+   "VAR": [
+    "Variables",
+    "Use variables and assignment to change how a program behaves"
+   ]
+  },
+  "tasks": {
+   "1": "Your robot is a set of variables. Change a string (its name), integers (turn speed and size) and a list (its colour) with the GUI, then hack the code to change them there, where every variable can be seen. Finish with a first safe AI request for a change in the game, then check what the AI did.",
+   "2": "Design a robot on a budget. Share exactly 100 points between speed, attack, armour and control in the code, prove the game rejects bad designs (invalid and boundary test data), then fight and use the evidence to justify the design.",
+   "3": "Write a Python brain that drives the robot by itself. It must run without errors, make decisions with if / elif / else, use a function of your own and remember a state between ticks. Upload it (U), switch autopilot on (P) and watch it fight.",
+   "4": "Improve the game itself with AI. Write a safe, precise request to change a game rule, predict what it will do, then review the AI's code: does it work, was it tested, can you explain it? Then find a mistake hidden in AI-written code.",
+   "5": "Bring everything together for the class tournament: a final design and an uploaded brain, one new feature of your own made with AI, then evaluate what worked using evidence from the battles and explain your code to the group."
+  },
+  "title": "Robot Lab"
+ }
+}

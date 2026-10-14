@@ -42,7 +42,7 @@ For a server set up before release 1.4.0: take a snapshot, `ssh robotlab`, then 
 
 ## Learners, groups and sessions
 
-Everything day to day is done in the Club Coders app's **Teacher** screen (your teacher password): add learners (username and a starter password), reset or remove them, make groups (a name, a game, the learners in it), and **Launch** a group on a lesson. Launch opens your teacher window in that game; only the launched group's learners can log in, and **Stop** ends the session. While it runs, the screen shows who is here and what they've completed, with a note field per learner. After Stop the app offers the session's PDFs (a card per learner, the session summary) into `Documents\Club Coders records` on your laptop; **Records** lists past sessions and prints the scheme of work. Nothing on the server needs touching for any of this.
+Everything day to day is done in the Club Coders app's **Teacher** screen, or the same screen in a browser at `https://play.<club domain>/live/` (your teacher password): add learners (username and a starter password), reset or remove them, make groups (a name, a game, the learners in it), and **Launch** a group on a lesson. Launch opens your teacher window in that game; only the launched group's learners can log in, and **Stop** ends the session. While it runs, the screen shows who is here and what they've completed, with a note field per learner. After Stop the app offers the session's PDFs (a card per learner, the session summary) into `Documents\Club Coders records` on your laptop; **Records** lists past sessions and prints the scheme of work. Nothing on the server needs touching for any of this.
 
 ## Game servers
 
@@ -56,11 +56,13 @@ The desk uses the first server it finds for each game, so there's no need for mo
 
 ## The browser view: https://your-domain/live/
 
-Since 1.9.2 the release carries `web/`, Club Coders Live: the teacher's view of a class in a browser, nothing to
-install. Caddy serves it from `/opt/robotlab/app/web` at `/live/`, and `/live/version` tells the page which
-release the servers run (a class server only admits its own version). The page logs in with the desk's teacher
-password (the app's Teacher screen one) and the desk gives it a ticket for the class you pick, draws the race from the same snapshots the windows get, carries the lesson controls and shows how
-every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
+Since 1.9.2 the release carries `web/`, Club Coders Live: the teacher's desk and view of a class in a browser,
+nothing to install. Caddy serves it from `/opt/robotlab/app/web` at `/live/`, and `/live/version` tells the page
+which release the servers run (a class server only admits its own version). The page logs in with the desk's
+teacher password (the app's Teacher screen one). Since 1.9.4 it is the whole Teacher screen too: learners, groups,
+Launch and Stop, this session's notes, and Records, printed (or saved as PDFs) from the browser. Watching a class,
+the desk gives it a ticket; it draws the race from the same snapshots the windows get, carries the lesson controls
+and shows how every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
 Kart Lab teacher window on the laptop first. Kart Lab classes are drawn; Robot Lab and Fight Lab follow.
 `robotlab-update` installs the new Caddy settings with the release.
 
