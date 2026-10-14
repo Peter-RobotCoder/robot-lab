@@ -54,6 +54,16 @@ Each game has one server; groups take turns on it (one group is live at a time).
 
 The desk uses the first server it finds for each game, so there's no need for more. (The per-class code these commands print is unused now.)
 
+## The browser view: https://your-domain/live/
+
+Since 1.9.2 the release carries `web/`, Club Coders Live: the teacher's view of a class in a browser, nothing to
+install. Caddy serves it from `/opt/robotlab/app/web` at `/live/`, and `/live/version` tells the page which
+release the servers run (a class server only admits its own version). The page logs in to a class with the
+teacher code, draws the race from the same snapshots the windows get, carries the lesson controls and shows how
+every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
+Kart Lab teacher window on the laptop first. Kart Lab classes are drawn; Robot Lab and Fight Lab follow.
+`robotlab-update` installs the new Caddy settings with the release.
+
 ## Live code updates (no new download)
 
 A kept AI change to a game's code can go live without a new release:

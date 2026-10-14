@@ -22,6 +22,22 @@
 		file_server
 	}
 
+	# the browser window (CHANGE 127): https://{{DOMAIN}}/live/ is the teacher's live view of a class, served
+	# straight from the release's web/ folder; /live/version tells it which release the servers run
+	handle /live/version {
+		root * /opt/robotlab/app
+		rewrite * /VERSION
+		header Content-Type "text/plain; charset=utf-8"
+		header Cache-Control "no-store"
+		file_server
+	}
+	handle_path /live/* {
+		root * /opt/robotlab/app/web
+		encode zstd gzip
+		header Cache-Control "no-cache"
+		file_server
+	}
+
 	# extra classes (robotlab-add-class): wss://{{DOMAIN}}/class2 and so on
 	import /etc/caddy/robotlab-classes/*.caddy
 

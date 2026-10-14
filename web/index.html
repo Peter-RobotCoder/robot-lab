@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Club Coders Live</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="login">
+  <div class="card">
+    <h1>CLUB CODERS LIVE</h1>
+    <p>The teacher's live view of a class, in the browser: watch the race, run the lesson, see how every learner's
+       window is doing. Nothing to install.</p>
+    <div class="row">
+      <label for="class">Class</label>
+      <select id="class">
+        <option value="class1">Class 1</option>
+        <option value="class2">Class 2</option>
+        <option value="class3" selected>Class 3</option>
+        <option value="other">Another server…</option>
+      </select>
+      <label for="host" id="hostlabel" hidden>Server</label>
+      <input id="host" placeholder="ws://127.0.0.1:8782" hidden>
+      <label for="code">Teacher code</label>
+      <input id="code" type="password" autocomplete="off" placeholder="the class's teacher code">
+      <label for="name">Name</label>
+      <input id="name" value="Teacher" maxlength="12">
+    </div>
+    <div class="actions">
+      <button id="connect" class="go">OPEN THE CLASS</button>
+      <span id="status"></span>
+    </div>
+    <div class="note" id="loginnote">This page is Club Coders <span id="pageversion">?</span>. Only one teacher window
+      can be open on a class at a time: close the Kart Lab teacher window on your laptop first, or this page is turned
+      away.</div>
+  </div>
+</div>
+
+<div id="topbar" class="hud">
+  <span class="title">CLUB CODERS LIVE</span>
+  <span class="pill" id="where"></span>
+  <span class="pill" id="lessonpill"></span>
+  <span class="spacer"></span>
+  <span class="pill" id="camerapill"></span>
+</div>
+<div id="race" class="hud"><div class="big" id="countdown"></div><div class="phase" id="phase"></div></div>
+<div id="places" class="hud"></div>
+<div id="events" class="hud"></div>
+<div id="toast" class="hud"></div>
+<div id="perf" class="hud"></div>
+
+<div id="panel">
+  <header>
+    <button data-tab="controls" class="on">Controls</button>
+    <button data-tab="learners">Learners</button>
+    <button data-tab="camera">Camera</button>
+    <button data-tab="graphics">Graphics</button>
+    <button data-tab="about">About</button>
+  </header>
+  <div class="body" id="panelbody"></div>
+</div>
+<button id="toggle" hidden>≡ PANEL</button>
+
+<script src="vendor/babylon.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

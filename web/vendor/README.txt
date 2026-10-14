@@ -1,0 +1,1 @@
+Babylon.js 9.28.0 (Apache-2.0), the UMD build babylon.js from https://www.npmjs.com/package/babylonjs/v/9.28.0 (published 24 Sep 2026), served by the VPS so school networks need only reach play.clubcoders.co.uk.
