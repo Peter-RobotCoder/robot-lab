@@ -6,8 +6,9 @@ school laptop, a Chromebook or a phone, and through a school's filtering like an
 
 What it does now:
 
-- logs in to a class server as the teacher (the class picker builds `wss://<host>/classN`; the teacher code is
-  typed, kept for the tab only), with the same `hello` the Kart Lab teacher window sends;
+- logs in with the desk's teacher password (the one the app's Teacher screen takes): the desk lists the classes
+  this server runs and hands the page a teacher ticket for the one picked (CHANGE 128), so no class code is ever
+  needed; "Use a class server's code instead" is still there for a laptop test server;
 - draws a Kart Lab race from the server's binary snapshots (`wire.js` reads `engine/wire.py`'s frames), two
   snapshots behind the newest so it is smooth, on the track built from the server's own track data (`track.js`
   is `kart_track.py` ported line for line);
@@ -42,7 +43,7 @@ In the kart folder, start `1 Kart Lab server.bat` (or `python kart_server.py --c
 
     http://127.0.0.1:8090/index.html?host=ws://127.0.0.1:8782&code=TEACH99
 
-Query options: `autoconnect=1`, `tier=blocks|low|high`, `auto=0` (no auto step-down), `cam=tv|chase|overview`
+Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`, `autoconnect=1`, `tier=blocks|low|high`, `auto=0` (no auto step-down), `cam=tv|chase|overview`
 with `follow=<kart id>`, `panel=controls|learners|camera|graphics`, `version=1.9.2` (a class server wants the
 release's number; on the VPS the page reads `/live/version`). Tab opens and closes the panel.
 
@@ -50,5 +51,6 @@ release's number; on the VPS the page reads `/live/version`). Tab opens and clos
 
     shared-world-demo\.venv\Scripts\python club-coders\web\web_test.py
 
-Five checks: login and snapshots, the drawing, the controls reaching the server, the tiers, the Learners tab.
+Eight checks: a wrong teacher password refused, the desk login and its ticket, snapshots, the drawing, the
+controls reaching the server, the tiers, the Learners tab, and the class-code login.
 It passes (and says so) on a computer without Chrome or Edge.

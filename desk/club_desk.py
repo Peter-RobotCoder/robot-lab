@@ -629,6 +629,22 @@ class Desk:
             if not s.live:
                 raise DeskError("Nothing is live: launch a group first.")
             reply = {"ok": True, "teacher_window": self.teacher_window()}
+        elif kind == "watch":  # (CHANGE 128) Club Coders Live: the games this server runs, or a teacher ticket for one
+            if self.reload:  # (robotlab-add-class since the desk started)
+                self.games = {**self.games, **self.reload()}
+            game = m.get("game")
+            if not game:
+                reply = {"ok": True, "watch_games": [{"game": g, "name": GAMES.get(g, g), "address": info["address"]}
+                                                     for g, info in self.games.items()]}
+            elif game in self.games:
+                info = self.games[game]
+                reply = {"ok": True, "watch": {"game": game, "name": GAMES.get(game, game), "address": info["address"],
+                                               "code": running_code(info),
+                                               "ticket": club_ticket.make(s.key, "Teacher", "teacher", game)}}
+            else:
+                raise DeskError(f"{GAMES.get(game, game)} isn't set up on this server.")
+            await ws.send(json.dumps(reply))  # (no state broadcast: watching changes nothing)
+            return
         elif kind == "note":
             name = s.note(m.get("name", ""), m.get("text", ""))
             reply = {"ok": True, "done": f"Note for {name} saved"}

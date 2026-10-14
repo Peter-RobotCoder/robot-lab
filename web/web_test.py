@@ -2,9 +2,9 @@
 
     shared-world-demo\\.venv\\Scripts\\python club-coders\\web\\web_test.py      (from the ClubCodersAI folder)
 
-Starts a Kart Lab test server and a static server for this folder, opens the page in headless Chrome (Google
-Chrome or Microsoft Edge, whichever is installed) over the DevTools protocol, logs in as the teacher with the test
-code, and checks: the page draws the track and the karts from the server's snapshots with no JavaScript errors;
+Starts a club desk, a Kart Lab test server and a static server for this folder, opens the page in headless Chrome
+(Google Chrome or Microsoft Edge, whichever is installed) over the DevTools protocol, and checks: a wrong teacher
+password is refused; the right one logs in through the desk, which hands the page a ticket for the class; the page draws the track and the karts from the server's snapshots with no JavaScript errors;
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed. A screenshot is kept in the test folder. Exit code 0 = every check passed; the test
 says so and passes if no Chrome or Edge is installed.
@@ -25,6 +25,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KART = next((p for p in (os.path.join(os.path.dirname(HERE), "games", "kartlab"),
                          os.path.join(os.path.dirname(os.path.dirname(HERE)), "kart"))
              if os.path.isdir(p)), None)
+DESK = os.path.join(os.path.dirname(HERE), "desk")  # (club-coders/desk, or desk/ in the public repository)
+DESK_PASSWORD = "web-test-teacher-password"
 BROWSERS = [r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -158,21 +160,48 @@ def main():
         print("No Chrome or Edge on this computer: the browser page isn't tested here (it passes).")
         return 0
     work = tempfile.mkdtemp(prefix="clubcoders_web_")
-    kart_port, http_port = free_port(), free_port()
-    env = {**os.environ, "KARTLAB_DATA": os.path.join(work, "data"), "PYTHONUNBUFFERED": "1"}
+    kart_port, http_port, desk_port = free_port(), free_port(), free_port()
+    desk_data = os.path.join(work, "desk")
+    with open(os.path.join(work, "games.json"), "w") as f:
+        json.dump({"kartlab": f"ws://127.0.0.1:{kart_port}"}, f)
+    env = {**os.environ, "KARTLAB_DATA": os.path.join(work, "data"), "PYTHONUNBUFFERED": "1",
+           "CLUBCODERS_DESK_DATA": desk_data, "TEACHER_CODE": DESK_PASSWORD, "JOIN_CODE": "web-test-join",
+           "CLUBCODERS_TICKET_KEY": os.path.join(desk_data, "ticket_key"),
+           "CLUBCODERS_LIVE_FILE": os.path.join(desk_data, "live.json")}
+    desk = subprocess.Popen([sys.executable, os.path.join(DESK, "club_desk.py"), "--port", str(desk_port), "--games",
+                             os.path.join(work, "games.json")], env=env,
+                            stdout=open(os.path.join(work, "desk.log"), "w"), stderr=subprocess.STDOUT)
+    wait_port(desk_port)  # (the desk makes the ticket key first; the kart server reads it at each ticket)
     server = subprocess.Popen([sys.executable, "kart_server.py", "--port", str(kart_port), "--cpu", "2",
-                               "--level", "easy", "--laps", "2"], cwd=KART, env=env,
+                               "--level", "easy", "--laps", "2"], cwd=KART, env={**env, "TEACHER_CODE": "TEACH99"},
                               stdout=open(os.path.join(work, "server.log"), "w"), stderr=subprocess.STDOUT)
     http = subprocess.Popen([sys.executable, "-m", "http.server", str(http_port), "--bind", "127.0.0.1"], cwd=HERE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     chrome = None
     try:
-        if not wait_port(kart_port) or not wait_port(http_port):
-            raise RuntimeError("the kart server or the static server didn't start")
+        if not wait_port(kart_port) or not wait_port(http_port) or not wait_port(desk_port):
+            raise RuntimeError("the kart server, the desk or the static server didn't start")
         chrome = Chrome(exe, os.path.join(work, "profile"))
-        page = (f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{kart_port}&code=TEACH99"
-                f"&autoconnect=1&auto=0&cam=tv&tier=low")
-        chrome.open(page)
+        base = f"http://127.0.0.1:{http_port}/index.html?desk=ws://127.0.0.1:{desk_port}&auto=0&cam=tv&tier=low"
+
+        def wrong_password():
+            chrome.open(base)
+            chrome.wait_for("!!window.__state && !!window.__state.scene && !document.getElementById('deskform').hidden",
+                            20, "the page's script and the teacher password box")
+            chrome.js("document.getElementById('deskpass').value = 'not-the-password'; document.getElementById('connect').click()")
+            text = chrome.wait_for("document.getElementById('status').textContent.includes('teacher password') && "
+                                   "document.getElementById('status').textContent", 10, "the desk refusing")
+            assert "isn't the teacher password" in text, text
+            assert chrome.js("window.__state.connected") is False
+        check("The desk refuses a wrong teacher password", wrong_password)
+
+        def desk_login():  # (typed into the box, as the teacher does: never in the page's address)
+            chrome.js(f"document.getElementById('deskpass').value = {json.dumps(DESK_PASSWORD)}; "
+                      "document.getElementById('connect').click()")
+            chrome.wait_for("window.__state.connected === true", 30, "the login with the desk's ticket")
+            assert chrome.js("window.__state.ticket && window.__state.ticket.game") == "kartlab"
+            assert "Teacher" in open(os.path.join(work, "server.log"), encoding="utf-8").read()
+        check("The teacher password logs in through the desk, which gives a ticket for the Kart Lab class", desk_login)
 
         def logged_in():
             chrome.wait_for("window.__state && window.__state.connected === true", 30, "the teacher's login")
@@ -233,12 +262,24 @@ def main():
 
         shot = os.path.join(work, "live.png")
         chrome.screenshot(shot)
+
+        def code_login():  # the other way in: a class server's own code (a laptop test server)
+            chrome.call("Page.navigate", url="about:blank")  # (the desk's teacher lets go of the class first)
+            time.sleep(1.5)
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{kart_port}"
+                                             f"&code=TEACH99&autoconnect=1&auto=0&tier=blocks")
+            chrome.wait_for("window.__state && window.__state.connected === true", 30, "the login with the class code")
+            assert chrome.js("window.__state.codeMode") is True
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("A class server's code still works (laptop test servers)", code_login)
         print(f"Screenshot and test data: {work}")
     finally:
         if chrome:
             chrome.close()
         stop(server)
         stop(http)
+        stop(desk)
     for name, ok, note in results:
         if not ok:
             print(f"FAIL {name}\n    {note}")

@@ -58,8 +58,8 @@ The desk uses the first server it finds for each game, so there's no need for mo
 
 Since 1.9.2 the release carries `web/`, Club Coders Live: the teacher's view of a class in a browser, nothing to
 install. Caddy serves it from `/opt/robotlab/app/web` at `/live/`, and `/live/version` tells the page which
-release the servers run (a class server only admits its own version). The page logs in to a class with the
-teacher code, draws the race from the same snapshots the windows get, carries the lesson controls and shows how
+release the servers run (a class server only admits its own version). The page logs in with the desk's teacher
+password (the app's Teacher screen one) and the desk gives it a ticket for the class you pick, draws the race from the same snapshots the windows get, carries the lesson controls and shows how
 every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
 Kart Lab teacher window on the laptop first. Kart Lab classes are drawn; Robot Lab and Fight Lab follow.
 `robotlab-update` installs the new Caddy settings with the release.

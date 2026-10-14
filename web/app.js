@@ -17,7 +17,8 @@ const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DELAY_MS = 80;            // how far behind the newest snapshot the page draws (two snapshots plus jitter)
 const CLOSE_TEXT = {4001: "Wrong teacher code.", 4002: "A teacher window is already open on this class: close it first.",
-                    4006: "This page is out of date for that server.", 4008: "Too many wrong tries: wait a minute."};
+                    4006: "This page is out of date for that server.", 4008: "Too many wrong tries: wait a minute.",
+                    4011: "The ticket ran out: log in again."};
 
 const state = {
     ws: null, connected: false, role: null, name: "", game: null,
@@ -53,11 +54,83 @@ function setStatus(text, ok = false) {
     $("status").style.color = ok ? "var(--green)" : "var(--red)";
 }
 
-function connect() {
-    const url = wsUrl();
-    const code = $("code").value.trim(), name = $("name").value.trim() || "Teacher";
+// ---------- the desk: the teacher password gives a ticket for any class (CHANGE 128) ----------
+function deskUrl() {
+    return params.get("desk") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/desk`;
+}
+
+function deskLogin() {
+    const password = $("deskpass").value;
+    if (!password) return setStatus("The teacher password is needed.");
+    setStatus("Logging in to the desk…", true);
+    let ws;
+    try { ws = new WebSocket(deskUrl()); } catch (e) { return setStatus(`Can't reach the desk: ${e.message}`); }
+    let step = "login", done = false;
+    const fail = text => { done = true; setStatus(text); try { ws.close(); } catch (e) { /* closed */ } };
+    ws.onopen = () => ws.send(JSON.stringify({type: "teacher", password}));
+    ws.onmessage = ev => {
+        let m;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.ok === false) return fail(m.error || "The desk said no.");
+        if (step === "login" && m.state) {
+            step = "list";
+            ws.send(JSON.stringify({type: "watch"}));
+        } else if (step === "list" && m.watch_games) {
+            step = "pick";
+            showGames(m.watch_games, game => {
+                step = "ticket";
+                setStatus("Getting a ticket…", true);
+                ws.send(JSON.stringify({type: "watch", game}));
+            });
+        } else if (step === "ticket" && m.watch) {
+            done = true;
+            ws.close();
+            state.ticket = m.watch;
+            $("games").hidden = true;
+            connect(m.watch.address, {ticket: m.watch.ticket, name: "Teacher"});
+        }
+    };
+    ws.onclose = () => {
+        if (!done && step !== "pick") setStatus(step === "login" ? "Couldn't reach the desk on this server." : "The desk closed the connection.");
+    };
+    try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({id: "teacher", password})); } catch (e) { /* not offered */ }
+}
+
+const DRAWN = new Set(["kartlab"]);  // the games this page can draw so far
+
+function showGames(games, pick) {
+    const box = $("games");
+    if (!games.length) { setStatus("No classes are set up on this server yet."); return; }
+    const wanted = params.get("game");
+    const auto = games.find(g => g.game === wanted) || (games.filter(g => DRAWN.has(g.game)).length === 1 && !wanted
+                                                       ? games.find(g => DRAWN.has(g.game)) : null);
+    box.innerHTML = games.map(g => `<button data-game="${g.game}" class="${DRAWN.has(g.game) ? "go" : ""}">${esc(g.name)}` +
+                                   `${DRAWN.has(g.game) ? "" : " (watch only: not drawn yet)"}</button>`).join("");
+    box.hidden = false;
+    box.querySelectorAll("button").forEach(b => b.onclick = () => pick(b.dataset.game));
+    setStatus("Which class?", true);
+    if (auto && games.length === 1) pick(auto.game);
+}
+
+function login() {
+    if (state.codeMode) return connect();
+    return deskLogin();
+}
+
+function setCodeMode(on) {
+    state.codeMode = on;
+    $("codeform").hidden = !on;
+    $("deskform").hidden = on;
+    $("games").hidden = true;
+    $("switchmode").textContent = on ? "Use the teacher password instead" : "Use a class server's code instead";
+    setStatus("");
+}
+
+function connect(address = null, how = null) {
+    const url = address || wsUrl();
+    const code = $("code").value.trim(), name = (how && how.name) || $("name").value.trim() || "Teacher";
     if (!url) return setStatus("Which server?");
-    if (!code) return setStatus("The teacher code is needed.");
+    if (!how && !code) return setStatus("The class code is needed.");
     setStatus("Connecting…", true);
     let ws;
     try {
@@ -68,8 +141,11 @@ function connect() {
     ws.binaryType = "arraybuffer";
     state.ws = ws;
     state.name = name;
+    state.url = url;
     ws.onopen = () => {
-        ws.send(JSON.stringify({type: "hello", name, code, version: state.version}));
+        const hello = how && how.ticket ? {type: "hello", name, ticket: how.ticket, version: state.version}
+                                        : {type: "hello", name, code, version: state.version};
+        ws.send(JSON.stringify(hello));
         setStatus("Logging in…", true);
     };
     ws.onmessage = ev => onMessage(ev.data);
@@ -81,7 +157,10 @@ function connect() {
         setStatus(text);
     };
     ws.onerror = () => { /* onclose follows with the reason */ };
-    try { sessionStorage.setItem("code", code); localStorage.setItem("class", $("class").value); localStorage.setItem("name", name); } catch (e) { /* private window */ }
+    try {
+        if (!how) { sessionStorage.setItem("code", code); localStorage.setItem("class", $("class").value); localStorage.setItem("name", name); }
+        localStorage.setItem("mode", state.codeMode ? "code" : "desk");
+    } catch (e) { /* private window */ }
 }
 
 function showLogin() {
@@ -130,7 +209,7 @@ function onMessage(data) {
                 state.game = "other";
                 send({type: "ping", t: Date.now()});
                 hideLogin();
-                $("where").textContent = wsUrl();
+                $("where").textContent = state.url.replace(/^wss?:\/\//, "");
                 toast("This class is running Robot Lab or Fight Lab.\nThe browser draws Kart Lab first; the other two follow.", true, 8000);
                 $("panelbody").innerHTML = "<h2>Not yet</h2><p class='note'>This class's game isn't drawn in the browser yet. Kart Lab classes are.</p>";
                 return;
@@ -140,7 +219,7 @@ function onMessage(data) {
             state.lesson = m.lesson;
             setTrack(m.track);
             hideLogin();
-            $("where").textContent = `${wsUrl().replace(/^wss?:\/\//, "")} · ${m.role}`;
+            $("where").textContent = `${state.url.replace(/^wss?:\/\//, "")} · ${m.role}`;
             addEvent(`Logged in as ${m.name} (${m.role})`);
             send({type: "ping", t: Date.now()});
             if (params.get("cam")) {  // (tests: ?cam=chase&follow=1, ?cam=overview)
@@ -472,8 +551,10 @@ function setupUi() {
         const other = $("class").value === "other";
         $("host").hidden = $("hostlabel").hidden = !other;
     };
-    $("connect").onclick = connect;
+    $("connect").onclick = () => login();
     $("code").onkeydown = e => { if (e.key === "Enter") connect(); };
+    $("deskpass").onkeydown = e => { if (e.key === "Enter") deskLogin(); };
+    $("switchmode").onclick = e => { e.preventDefault(); setCodeMode(!state.codeMode); };
     $("toggle").onclick = () => $("panel").classList.toggle("open");
     document.addEventListener("keydown", e => {
         if (e.key === "Tab" && state.connected) { e.preventDefault(); $("panel").classList.toggle("open"); }
@@ -490,7 +571,9 @@ function setupUi() {
     } catch (e) { /* storage blocked */ }
     if (params.get("host")) { $("class").value = "other"; $("host").value = params.get("host"); $("host").hidden = $("hostlabel").hidden = false; }
     if (params.get("code")) $("code").value = params.get("code");
-    if (params.get("name")) $("name").value = params.get("name");
+    let mode = null;
+    try { mode = localStorage.getItem("mode"); } catch (e) { /* storage blocked */ }
+    setCodeMode(!!(params.get("host") || params.get("code")) || (mode === "code" && !params.get("desk")));    if (params.get("name")) $("name").value = params.get("name");
 }
 
 // anything that goes wrong is shown on the page (a school laptop has no console open) and kept for the tests
@@ -515,7 +598,7 @@ async function main() {
     $("pageversion").textContent = v || "(laptop test)";
     renderPerf();
     requestAnimationFrame(loop);
-    if (params.get("autoconnect")) connect();
+    if (params.get("autoconnect")) login();
 }
 
 main();
