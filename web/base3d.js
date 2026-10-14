@@ -116,7 +116,9 @@ export function upwardNormals(pos, idx) {
 let sharedEngine = null;
 export function pageEngine(canvas) {
     if (!sharedEngine) {
-        sharedEngine = new BABYLON.Engine(canvas, true, {stencil: true, antialias: true}, true);
+        // alpha false: the canvas is opaque, so the page behind can never show through the drawing (CHANGE 132: a
+        // material that wrote alpha 0 made every lit tier black in a real window, though headless pictures were fine)
+        sharedEngine = new BABYLON.Engine(canvas, true, {stencil: true, antialias: true, alpha: false}, true);
         sharedEngine.ccKeep = {scene: new BABYLON.Scene(sharedEngine), textures: {}};  // (pbr.js: pictures kept loaded)
         window.addEventListener("resize", () => applyResolution(sharedEngine));
         applyResolution(sharedEngine);

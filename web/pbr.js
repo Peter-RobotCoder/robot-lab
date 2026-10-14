@@ -357,7 +357,7 @@ export class Lighting {
             needAlphaBlending: (o.alpha ?? 1) < 1,
         });
         const c = lin(o.rgb);
-        m.setColor4("baseColor", new BABYLON.Color3(c[0], c[1], c[2]), o.alpha ?? 1);
+        m.setColor4("baseColor", new BABYLON.Color4(c[0], c[1], c[2], o.alpha ?? 1));  // (one Color4: its alpha is what the canvas shows)
         const e = o.emission || (o.glow ? lin(o.rgb).map(v => v * o.glow) : [0, 0, 0]);
         m.setVector3("emission", new BABYLON.Vector3(e[0], e[1], e[2]));
         m.setFloat("roughness", o.rough);

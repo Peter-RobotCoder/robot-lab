@@ -96,7 +96,7 @@ Start a game's laptop server (`1 Kart Lab server.bat`, or `python lab_server.py`
 
 (Robot Lab 8780, Fight Lab 8781, Kart Lab 8782.) Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`
 (watch it straight after logging in), `autoconnect=1`, `tier=blocks|low|medium|high`, `auto=0` (no auto step-down),
-`cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.6` (a class server wants the release's
+`cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.7` (a class server wants the release's
 number; on the VPS the page reads `/live/version`). Tab opens and closes the panel.
 
 ## Test

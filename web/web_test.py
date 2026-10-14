@@ -55,6 +55,11 @@ DRAWN_RIGHT = """(() => {
     const g = window.__state.scene, sc = g.scene, eng = sc.getEngine();
     const pbr = sc.materials.filter(m => m.getClassName() === 'ShaderMaterial' && m.name !== 'ccdepth');
     if (g.tier !== 'blocks' && !pbr.length) return 'no pbr materials on ' + g.tier;
+    // (a headless picture ignores the canvas's alpha: a material whose alpha isn't a number draws nothing in a real
+    // window, as 1.9.6 did, so the alpha is checked here and the canvas must be opaque)
+    const noAlpha = pbr.filter(m => !(m._colors4 && m._colors4.baseColor && m._colors4.baseColor.a > 0)).map(m => m.name.split(':')[0]);
+    if (noAlpha.length) return 'materials with no alpha: ' + noAlpha.slice(0, 5).join(', ');
+    if (eng._gl.getContextAttributes().alpha) return 'the canvas is see-through';
     const waiting = pbr.filter(m => Object.values(m._textures || {}).some(t => !t.isReady())).map(m => m.name.split(':')[0]);
     if (waiting.length) return 'pictures not loaded: ' + waiting.slice(0, 5).join(', ');
     const lost = sc.meshes.filter(x => x.material && !sc.materials.includes(x.material)).map(x => x.name);
