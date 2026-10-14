@@ -8,10 +8,10 @@
 // shows it. The teacher desk (desk.js) is the app's Teacher screen.
 //
 // Query string: ?host=ws://127.0.0.1:8782 for a laptop test server (the class picker is then "another server"),
-// ?code=TEACH99 to prefill the code, ?tier=blocks|low|high, ?version=1.9.1 (a class server wants the release's
+// ?code=TEACH99 to prefill the code, ?tier=blocks|low|medium|high, ?version=1.9.1 (a class server wants the release's
 // number; on the VPS the page reads it from /live/version).
 
-import {TIERS, pageEngine, engineInfo} from "./base3d.js";
+import {TIERS, pageEngine, engineInfo, setSkyData} from "./base3d.js";
 import {DeskLink, renderDesk} from "./desk.js";
 import {KartGame} from "./kart.js";
 import {RobotGame} from "./robot.js";
@@ -421,21 +421,23 @@ function loop() {
     if (now - lastFrame > 100) state.stalls++;
     lastFrame = now;
     state.frames++;
+    const covered = $("login").style.display !== "none" || deskShown();  // (nothing to see behind them: don't draw)
     if (now - state.fpsAt > 1000) {
         state.fps = Math.round(state.frames * 1000 / (now - state.fpsAt));
         state.frames = 0;
         state.fpsAt = now;
         renderPerf();
-        if (state.autoTier && state.scene && state.fps && state.fps < 24 && now - (state.tierAt || 0) > 8000) {
+        // three slow seconds in a row (under 28 a second) while a game is drawn: one tier down, kept for next time
+        state.slow = state.game && !covered && state.fps && state.fps < 28 ? (state.slow || 0) + 1 : 0;
+        if (state.autoTier && state.scene && state.slow >= 3 && now - (state.tierAt || 0) > 8000) {
             const i = TIERS.indexOf(state.scene.tier);
-            if (i > 0) { setTier(TIERS[i - 1]); state.tierAt = now; toast(`Graphics stepped down to ${TIERS[i - 1]} (the frame rate was ${state.fps})`); }
+            if (i > 0) { setTier(TIERS[i - 1]); state.tierAt = now; state.slow = 0; toast(`Graphics stepped down to ${TIERS[i - 1]} (the frame rate was ${state.fps})`); }
         }
         if (state.connected) {
             send({type: "ping", t: Date.now()});
             send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + state.tier, stalls: state.stalls, delay: DELAY_MS});
         }
     }
-    const covered = $("login").style.display !== "none" || deskShown();  // (nothing to see behind them: don't draw)
     if (state.game && !covered) {
         state.game.frame(now, dt);
         state.game.scene.render();
@@ -445,6 +447,7 @@ function loop() {
 
 function setTier(tier) {
     state.tier = tier;
+    try { localStorage.setItem("tier", tier); } catch (e) { /* storage blocked: chosen again next time */ }
     if (state.scene) state.scene.setTier(tier);
     if (state.tab === "graphics") renderPanel();
     renderPerf();
@@ -453,7 +456,7 @@ function setTier(tier) {
 function renderPerf() {
     const info = engineInfo(engine);
     $("perf").innerHTML = `${state.fps} fps · ping ${Math.round(state.pingMs)} ms · stalls ${state.stalls} · missed ${state.missed}<br>` +
-        `${state.tier} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
+        `${state.tier} · ${info.width} x ${info.height} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
 }
 
 function updatePills() {
@@ -549,11 +552,15 @@ function drawPanel(body) {
           <h2>Graphics tier</h2>
           <div class="row">${TIERS.map(t => `<button data-tier="${t}" class="${state.tier === t ? "on" : ""}">${t}</button>`).join("")}
             <button id="btn-auto" class="${state.autoTier ? "on" : ""}">auto step-down</button></div>
-          <div class="note">blocks: flat colours, nothing lit, the floor every machine draws. low: lit, one shadow map, fog.
-            high: PBR materials, soft shadows, bloom and antialiasing. Auto steps down one tier when the frame rate stays under 24.</div>
+          <div class="note">The app's tiers, lit by the app's own lighting. blocks: flat colours, nothing lit, the floor every
+            machine draws. low: the app's lighting and textures, no shadows or reflections. medium: surface detail, the sky's
+            reflections, shadows. high: sharper shadows and textures, and the most pixels. Each tier draws at most so many
+            pixels however fine the screen. Auto steps down one tier after three seconds under 28 frames a second, and the
+            page remembers the tier on this computer.</div>
           <h2>This browser</h2>
           <table><tr><th>WebGL</th><td>${info.webgl}</td></tr><tr><th>WebGPU</th><td>${info.webgpu ? "available (not used yet)" : "no"}</td></tr>
             <tr><th>Renderer</th><td>${esc(info.renderer)}</td></tr><tr><th>Screen</th><td>${window.innerWidth} x ${window.innerHeight} at ${devicePixelRatio}x</td></tr>
+            <tr><th>Drawing</th><td>${info.width} x ${info.height} pixels (${info.ratio.toFixed(2)} per screen point)${sc ? `, ${sc.drawCalls()} meshes` : ""}</td></tr>
             <tr><th>Frame rate</th><td>${state.fps} fps, ${state.stalls} stalls, ${state.missed} missed snapshots</td></tr></table>
           <div class="note">These numbers from a school laptop and a Chromebook are the measurement nobody has published: note them down.</div>`;
         body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => setTier(b.dataset.tier));
@@ -617,14 +624,22 @@ window.__app = appApi;
 
 async function main() {
     setupUi();
-    state.tier = TIERS.includes(params.get("tier")) ? params.get("tier") : "low";
+    // the tier: ?tier=, else the one kept on this computer, else medium (the app's first guess), high on a graphics card
+    let kept = null;
+    try { kept = localStorage.getItem("tier"); } catch (e) { /* storage blocked */ }
+    state.tier = TIERS.includes(params.get("tier")) ? params.get("tier") : TIERS.includes(kept) ? kept : "medium";
     try {
         engine = state.engine = pageEngine($("view"));
         const info = engineInfo(engine);
-        if (!params.get("tier") && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
+        if (!params.get("tier") && !TIERS.includes(kept) && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
+        if (info.webgl < 2 && state.tier !== "blocks") state.tier = "blocks";  // (the app's lighting needs WebGL 2)
     } catch (e) {
         setStatus(`This browser can't draw the game (WebGL): ${e.message}`);
     }
+    try {  // the sky's numbers for the reflections (tex/, made by make_textures.py)
+        const r = await fetch("tex/manifest.json");
+        if (r.ok) setSkyData(await r.json());
+    } catch (e) { /* no reflections */ }
     try {  // (the lessons' names, for the printed records)
         const r = await fetch("lessons.json");
         if (r.ok) state.lessons = await r.json();

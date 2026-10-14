@@ -1,7 +1,7 @@
 # Club Coders Live: the browser window
 
 The teacher's desk and live view of a class in a browser (CHANGE 127, 13 October 2026; the desk CHANGE 129; every
-game and every teacher tab CHANGE 130, 14 October 2026), served by the class server's own Caddy at
+game and every teacher tab CHANGE 130, 14 October 2026; the app's graphics CHANGE 131), served by the class server's own Caddy at
 `https://play.clubcoders.co.uk/live/`. Nothing to install, so it runs on a school laptop, a Chromebook or a phone,
 and through a school's filtering like any web page. Step one of the browser plan: the teacher can do everything
 except play.
@@ -43,10 +43,21 @@ What it does now:
   **AI cards** (every card, the line on the learners' cards, With Claude / Kept / Send back with a note, Copy for
   Claude, putting a kept change's mod file on the server), **Rules** (what learners can see and change, weapons or
   specials allowed, hazards, Resident Robots, user mods and what's in the vote, the limits) and **Warnings**;
-- cameras per game, and three graphics tiers, the start of the ladder every engine shares (`base3d.js`): blocks
-  (flat colours, nothing lit), low (lit, one shadow map, fog), high (PBR, soft shadows, bloom, FXAA); auto steps
-  down a tier when the frame rate stays under 24. The Graphics tab shows the browser's WebGL and WebGPU state and
-  the renderer.
+- cameras per game, and the app's graphics tiers (CHANGE 131, `base3d.js` and `pbr.js`), lit the way the app lights
+  them: simplepbr's shader (the one every game's window draws with) ported to the browser, with each game's own
+  lights, exposure and sky from its gfx module, and the app's own texture sets and skies (`tex/`):
+  - blocks: flat colours, nothing lit (the floor every machine can draw, and the fallback without WebGL 2);
+  - low: the app's lighting and the textures' colours, no shadows or reflections;
+  - medium: + the normal maps, the sky's reflections, a 1024 shadow map;
+  - high: + the occlusion maps, a 2048 shadow map, sharper textures at a slant.
+
+  Each tier draws at most so many pixels (1.0, 1.1, 1.6 and 2.4 million), however fine the screen: a 4K laptop
+  at 300% would otherwise draw 7.7 million a frame where the app's window draws 0.9 million. The canvas's own
+  multisampling smooths the edges; the tone curve is applied as each pixel is drawn, so there is no pass after the
+  scene. Scenery that never moves is drawn as one mesh per material. Auto steps down one tier after three seconds
+  under 28 frames a second, and the page remembers the tier on that computer (first visit: medium, high on a
+  graphics card). The Graphics tab shows the browser's WebGL and WebGPU state, the renderer, how many pixels are
+  drawn and how many meshes.
 
 What still needs the Club Coders app on the teacher's laptop: sending an AI card to Claude (Send, Keep, Undo) and
 the Changes tab, because Claude edits the game's files on the laptop and the change stays there until "Make my
@@ -69,7 +80,9 @@ Not here yet: playing (a kart you drive: `kart_sim.step()` in the browser for pr
 | `kart.js`, `scene.js`, `track.js`, `wire.js` | Kart Lab: its messages and controls, the track and karts, the track maths, the binary snapshots |
 | `robot.js` | Robot Lab: the arena, the robots, its controls |
 | `fight.js` | Fight Lab: the rings, the fighters and their poses, its controls |
-| `base3d.js` | what every scene shares: the engine, tiers, materials, labels, coordinate rules |
+| `base3d.js` | what every scene shares: the engine, tiers and their pixel budgets, materials, labels, coordinate rules, texture coordinates in metres, merging what never moves |
+| `pbr.js` | the app's lighting: simplepbr's shader as a Babylon ShaderMaterial, the key light's shadow, the sky's reflections, the tone curve |
+| `tex/`, `make_textures.py` | the app's texture sets (512 x 512 JPEGs), each sky's reflections as simplepbr works them out (`env` for Robot Lab and Fight Lab, `sky` for Kart Lab: spherical harmonics in `manifest.json`, the blurred sky as a picture), simplepbr's BRDF table. Made with the games' Python (`shared-world-demo\.venv`): run `make_textures.py` after a texture generator or simplepbr changes; the test checks the version numbers |
 | `lessons.json`, `make_lessons.py` | each game's lesson titles, aims, outcomes and missions for the printouts, made from the games' lesson files (run `make_lessons.py` after changing one; the test checks it) |
 | `vendor/babylon.js` | Babylon.js 9.28.0 (Apache-2.0), served from the VPS so a school need only reach one domain |
 | `web_test.py` | the test: a desk and laptop servers for all three games, the page in headless Chrome or Edge |
@@ -82,20 +95,20 @@ Start a game's laptop server (`1 Kart Lab server.bat`, or `python lab_server.py`
     http://127.0.0.1:8090/index.html?host=ws://127.0.0.1:8782&code=TEACH99
 
 (Robot Lab 8780, Fight Lab 8781, Kart Lab 8782.) Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`
-(watch it straight after logging in), `autoconnect=1`, `tier=blocks|low|high`, `auto=0` (no auto step-down),
-`cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.5` (a class server wants the release's
+(watch it straight after logging in), `autoconnect=1`, `tier=blocks|low|medium|high`, `auto=0` (no auto step-down),
+`cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.6` (a class server wants the release's
 number; on the VPS the page reads `/live/version`). Tab opens and closes the panel.
 
 ## Test
 
     shared-world-demo\.venv\Scripts\python club-coders\web\web_test.py
 
-Eighteen checks. The desk: a wrong teacher password refused; the desk screen; learners added and a group made;
+Nineteen checks. The desk: a wrong teacher password refused; the desk screen; learners added and a group made;
 Launch opening the class view with the desk's ticket; a note, LAUNCH LEARNERS' WINDOWS, Stop and the printed
 record (kept as `records.pdf` in the test folder); a reset, a removal, login slips; the teacher password changed.
-Kart Lab: snapshots, the drawing, the controls, the tiers, the Learners tab, the class-code login. Robot Lab, with a
+Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the app's lighting, every picture loaded, no mesh left holding a thrown-away material, the pixel budget kept), the Learners tab, the class-code login. Robot Lab, with a
 scripted learner: the arena and robots on every tier; the shared tabs (a tool and a hazard, an objective added and
 ticked, missions out and back in, the evidence CSV, an AI card sent back, a learner's mission and robot rebuilt);
-Restart server and the page reconnecting. Fight Lab: the rings and posed fighters, its controls. lessons.json up to
-date. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
+Restart server and the page reconnecting. Fight Lab: the rings and posed fighters, its controls. lessons.json and
+tex/ up to date. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
 or Edge.

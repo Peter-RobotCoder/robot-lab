@@ -4,5 +4,6 @@
 deploy/* text eol=lf
 *.bin binary
 *.png binary
+*.jpg binary
 # the browser page's vendored library: a big minified file nobody reads in a diff
 web/vendor/*.js -diff linguist-vendored

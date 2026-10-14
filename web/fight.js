@@ -8,7 +8,7 @@
 
 /* global BABYLON */
 
-import {BaseScene, v3, rgb255, lerp, lerpDeg} from "./base3d.js";
+import {BaseScene, v3, rgb255, lerp, lerpDeg, mulberry} from "./base3d.js";
 
 const $ = id => document.getElementById(id);
 const D2R = Math.PI / 180;
@@ -16,6 +16,7 @@ const RING_CENTRES = [[0, 0], [16, 0], [-16, 0], [0, 16], [16, 16], [-16, 16]];
 const MAT_COLOURS = [[0.12, 0.13, 0.2], [0.35, 0.06, 0.06], [0.06, 0.2, 0.12], [0.2, 0.08, 0.3], [0.3, 0.2, 0.05], [0.05, 0.18, 0.3]];
 const PAD_COLOURS = [[0.85, 0.1, 0.1], [0.95, 0.95, 0.95], [0.1, 0.25, 0.85]];
 const JET_ANGLES = [45, 135, 225, 315];
+const EDGE_GLOW = [4.0, 1.2, 0.2];  // (fight_gfx.py)
 const MOVES = new Set(["punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam", "cartwheel"]);
 
 // ---------- the poses (fight_gfx.py, verbatim in meaning) ----------
@@ -238,9 +239,13 @@ function animPose(a, k) {
 // ---------- the scene ----------
 export class FightScene extends BaseScene {
     constructor(canvas, tier, engine) {
-        super(canvas, tier, engine, {sky: [0.02, 0.02, 0.04], fog: [0.02, 0.02, 0.04], fogDensity: 0.004, radius: 9,
-                                     target: [0, 0, 1], shadowSize: 30, ground: [0.1, 0.1, 0.14], hemi: 0.45, sun: 1.5,
-                                     sunDir: [-0.25, -0.9, 0.45]});
+        // fight_gfx.init's lights: a key light high over the hall, a dim blue fill, the arena's reflections, and a
+        // spotlight over each ring in use (setSetup)
+        super(canvas, tier, engine, {sky: [0.02, 0.02, 0.04], radius: 9, target: [0, 0, 1], ground: [0.1, 0.1, 0.14], hemi: 0.45, sun: 1.5,
+                                     sunDir: [-0.25, -0.9, 0.45],
+                                     pbr: {background: [0.01, 0.01, 0.02], exposure: 0.8, ambient: [0.07, 0.07, 0.1], sky: "env",
+                                           sun: {colour: [1.1, 1.05, 1.0], offset: [6, -12, 26], film: 16, near: 5, far: 60, bias: 0.005},
+                                           spots: FightScene.spots([0])}});
         this.setup = {rings: [0], rs: 4.5, hazards: {}, look: {}};
         this.fighters = new Map();
         this.list = [];
@@ -249,6 +254,13 @@ export class FightScene extends BaseScene {
         this.blasts = [];
         this.sparks = [];
         this.build();
+    }
+
+    static spots(rings) {  // fight_gfx.build_lights: one over each ring in use (at most 6)
+        return (rings || [0]).slice(0, 6).map(i => {
+            const [cx, cy] = RING_CENTRES[i] || [0, 0];
+            return {pos: [cx - 2.5, cy - 5.5, 9.5], at: [cx, cy, 0], colour: [5.5, 5.2, 4.8], fov: 52, att: [1, 0, 0.012]};
+        });
     }
 
     populate() {
@@ -263,29 +275,35 @@ export class FightScene extends BaseScene {
         if (key === this.setupKey) return;
         this.setupKey = key;
         this.setup = setup;
+        this.look.pbr.spots = FightScene.spots(setup.rings);
         this.build();
     }
 
     buildStage() {
         const {rings, rs: R, hazards: hz, look} = this.setup;
-        const roped = !hz.ring_out;
-        this.box(null, 30, 22, 0.1, this.material("hall", [0.3, 0.3, 0.34], 1.0), 0, 8, -0.9).receiveShadows = this.lit;
-        const steel = this.material("steel", [0.2, 0.2, 0.23], 0.4, 0.8);
-        const white = this.material("white", [0.9, 0.9, 0.95], 0.6);
+        const roped = !hz.ring_out, blocks = this.tier === "blocks";
+        const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
+        const statics = [];
+        const S = m => { statics.push(m); return m; };
+        this.buildHall(statics, look);
+        const platM = M("platform", [0.2, 0.2, 0.23], 1, 1, "steel", 0.6);
+        const rimM = M("platrim", [0.08, 0.08, 0.1], 0.6, 0.5, "paint");
+        const marks = M("marks", [0.9, 0.9, 0.95], 0.6, 0);
+        const hazard = blocks ? M("hazard", [0.95, 0.75, 0.08], 1, 0) : M("hazard", [1, 1, 1], 1, 0, "hazard", 0.8);
         this.jets = new Map();
         this.ropes = [];
         for (const i of rings || [0]) {
             const [cx, cy] = RING_CENTRES[i] || [0, 0];
             const platR = roped ? R + 0.7 : R + 0.1;
-            this.cyl(null, platR, 0.4, "z", steel, cx, cy, -0.42, null, 40);
-            const mat = this.cyl(null, platR - 0.02, 0.002, "z", this.material("mat" + i, MAT_COLOURS[i % 6], 0.85), cx, cy, 0, null, 48);
-            mat.receiveShadows = this.lit;
+            S(this.cyl(null, platR, 0.4, "z", platM, cx, cy, -0.42, null, 48));
+            S(this.cyl(null, platR + 0.08, 0.06, "z", rimM, cx, cy, -0.8 + 0.06, null, 48));
+            S(this.cyl(null, platR - 0.02, 0.012, "z", M("mat" + i, MAT_COLOURS[i % 6], 0.95, 0, "concrete", 0.4), cx, cy, -0.01, null, 48));
             if (!hz.slippery) for (let k = 0; k < 40; k++) {
                 const a = k / 40 * Math.PI * 2;
-                const d = this.box(null, 0.14, 0.04, 0.002, white, cx + Math.cos(a) * 0.45 * R, cy + Math.sin(a) * 0.45 * R, 0.004);
+                const d = S(this.box(null, 0.14, 0.04, 0.003, marks, cx + Math.cos(a) * 0.45 * R, cy + Math.sin(a) * 0.45 * R, 0.004));
                 d.rotation.y = -(a + Math.PI / 2);
             }
-            for (const sx of [-1.6, 1.6]) this.box(null, 0.05, 0.45, 0.002, white, cx + sx, cy, 0.004);
+            for (const sx of [-1.6, 1.6]) S(this.box(null, 0.05, 0.45, 0.003, marks, cx + sx, cy, 0.004));
             this.floorText(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, cx, cy - 0.25, 0.008, 3.4, "#f2bf1a");
             if (roped) {
                 const postR = (R + 0.08) / Math.cos(22.5 * D2R);
@@ -293,30 +311,29 @@ export class FightScene extends BaseScene {
                 for (let k = 0; k < 8; k++) {
                     const a = (22.5 + 45 * k) * D2R, px = cx + Math.cos(a) * postR, py = cy + Math.sin(a) * postR;
                     posts.push([px, py]);
-                    this.cyl(null, 0.08, 0.7, "z", this.material("post", [0.6, 0.62, 0.66], 0.4, 0.8), px, py, 0.7, null, 10);
-                    this.box(null, 0.12, 0.12, 0.45, this.material("pad" + (k % 3), PAD_COLOURS[k % 3], 0.8), px, py, 0.85);
+                    S(this.cyl(null, 0.08, 0.7, "z", M("post", [0.75, 0.75, 0.8], 1, 1, "steel", 0.8), px, py, 0.7, null, 12));
+                    S(this.box(null, 0.12, 0.12, 0.45, M("pad" + (i % 3), PAD_COLOURS[i % 3], 0.6, 0.2, "paint"), px, py, 0.85));
                 }
-                const ropeMat = hz.electric_ropes ? this.material("eropes", [0.5, 0.8, 1.0], 0.4, 0, 1.2) : this.material("ropes", [0.85, 0.12, 0.1], 0.6);
+                const ropeMat = hz.electric_ropes ? M("eropes", [0.5, 0.8, 1.0], 0.5, 0, null, null, [0.4, 1.2, 3.0]) : M("ropes", [0.85, 0.12, 0.1], 0.5, 0);
                 for (const z of [0.45, 0.85, 1.25]) for (let k = 0; k < 8; k++) {
                     const [ax, ay] = posts[k], [bx, by] = posts[(k + 1) % 8];
-                    const rope = BABYLON.MeshBuilder.CreateTube("rope", {path: [v3(ax, ay, z), v3(bx, by, z)], radius: 0.035, tessellation: 6}, this.scene);
+                    const rope = BABYLON.MeshBuilder.CreateTube("rope", {path: [v3(ax, ay, z), v3(bx, by, z)], radius: 0.035, tessellation: 8}, this.scene);
                     rope.material = ropeMat;
                     this.ropes.push(rope);
                 }
             } else {
                 const band = BABYLON.MeshBuilder.CreateTorus("edge", {diameter: R * 2, thickness: 0.09, tessellation: 64}, this.scene);
-                band.material = this.material("edge", [1, 0.45, 0.1], 0.5, 0, 1.5);
+                band.material = M("edge", [0, 0, 0], 1, 0, null, null, EDGE_GLOW);
                 band.scaling.y = 0.1;
                 band.position = v3(cx, cy, 0.006);
             }
             if (hz.fire_jets) {
                 const jets = JET_ANGLES.map(a => {
                     const x = cx + Math.cos(a * D2R) * 0.55 * R, y = cy + Math.sin(a * D2R) * 0.55 * R;
-                    this.cyl(null, 0.32, 0.004, "z", this.material("yellow", [0.95, 0.75, 0.08], 0.6), x, y, 0.006, null, 20);
-                    this.cyl(null, 0.16, 0.03, "z", steel, x, y, 0.03, null, 12);
+                    S(this.cyl(null, 0.32, 0.01, "z", hazard, x, y, 0.005, null, 20));
+                    S(this.cyl(null, 0.16, 0.02, "z", M("nozzle", [0.15, 0.15, 0.16], 1, 1, "steel"), x, y, 0.01, null, 16));
                     const flame = BABYLON.MeshBuilder.CreateCylinder("jet", {height: 1, diameterBottom: 0.5, diameterTop: 0.05, tessellation: 10}, this.scene);
-                    flame.material = this.glass("fire", [1, 0.55, 0.12], 0.75);
-                    flame.material.emissiveColor = new BABYLON.Color3(1, 0.5, 0.1);
+                    flame.material = this.glass("fire", [1, 0.55, 0.12], 0.75, 3);
                     flame.position = v3(x, y, 0.5);
                     flame.isVisible = false;
                     return flame;
@@ -325,19 +342,88 @@ export class FightScene extends BaseScene {
             }
             if (hz.spikes) for (const a of [0, 90, 180, 270]) {
                 const x = cx + Math.cos(a * D2R) * 0.78 * R, y = cy + Math.sin(a * D2R) * 0.78 * R;
-                this.cyl(null, 0.45, 0.004, "z", this.material("yellow", [0.95, 0.75, 0.08], 0.6), x, y, 0.006, null, 20);
+                S(this.cyl(null, 0.45, 0.01, "z", hazard, x, y, 0.005, null, 24));
                 for (let k = 0; k < 7; k++) {
                     const r = k ? 0.27 : 0, b = k * Math.PI / 3;
-                    this.cyl(null, 0.06, 0.12, "z", this.material("spike", [0.7, 0.72, 0.76], 0.3, 0.9), x + Math.cos(b) * r, y + Math.sin(b) * r, 0.14, 0, 8);
+                    S(this.cyl(null, 0.06, 0.12, "z", M("spike", [0.8, 0.8, 0.85], 0.4, 1, "steel"), x + Math.cos(b) * r, y + Math.sin(b) * r, 0.14, 0, 8));
                 }
             }
-            if (hz.slippery) this.cyl(null, 0.45 * R, 0.003, "z", this.material("ice", [0.55, 0.75, 0.92], 0.06, 0.2, 0.15), cx, cy, 0.006, null, 40);
+            if (hz.slippery) {
+                S(this.cyl(null, 0.45 * R, 0.006, "z", M("ice", [0.55, 0.75, 0.92], 0.06, 0.3), cx, cy, 0.002, null, 48));
+                S(this.cyl(null, 0.45 * R + 0.05, 0.004, "z", M("iceedge", [0.85, 0.95, 1.0], 0.3, 0), cx, cy, 0, null, 48));
+            }
         }
+        this.mergeStatic(statics);
+    }
+
+    // the hall round the rings: a concrete floor, walkways, tiered stands with a crowd, big screens and a lighting
+    // truss (fight_gfx.build_hall)
+    buildHall(statics, look) {
+        const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
+        const S = m => { statics.push(m); return m; };
+        const xs = RING_CENTRES.map(c => c[0]), ys = RING_CENTRES.map(c => c[1]);
+        const pad = (this.setup.rs || 4.5) + 5;
+        const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, hx = (x1 - x0) / 2, hy = (y1 - y0) / 2, floorZ = -0.8;
+        S(this.box(null, hx + 14, hy + 14, 0.05, M("hall", [0.3, 0.3, 0.34], 1, 0, "concrete", 0.25), cx, cy, floorZ - 0.05));
+        const walk = M("walk", [0.32, 0.26, 0.2], 1, 0, "concrete", 0.5);
+        S(this.box(null, hx, 0.9, 0.02, walk, cx, 8, floorZ + 0.02));
+        for (const x of [-8, 8]) S(this.box(null, 0.9, hy, 0.02, walk, x, cy, floorZ + 0.02));
+        const standM = M("stands", [0.22, 0.24, 0.3], 1, 0, "concrete", 0.5), crowdM = M("crowd", [0.5, 0.5, 0.5], 0.9, 0);
+        const shirts = [[0.8, 0.1, 0.1], [0.1, 0.3, 0.8], [0.9, 0.8, 0.2], [0.2, 0.6, 0.3], [0.9, 0.9, 0.9], [0.15, 0.15, 0.18], [0.9, 0.5, 0.1], [0.5, 0.2, 0.6]];
+        const skins = [[0.85, 0.65, 0.5], [0.6, 0.42, 0.3], [0.4, 0.28, 0.2], [0.92, 0.75, 0.62]];
+        const rnd = mulberry(5), crowd = look.crowd !== false && this.tier !== "blocks";
+        for (let side = 0; side < 4; side++) {
+            for (let row = 0; row < 5; row++) {
+                const d = row * 1.2 + 1.5, z = floorZ + 0.3 + row * 0.6;
+                let spots;
+                if (side < 2) {
+                    const y = side === 0 ? y1 + d : y0 - d;
+                    S(this.box(null, hx + 6, 0.6, (z - floorZ) / 2, standM, cx, y, (z + floorZ) / 2));
+                    spots = Array.from({length: Math.floor((hx + 5) * 2 / 0.9)}, (_, k) => [x0 - 5 + k * 0.9 + (row % 2 ? 0.45 : 0), y]);
+                } else {
+                    const x = side === 2 ? x1 + d : x0 - d;
+                    S(this.box(null, 0.6, hy + 6, (z - floorZ) / 2, standM, x, cy, (z + floorZ) / 2));
+                    spots = Array.from({length: Math.floor((hy + 5) * 2 / 0.9)}, (_, k) => [x, y0 - 5 + k * 0.9 + (row % 2 ? 0.45 : 0)]);
+                }
+                if (!crowd) continue;
+                for (const [x, y] of spots) {
+                    if (rnd() >= 0.8) continue;
+                    const tall = 0.22 + rnd() * 0.08;
+                    S(this.tinted(this.box(null, 0.19, 0.14, tall, crowdM, x, y, z + tall), shirts[Math.floor(rnd() * shirts.length)]));
+                    S(this.tinted(this.box(null, 0.09, 0.09, 0.1, crowdM, x, y, z + tall * 2 + 0.11), skins[Math.floor(rnd() * skins.length)]));
+                }
+            }
+        }
+        // big screens at both ends with the hall's name
+        for (const [y, back] of [[y1 + 9, -1], [y0 - 9, 1]]) {
+            S(this.box(null, 6.5, 0.3, 2.0, M("screen", [0.08, 0.08, 0.1], 1, 1, "steel"), cx, y, 6.0));
+            S(this.box(null, 6.2, 0.05, 1.75, M("screenglow", [0, 0, 0], 1, 0, null, null, [0.05, 0.02, 0.12]), cx, y + 0.3 * back, 6.0));
+            const name = this.floorText(look.name || "FIGHT LAB", cx, y + 0.4 * back, 5.95, 9, "#ff8a3d");
+            name.rotation.x = 0;
+            name.rotation.y = back > 0 ? 0 : Math.PI;
+        }
+        // the lighting truss over the rings
+        const truss = [], trussM = M("truss", [0.2, 0.2, 0.22], 1, 1, "steel"), lampM = M("lamp", [1, 1, 1], 0.3, 0, null, null, [6, 5.5, 5]);
+        for (const y of [0, 16]) {
+            truss.push(this.box(null, hx, 0.15, 0.15, trussM, cx, y, 8.5));
+            for (const x of [-16, 0, 16]) for (const dx of [-2.5, 2.5]) truss.push(this.box(null, 0.3, 0.25, 0.12, lampM, x + dx, y, 8.3));
+        }
+        for (const x of [x0, x1]) for (const y of [0, 16]) truss.push(this.box(null, 0.2, 0.2, 4.8, trussM, x, y, floorZ + 4.8));
+        this.rig = this.mergeStatic(truss);
+    }
+
+    // a box in its own colour (a person in the crowd): vertex colours, so a whole crowd is one mesh
+    tinted(mesh, rgb) {
+        const n = mesh.getTotalVertices(), c = new Array(n * 4);
+        for (let i = 0; i < n; i++) { c[i * 4] = rgb[0]; c[i * 4 + 1] = rgb[1]; c[i * 4 + 2] = rgb[2]; c[i * 4 + 3] = 1; }
+        mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, c);
+        return mesh;
     }
 
     // ---------- the fighters ----------
     setFighters(list) {
-        for (const f of this.fighters.values()) { f.root.dispose(false, true); f.label.dispose(); }
+        for (const f of this.fighters.values()) { f.label.dispose(false, true); f.root.dispose(); }
         this.fighters.clear();
         this.list = list;
         for (const f of list) this.addFighter(f);
@@ -355,10 +441,12 @@ export class FightScene extends BaseScene {
         const skin = rgb255(style.skin, [217, 161, 120]);
         const hairs = [[0.08, 0.06, 0.05], [0.3, 0.18, 0.08], [0.55, 0.35, 0.15], [0.12, 0.1, 0.1], [0.7, 0.55, 0.3]];
         const hair = d.look && d.look.hair_colour ? rgb255(d.look.hair_colour) : hairs[[...String(d.name || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 5];
-        const M = {main: this.material("main", main, robot ? 0.55 : 0.75, robot ? 0.75 : 0), trim: this.material("trim", trim, 0.6, robot ? 0.6 : 0),
-                   dark: this.material("fdark", [0.16, 0.16, 0.18], 0.7), skin: this.material("skin", skin, 0.8),
-                   hair: this.material("hair", hair, 0.9), pants: this.material("pants", main.map(c => c * 0.55), 0.85),
-                   white: this.material("fwhite", [0.92, 0.92, 0.9], 0.7), glow: this.material("fglow", lights, 0.5, 0, 2)};
+        // fight_gfx.FighterVisual's looks: a robot's parts in the paint texture set (rough 0.55, metal 0.75), a
+        // person's plain (rough 0.75), the lights glowing at five times their colour
+        const F = (name, rgb) => robot ? this.material(name, rgb, 0.55, 0.75, 0, {tex: this.tier === "blocks" ? "" : "paint"}) : this.material(name, rgb, 0.75, 0);
+        const M = {main: F("main", main), trim: F("trim", trim), dark: F("fdark", [0.16, 0.16, 0.18]), skin: F("skin", skin),
+                   hair: F("hair", hair), pants: F("pants", main.map(c => c * 0.55)), white: F("fwhite", [0.92, 0.92, 0.9]),
+                   glow: this.material("fglow", [0, 0, 0], 1, 0, 0, {emission: lights.map(v => v * 5)})};
         const root = new BABYLON.TransformNode("fighter" + info.id, scene);
         const body = new BABYLON.TransformNode("body", scene);
         body.parent = root;
@@ -438,7 +526,7 @@ export class FightScene extends BaseScene {
         // the weapon (the window's skinned models carry one; here a plain shape in the right fist, a shield on the left arm)
         const w = d.weapon;
         if (w) {
-            const blade = this.material("blade", [0.8, 0.82, 0.86], 0.25, 0.9), wood = this.material("wood", [0.45, 0.3, 0.16], 0.8);
+            const blade = this.material("blade", [0.8, 0.82, 0.86], 0.25, 0.9, 0, {tex: "steel"}), wood = this.material("wood", [0.45, 0.3, 0.16], 0.8);
             if (w === "knife" || w === "dagger") B("rfist", 0.012, 0.02, 0.13, "trim", 0, 0.02, -0.16), parts[parts.length - 1].material = blade;
             if (["sword_shield", "longsword", "katana"].includes(w)) {
                 const len = w === "sword_shield" ? 0.32 : 0.45;
@@ -543,6 +631,7 @@ export class FightScene extends BaseScene {
 
     updateCamera(fs, dt) {
         const cam = this.camera, ring = this.watchRing ?? 0;
+        for (const m of this.rig || []) m.isVisible = cam.position.y < 8.0;  // (looking down past the truss: hidden)
         const [cx, cy] = RING_CENTRES[ring] || [0, 0];
         const here = fs.filter(s => this.fighters.has(s.id) && this.fighters.get(s.id).ring === ring && s.pos[2] > -1.5);
         let target, radius, beta;

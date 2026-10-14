@@ -1,0 +1,141 @@
+{
+ "engine": "4",
+ "kart": "1",
+ "size": 512,
+ "skies": {
+  "env": [
+   64,
+   16
+  ],
+  "sky": [
+   32,
+   8
+  ]
+ },
+ "files": [
+  "brdf_lut.png",
+  "concrete_albedo.jpg",
+  "concrete_mr.jpg",
+  "concrete_normal.jpg",
+  "diamond_albedo.jpg",
+  "diamond_mr.jpg",
+  "diamond_normal.jpg",
+  "env_reflect.png",
+  "grass_albedo.jpg",
+  "grass_mr.jpg",
+  "grass_normal.jpg",
+  "hazard_albedo.jpg",
+  "hazard_mr.jpg",
+  "hazard_normal.jpg",
+  "paint_albedo.jpg",
+  "paint_mr.jpg",
+  "paint_normal.jpg",
+  "sky_reflect.png",
+  "steel_albedo.jpg",
+  "steel_mr.jpg",
+  "steel_normal.jpg",
+  "tarmac_albedo.jpg",
+  "tarmac_mr.jpg",
+  "tarmac_normal.jpg",
+  "tyre_albedo.jpg",
+  "tyre_mr.jpg",
+  "tyre_normal.jpg"
+ ],
+ "sh": {
+  "env": [
+   [
+    2.974367,
+    2.401931,
+    2.095469
+   ],
+   [
+    -0.000766,
+    -0.000788,
+    -0.000767
+   ],
+   [
+    0.670862,
+    0.662564,
+    0.641891
+   ],
+   [
+    -0.034422,
+    -0.058816,
+    -0.080589
+   ],
+   [
+    0.001186,
+    0.001178,
+    0.001179
+   ],
+   [
+    0.031578,
+    0.052057,
+    0.070336
+   ],
+   [
+    -4.7e-05,
+    -4.9e-05,
+    -2.5e-05
+   ],
+   [
+    0.187111,
+    0.272658,
+    0.30925
+   ],
+   [
+    0.010598,
+    -0.023765,
+    -0.044742
+   ]
+  ],
+  "sky": [
+   [
+    5.771581,
+    7.067628,
+    6.68188
+   ],
+   [
+    0.0,
+    0.0,
+    0.0
+   ],
+   [
+    0.37275,
+    0.626414,
+    1.71461
+   ],
+   [
+    -0.34535,
+    -0.357226,
+    -0.741598
+   ],
+   [
+    0.0,
+    -0.0,
+    -0.0
+   ],
+   [
+    0.289587,
+    0.299546,
+    0.621856
+   ],
+   [
+    0.0,
+    0.0,
+    -0.0
+   ],
+   [
+    0.659984,
+    0.938334,
+    0.993029
+   ],
+   [
+    0.025105,
+    0.015723,
+    1e-06
+   ]
+  ]
+ },
+ "simplepbr": ""
+}

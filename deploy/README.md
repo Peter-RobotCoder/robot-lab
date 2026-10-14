@@ -64,7 +64,8 @@ Launch and Stop, this session's notes, and Records, printed (or saved as PDFs) f
 the desk gives it a ticket; it draws the race from the same snapshots the windows get, carries the lesson controls
 and shows how every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
 Kart Lab teacher window on the laptop first. Since 1.9.5 it draws all three games and has every teacher tab (learners, outcomes, AI cards, rules, warnings,
-Restart server); sending an AI card to Claude still happens in the app on your laptop.
+Restart server); sending an AI card to Claude still happens in the app on your laptop. Since 1.9.6 it lights the
+games as the app does (its tiers, textures and skies, from `web/tex/`) and draws a capped number of pixels per tier.
 `robotlab-update` installs the new Caddy settings with the release.
 
 ## Live code updates (no new download)

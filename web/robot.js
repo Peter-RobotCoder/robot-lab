@@ -5,7 +5,7 @@
 
 /* global BABYLON */
 
-import {BaseScene, v3, col, rgb255, gameQuat, slerpQ, lerp} from "./base3d.js";
+import {BaseScene, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} from "./base3d.js";
 
 const $ = id => document.getElementById(id);
 const ARENA = 20;
@@ -17,6 +17,7 @@ const START_COLOURS = [[0.9, 0.25, 0.2], [0.25, 0.55, 1], [0.3, 0.85, 0.4], [1, 
 const HOUSE_WEAPONS = {BLAZE: "flame", CRUSHER: "hammer", RIPSAW: "chainsaw", VORTEX: "vdisc"};
 const SPINNERS = new Set(["spinner", "drum", "vdisc"]);
 const STEEL = [0.6, 0.62, 0.66], DARK = [0.12, 0.12, 0.13], YELLOW = [0.95, 0.75, 0.08];
+const PAINT_YELLOW = [0.95, 0.7, 0.05], CPZ = 4.8, GUTTER = 3.0;  // (rw_gfx.py, lab_sim.py)
 const LEVELS = [["none", "No brain"], ["empty", "Empty"], ["easy", "Easy"], ["medium", "Medium"], ["expert", "Expert"]];
 
 function designSize(d) {
@@ -27,8 +28,15 @@ function designSize(d) {
 
 export class RobotScene extends BaseScene {
     constructor(canvas, tier, engine) {
-        super(canvas, tier, engine, {sky: [0.1, 0.11, 0.14], fog: [0.1, 0.11, 0.14], fogDensity: 0.006, radius: 26,
-                                     target: [0, 0, 0], shadowSize: 34, ground: [0.25, 0.25, 0.28], sunDir: [-0.3, -0.85, 0.4]});
+        // rw_gfx.init's lights: a warm key light high over one corner, a spotlight on each corner tower aimed at the
+        // middle, a dim blue fill, the arena's reflections
+        super(canvas, tier, engine, {sky: [0.1, 0.11, 0.14], radius: 26, target: [0, 0, 0], ground: [0.25, 0.25, 0.28],
+                                     sunDir: [-0.3, -0.85, 0.4],
+                                     pbr: {background: [0.02, 0.02, 0.03], exposure: 0.7, ambient: [0.05, 0.055, 0.07], sky: "env",
+                                           sun: {colour: [1.5, 1.42, 1.3], offset: [8, -14, 30], film: 26, near: 5, far: 60, bias: 0.005, follow: false},
+                                           spots: [[-1, -1, [1.0, 0.85, 0.7]], [1, -1, [0.75, 0.85, 1.0]], [-1, 1, [0.75, 0.85, 1.0]], [1, 1, [1.0, 0.85, 0.7]]]
+                                               .map(([sx, sy, c]) => ({pos: [sx * 12.5, sy * 12.5, 8.5], at: [sx * 2, sy * 2, 0],
+                                                                       colour: c.map(v => v * 3.2), fov: 38, att: [1, 0, 0.004]}))}});
         this.setup = {hazards: {}, user_mods: {}, look: {}};
         this.robots = new Map();
         this.designs = [];
@@ -54,146 +62,213 @@ export class RobotScene extends BaseScene {
         this.build();  // (the arena is cheap to build: a new one keeps the robots)
     }
 
-    // ---------- the arena ----------
+    // ---------- the arena (rw_gfx.ArenaVisual: its colours, textures and roughness) ----------
     buildArena() {
         const hz = this.setup.hazards || {}, mods = this.setup.user_mods || {}, look = this.setup.look || {};
-        const noCage = !!mods.no_cage;
-        const plate = this.material("plate", this.tier === "blocks" ? [0.58, 0.59, 0.62] : [0.42, 0.43, 0.46], 0.55, 0.6);
-        const dark = this.material("dark", DARK, 0.8);
-        const steel = this.material("steel", STEEL, 0.4, 0.8);
-        const yellow = this.material("yellow", YELLOW, 0.6);
-        const wall = this.material("wall", rgb255(look.wall_colour, [155, 25, 20]), 0.7);
+        const noCage = !!mods.no_cage, blocks = this.tier === "blocks", h = ARENA / 2;
+        const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
+        const floorM = blocks ? M("floor", [0.58, 0.59, 0.62], 1, 1) : M("floor", [1, 1, 1], 1, 1, "diamond", 0.6);
+        const hazard = blocks ? M("hazard", YELLOW, 1, 0) : M("hazard", [1, 1, 1], 1, 0, "hazard", 0.8);
+        const darkSteel = M("darksteel", [0.12, 0.12, 0.13], 1, 1, "steel", 0.6);
+        const steel = M("steel", [1, 1, 1], 1, 1, "steel");
+        const wall = M("wall", rgb255(look.wall_colour, [155, 25, 20]), 1, 1, "paint", 0.5);
         const statics = [];
+        const S = m => { statics.push(m); return m; };
         // the floor, with holes for the drop zone and the flipper (and the pits a mod adds)
         const holes = [[PIT[0] - 1.5, PIT[1] - 1.5, PIT[0] + 1.5, PIT[1] + 1.5], [-5, -4.5, -2, -2.5]];
         if (mods.spike_pit) holes.push([SPIKE_PIT[0] - 1.2, SPIKE_PIT[1] - 1.2, SPIKE_PIT[0] + 1.2, SPIKE_PIT[1] + 1.2]);
         if (mods.flame_pit) holes.push([-1.2, -1.2, 1.2, 1.2]);
-        const xs = [...new Set([-10, 10, ...holes.flatMap(h => [h[0], h[2]])])].sort((a, b) => a - b);
-        const ys = [...new Set([-10, 10, ...holes.flatMap(h => [h[1], h[3]])])].sort((a, b) => a - b);
-        const tiles = [];
+        const xs = [...new Set([-10, 10, ...holes.flatMap(q => [q[0], q[2]])])].sort((a, b) => a - b);
+        const ys = [...new Set([-10, 10, ...holes.flatMap(q => [q[1], q[3]])])].sort((a, b) => a - b);
         for (let i = 0; i < xs.length - 1; i++) {
             for (let j = 0; j < ys.length - 1; j++) {
                 const cx = (xs[i] + xs[i + 1]) / 2, cy = (ys[j] + ys[j + 1]) / 2;
-                if (holes.some(h => cx > h[0] && cx < h[2] && cy > h[1] && cy < h[3])) continue;
-                tiles.push(this.box(null, (xs[i + 1] - xs[i]) / 2, (ys[j + 1] - ys[j]) / 2, 0.25, plate, cx, cy, -0.25));
+                if (holes.some(q => cx > q[0] && cx < q[2] && cy > q[1] && cy < q[3])) continue;
+                S(this.box(null, (xs[i + 1] - xs[i]) / 2, (ys[j + 1] - ys[j]) / 2, 0.25, floorM, cx, cy, -0.25));
             }
         }
-        const floor = BABYLON.Mesh.MergeMeshes(tiles, true);
-        floor.receiveShadows = this.lit;
         // markings: the Resident Robots' corner squares, the start squares, the centre circle, the arena's name
-        for (const cx of [-1, 1]) for (const cy of [-1, 1]) {
-            statics.push(this.box(null, 2.4, 2.4, 0.006, yellow, cx * 7.6, cy * 7.6, 0.006));
-            statics.push(this.box(null, 2.15, 2.15, 0.006, dark, cx * 7.6, cy * 7.6, 0.012));
+        const cz = CPZ / 2;
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+            S(this.box(null, cz, cz, 0.004, hazard, sx * (h - cz), sy * (h - cz), 0.004));
+            S(this.box(null, cz - 0.25, cz - 0.25, 0.004, M("zone", [0.12, 0.12, 0.13], 0.9, 0.3), sx * (h - cz), sy * (h - cz), 0.006));
         }
         STARTS.forEach(([x, y], i) => {
-            const m = this.material("start" + i, START_COLOURS[i], 0.6);
+            const m = M("start" + i, START_COLOURS[i], 0.6, 0);
             for (const [ox, oy, hx, hy] of [[0, 1.1, 1.2, 0.07], [0, -1.1, 1.2, 0.07], [1.1, 0, 0.07, 1.2], [-1.1, 0, 0.07, 1.2]]) {
-                statics.push(this.box(null, hx, hy, 0.005, m, x + ox, y + oy, 0.008));
+                S(this.box(null, hx, hy, 0.004, m, x + ox, y + oy, 0.005));
             }
         });
-        for (let k = 0; k < 48; k += 2) {
+        const yellow = M("yellow", PAINT_YELLOW, 0.6, 0);
+        for (let k = 0; k < 48; k++) {
             const a = k / 48 * Math.PI * 2;
-            const d = this.box(null, 0.17, 0.05, 0.005, yellow, Math.cos(a) * 3, Math.sin(a) * 3, 0.008);
+            const d = S(this.box(null, 0.17, 0.05, 0.004, yellow, Math.cos(a) * 3, Math.sin(a) * 3, 0.005));
             d.rotation.y = -(a + Math.PI / 2);
-            statics.push(d);
         }
-        if (!mods.flame_pit) statics.push(this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7));
-        // the drop zone: a shaft, a striped rim, a glowing strip and the lid that drops
-        const [px, py] = PIT;
-        for (const [ox, oy, hx, hy] of [[0, 1.55, 1.6, 0.05], [0, -1.55, 1.6, 0.05], [1.55, 0, 0.05, 1.6], [-1.55, 0, 0.05, 1.6]]) {
-            statics.push(this.box(null, hx, hy, 1.6, dark, px + ox, py + oy, -1.6));
-            statics.push(this.box(null, hx === 0.05 ? 0.15 : 1.8, hy === 0.05 ? 0.15 : 1.8, 0.004, yellow, px + ox * 1.06, py + oy * 1.06, 0.005));
+        if (!mods.flame_pit) this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7);
+        // the drop zone: a dark shaft, a striped rim, the lights round its edge and the lid that drops
+        const [px, py, ps] = PIT;
+        for (const [ox, oy, hx, hy] of [[0, ps / 2 + 0.05, ps / 2 + 0.1, 0.05], [0, -ps / 2 - 0.05, ps / 2 + 0.1, 0.05],
+                                        [ps / 2 + 0.05, 0, 0.05, ps / 2], [-ps / 2 - 0.05, 0, 0.05, ps / 2]]) {
+            S(this.box(null, hx, hy, 1.6, darkSteel, px + ox, py + oy, -1.6));
         }
-        this.pitGlow = [[0, 1.45, 1.5, 0.05], [0, -1.45, 1.5, 0.05], [1.45, 0, 0.05, 1.5], [-1.45, 0, 0.05, 1.5]].map(([ox, oy, hx, hy]) =>
-            this.box(null, hx, hy, 0.02, this.material("pitglow", [1, 0.15, 0.1], 0.5, 0, 1.5), px + ox, py + oy, -0.15));
-        this.pitLid = this.box(null, 1.47, 1.47, 0.25, this.material("lid", [0.75, 0.75, 0.78], 0.5, 0.6), px, py, -0.25);
-        // the floor flipper: a recess and a plate hinged on its back edge
-        statics.push(this.box(null, 1.5, 1.0, 0.04, dark, FF[0], FF[1], -0.19));
+        for (const [ox, oy, hx, hy] of [[0, ps / 2 + 0.2, ps / 2 + 0.35, 0.15], [0, -ps / 2 - 0.2, ps / 2 + 0.35, 0.15],
+                                        [ps / 2 + 0.2, 0, 0.15, ps / 2 + 0.05], [-ps / 2 - 0.2, 0, 0.15, ps / 2 + 0.05]]) {
+            S(this.box(null, hx, hy, 0.006, hazard, px + ox, py + oy, 0.006));
+        }
+        this.pitGlowMat = M("pitlights", [0, 0, 0], 1, 0, null, null, [4, 0.3, 0.1]);
+        this.pitGlow = [[0, ps / 2, ps / 2, 0.02], [0, -ps / 2, ps / 2, 0.02], [ps / 2, 0, 0.02, ps / 2], [-ps / 2, 0, 0.02, ps / 2]]
+            .map(([ox, oy, hx, hy]) => this.box(null, hx, hy, 0.02, this.pitGlowMat, px + ox, py + oy, -0.15));
+        this.pitLid = new BABYLON.TransformNode("pitlid", this.scene);
+        this.pitLid.position = v3(px, py, 0);
+        const lidParts = [this.box(this.pitLid, ps / 2 - 0.03, ps / 2 - 0.03, 0.25,
+                                   blocks ? M("lid", [0.75, 0.75, 0.78], 1, 1) : M("lid", [0.75, 0.75, 0.78], 1, 1, "diamond", 0.6), 0, 0, -0.25)];
+        const q = ps / 2 - 0.03;
+        for (const [ox, oy, hx, hy] of [[0, q - 0.1, q, 0.1], [0, -q + 0.1, q, 0.1], [q - 0.1, 0, 0.1, q - 0.2], [-q + 0.1, 0, 0.1, q - 0.2]]) {
+            lidParts.push(this.box(this.pitLid, hx, hy, 0.004, hazard, ox, oy, 0.004));
+        }
+        // the floor flipper: a dark recess, a steel frame, a striped plate hinged on its back edge, a warning lamp
+        const [fx, fy] = FF;
+        S(this.box(null, 1.5, 1.0, 0.02, M("recess", [0.02, 0.02, 0.02], 0.9, 0), fx, fy, -0.19));
+        const frameM = M("frame", [0.15, 0.15, 0.16], 1, 1, "steel");
+        for (const [ox, oy, hx, hy] of [[0, 1.03, 1.56, 0.03], [0, -1.03, 1.56, 0.03], [1.53, 0, 0.03, 1.0], [-1.53, 0, 0.03, 1.0]]) {
+            S(this.box(null, hx, hy, 0.005, frameM, fx + ox, fy + oy, 0.005));
+        }
         this.ffPivot = new BABYLON.TransformNode("ffpivot", this.scene);
-        this.ffPivot.position = v3(FF[0], FF[1] - 1.0, -0.08);
+        this.ffPivot.position = v3(fx, fy - 1.0, -0.08);
         this.ffPivot.rotationQuaternion = BABYLON.Quaternion.Identity();
-        const ffPlate = this.box(this.ffPivot, 1.47, 0.97, 0.08, yellow, 0, 1.0, 0);
-        this.ffLamp = this.sphere(null, 0.12, this.material("lampoff", [0.3, 0.05, 0.05], 0.5), -5.4, -4.7, 0.08);
-        // the saws: a slot in a cover plate, a blade that rises and spins
+        const hinge = M("hinge", [0.3, 0.3, 0.32], 1, 1, "steel");
+        const ffParts = [this.box(this.ffPivot, 1.47, 0.97, 0.08, hazard, 0, 1.0, 0),
+                         ...[-1, 1].map(s => this.cyl(this.ffPivot, 0.06, 0.25, "x", hinge, s * 0.9, 0.05, 0, null, 14))];
+        this.ffLampMat = M("fflamp", [0.05, 0, 0], 0.4, 0, null, null, [0.2, 0, 0]);
+        this.ffLamp = this.cyl(null, 0.12, 0.08, "z", this.ffLampMat, fx - 1.9, fy - 1.2, 0.08, null, 16);
+        // the saws: a bolted cover plate with a black slot edged with lights, a blade that rises and spins
+        const coverM = M("cover", [0.3, 0.3, 0.32], 1, 1, "steel", 1.2), slotM = M("slot", [0.01, 0.01, 0.01], 1, 0);
+        const slotLights = M("slotlights", [0, 0, 0], 1, 0, null, null, [3, 1.2, 0.1]);
         this.saws = SAWS.map(([sx, sy], i) => {
-            statics.push(this.box(null, 1.25, 0.34, 0.01, steel, sx, sy, 0.01));
-            statics.push(this.box(null, 1.12, 0.05, 0.012, dark, sx, sy, 0.016));
+            S(this.box(null, 1.25, 0.34, 0.012, coverM, sx, sy, 0));
+            S(this.box(null, 1.12, 0.05, 0.004, slotM, sx, sy, 0.013));
+            for (const side of [-1, 1]) S(this.box(null, 1.1, 0.025, 0.006, slotLights, sx, sy + side * 0.14, 0.014));
             const node = new BABYLON.TransformNode("saw" + i, this.scene);
             node.position = v3(sx, sy, -1.1);
             const spin = new BABYLON.TransformNode("sawspin" + i, this.scene);
             spin.parent = node;
-            this.cyl(spin, 0.95, 0.03, "y", this.material("blade", [0.75, 0.76, 0.8], 0.3, 0.9), 0, 0, 0, null, 36);
-            for (let t = 0; t < 12; t++) {
-                const a = t / 12 * Math.PI * 2;
-                const tooth = this.box(spin, 0.07, 0.025, 0.07, steel, Math.cos(a) * 1.0, 0, Math.sin(a) * 1.0);
+            const R = 1.0, sawParts = [];
+            sawParts.push(this.cyl(spin, R * 0.93, 0.012, "y", M("blade", [0.78, 0.8, 0.84], 1, 1, "steel", 2), 0, 0, 0, null, 48));
+            sawParts.push(this.cyl(spin, R * 0.42, 0.016, "y", M("bladering", [0.45, 0.46, 0.5], 1, 1, "steel"), 0, 0, 0, null, 32));
+            sawParts.push(this.cyl(spin, 0.16, 0.04, "y", M("bladehub", [0.2, 0.2, 0.22], 1, 1, "steel"), 0, 0, 0, null, 20));
+            const teeth = M("teeth", [0.7, 0.72, 0.76], 1, 1, "steel", 3);
+            for (let t = 0; t < 36; t++) {
+                const a = t / 36 * Math.PI * 2;
+                const tooth = this.box(spin, 0.06, 0.012, 0.05, teeth, Math.cos(a) * 0.98 * R, 0, Math.sin(a) * 0.98 * R);
                 tooth.rotation.z = a;
+                sawParts.push(tooth);
             }
+            this.mergeParts(sawParts, spin);
             return {node, spin, angle: 0};
         });
         // the wall spikes (west wall), unless there is no cage
         this.spikeBank = null;
         if (!noCage) {
             this.spikeBank = new BABYLON.TransformNode("spikes", this.scene);
-            this.box(this.spikeBank, 0.3, 2.6, 0.42, this.material("bank", [0.35, 0.36, 0.38], 0.5, 0.6));
+            const bank = [this.box(this.spikeBank, 0.3, 2.6, 0.42, M("bank", [0.35, 0.36, 0.38], 1, 1, "steel"))];
+            const spikeM = M("spike", [0.85, 0.85, 0.9], 1, 1, "steel");
             for (let y = -2.5; y <= 2.51; y += 0.5) for (const z of [-0.2, 0.2]) {
-                const c = BABYLON.MeshBuilder.CreateCylinder("spike", {height: 0.22, diameterBottom: 0.18, diameterTop: 0, tessellation: 8}, this.scene);
-                c.material = steel;
+                const c = this.cyl(this.spikeBank, 0.09, 0.11, "x", spikeM, 0.41, y, z, 0, 12);
                 c.rotation.z = -Math.PI / 2;  // (the tip along the game's +x)
-                c.position = v3(0.41, y, z);
-                c.parent = this.spikeBank;
+                bank.push(c);
             }
-            statics.push(this.box(null, 0.02, 2.8, 0.45, yellow, -9.99, 0, 0.55));
+            this.mergeParts(bank, this.spikeBank);
+            S(this.box(null, 0.02, 2.8, 0.45, hazard, -h + 0.01, 0, 0.55));
         }
         // the cage: kick plates in the wall colour, a rail, posts and glass screens; or, with no cage, a gutter
+        const edge = noCage ? GUTTER : 0.5;
         if (!noCage) {
             const glass = this.glass("screen", [0.6, 0.75, 0.9], 0.1);
-            for (const s of [-1, 1]) {
-                statics.push(this.box(null, 10.5, 0.25, 0.6, wall, 0, s * 10.25, 0.6));
-                statics.push(this.box(null, 0.25, 10, 0.6, wall, s * 10.25, 0, 0.6));
-                statics.push(this.box(null, 10.53, 0.28, 0.05, steel, 0, s * 10.25, 1.25));
-                statics.push(this.box(null, 0.28, 10.53, 0.05, steel, s * 10.25, 0, 1.25));
-                statics.push(this.box(null, 10.5, 0.02, 1.6, glass, 0, s * 10.25, 2.9));
-                statics.push(this.box(null, 0.02, 10.5, 1.6, glass, s * 10.25, 0, 2.9));
-                for (let k = -5; k <= 5; k++) {
-                    statics.push(this.cyl(null, 0.07, 1.65, "z", steel, k * 2, s * 10.25, 2.9, null, 8));
-                    statics.push(this.cyl(null, 0.07, 1.65, "z", steel, s * 10.25, k * 2, 2.9, null, 8));
+            for (const [cx, cy, hx, hy] of [[0, h + 0.25, h + 0.5, 0.25], [0, -h - 0.25, h + 0.5, 0.25], [h + 0.25, 0, 0.25, h], [-h - 0.25, 0, 0.25, h]]) {
+                S(this.box(null, hx, hy, 0.6, wall, cx, cy, 0.6));
+                S(this.box(null, hx + 0.03, hy + 0.03, 0.05, steel, cx, cy, 1.25));
+                this.box(null, hy === 0.25 ? hx : 0.02, hy === 0.25 ? 0.02 : hy, 1.6, glass, cx, cy, 2.9);
+            }
+            for (let k = -5; k <= 5; k++) {
+                for (const [x, y] of [[k * 2, h + 0.25], [k * 2, -h - 0.25], [h + 0.25, k * 2], [-h - 0.25, k * 2]]) {
+                    S(this.cyl(null, 0.07, 1.65, "z", steel, x, y, 2.9, null, 12));
                 }
             }
         } else {
-            statics.push(this.box(null, 13, 13, 0.1, dark, 0, 0, -3.05));
-            for (const s of [-1, 1]) {
-                statics.push(this.box(null, 10, 0.05, 1.47, wall, 0, s * 10, -1.47));
-                statics.push(this.box(null, 0.05, 10, 1.47, wall, s * 10, 0, -1.47));
+            const deep = 2.95;
+            for (const [cx, cy, hx, hy] of [[0, h + 0.05, h + 0.1, 0.05], [0, -h - 0.05, h + 0.1, 0.05], [h + 0.05, 0, 0.05, h], [-h - 0.05, 0, 0.05, h]]) {
+                S(this.box(null, hx, hy, deep / 2, wall, cx, cy, -deep / 2));
+            }
+            for (const [cx, cy, hx, hy] of [[0, h + GUTTER / 2, h + GUTTER, GUTTER / 2], [0, -h - GUTTER / 2, h + GUTTER, GUTTER / 2],
+                                            [h + GUTTER / 2, 0, GUTTER / 2, h], [-h - GUTTER / 2, 0, GUTTER / 2, h]]) {
+                S(this.box(null, hx, hy, 0.05, darkSteel, cx, cy, -deep - 0.05));
             }
         }
-        // the apron round the arena and a few rows of stands
-        const apron = this.material("apron", [0.28, 0.28, 0.3], 1.0);
-        for (const s of [-1, 1]) {
-            statics.push(this.box(null, 16, 2.75, 0.25, apron, 0, s * 13.25, -0.3));
-            statics.push(this.box(null, 2.75, 10.5, 0.25, apron, s * 13.25, 0, -0.3));
+        // the corner towers with their lamps, and the lighting rig overhead
+        const towerM = M("tower", [0.25, 0.26, 0.28], 1, 1, "steel"), lampM = M("lamp", [1, 1, 1], 0.3, 0, null, null, [6, 5.6, 5]);
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+            const x = sx * 12.5, y = sy * 12.5;
+            S(this.box(null, 0.25, 0.25, 4.3, towerM, x, y, 4.3));
+            S(this.box(null, 0.5, 0.5, 0.35, towerM, x - sx * 0.3, y - sy * 0.3, 8.6));
+            S(this.cyl(null, 0.32, 0.05, "z", lampM, x - sx * 0.62, y - sy * 0.62, 8.5, null, 20));
         }
-        if (look.crowd !== false && this.tier !== "blocks") {
-            const seats = this.material("seats", [0.18, 0.2, 0.26], 0.9);
+        const rig = [];
+        for (const k of [-1, 1]) {
+            rig.push(this.box(null, 13, 0.15, 0.15, towerM, 0, k * 12.5, 9.2), this.box(null, 0.15, 13, 0.15, towerM, k * 12.5, 0, 9.2));
+        }
+        for (let i = -3; i <= 3; i++) {
+            rig.push(this.box(null, 0.1, 12.5, 0.1, towerM, i * 3.2, 0, 9.3));
+            for (const j of [-6, -2, 2, 6]) rig.push(this.box(null, 0.35, 0.2, 0.08, lampM, i * 3.2, j, 9.15));
+        }
+        this.rig = this.mergeStatic(rig);  // (hidden from the overview camera, which looks down past it)
+        // outside: a concrete floor, tiered stands and a crowd
+        const far = 30, concrete = M("outside", [1, 1, 1], 1, 0, "concrete", 0.3);
+        for (const [cx, cy, hx, hy] of [[0, h + edge + far / 2, h + far, far / 2], [0, -h - edge - far / 2, h + far, far / 2],
+                                        [h + edge + far / 2, 0, far / 2, h + edge], [-h - edge - far / 2, 0, far / 2, h + edge]]) {
+            S(this.box(null, hx, hy, 0.05, concrete, cx, cy, -0.05));
+        }
+        const standM = M("stands", [0.5, 0.55, 0.65], 1, 0, "concrete", 0.5);
+        const crowdM = M("crowd", [0.45, 0.45, 0.45], 0.9, 0);
+        const rnd = mulberry(3);
+        const shirts = [[0.8, 0.1, 0.1], [0.1, 0.3, 0.8], [0.9, 0.8, 0.2], [0.2, 0.6, 0.3], [0.9, 0.9, 0.9], [0.15, 0.15, 0.18], [0.9, 0.5, 0.1], [0.5, 0.2, 0.6]];
+        const skins = [[0.85, 0.65, 0.5], [0.6, 0.42, 0.3], [0.4, 0.28, 0.2]];
+        const people = [];
+        for (let side = 0; side < 4; side++) {
             for (let row = 0; row < 4; row++) {
-                const d = 10 + 3.2 + 1.3 * row + 3, h = 0.55 * (row + 1);
-                for (const s of [-1, 1]) {
-                    statics.push(this.box(null, d + 0.65, 0.65, h / 2, seats, 0, s * d, h / 2 - 0.4));
-                    statics.push(this.box(null, 0.65, d - 0.65, h / 2, seats, s * d, 0, h / 2 - 0.4));
+                const d = h + 3.2 + row * 1.3, z = 0.35 + row * 0.55;
+                if (look.crowd !== false && !blocks) {
+                    for (let i = -12; i <= 12; i++) {
+                        const along = i + (row % 2 ? 0.5 : 0);
+                        const [x, y] = [[along, d], [along, -d], [d, along], [-d, along]][side];
+                        if (rnd() >= 0.85) continue;
+                        const tall = 0.22 + rnd() * 0.08;
+                        people.push(this.tinted(this.box(null, 0.19, 0.13, tall, crowdM, x, y, z * 2 + tall), shirts[Math.floor(rnd() * shirts.length)]));
+                        people.push(this.tinted(this.box(null, 0.08, 0.08, 0.09, crowdM, x, y, z * 2 + tall * 2 + 0.1), skins[Math.floor(rnd() * skins.length)]));
+                    }
                 }
+                const [cx, cy, hx, hy] = [[0, d, h + 3, 0.65], [0, -d, h + 3, 0.65], [d, 0, 0.65, h + 3], [-d, 0, 0.65, h + 3]][side];
+                S(this.box(null, hx, hy, z, standM, cx, cy, z));
             }
         }
+        statics.push(...people);
+        // the big screen with the arena's name
+        S(this.box(null, 4, 0.3, 1.4, M("screenbox", [0.1, 0.1, 0.12], 1, 1, "steel"), 0, h + 7.5, 6.5));
+        const board = this.floorText(look.name || "ROBOT LAB", 0, h + 7.15, 6.6, 6, "#ffcc33");
+        board.rotation.x = 0;
         // the user mods
         if (mods.spike_pit) {
             const [kx, ky, ks] = SPIKE_PIT;
-            statics.push(this.box(null, ks / 2, ks / 2, 0.05, dark, kx, ky, -0.55));
+            S(this.box(null, ks / 2, ks / 2, 0.05, darkSteel, kx, ky, -0.55));
+            const spikeM = M("pitspike", [0.85, 0.85, 0.9], 1, 1, "steel");
             for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
-                statics.push(this.cyl(null, 0.1, 0.15, "z", steel, kx - 1.0 + i * 0.4, ky - 1.0 + j * 0.4, -0.35, 0, 8));
+                S(this.cyl(null, 0.1, 0.15, "z", spikeM, kx - 1.0 + i * 0.4, ky - 1.0 + j * 0.4, -0.35, 0, 10));
             }
         }
         this.flames = [];
         if (mods.flame_pit) {
-            statics.push(this.box(null, 1.2, 1.2, 0.05, this.material("embers", [1, 0.35, 0.05], 0.5, 0, 1.2), 0, 0, -0.55));
-            const fire = this.material("fire", [1, 0.55, 0.1], 0.5, 0, 2);
+            S(this.box(null, 1.2, 1.2, 0.05, M("embers", [0, 0, 0], 1, 0, null, null, [1.6, 0.35, 0.04]), 0, 0, -0.55));
+            const fire = M("fire", [0, 0, 0], 1, 0, null, null, [5, 1.3, 0.1]);
             for (let i = 0; i < 6; i++) {
                 const a = i / 6 * Math.PI * 2;
                 const c = BABYLON.MeshBuilder.CreateCylinder("flame", {height: 1, diameterBottom: 0.5, diameterTop: 0, tessellation: 8}, this.scene);
@@ -202,26 +277,43 @@ export class RobotScene extends BaseScene {
                 this.flames.push(c);
             }
         }
-        this.boost = mods.boost_pad ? this.box(null, BOOST_PAD[2] / 2, BOOST_PAD[2] / 2, 0.01, this.material("boost", [0.2, 1, 0.3], 0.5, 0, 1), BOOST_PAD[0], BOOST_PAD[1], 0.012) : null;
-        this.repair = mods.repair_bay ? this.box(null, REPAIR_BAY[2] / 2, REPAIR_BAY[2] / 2, 0.01, this.material("repair", [0.3, 0.6, 1], 0.5, 0, 0.8), REPAIR_BAY[0], REPAIR_BAY[1], 0.012) : null;
+        this.boostMat = mods.boost_pad ? M("boost", [0.02, 0.05, 0.02], 0.5, 0, null, null, [0.2, 0.9, 0.3]) : null;
+        this.boost = mods.boost_pad ? this.box(null, BOOST_PAD[2] / 2, BOOST_PAD[2] / 2, 0.008, this.boostMat, BOOST_PAD[0], BOOST_PAD[1], 0.008) : null;
+        this.repairMat = mods.repair_bay ? M("repair", [0.02, 0.04, 0.08], 0.5, 0, null, null, [0.2, 0.5, 1.0]) : null;
+        this.repair = mods.repair_bay ? this.box(null, REPAIR_BAY[2] / 2, REPAIR_BAY[2] / 2, 0.008, this.repairMat, REPAIR_BAY[0], REPAIR_BAY[1], 0.008) : null;
         if (mods.ramps) {
-            const deck = this.material("ramp", [0.75, 0.75, 0.78], 0.5, 0.6);
+            const deck = blocks ? M("ramp", [0.75, 0.75, 0.78], 1, 1) : M("ramp", [0.75, 0.75, 0.78], 1, 1, "diamond", 0.6);
             for (const [cx, cy, d] of RAMPS) {
-                const ramp = this.box(null, 1.35, 0.9, 0.05, deck, cx, cy, 0.35);
+                const ramp = S(this.box(null, 1.35, 0.9, 0.05, deck, cx, cy, 0.35));
                 ramp.rotation.z = d * Math.atan2(0.7, 2.6);  // (rising towards x = cx + d*1.3)
-                statics.push(ramp, this.box(null, 0.05, 0.9, 0.35, steel, cx + d * 1.3, cy, 0.35));
+                S(this.box(null, 0.05, 0.9, 0.35, M("rampbody", [0.3, 0.3, 0.32], 1, 1, "steel"), cx + d * 1.3, cy, 0.35));
             }
         }
         this.lasers = [];
-        for (const m of statics) m.receiveShadows = this.lit;
-        this.shadowCast([ffPlate, this.pitLid]);
+        this.mergeStatic(statics);
+        this.shadowCast([...ffParts, ...lidParts]);
         if (this.spikeBank) this.spikeBank.position = v3(-10.5, 0, 0.45);
     }
 
+    // a box in its own colour (a person in the crowd): vertex colours, so a whole crowd is one mesh
+    tinted(mesh, rgb) {
+        const n = mesh.getTotalVertices(), c = new Array(n * 4);
+        for (let i = 0; i < n; i++) { c[i * 4] = rgb[0]; c[i * 4 + 1] = rgb[1]; c[i * 4 + 2] = rgb[2]; c[i * 4 + 3] = 1; }
+        mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, c);
+        return mesh;
+    }
+
     // ---------- the robots ----------
+    // a robot's hull: its paint (darker when knocked out, glowing for a moment when hit)
+    hullMaterial(colour, scale) {
+        const opts = {tex: this.tier === "blocks" ? "" : "paint", tile: 1.2};
+        if (scale > 1) opts.emission = colour.map(v => v * 0.8);
+        return this.material("hull", colour.map(v => Math.min(1, v * Math.min(scale, 1))), 1, 1, 0, opts);
+    }
+
     setRobots(list) {
         // (ids are given out again on every rebuild of the arena: every model is made again, as the window does)
-        for (const r of this.robots.values()) { r.root.dispose(false, true); r.weapon.dispose(false, true); r.label.dispose(); }
+        for (const r of this.robots.values()) { r.label.dispose(false, true); r.root.dispose(); r.weapon.dispose(); }
         this.robots.clear();
         this.designs = list;
         for (const r of list) this.addRobot(r);
@@ -234,28 +326,32 @@ export class RobotScene extends BaseScene {
         const colour = rgb255(d.colour, [200, 120, 40]);
         const style = d.style || {};
         const trim = rgb255(style.trim, [30, 30, 34]), lights = rgb255(style.lights, [255, 60, 30]);
-        const paint = this.material("paint", colour, 0.45, 0.4);
-        const trimM = this.material("trim", trim, 0.6, 0.5);
-        const steel = this.material("steel", STEEL, 0.4, 0.8);
-        const glow = this.material("glow", lights, 0.5, 0, 2);
+        // rw_gfx.RobotVisual's looks: the paint and steel texture sets (their maps give the shine), tread on the tyres
+        const T = (name, rgb, tex, tile = 1, rough = 1, metal = 1) => this.material(name, rgb, rough, metal, 0, {tex, tile});
+        const paint = this.hullMaterial(colour, 1);
+        const trimM = T("trim", trim, "paint", 1.2);
+        const steel = T("steel", [1, 1, 1], "steel");
+        const bar = T("bar", [0.7, 0.72, 0.76], "steel", 1.5);
+        const glow = this.material("eyes", [0, 0, 0], 0.3, 0, 0, {emission: lights});
         const hx = 0.6 * s, hy = 0.8 * s, hzz = 0.18 * s, z0 = 0.1, top = z0 + hzz;
         const root = new BABYLON.TransformNode("robot" + info.id, scene);
         root.rotationQuaternion = BABYLON.Quaternion.Identity();
         const parts = [];
         parts.push(this.box(root, hx, hy, hzz, paint, 0, 0, z0));
         parts.push(this.box(root, 0.78 * hx, 0.72 * hy, 0.045, trimM, 0, -0.08 * hy, top + 0.04));
-        for (const sd of [-1, 1]) parts.push(this.box(root, 0.03, 0.9 * hy, 0.7 * hzz, steel, sd * (hx + 0.02), 0, z0 - 0.02));
+        for (const sd of [-1, 1]) parts.push(this.box(root, 0.03, 0.9 * hy, 0.7 * hzz, T("skirt", [0.35, 0.36, 0.38], "steel", 1.5), sd * (hx + 0.02), 0, z0 - 0.02));
         parts.push(this.box(root, 0.5 * hx, 0.012, 0.025, glow, 0, hy + 0.005, z0 + 0.45 * hzz));
-        parts.push(this.box(root, 0.72 * hx, 0.012, 0.55 * hzz, this.material("back", [0.3, 0.3, 0.33], 0.6), 0, -hy - 0.005, z0));
+        parts.push(this.box(root, 0.72 * hx, 0.012, 0.55 * hzz, T("back", [0.3, 0.3, 0.33], "steel", 1.5), 0, -hy - 0.005, z0));
+        parts.push(this.box(root, 0.6 * hx, 0.014, 0.02, this.material("taillight", [0, 0, 0], 0.3, 0, 0, {emission: [4, 0.2, 0.1]}), 0, -hy - 0.012, z0 + 0.3 * hzz));
         parts.push(this.cyl(root, 0.008, 0.18, "z", steel, -0.6 * hx, -0.7 * hy, top + 0.24, null, 6));
-        if (big) parts.push(this.sphere(root, 0.08, this.material("beacon", [1, 0.65, 0], 0.5, 0, 2), 0.55 * hx, -0.55 * hy, top + 0.26));
+        if (big) parts.push(this.sphere(root, 0.08, this.material("beacon", [0, 0, 0], 0.3, 0, 0, {emission: [6, 3, 0]}), 0.55 * hx, -0.55 * hy, top + 0.26));
         const wr = big ? 0.32 : 0.2, ww = big ? 0.12 : 0.075;
         const wheels = [[0.72, 0.55], [-0.72, 0.55], [0.72, -0.55], [-0.72, -0.55]].map(([x, y]) => {
             const spin = new BABYLON.TransformNode("wheel", scene);
             spin.parent = root;
             spin.position = v3(x * s, y * s, 0.08);
-            const tyre = this.cyl(spin, wr, ww, "x", this.material("tyre", [0.07, 0.07, 0.08], 0.9), 0, 0, 0, null, 16);
-            const hub = this.cyl(spin, wr * 0.55, ww + 0.005, "x", steel, 0, 0, 0, null, 10);
+            const tyre = this.cyl(spin, wr, ww, "x", this.tier === "blocks" ? this.material("tyre", [0.07, 0.07, 0.08], 1, 0) : T("tyre", [1, 1, 1], "tyre", 2.5, 1, 0), 0, 0, 0, null, 20);
+            const hub = this.cyl(spin, wr * 0.55, ww + 0.005, "x", T("hub", [0.7, 0.7, 0.72], "steel"), 0, 0, 0, null, 14);
             parts.push(tyre, hub);
             return spin;
         });
@@ -268,22 +364,22 @@ export class RobotScene extends BaseScene {
         let blur = null, jet = null;
         if (weaponType === "wedge") {
             wparts.push(this.box(weapon, hx + 0.02, 0.6, 0.02, trimM, 0, 0.6, -0.01));
-            wparts.push(this.box(weapon, hx + 0.02, 0.06, 0.021, this.material("yellow", YELLOW, 0.6), 0, 1.14, -0.009));
+            wparts.push(this.box(weapon, hx + 0.02, 0.06, 0.021, this.tier === "blocks" ? this.material("yellow", YELLOW, 0.6) : T("hazard", [1, 1, 1], "hazard", 0.8, 1, 0), 0, 1.14, -0.009));
             wparts.push(this.cyl(weapon, 0.05, hx, "x", steel, 0, 0, 0, null, 10));
         } else if (weaponType === "spinner") {
-            wparts.push(this.box(spin, 0.8 * s, 0.08, 0.05, this.material("bar", [0.7, 0.72, 0.76], 0.3, 0.9)));
+            wparts.push(this.box(spin, 0.8 * s, 0.08, 0.05, bar));
             for (const sd of [-1, 1]) wparts.push(this.box(spin, 0.09, 0.1, 0.07, steel, sd * (0.8 * s - 0.07), 0, 0));
             wparts.push(this.cyl(spin, 0.11, 0.06, "z", trimM));
             blur = this.cyl(weapon, 0.8 * s, 0.01, "z", this.glass("blur", [0.8, 0.82, 0.86], 0.2), 0, 0, 0, null, 32);
         } else if (weaponType === "drum") {
-            wparts.push(this.cyl(spin, 0.2 * s, 0.8 * hx, "x", this.material("drum", [0.6, 0.62, 0.66], 0.35, 0.9), 0, 0, 0, null, 16));
+            wparts.push(this.cyl(spin, 0.2 * s, 0.8 * hx, "x", T("drum", [0.6, 0.62, 0.66], "steel", 2), 0, 0, 0, null, 20));
             for (let t = 0; t < 6; t++) {
                 const a = t / 6 * Math.PI * 2;
                 wparts.push(this.box(spin, 0.6 * hx, 0.04, 0.04, steel, 0, Math.cos(a) * 0.22 * s, Math.sin(a) * 0.22 * s));
             }
         } else if (weaponType === "vdisc") {
             const r = 0.42 * s;
-            wparts.push(this.cyl(spin, r, 0.035 * s, "x", this.material("bar", [0.7, 0.72, 0.76], 0.3, 0.9), 0, 0, 0, null, 24));
+            wparts.push(this.cyl(spin, r, 0.035 * s, "x", bar, 0, 0, 0, null, 32));
             for (let t = 0; t < 8; t++) {
                 const a = t / 8 * Math.PI * 2;
                 wparts.push(this.box(spin, 0.03 * s, 0.06, 0.06, steel, 0, Math.cos(a) * 1.07 * r, Math.sin(a) * 1.07 * r));
@@ -293,24 +389,23 @@ export class RobotScene extends BaseScene {
         } else if (weaponType === "flame") {
             wparts.push(this.cyl(weapon, 0.07 * s, 0.22 * s, "y", steel, 0, 0.22 * s, 0, null, 10));
             wparts.push(this.cyl(weapon, 0.1 * s, 0.04 * s, "y", trimM, 0, 0.44 * s, 0, null, 10));
-            for (const sd of [-1, 1]) parts.push(this.cyl(root, 0.08 * s, 0.25 * s, "y", this.material("tank", [0.75, 0.1, 0.08], 0.5), sd * 0.45 * hx, -0.2 * hy, top + 0.1));
+            for (const sd of [-1, 1]) parts.push(this.cyl(root, 0.08 * s, 0.25 * s, "y", T("tank", [0.75, 0.1, 0.08], "paint"), sd * 0.45 * hx, -0.2 * hy, top + 0.1));
             jet = BABYLON.MeshBuilder.CreateCylinder("jet", {height: 2.6, diameterBottom: 0.06, diameterTop: 1.4, tessellation: 12}, scene);
-            jet.material = this.glass("jet", [1, 0.55, 0.1], 0.55);
-            jet.material.emissiveColor = new BABYLON.Color3(1, 0.5, 0.1);
+            jet.material = this.glass("jet", [1, 0.55, 0.1], 0.55, 2.5);
             jet.rotation.x = Math.PI / 2;
             jet.position = v3(0, 0.44 * s + 1.35, 0);
             jet.parent = weapon;
             jet.isVisible = false;
         } else if (weaponType === "laser") {
             wparts.push(this.box(weapon, 0.06 * s, 0.18 * s, 0.05 * s, steel, 0, 0.18 * s, 0));
-            wparts.push(this.sphere(weapon, 0.04 * s, this.material("lens", [1, 0.1, 0.1], 0.3, 0, 2), 0, 0.36 * s + 0.05, 0));
+            wparts.push(this.sphere(weapon, 0.04 * s, this.material("lens", [0, 0, 0], 0.3, 0, 0, {emission: [8, 0.3, 0.2]}), 0, 0.36 * s + 0.05, 0));
         } else if (weaponType === "chainsaw") {
             wparts.push(this.box(weapon, 0.06 * s, 0.3 * s, 0.05 * s, paint, 0, 0.3 * s, 0));
-            wparts.push(this.box(weapon, 0.025, 0.42 * s, 0.07 * s, this.material("bar", [0.75, 0.76, 0.8], 0.3, 0.9), 0, 0.6 * s + 0.42 * s - 0.05, -0.04));
+            wparts.push(this.box(weapon, 0.025, 0.42 * s, 0.07 * s, T("chainbar", [0.75, 0.76, 0.8], "steel"), 0, 0.6 * s + 0.42 * s - 0.05, -0.04));
         } else {  // hammer
             const m = Math.min(s, 1.3), L = Math.min(0.85 * s, 1.3);
-            wparts.push(this.box(weapon, 0.05 * m, L, 0.05 * m, this.material("arm", [0.4, 0.4, 0.42], 0.5, 0.7), 0, L, 0));
-            wparts.push(this.box(weapon, 0.22 * s, 0.14 * s, 0.14 * s, this.material("head", [0.2, 0.2, 0.22], 0.5, 0.7), 0, 2 * L, 0));
+            wparts.push(this.box(weapon, 0.05 * m, L, 0.05 * m, T("arm", [0.4, 0.4, 0.42], "steel"), 0, L, 0));
+            wparts.push(this.box(weapon, 0.22 * s, 0.14 * s, 0.14 * s, T("head", [0.2, 0.2, 0.22], "steel"), 0, 2 * L, 0));
             wparts.push(this.cyl(weapon, 0.08, 0.15, "x", steel, 0, 0, 0, null, 10));
         }
         this.shadowCast([...parts, ...wparts]);
@@ -355,7 +450,7 @@ export class RobotScene extends BaseScene {
             if (look !== v.look) {
                 v.look = look;
                 const scale = look === "ko" ? 0.35 : look === "flash" ? 2.2 : 1;
-                v.hull.material = this.material("paint", rgb255(v.design.colour, [200, 120, 40]).map(c => Math.min(1, c * scale)), 0.45, 0.4);
+                v.hull.material = this.hullMaterial(rgb255(v.design.colour, [200, 120, 40]), scale);
             }
         }
         for (const [id, v] of this.robots) {
@@ -363,12 +458,13 @@ export class RobotScene extends BaseScene {
         }
         const hz = st && st.hz;
         if (hz) {
-            if (this.pitLid && hz.pit !== undefined) this.pitLid.position.y = hz.pit - 0.25;
-            const glow = hz.pit_open ? this.material("pitglow", [1, 0.15, 0.1], 0.5, 0, 1.5) : this.material("pitcalm", [0.2, 0.9, 0.3], 0.5, 0, 0.8);
-            for (const g of this.pitGlow || []) g.material = glow;
+            const ht = hz.t || 0;  // (the arena's clock: the lights blink and pulse with the app's)
+            if (this.pitLid && hz.pit !== undefined) this.pitLid.position.y = hz.pit;
+            if (hz.pit_open ?? true) { const p = 2.5 + 1.5 * Math.sin(ht * 4); this.setGlow(this.pitGlowMat, [p * 1.6, p * 0.12, p * 0.04]); }
+            else this.setGlow(this.pitGlowMat, [0.05, 0.3, 0.08]);  // (closed: a calm green)
             if (this.ffPivot && hz.ff) this.ffPivot.rotationQuaternion = gameQuat(hz.ff);
-            if (this.ffLamp) this.ffLamp.material = (hz.on && hz.on.floor_flipper && (hz.t % 4) > 3.2 && Math.sin(t * 20) > 0)
-                ? this.material("lampon", [1, 0.1, 0.1], 0.5, 0, 2) : this.material("lampoff", [0.3, 0.05, 0.05], 0.5);
+            const warn = (!hz.on || hz.on.floor_flipper !== false) && (ht % 4) > 3.2;  // (blinks just before it fires)
+            this.setGlow(this.ffLampMat, warn && Math.floor(ht * 8) % 2 === 0 ? [8, 0.3, 0.1] : [0.2, 0, 0]);
             (hz.saws || []).forEach((h, i) => {
                 const saw = this.saws[i];
                 if (!saw) return;
@@ -382,12 +478,13 @@ export class RobotScene extends BaseScene {
                 f.scaling.y = hgt;
                 f.position.y = -0.5 + hgt / 2;
             }
-            if (this.boost) this.boost.material = hz.boost ? this.material("boost", [0.2, 1, 0.3], 0.5, 0, 0.6 + 0.4 * Math.sin(t * 6)) : this.material("boostoff", [0.6, 0.1, 0.1], 0.5, 0, 0.3);
+            if (this.boostMat) { const g = 0.9 + 0.35 * Math.sin(ht * 5); this.setGlow(this.boostMat, (hz.boost ?? 1) ? [0.25 * g, g, 0.35 * g] : [0.45, 0.06, 0.04]); }
+            if (this.repairMat) { const g = hz.repair ? 2.0 + 1.2 * Math.sin(ht * 6) : 0.6; this.setGlow(this.repairMat, [0.2 * g, 0.5 * g, g]); }
             for (const l of this.lasers) l.dispose();
             this.lasers = (hz.lasers || []).map(([sx, sy, sz, ex, ey, ez]) => {
                 const a = v3(sx, sy, sz), b = v3(ex, ey, ez);
                 const beam = BABYLON.MeshBuilder.CreateTube("laser", {path: [a, b], radius: 0.04, tessellation: 6}, this.scene);
-                beam.material = this.material("beam", [1, 0.15, 0.1], 0.5, 0, 2);
+                beam.material = this.material("beam", [0, 0, 0], 1, 0, 0, {emission: [8, 0.3, 0.2]});
                 return beam;
             });
         }
@@ -411,6 +508,8 @@ export class RobotScene extends BaseScene {
 
     updateCamera(st, dt, t) {
         const cam = this.camera;
+        const above = cam.position.y > 9.0;  // (looking down past the lighting rig: hidden, as the app's full-arena camera does)
+        for (const m of this.rig || []) m.isVisible = !above;
         if (st && st.intro !== null && st.intro !== undefined) {  // the pre-battle intro: round the arena
             const a = 0.45 * st.intro - 1.2;
             cam.target = BABYLON.Vector3.Lerp(cam.target, v3(0, 0, 0.5), Math.min(1, dt * 3));

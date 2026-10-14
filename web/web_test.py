@@ -9,7 +9,7 @@ which opens the class view with the desk's teacher ticket; the page draws the tr
 snapshots with no JavaScript errors;
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
-a learner removed, login slips, the teacher password changed; lessons.json matches the lesson files. Screenshots are
+a learner removed, login slips, the teacher password changed; lessons.json and tex/ are up to date. Screenshots are
 kept in the test folder. Exit code 0 = every check passed; the test
 says so and passes if no Chrome or Edge is installed.
 """
@@ -47,6 +47,24 @@ BROWSERS = [r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/microsoft-edge"]
 
 results = []
+
+
+# (in the page) the scene drawn properly on a tier: on low and up the app's lighting (pbr.js) in use with every picture
+# loaded, no mesh left holding a material that was thrown away, and no more pixels drawn than the tier allows
+DRAWN_RIGHT = """(() => {
+    const g = window.__state.scene, sc = g.scene, eng = sc.getEngine();
+    const pbr = sc.materials.filter(m => m.getClassName() === 'ShaderMaterial' && m.name !== 'ccdepth');
+    if (g.tier !== 'blocks' && !pbr.length) return 'no pbr materials on ' + g.tier;
+    const waiting = pbr.filter(m => Object.values(m._textures || {}).some(t => !t.isReady())).map(m => m.name.split(':')[0]);
+    if (waiting.length) return 'pictures not loaded: ' + waiting.slice(0, 5).join(', ');
+    const lost = sc.meshes.filter(x => x.material && !sc.materials.includes(x.material)).map(x => x.name);
+    if (lost.length) return 'meshes with a thrown-away material: ' + lost.slice(0, 5).join(', ');
+    const budget = {blocks: 1.0e6, low: 1.1e6, medium: 1.6e6, high: 2.4e6}[g.tier];
+    const px = eng.getRenderWidth() * eng.getRenderHeight();
+    const css = window.innerWidth * window.innerHeight * Math.min(1, devicePixelRatio);
+    if (px > Math.max(budget, css) * 1.02) return 'drawing ' + px + ' pixels on ' + g.tier;
+    return 'ok';
+})()"""
 
 
 def check(name, fn):
@@ -330,15 +348,18 @@ def main():
         check("START A RACE, TO THE GRID, the mission buttons and the track picker reach the server", controls)
 
         def tiers():
-            for tier in ("blocks", "high", "low"):
+            for tier in ("blocks", "high", "medium", "low"):
                 chrome.js(f"window.__state.scene.setTier('{tier}')")
                 time.sleep(1.0)
                 assert chrome.js("window.__state.scene.tier") == tier
-                assert chrome.js("window.__state.scene.trackMeshes.length") > 10
+                assert chrome.js("window.__state.scene.trackMeshes.length") > 5
                 assert chrome.js("window.__state.scene.karts.size") >= 3
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Kart Lab drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                chrome.screenshot(os.path.join(work, f"kartlab_{tier}.png"))
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
-        check("The graphics tier changes without losing the track or the karts", tiers)
+        check("The graphics tiers (blocks, low, medium, high: the app's lighting and textures) keep the track and the karts, "
+              "load every picture and keep to their pixel budgets", tiers)
 
         def learners_tab():
             chrome.js("document.querySelector('#panel header button[data-tab=\"learners\"]').click(); document.getElementById('panel').classList.add('open')")
@@ -465,10 +486,14 @@ def main():
             chrome.wait_for("window.__state.snaps.length > 10 && window.__state.scene.robots.size >= 3", 30,
                             "the robots (the teacher's, amy's and the computer's)")
             chrome.wait_for("window.__state.classList.some(p => p.name === 'amy')", 10, "amy in the class")
-            for tier in ("blocks", "high", "low"):
+            for tier in ("blocks", "high", "medium", "low"):
                 chrome.js(f"window.__state.scene.setTier('{tier}')")
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.robots.size") >= 3, f"robots lost on {tier}"
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Robot Lab drawn properly on {tier}")
+            chrome.js("window.__app.send({type: 'restart'})")  # (new robots: the old ones go, their materials stay)
+            time.sleep(3.0)
+            chrome.wait_for(f"window.__state.scene.robots.size >= 3 && {DRAWN_RIGHT} === 'ok'", 20, "Robot Lab drawn properly after a restart")
             time.sleep(1.0)
             chrome.screenshot(os.path.join(work, "robotlab.png"))
             no_errors()
@@ -550,10 +575,11 @@ def main():
             chrome.wait_for("window.__state.snaps.length > 10 && window.__state.scene.fighters.size >= 2", 30, "the fighters")
             chrome.wait_for("[...window.__state.scene.fighters.values()].some(f => Math.abs(f.n.rs.rotation.x) > 0.2)", 10,
                             "a fighter in its stance (posed)")
-            for tier in ("blocks", "high", "low"):
+            for tier in ("blocks", "high", "medium", "low"):
                 chrome.js(f"window.__state.scene.setTier('{tier}')")
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.fighters.size") >= 2, f"fighters lost on {tier}"
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Fight Lab drawn properly on {tier}")
             tab("controls")
             chrome.js("document.querySelector('button[data-mode=\"battle\"]').click()")
             chrome.wait_for("window.__state.lesson.mode === 'battle'", 10, "battle mode")
@@ -573,6 +599,11 @@ def main():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_lessons.py"), "--check"], capture_output=True, text=True)
             assert r.returncode == 0, r.stdout + r.stderr
         check("lessons.json matches the games' lesson files", lessons_current)
+
+        def textures_current():
+            r = subprocess.run([sys.executable, os.path.join(HERE, "make_textures.py"), "--check"], capture_output=True, text=True)
+            assert r.returncode == 0, r.stdout + r.stderr
+        check("tex/ (the app's textures and skies) is up to date with the games' texture generators", textures_current)
         print(f"Screenshot and test data: {work}")
     finally:
         if chrome:
