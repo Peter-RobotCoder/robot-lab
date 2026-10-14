@@ -1,33 +1,38 @@
-// Club Coders Live (CHANGE 127): the teacher's browser window on a class server.
+// Club Coders Live (CHANGE 127, 129, 130): the teacher's browser window on a class server.
 //
-// The page speaks the same protocol as a Kart Lab teacher window: a JSON hello, then JSON for the lesson, the
-// roster, the race and notices, and binary snapshots 30 times a second (wire.js). It draws the race two
-// snapshots behind the newest, as the windows do (engine/interp.py), and carries the teacher's minute-to-minute
-// controls. Learners' windows report how they are doing (fps, ping, stalls...) and the Learners tab shows it.
+// The page speaks the same protocol as a game's teacher window: a JSON hello (with the desk's ticket), then the
+// lesson, the class, teaching data and notices, and the game's snapshots 30 times a second (Kart Lab's binary,
+// wire.js; Robot Lab's and Fight Lab's JSON). The game's own file (kart.js, robot.js, fight.js) draws them two
+// snapshots behind the newest, as the windows do (engine/interp.py), and carries its controls; teacher.js has the
+// tabs every game shares. Learners' windows report how they are doing (fps, ping, stalls) and the Learners tab
+// shows it. The teacher desk (desk.js) is the app's Teacher screen.
 //
 // Query string: ?host=ws://127.0.0.1:8782 for a laptop test server (the class picker is then "another server"),
 // ?code=TEACH99 to prefill the code, ?tier=blocks|low|high, ?version=1.9.1 (a class server wants the release's
 // number; on the VPS the page reads it from /live/version).
 
-import {KART_FIELDS, KIND_SNAPSHOT, kindOf, unpackSnapshot} from "./wire.js";
-import {Track, TRACKS} from "./track.js";
-import {KartScene, TIERS} from "./scene.js";
+import {TIERS, pageEngine, engineInfo} from "./base3d.js";
 import {DeskLink, renderDesk} from "./desk.js";
+import {KartGame} from "./kart.js";
+import {RobotGame} from "./robot.js";
+import {FightGame} from "./fight.js";
+import {TEACHER_TABS, renderTeacherTab, missionRow, wireMissionRow, restartRow, wireRestartRow, download, esc} from "./teacher.js";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DELAY_MS = 80;            // how far behind the newest snapshot the page draws (two snapshots plus jitter)
 const CLOSE_TEXT = {4001: "Wrong teacher code.", 4002: "A teacher window is already open on this class: close it first.",
                     4006: "This page is out of date for that server.", 4008: "Too many wrong tries: wait a minute.",
-                    4011: "The ticket ran out: log in again."};
+                    4011: "The ticket ran out: log in again.", 4010: "That group hasn't started.", 4009: "The session has ended."};
+let engine = null;
 
 const state = {
     ws: null, connected: false, role: null, name: "", game: null,
     version: params.get("version") || "",
-    lesson: null, rules: null, roster: null, race: null, classList: [], tournament: null,
-    snaps: [], offset: null, lastSeq: null, missed: 0, stalls: 0, pingMs: 0, lastPong: 0,
-    events: [], eventKeys: new Set(), tab: "controls", scene: null, track: null, trackKey: "",
-    fps: 0, frames: 0, fpsAt: performance.now(), leader: null, autoTier: params.get("auto") !== "0",
+    lesson: null, rules: null, roster: null, race: null, classList: [], tournament: null, teaching: null,
+    snaps: [], offset: null, lastSeq: null, missed: 0, stalls: 0, pingMs: 0, lastPong: 0, reconnects: 0,
+    events: [], eventKeys: new Set(), tab: "controls", scene: null, game: null, tier: "low",
+    fps: 0, frames: 0, fpsAt: performance.now(), autoTier: params.get("auto") !== "0",
     desk: null, deskUi: null, lessons: {}, watchGames: [], leaving: false,
 };
 
@@ -94,7 +99,7 @@ function deskLogin() {
     });
 }
 
-const DRAWN = new Set(["kartlab"]);  // the games this page can draw so far
+const DRAWN = new Set(["kartlab", "robotlab", "fightlab"]);  // the games this page draws
 
 function deskShown() { return !$("desk").hidden; }
 
@@ -112,7 +117,7 @@ function drawDesk() {
     if (!state.desk || !state.desk.state) return;
     renderDesk($("deskbody"), {
         desk: state.desk, ui: state.deskUi, lessons: state.lessons, drawn: DRAWN, watchGames: state.watchGames,
-        watching: state.connected ? state.game : null, watch, rerender: drawDesk, back: hideDesk, leave: leaveView,
+        watching: state.connected && state.game ? state.game.id : null, watch, rerender: drawDesk, back: hideDesk, leave: leaveView,
         logout: deskLogout, stopped: leaveView, launched: game => { if (DRAWN.has(game)) watch(game); },
     });
 }
@@ -193,6 +198,7 @@ function connect(address = null, how = null) {
     state.ws = ws;
     state.name = name;
     state.url = url;
+    state.lastHow = {address: url, how};
     state.snaps = [];  // (a fresh class: nothing from the last one's clock)
     state.offset = state.lastSeq = null;
     ws.onopen = () => {
@@ -205,10 +211,17 @@ function connect(address = null, how = null) {
     ws.onclose = ev => {
         if (state.ws !== ws) return;  // (replaced by another class's connection)
         let text = CLOSE_TEXT[ev.code] || ev.reason || (state.connected ? "The connection closed." : "Couldn't connect. Is the server there, and the address right?");
-        const left = state.leaving;
+        const left = state.leaving, was = state.connected || state.reconnects > 0;
         state.connected = false;
         state.ws = null;
         state.leaving = false;
+        if (!left && was && !(ev.code >= 4000 && ev.code < 4100) && state.reconnects < 30) {  // (a restart or the Wi-Fi)
+            state.reconnects++;
+            toast(state.expectRestart && Date.now() - state.expectRestart < 60000 ? "The class server is restarting: reconnecting…"
+                                                                                : "Lost the class: reconnecting…", false, 4000);
+            setTimeout(reconnect, Math.min(5000, 1000 + 500 * state.reconnects));
+            return;
+        }
         if (state.desk) {  // (back to the Teacher screen, still logged in to the desk)
             showDesk();
             deskSay(left ? "You've left the class view." : `The class view closed: ${text}`, left);
@@ -223,6 +236,18 @@ function connect(address = null, how = null) {
         if (!how) { sessionStorage.setItem("code", code); localStorage.setItem("class", $("class").value); localStorage.setItem("name", name); }
         localStorage.setItem("mode", state.codeMode ? "code" : "desk");
     } catch (e) { /* private window */ }
+}
+
+function reconnect() {
+    if (state.ws || state.connected) return;
+    if (state.desk && state.ticket && !state.codeMode) {  // (a fresh ticket from the desk)
+        state.desk.ask({type: "watch", game: state.ticket.game}, "watch").then(m => {
+            state.ticket = m.watch;
+            connect(m.watch.address, {ticket: m.watch.ticket, name: "Teacher"});
+        }, () => setTimeout(reconnect, 3000));
+        return;
+    }
+    if (state.lastHow) connect(state.lastHow.address, state.lastHow.how);
 }
 
 function showLogin() {
@@ -241,130 +266,154 @@ function send(msg) {
 }
 
 // ---------- messages ----------
+// What every game sends is kept here (the lesson, the class, the roster's perf, teaching, warnings...); the game
+// (kart.js, robot.js, fight.js) draws its own world from its snapshots and the rest.
+const GAMES = [KartGame, RobotGame, FightGame];
+const GAME_BY_ID = {kartlab: KartGame, robotlab: RobotGame, fightlab: FightGame};
+
+function startGame(m) {
+    const wanted = (state.ticket && GAME_BY_ID[state.ticket.game] && !state.codeMode) ? GAME_BY_ID[state.ticket.game]
+                   : GAMES.find(G => G.detect(m)) || RobotGame;
+    if (state.game && state.game.constructor === wanted) return state.game;  // (a reconnect: keep what's drawn)
+    if (state.game) state.game.dispose();
+    state.game = new wanted(appApi);
+    state.scene = state.game.scene;
+    return state.game;
+}
+
 function onMessage(data) {
     const now = performance.now();
     if (data instanceof ArrayBuffer) {
-        if (kindOf(data) !== KIND_SNAPSHOT) return;
-        const snap = unpackSnapshot(data, KART_FIELDS);
-        snap.at = now;
-        if (state.lastSeq !== null) {
-            const gap = (snap.seq - state.lastSeq) & 0xFFFF;
-            if (gap > 1 && gap < 1000) state.missed += gap - 1;
-        }
-        state.lastSeq = snap.seq;
-        // the clock offset between the server's ms and ours: the smallest arrival lag seen, drifting up slowly
-        const lag = now - snap.sm;
-        state.offset = state.offset === null ? lag : Math.min(lag, state.offset + 0.002 * (now - (state.offsetAt || now)));
-        state.offsetAt = now;
-        state.snaps.push(snap);
-        if (state.snaps.length > 90) state.snaps.shift();
-        state.phaseFlags = snap.flags & 0x0F;
+        if (state.game) state.game.binary(data, now);
         return;
     }
     let m;
     try { m = JSON.parse(data); } catch (e) { return; }
+    const game = state.game;
     switch (m.type) {
         case "welcome": {
             state.connected = true;
+            state.reconnects = 0;
             state.role = m.role;
-            if (!(m.rules && m.rules.tracks) || !m.track) {
-                state.game = "other";
-                send({type: "ping", t: Date.now()});
-                hideLogin();
-                $("where").textContent = state.url.replace(/^wss?:\/\//, "");
-                toast("This class is running Robot Lab or Fight Lab.\nThe browser draws Kart Lab first; the other two follow.", true, 8000);
-                $("panelbody").innerHTML = "<h2>Not yet</h2><p class='note'>This class's game isn't drawn in the browser yet. Kart Lab classes are.</p>";
-                return;
-            }
-            state.game = "kartlab";
-            state.rules = m.rules;
-            state.lesson = m.lesson;
-            setTrack(m.track);
+            state.rules = m.rules || {};
+            state.lesson = m.lesson || null;
+            state.myDesign = m.design || null;
+            state.liveReady = m.live_ready || null;
+            state.snaps = [];
+            state.offset = state.lastSeq = null;
+            const g = startGame(m);
+            g.welcome(m);
             hideLogin();
             hideDesk();
-            $("where").textContent = `${state.url.replace(/^wss?:\/\//, "")} · ${m.role}`;
-            addEvent(`Logged in as ${m.name} (${m.role})`);
+            buildTabs();
+            $("where").textContent = `${g.title} · ${state.url.replace(/^wss?:\/\//, "")} · ${m.role}`;
+            addEvent(`Logged in to ${g.title} as ${m.name} (${m.role})`);
             send({type: "ping", t: Date.now()});
-            if (params.get("cam")) {  // (tests: ?cam=chase&follow=1, ?cam=overview)
-                state.scene.setMode(params.get("cam"), params.get("follow") !== null ? Number(params.get("follow")) : null);
-            }
-            if (params.get("panel")) { $("panel").classList.add("open"); state.tab = params.get("panel"); }
+            if (params.get("panel")) { $("panel").classList.add("open"); state.tab = params.get("panel"); buildTabs(); }
             updatePills();
             renderPanel();
-            break;
+            return;
         }
         case "lesson":
             state.lesson = m.lesson || state.lesson;
             state.classList = m.class || [];
             state.tournament = m.tournament || null;
-            if (m.track) setTrack(m.track);
+            state.mods = m.mods || state.mods;
+            if (game) game.message(m);
             updatePills();
-            if (state.tab === "controls" || state.tab === "learners") renderPanel();
-            break;
+            renderPanelSoon();
+            return;
         case "roster":
             state.roster = m;
-            if (state.scene) state.scene.setKarts(m.karts || []);
+            if (game) game.message(m);
+            if (state.tab === "learners") renderPanelSoon();
+            return;
+        case "teaching":
+            state.teachingAt = Date.now();
+            if (JSON.stringify(m) !== state.teachingKey) {
+                state.teachingKey = JSON.stringify(m);
+                state.teaching = m;
+                if (["outcomes", "cards", "learners"].includes(state.tab)) renderPanelSoon();
+            }
+            return;
+        case "missions":
+            if (m.for) { state.viewing = m; if (state.tab === "learners") renderPanelSoon(); }
+            return;
+        case "session":
+            state.session = m.session || null;
+            return;
+        case "warnings":
+            state.warnings = m.list || m.warnings || m.items || [];
+            updateTabCounts();
+            if (state.tab === "warnings") renderPanelSoon();
+            return;
+        case "history":
+            state.history = m.items || [];
             if (state.tab === "learners") renderPanel();
-            renderPlaces();
-            break;
-        case "race":
-            state.race = m;
-            for (const e of m.events || []) addEvent(e);
-            renderRace();
-            renderPlaces();
-            if (state.tab === "learners") renderPanel();
-            break;
+            return;
+        case "design_result":
+            if (m.ok && !m.by_teacher) state.myDesign = m.design;
+            toast(m.ok ? "Built." : `Not built: ${(m.problems || []).join("; ")}`, false, 5000);
+            return;
+        case "evidence_csv":
+            download(m.name || "evidence.csv", m.text || "", "text/csv");
+            toast(`Downloaded ${m.name}`);
+            return;
+        case "missions_file":
+            download(m.name || "missions.json", m.text || "", "application/json");
+            toast(`Downloaded ${m.name}`);
+            return;
+        case "live_update":
+            state.liveReady = m.id || true;
+            toast("A live update is ready on the class server.\nWarn the class, then press Restart server (Controls).", true, 12000);
+            return;
         case "pong":
             if (m.t) state.pingMs = Date.now() - m.t;
-            break;
+            return;
         case "notice":
-            toast(m.text || "", !!m.big);
-            break;
-        case "warnings":
-            state.warnings = m.warnings || m.items || [];
-            break;
+            toast(m.text || "", !!m.big, m.big ? 12000 : 5000);
+            if (/RESTARTING|UPDATING/.test(m.text || "")) state.expectRestart = Date.now();
+            return;
         case "restart_client":
-            toast("The server asked windows to reopen: this page reconnects.", true, 4000);
-            break;
+            return;
         default:
-            break;
+            if (game) game.message(m);
     }
 }
 
-function setTrack(data) {
-    const key = JSON.stringify(data);
-    if (key === state.trackKey) return;
-    state.trackKey = key;
-    state.track = new Track(data);
-    if (state.scene) state.scene.setTrack(state.track);
-    state.hints = new Map();
-    updatePills();
+// the snapshots every game blends between: kept with the server's clock (sm), drawn DELAY_MS behind the newest
+function pushSnap(snap, now) {
+    snap.at = now;
+    if (snap.seq !== undefined) {
+        if (state.lastSeq !== null) {
+            const gap = (snap.seq - state.lastSeq) & 0xFFFF;
+            if (gap > 1 && gap < 1000) state.missed += gap - 1;
+        }
+        state.lastSeq = snap.seq;
+    }
+    // the clock offset between the server's ms and ours: the smallest arrival lag seen, drifting up slowly
+    const lag = now - snap.sm;
+    state.offset = state.offset === null ? lag : Math.min(lag, state.offset + 0.002 * (now - (state.offsetAt || now)));
+    state.offsetAt = now;
+    state.snaps.push(snap);
+    if (state.snaps.length > 90) state.snaps.shift();
+}
+
+// {a, b, f}: the two snapshots around the moment to draw and how far between them (b null at the newest)
+function samplePair(now) {
+    const snaps = state.snaps;
+    if (!snaps.length || state.offset === null) return null;
+    const t = now - state.offset - DELAY_MS;
+    for (let i = snaps.length - 1; i >= 0; i--) {
+        if (snaps[i].sm <= t) {
+            const a = snaps[i], b = snaps[i + 1] || null;
+            return {a, b, f: b ? Math.max(0, Math.min(1, (t - a.sm) / Math.max(1, b.sm - a.sm))) : 0};
+        }
+    }
+    return {a: snaps[0], b: null, f: 0};
 }
 
 // ---------- drawing ----------
-function sample(now) {
-    // the state to draw: two snapshots behind, blended between the two around that moment
-    const snaps = state.snaps;
-    if (!snaps.length || state.offset === null) return null;
-    const t = now - state.offset - DELAY_MS;  // in server ms
-    let a = null, b = null;
-    for (let i = snaps.length - 1; i >= 0; i--) {
-        if (snaps[i].sm <= t) { a = snaps[i]; b = snaps[i + 1] || null; break; }
-    }
-    if (!a) return snaps[0];
-    if (!b) return a;
-    const f = Math.max(0, Math.min(1, (t - a.sm) / Math.max(1, b.sm - a.sm)));
-    const byId = new Map(b.entities.map(e => [e.id, e]));
-    const entities = a.entities.map(e => {
-        const n = byId.get(e.id);
-        if (!n) return e;
-        let dy = n.yaw - e.yaw;
-        dy = ((dy + 180) % 360 + 360) % 360 - 180;
-        return {...n, x: e.x + (n.x - e.x) * f, y: e.y + (n.y - e.y) * f, yaw: e.yaw + dy * f, v: e.v + (n.v - e.v) * f};
-    });
-    return {...a, entities};
-}
-
 let lastFrame = performance.now();
 function loop() {
     const now = performance.now();
@@ -379,92 +428,38 @@ function loop() {
         renderPerf();
         if (state.autoTier && state.scene && state.fps && state.fps < 24 && now - (state.tierAt || 0) > 8000) {
             const i = TIERS.indexOf(state.scene.tier);
-            if (i > 0) { state.scene.setTier(TIERS[i - 1]); state.tierAt = now; toast(`Graphics stepped down to ${TIERS[i - 1]} (the frame rate was ${state.fps})`); if (state.tab === "graphics") renderPanel(); }
+            if (i > 0) { setTier(TIERS[i - 1]); state.tierAt = now; toast(`Graphics stepped down to ${TIERS[i - 1]} (the frame rate was ${state.fps})`); }
         }
         if (state.connected) {
             send({type: "ping", t: Date.now()});
-            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + (state.scene ? state.scene.tier : "?"), stalls: state.stalls, delay: DELAY_MS});
+            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + state.tier, stalls: state.stalls, delay: DELAY_MS});
         }
     }
     const covered = $("login").style.display !== "none" || deskShown();  // (nothing to see behind them: don't draw)
-    if (state.scene && !covered) {
-        const snap = sample(now);
-        const states = new Map();
-        if (snap) for (const e of snap.entities) states.set(e.id, e);
-        if (state.race && state.race.places && state.race.places.length) state.scene.leader = state.race.places[0];
-        state.scene.frame(states, dt);
-        state.scene.render();
-        if (snap && state.race && (state.race.phase === 1 || state.phaseFlags === 1)) renderCountdown();
+    if (state.game && !covered) {
+        state.game.frame(now, dt);
+        state.game.scene.render();
     }
     requestAnimationFrame(loop);
 }
 
-function renderCountdown() {
-    const r = state.race;
-    if (!r) return;
-    if (r.go_in_ms !== null && r.go_in_ms !== undefined) {
-        const left = (r.go_in_ms - (Date.now() - (r.at || Date.now()))) / 1000;
-        $("countdown").textContent = left > 0 ? Math.ceil(left) : (left > -1.5 ? "GO!" : "");
-    } else {
-        $("countdown").textContent = "";
-    }
-}
-
-function renderRace() {
-    const r = state.race;
-    if (!r) return;
-    r.at = Date.now();
-    const phase = r.phase === 0 ? (r.practice ? "Practice: the track is open" : "On the grid") : r.phase === 1 ? (r.practice ? "Practice" : `Racing · ${r.laps} laps`) : "Finished";
-    $("phase").textContent = (r.paused ? "PAUSED · " : "") + phase;
-    if (r.phase !== 1) $("countdown").textContent = r.phase === 2 ? "FINISH" : "";
-    if (r.phase === 2 && r.results) {
-        const lines = r.results.map(([name, laps, t], i) => `${i + 1}. ${name}${t !== null && t !== undefined ? ` ${fmtTime(t)}` : ` (${laps} laps)`}`);
-        toast(lines.join("\n"), true, 12000);
-    }
-}
-
-function fmtTime(t) {
-    const m = Math.floor(t / 60), s = (t - m * 60).toFixed(2).padStart(5, "0");
-    return m ? `${m}:${s}` : `${s}s`;
-}
-
-function renderPlaces() {
-    const r = state.race, roster = state.roster;
-    if (!r || !roster) return;
-    const karts = new Map((roster.karts || []).map(k => [k.id, k]));
-    const latest = state.snaps.length ? new Map(state.snaps[state.snaps.length - 1].entities.map(e => [e.id, e])) : new Map();
-    const rows = (r.places || []).map((id, i) => {
-        const k = karts.get(id) || {name: "?", colour: [128, 128, 128]};
-        const e = latest.get(id);
-        const lap = e ? Math.min(e.lap + 1, r.laps || e.lap + 1) : "";
-        const c = (k.colour || [128, 128, 128]).map(v => Math.round(v));
-        return `<div data-id="${id}"><span class="n">${i + 1}</span><span class="sw" style="background:rgb(${c.join(",")})"></span>` +
-               `<span>${esc(k.name)}${k.cpu ? ` <small>(cpu)</small>` : ""}</span><span class="lap">${lap !== "" ? `lap ${lap}` : ""}</span></div>`;
-    });
-    $("places").innerHTML = rows.join("") || "<div><small>No karts yet</small></div>";
-    $("places").querySelectorAll("div[data-id]").forEach(el => el.onclick = () => followKart(Number(el.dataset.id)));
-}
-
-function followKart(id) {
-    if (!state.scene) return;
-    if (state.scene.follow === id && state.scene.mode === "chase") state.scene.setMode("tv", null);
-    else state.scene.setMode("chase", id);
-    updatePills();
-    if (state.tab === "camera") renderPanel();
+function setTier(tier) {
+    state.tier = tier;
+    if (state.scene) state.scene.setTier(tier);
+    if (state.tab === "graphics") renderPanel();
+    renderPerf();
 }
 
 function renderPerf() {
-    const s = state.scene;
-    const info = s ? s.gpuInfo() : {};
+    const info = engineInfo(engine);
     $("perf").innerHTML = `${state.fps} fps · ping ${Math.round(state.pingMs)} ms · stalls ${state.stalls} · missed ${state.missed}<br>` +
-        `${s ? s.tier : ""} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
+        `${state.tier} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
 }
 
 function updatePills() {
-    const L = state.lesson;
-    $("lessonpill").textContent = L ? `Mission ${L.lesson_number} · ${state.track ? state.track.name : L.track} · ${L.mode === "race" ? "race" : "practice"}` : "";
-    const sc = state.scene;
-    $("camerapill").textContent = sc ? (sc.mode === "chase" ? `Camera: chasing kart ${sc.follow}` : sc.mode === "tv" ? "Camera: TV (drag to orbit, wheel to zoom)" : "Camera: overview") : "";
+    const g = state.game;
+    $("lessonpill").textContent = g ? g.pill() : "";
+    $("camerapill").textContent = g && g.cameraPill ? g.cameraPill() : "";
 }
 
 function addEvent(text) {
@@ -486,107 +481,73 @@ function toast(text, big = false, ms = 3500) {
     toastTimer = setTimeout(() => { t.style.display = "none"; }, ms);
 }
 
-function esc(s) {
-    return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+// ---------- the side panel ----------
+function allTabs() {
+    const g = state.game;
+    const gameTabs = g ? g.tabs() : [];
+    return [gameTabs[0] || ["controls", "Controls"], ...TEACHER_TABS, ...gameTabs.slice(1), ["graphics", "Graphics"], ["about", "About"]];
 }
 
-// ---------- the side panel ----------
+function buildTabs() {
+    const tabs = allTabs();
+    if (!tabs.some(([k]) => k === state.tab)) state.tab = tabs[0][0];
+    $("panelhead").innerHTML = tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === state.tab ? "on" : ""}">${n}</button>`).join("");
+    $("panelhead").querySelectorAll("button").forEach(b => b.onclick = () => {
+        state.tab = b.dataset.tab;
+        $("panelhead").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+        renderPanel();
+    });
+    updateTabCounts();
+}
+
+function updateTabCounts() {
+    const b = $("panelhead").querySelector('button[data-tab="warnings"]');
+    if (b) b.textContent = (state.warnings || []).length ? `Warnings (${state.warnings.length})` : "Warnings";
+}
+
+let panelTimer = null;
+function renderPanelSoon() {  // (several messages in a burst: draw the panel once)
+    if (panelTimer) return;
+    panelTimer = setTimeout(() => { panelTimer = null; renderPanel(); }, 120);
+}
+
+// typed text survives the redraws (the lesson and the teaching data arrive every second); a different page of
+// the panel (another tab, learner or mission) starts clean
 function renderPanel() {
     const body = $("panelbody");
-    const L = state.lesson, R = state.rules;
-    if (state.tab === "controls") {
-        if (!L || !R) { body.innerHTML = "<p class='note'>Waiting for the lesson…</p>"; return; }
-        const tracks = Object.entries(R.tracks || {}).map(([k, n]) => `<option value="${k}" ${k === L.track ? "selected" : ""}>${esc(n)}</option>`).join("");
-        const levels = (R.cpu_levels || []).map(l => `<option ${l === L.cpu_level ? "selected" : ""}>${l}</option>`).join("");
-        const missions = [1, 2, 3, 4, 5].map(n => `<button data-mission="${n}" class="${n === L.lesson_number ? "on" : ""}">${n}</button>`).join("");
-        const racing = state.race && state.race.phase === 1;
-        body.innerHTML = `
-          <h2>The race</h2>
-          <div class="row">
-            <button id="btn-start" class="go">${L.mode === "practice" ? "START A RACE" : racing ? "RESTART" : "START"}</button>
-            <button id="btn-grid">TO THE GRID</button>
-            <button id="btn-pause" class="${state.race && state.race.paused ? "on" : ""}">${state.race && state.race.paused ? "RESUME" : "PAUSE"}</button>
-          </div>
-          <div class="note">${L.mode === "practice" ? "Practice: the track is open and laps are timed. START A RACE closes it until GO." : "Race mode: START begins the countdown; TO THE GRID lines everyone up again."}</div>
-          <div class="row"><label>Mode</label>
-            <button data-mode="practice" class="${L.mode !== "race" ? "on" : ""}">Practice</button>
-            <button data-mode="race" class="${L.mode === "race" ? "on" : ""}">Race</button></div>
-          <div class="row"><label>Grand prix</label>
-            ${state.tournament ? `<span>${esc(state.tournament.title || state.tournament.label || "running")}</span> <button id="btn-gp-stop" class="stop">END IT</button>`
-                               : `<select id="gp-races"><option>2</option><option selected>3</option><option>4</option><option>5</option></select> races <button id="btn-gp" class="go">START THE GRAND PRIX</button>`}
-          </div>
-          <h2>Mission</h2>
-          <div class="row">${missions}</div>
-          <div class="note">The mission sets the learners' tools and the track's switches. Its text is edited in the Kart Lab teacher window's Outcomes tab for now.</div>
-          <h2>The track</h2>
-          <div class="row"><label>Track</label><select id="sel-track">${tracks}</select></div>
-          <div class="row"><label>Laps</label><select id="sel-laps">${[1, 2, 3, 4, 5].map(n => `<option ${n === L.laps ? "selected" : ""}>${n}</option>`).join("")}</select></div>
-          <div class="row"><label>Computer karts</label><select id="sel-cpu">${[0, 1, 2, 3, 4, 5, 6, 7].map(n => `<option ${n === L.cpu_karts ? "selected" : ""}>${n}</option>`).join("")}</select>
-            <select id="sel-level">${levels}</select></div>
-          <div class="row"><label>Teacher's kart</label><button id="btn-tkart" class="${L.teacher_kart ? "on" : ""}">${L.teacher_kart ? "On the grid" : "Not racing"}</button></div>
-          <div class="row"><label>Designs</label><button id="btn-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>
-          <div class="row"><button id="btn-save">SAVE THESE SETTINGS FOR THE MISSION</button><button id="btn-restore">RESTORE</button></div>`;
-        const lessonSend = patch => send({type: "lesson", lesson: patch});
-        $("btn-start").onclick = () => send({type: "start"});
-        $("btn-grid").onclick = () => send({type: "grid"});
-        $("btn-pause").onclick = () => send({type: "pause"});
-        body.querySelectorAll("button[data-mode]").forEach(b => b.onclick = () => lessonSend({mode: b.dataset.mode}));
-        body.querySelectorAll("button[data-mission]").forEach(b => b.onclick = () => send({type: "lesson_number", n: Number(b.dataset.mission)}));
-        $("sel-track").onchange = e => lessonSend({track: e.target.value});
-        $("sel-laps").onchange = e => lessonSend({laps: Number(e.target.value)});
-        $("sel-cpu").onchange = e => lessonSend({cpu_karts: Number(e.target.value)});
-        $("sel-level").onchange = e => lessonSend({cpu_level: e.target.value});
-        $("btn-tkart").onclick = () => lessonSend({teacher_kart: !L.teacher_kart});
-        $("btn-lock").onclick = () => lessonSend({designs_locked: !L.designs_locked});
-        $("btn-save").onclick = () => send({type: "save_lesson"});
-        $("btn-restore").onclick = () => send({type: "restore_lesson"});
-        if ($("btn-gp")) $("btn-gp").onclick = () => send({type: "tournament", start: true, races: Number($("gp-races").value)});
-        if ($("btn-gp-stop")) $("btn-gp-stop").onclick = () => send({type: "tournament", start: false});
-    } else if (state.tab === "learners") {
-        const roster = state.roster, race = state.race;
-        const perf = (roster && roster.perf) || {};
-        const brains = (race && race.brains) || {};
-        const latest = state.snaps.length ? new Map(state.snaps[state.snaps.length - 1].entities.map(e => [e.id, e])) : new Map();
-        const people = state.classList.length ? state.classList : [];
-        const rows = people.map(p => {
-            const kid = roster && roster.mine ? roster.mine[p.name] : null;
-            const e = kid !== null && kid !== undefined ? latest.get(kid) : null;
-            const pf = perf[p.name] || {};
-            const b = brains[p.name];
-            const stalls = pf.stalls ?? "";
-            return `<tr><td>${esc(p.name)}</td><td>${p.role}</td><td>${esc((p.design && p.design.name) || "")}</td>` +
-                   `<td class="num">${e ? e.lap : ""}</td><td class="num">${pf.fps ?? ""}</td><td class="num">${pf.ping ?? ""}</td>` +
-                   `<td class="num ${Number(stalls) > 5 ? "bad" : ""}">${stalls}</td><td>${pf.tier ?? ""}</td>` +
-                   `<td>${b ? (b.on ? "<span class='ok'>driving</span>" : b.has ? "loaded" : "") : ""}${b && b.error ? ` <span class='bad'>error</span>` : ""}</td></tr>`;
-        }).join("");
-        body.innerHTML = `
-          <h2>Who is here</h2>
-          <table><tr><th>Name</th><th>Role</th><th>Kart</th><th>Lap</th><th>fps</th><th>ping</th><th>stalls</th><th>graphics</th><th>brain</th></tr>${rows}</table>
-          <div class="note">fps, ping and stalls come from each learner's window every few seconds. Stalls are frames that arrived late
-            (over 100 ms apart): a few a minute is the Wi-Fi; dozens means that laptop or the room's network needs looking at.</div>
-          <h2>Lap times</h2>
-          <table>${Object.entries((race && race.lap_times) || {}).map(([kid, times]) => {
-              const k = roster && roster.karts ? roster.karts.find(x => String(x.id) === kid) : null;
-              const t = Array.isArray(times) ? times : [];
-              return `<tr><td>${esc(k ? k.name : kid)}</td><td class="num">${t.length ? fmtTime(Math.min(...t)) : ""}</td><td>${t.map(fmtTime).join(", ")}</td></tr>`;
-          }).join("") || "<tr><td class='note'>No laps yet</td></tr>"}</table>`;
-    } else if (state.tab === "camera") {
-        const sc = state.scene;
-        const karts = (state.roster && state.roster.karts) || [];
-        body.innerHTML = `
-          <h2>Camera</h2>
-          <div class="row"><button data-cam="tv" class="${sc.mode === "tv" ? "on" : ""}">TV</button>
-            <button data-cam="overview" class="${sc.mode === "overview" ? "on" : ""}">Whole track</button></div>
-          <div class="note">TV follows the leader (or the kart you pick below); drag to orbit, wheel to zoom. Chase sits behind one kart.</div>
-          <h2>Chase a kart</h2>
-          <div class="row">${karts.map(k => `<button data-follow="${k.id}" class="${sc.mode === "chase" && sc.follow === k.id ? "on" : ""}">${esc(k.name)}</button>`).join("") || "<span class='note'>No karts yet</span>"}</div>`;
-        body.querySelectorAll("button[data-cam]").forEach(b => b.onclick = () => { sc.setMode(b.dataset.cam, null); updatePills(); renderPanel(); });
-        body.querySelectorAll("button[data-follow]").forEach(b => b.onclick = () => followKart(Number(b.dataset.follow)));
-    } else if (state.tab === "graphics") {
-        const sc = state.scene, info = sc.gpuInfo();
+    const key = [state.tab, state.pick, state.sub, state.editLesson, state.formSeq].join("|");
+    const same = key === state.panelKey;
+    state.panelKey = key;
+    const values = {};
+    let focus = null, sel = null;
+    if (same) {
+        body.querySelectorAll("input[id], select[id], textarea[id]").forEach(el => { if (el.type !== "checkbox" && el.type !== "file") values[el.id] = el.value; });
+        const a = document.activeElement;
+        if (a && body.contains(a) && a.id) { focus = a.id; try { sel = [a.selectionStart, a.selectionEnd]; } catch (e) { sel = null; } }
+    }
+    const scroll = body.scrollTop;
+    drawPanel(body);
+    for (const [id, v] of Object.entries(values)) {
+        const el = body.querySelector("#" + CSS.escape(id));
+        if (el) el.value = v;
+    }
+    if (focus) {
+        const el = body.querySelector("#" + CSS.escape(focus));
+        if (el) { el.focus(); try { if (sel && sel[0] !== null) el.setSelectionRange(...sel); } catch (e) { /* not text */ } }
+    }
+    if (same) body.scrollTop = scroll;
+}
+
+function drawPanel(body) {
+    const g = state.game;
+    if (!g) { body.innerHTML = "<p class='note'>Not connected.</p>"; return; }
+    if (g.renderTab(state.tab, body)) return;
+    if (renderTeacherTab(appApi, state.tab, body)) return;
+    if (state.tab === "graphics") {
+        const sc = state.scene, info = engineInfo(engine);
         body.innerHTML = `
           <h2>Graphics tier</h2>
-          <div class="row">${TIERS.map(t => `<button data-tier="${t}" class="${sc.tier === t ? "on" : ""}">${t}</button>`).join("")}
+          <div class="row">${TIERS.map(t => `<button data-tier="${t}" class="${state.tier === t ? "on" : ""}">${t}</button>`).join("")}
             <button id="btn-auto" class="${state.autoTier ? "on" : ""}">auto step-down</button></div>
           <div class="note">blocks: flat colours, nothing lit, the floor every machine draws. low: lit, one shadow map, fog.
             high: PBR materials, soft shadows, bloom and antialiasing. Auto steps down one tier when the frame rate stays under 24.</div>
@@ -595,21 +556,30 @@ function renderPanel() {
             <tr><th>Renderer</th><td>${esc(info.renderer)}</td></tr><tr><th>Screen</th><td>${window.innerWidth} x ${window.innerHeight} at ${devicePixelRatio}x</td></tr>
             <tr><th>Frame rate</th><td>${state.fps} fps, ${state.stalls} stalls, ${state.missed} missed snapshots</td></tr></table>
           <div class="note">These numbers from a school laptop and a Chromebook are the measurement nobody has published: note them down.</div>`;
-        body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => { sc.setTier(b.dataset.tier); renderPanel(); renderPerf(); });
+        body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => setTier(b.dataset.tier));
         $("btn-auto").onclick = () => { state.autoTier = !state.autoTier; renderPanel(); };
-    } else {
-        body.innerHTML = `
-          <h2>About</h2>
-          <p class="note">Club Coders Live ${esc(state.version || "")}: the teacher's view of a class in the browser, the first step of
-            the browser window. It joins the class server as the teacher window does, draws the race from the same
-            30-a-second snapshots, two snapshots behind so the picture is smooth, and sends the same commands.</p>
-          <p class="note">The TEACHER DESK button (top left) is the app's Teacher screen: learners, groups, Launch and Stop,
-            this session's notes and the printed records.</p>
-          <p class="note">Not here yet: playing (a kart you drive), the learners' lessons and garage, Robot Lab and Fight Lab
-            drawn, and the teacher window's AI cards and Outcomes tabs. Those are the next steps.</p>
-          <p class="note">Keys: <b>Tab</b> opens and closes this panel.</p>`;
+        return;
     }
+    body.innerHTML = `
+      <h2>About</h2>
+      <p class="note">Club Coders Live ${esc(state.version || "")}: the teacher's desk and live view of a class in the browser. It
+        joins the class server as the teacher window does, draws the game from the same 30-a-second snapshots, two behind so
+        the picture is smooth, and sends the same commands. Kart Lab, Robot Lab and Fight Lab are drawn.</p>
+      <p class="note">The TEACHER DESK button (top left) is the app's Teacher screen: learners, groups, Launch and Stop, this
+        session's notes and the printed records.</p>
+      <p class="note">What still needs the Club Coders app on your laptop: sending AI cards to Claude (Send, Keep, Undo) and the
+        Changes tab, because Claude edits the game's files on your laptop. Not here yet: playing, and the learners' side.</p>
+      <p class="note">Keys: <b>Tab</b> opens and closes this panel.</p>`;
 }
+
+// what the games and teacher.js reach the page through
+const appApi = {
+    get state() { return state; }, get game() { return state.game; }, get tier() { return state.tier; },
+    get canvas() { return $("view"); }, get engine() { return engine; }, params,
+    send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, esc,
+    missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
+    restartRow: () => restartRow(appApi), wireRestartRow: body => wireRestartRow(appApi, body),
+};
 
 // ---------- start ----------
 function setupUi() {
@@ -621,15 +591,10 @@ function setupUi() {
     $("code").onkeydown = e => { if (e.key === "Enter") connect(); };
     $("deskpass").onkeydown = e => { if (e.key === "Enter") deskLogin(); };
     $("switchmode").onclick = e => { e.preventDefault(); setCodeMode(!state.codeMode); };
-    $("toggle").onclick = () => $("panel").classList.toggle("open");
+    $("toggle").onclick = () => { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); };
     $("btn-desk").onclick = () => showDesk();
     document.addEventListener("keydown", e => {
         if (e.key === "Tab" && state.connected && !deskShown() && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); $("panel").classList.toggle("open"); }
-    });
-    document.querySelectorAll("#panel header button").forEach(b => b.onclick = () => {
-        document.querySelectorAll("#panel header button").forEach(x => x.classList.toggle("on", x === b));
-        state.tab = b.dataset.tab;
-        renderPanel();
     });
     try {
         if (localStorage.getItem("class")) $("class").value = localStorage.getItem("class");
@@ -647,17 +612,16 @@ function setupUi() {
 window.__errors = [];
 window.addEventListener("error", e => { window.__errors.push(String(e.message)); toast("Problem: " + e.message, false, 8000); });
 window.addEventListener("unhandledrejection", e => { window.__errors.push(String(e.reason)); toast("Problem: " + e.reason, false, 8000); });
-window.__state = state;  // (the tests read it)
+window.__state = state;  // (the tests read it, and send through the page)
+window.__app = appApi;
 
 async function main() {
     setupUi();
-    const tier = TIERS.includes(params.get("tier")) ? params.get("tier") : "low";
+    state.tier = TIERS.includes(params.get("tier")) ? params.get("tier") : "low";
     try {
-        state.scene = new KartScene($("view"), tier);
-        const info = state.scene.gpuInfo();
-        if (!params.get("tier") && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.scene.setTier("high");
-        state.scene.setTrack(new Track(TRACKS.club));
-        state.track = state.scene.track;
+        engine = state.engine = pageEngine($("view"));
+        const info = engineInfo(engine);
+        if (!params.get("tier") && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
     } catch (e) {
         setStatus(`This browser can't draw the game (WebGL): ${e.message}`);
     }

@@ -1,37 +1,21 @@
 // Kart Lab drawn in the browser with Babylon.js: the track as a ribbon with kerbs, barriers, the start line, dash
 // pads and oil, grass that follows the hills, trees, and the karts (a tub, pods, wheels, a driver, a wing).
-//
-// Coordinates: the game is z-up and right-handed (Panda3D); Babylon is y-up and left-handed. Swapping y and z
-// maps one onto the other without a mirror image: game (x, y, z) -> Babylon (x, z, y), and a game yaw of t
-// (anticlockwise from +x) is a Babylon rotation.y of -t.
-//
-// Tiers (the start of the ladder every engine will share):
-//   blocks  unlit flat colours, no shadows, no textures: the floor every machine can draw
-//   low     lit, one 1024 shadow map, fog
-//   high    PBR materials, 2048 soft shadows, bloom and FXAA through the default rendering pipeline
+// The engine, tiers, materials and coordinate rules are base3d.js's (shared with Robot Lab and Fight Lab).
 
 /* global BABYLON */
+
+import {BaseScene, TIERS, v3, lerpAngle, mulberry, upwardNormals} from "./base3d.js";
+
+export {TIERS};
 
 const WHEEL_R = 0.2, WHEEL_W = 0.09;
 const WHEELS = [[0.5, 0.6], [0.5, -0.6], [-0.52, 0.62], [-0.52, -0.62]];  // x, y: FL, FR, RL, RR
 const KERB_RED = [0.85, 0.12, 0.08], KERB_WHITE = [0.95, 0.95, 0.92];
 const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_BOOSTING = 16;
 
-export const TIERS = ["blocks", "low", "high"];
-
-function v3(x, y, z) {  // a game point to a Babylon vector
-    return new BABYLON.Vector3(x, z, y);
-}
-
-function col(rgb) {
-    return new BABYLON.Color3(rgb[0], rgb[1], rgb[2]);
-}
-
-export class KartScene {
-    constructor(canvas, tier = "low") {
-        this.canvas = canvas;
-        this.tier = TIERS.includes(tier) ? tier : "low";
-        this.engine = new BABYLON.Engine(canvas, true, {stencil: true, antialias: true}, true);
+export class KartScene extends BaseScene {
+    constructor(canvas, tier = "low", engine = null) {
+        super(canvas, tier, engine, {radius: 60, target: [30, 40, 0]});
         this.karts = new Map();     // id -> visual
         this.hints = new Map();     // id -> last track segment (locate's hint)
         this.track = null;
@@ -39,96 +23,16 @@ export class KartScene {
         this.follow = null;         // kart id the camera chases, or null for the TV camera
         this.mode = "tv";           // tv | chase | overview
         this.build();
-        window.addEventListener("resize", () => this.engine.resize());
     }
 
-    // ---------- the scene, rebuilt when the tier changes ----------
-    build() {
-        const old = this.scene;
-        const scene = this.scene = new BABYLON.Scene(this.engine);
-        scene.clearColor = new BABYLON.Color4(0.53, 0.72, 0.95, 1);
-        scene.ambientColor = new BABYLON.Color3(0.3, 0.3, 0.3);
-        this.materials = {};
-        this.lit = this.tier !== "blocks";
-
-        // blocks: one even light from everywhere, so every face is its flat colour; the others: sky and sun
-        const hemi = new BABYLON.HemisphericLight("sky", new BABYLON.Vector3(0, 1, 0), scene);
-        hemi.intensity = this.lit ? 0.55 : 1.0;
-        hemi.groundColor = this.lit ? new BABYLON.Color3(0.35, 0.4, 0.3) : new BABYLON.Color3(1, 1, 1);
-        const sun = this.sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.45, -0.65, 0.6), scene);
-        sun.intensity = this.lit ? 1.4 : 0.0;
-        sun.position = new BABYLON.Vector3(60, 90, -80);
-        this.shadows = null;
-        if (this.lit) {
-            const size = this.tier === "high" ? 2048 : 1024;
-            const sg = this.shadows = new BABYLON.ShadowGenerator(size, sun);
-            sg.usePercentageCloserFiltering = true;
-            sg.filteringQuality = this.tier === "high" ? BABYLON.ShadowGenerator.QUALITY_HIGH
-                                                       : BABYLON.ShadowGenerator.QUALITY_LOW;
-            sg.bias = 0.0015;
-            sg.normalBias = 0.02;
-            sun.shadowMinZ = 1;
-            sun.shadowMaxZ = 400;
-            sun.autoUpdateExtends = false;
-            sun.shadowFrustumSize = 90;  // (follows the camera's target: see frame())
-            scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
-            scene.fogDensity = this.tier === "high" ? 0.0012 : 0.0018;
-            scene.fogColor = new BABYLON.Color3(0.7, 0.8, 0.95);
-        }
-        const cam = this.camera = new BABYLON.ArcRotateCamera("cam", -Math.PI / 2, 1.05, 60,
-                                                              new BABYLON.Vector3(30, 0, 40), scene);
-        cam.lowerRadiusLimit = 4;
-        cam.upperRadiusLimit = 400;
-        cam.upperBetaLimit = 1.5;
-        cam.minZ = 0.3;
-        cam.maxZ = 1200;
-        cam.wheelDeltaPercentage = 0.02;
-        cam.attachControl(this.canvas, true);
-        if (this.tier === "high") {
-            const pipe = new BABYLON.DefaultRenderingPipeline("look", true, scene, [cam]);
-            pipe.fxaaEnabled = true;
-            pipe.bloomEnabled = true;
-            pipe.bloomThreshold = 0.85;
-            pipe.bloomWeight = 0.25;
-            pipe.imageProcessing.toneMappingEnabled = false;  // (ACES greyed the sky and washed the greens)
-            pipe.imageProcessing.contrast = 1.05;
-        }
-        if (old) {
-            const track = this.trackData, karts = [...this.karts.values()].map(k => k.design);
-            old.dispose();
-            this.karts.clear();
-            this.trackMeshes = [];
-            if (track) this.setTrack(track);
-            for (const d of karts) this.addKart(d);
-        }
-    }
-
-    setTier(tier) {
-        if (!TIERS.includes(tier) || tier === this.tier) return;
-        this.tier = tier;
-        this.build();
-    }
-
-    // one material per look, cached: flat and unlit on blocks, PBR on high, Standard between
-    material(name, rgb, rough = 0.9, metal = 0.0) {
-        const key = `${name}:${rgb.join(",")}:${rough}:${metal}`;
-        let m = this.materials[key];
-        if (m) return m;
-        if (this.tier === "high") {
-            m = new BABYLON.PBRMaterial(key, this.scene);
-            m.albedoColor = col(rgb);
-            m.roughness = rough;
-            m.metallic = Math.min(metal, 0.3);  // (no environment map yet: full metal would reflect only black)
-            m.environmentIntensity = 0.6;
-        } else {
-            m = new BABYLON.StandardMaterial(key, this.scene);
-            m.diffuseColor = col(rgb);
-            m.specularColor = this.lit ? new BABYLON.Color3(0.08, 0.08, 0.08).scale(1 - rough + 0.3)
-                                       : new BABYLON.Color3(0, 0, 0);
-        }
-        m.backFaceCulling = false;
-        this.materials[key] = m;
-        return m;
+    // after build() (and again after a tier change): the track and the karts back in
+    populate(rebuild) {
+        if (!rebuild) return;
+        const track = this.trackData, karts = [...this.karts.values()].map(k => k.design);
+        this.karts.clear();
+        this.trackMeshes = [];
+        if (track) this.setTrack(track);
+        for (const d of karts) this.addKart(d);
     }
 
     // ---------- the track ----------
@@ -368,31 +272,10 @@ export class KartScene {
         });
         if (this.shadows) for (const p of parts) this.shadows.addShadowCaster(p);
         for (const p of parts) p.receiveShadows = false;
-        const label = this.makeLabel(design.name || "", colour);
+        const label = this.makeLabel(design.name || "");
         label.parent = root;
         label.position = v3(0, 0, 1.25);
         this.karts.set(id, {root, body, wheels, flame, label, design, lastYaw: 0, spin: 0});
-    }
-
-    makeLabel(text, colour) {
-        const plane = BABYLON.MeshBuilder.CreatePlane("label", {width: 2.4, height: 0.6}, this.scene);
-        const tex = new BABYLON.DynamicTexture("labeltex", {width: 384, height: 96}, this.scene, true);
-        tex.hasAlpha = true;
-        const ctx = tex.getContext();
-        ctx.clearRect(0, 0, 384, 96);
-        ctx.fillStyle = "rgba(10,12,20,0.7)";
-        ctx.fillRect(0, 0, 384, 96);
-        tex.drawText(text, null, 68, "bold 52px sans-serif", "#ffffff", null, true, true);
-        const m = new BABYLON.StandardMaterial("labelmat", this.scene);
-        m.diffuseTexture = tex;
-        m.emissiveColor = new BABYLON.Color3(1, 1, 1);
-        m.disableLighting = true;
-        m.backFaceCulling = false;
-        m.useAlphaFromDiffuseTexture = true;
-        plane.material = m;
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-        plane.isPickable = false;
-        return plane;
     }
 
     removeKart(id) {
@@ -439,10 +322,7 @@ export class KartScene {
             }
         }
         this.updateCamera(states, dt);
-        if (this.sun && this.shadows) {
-            const t = this.camera.target;
-            this.sun.position.set(t.x + 60, 90, t.z - 80);
-        }
+        this.followSun();
     }
 
     updateCamera(states, dt) {
@@ -489,44 +369,4 @@ export class KartScene {
         if (mode === "overview") this.overview();
         if (mode === "tv") { this.camera.radius = 18; this.camera.beta = 0.95; }
     }
-
-    render() {
-        this.scene.render();
-    }
-
-    gpuInfo() {
-        const gl = this.engine._gl;
-        let renderer = "";
-        try {
-            const ext = gl.getExtension("WEBGL_debug_renderer_info");
-            renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-        } catch (e) { renderer = "?"; }
-        return {webgl: this.engine.webGLVersion, renderer, webgpu: !!navigator.gpu};
-    }
-}
-
-// the normals of a mesh whose faces mostly look up (a road, a lawn): computed, then turned over as one if the
-// winding left them pointing down, so the sun lights the top
-function upwardNormals(pos, idx) {
-    const norm = [];
-    BABYLON.VertexData.ComputeNormals(pos, idx, norm);
-    let up = 0;
-    for (let i = 1; i < norm.length; i += 3) up += norm[i];
-    if (up < 0) for (let i = 0; i < norm.length; i++) norm[i] = -norm[i];
-    return norm;
-}
-
-function lerpAngle(a, b, t) {
-    let d = ((b - a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
-    return a + d * t;
-}
-
-function mulberry(seed) {  // a small seeded random, so the trees stand where they stood last time
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6D2B79F5) >>> 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
 }

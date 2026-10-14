@@ -1,0 +1,248 @@
+// Kart Lab in Club Coders Live: the binary snapshots (wire.js), the race, the places, the race controls and the
+// cameras. The teacher tabs every game shares (learners, outcomes, AI cards, rules) are teacher.js's.
+
+import {KART_FIELDS, KIND_SNAPSHOT, kindOf, unpackSnapshot} from "./wire.js";
+import {Track, TRACKS} from "./track.js";
+import {KartScene} from "./scene.js";
+
+const $ = id => document.getElementById(id);
+
+export class KartGame {
+    static detect(m) { return !!(m.rules && m.rules.tracks && m.track); }
+
+    constructor(app) {
+        this.app = app;
+        this.id = "kartlab";
+        this.title = "Kart Lab";
+        this.word = "kart";
+        this.scene = new KartScene(app.canvas, app.tier, app.engine);
+        this.scene.setTrack(new Track(TRACKS.club));
+        this.track = this.scene.track;
+        this.trackKey = "";
+        this.race = null;
+        this.mods = ["mods/track.py", "mods/rules.py", "mods/karts/<username>.py"];
+    }
+
+    welcome(m) {
+        this.setTrack(m.track);
+        const p = this.app.params;
+        if (p.get("cam")) this.scene.setMode(p.get("cam"), p.get("follow") !== null ? Number(p.get("follow")) : null);
+    }
+
+    setTrack(data) {
+        const key = JSON.stringify(data);
+        if (key === this.trackKey) return;
+        this.trackKey = key;
+        this.track = new Track(data);
+        this.scene.setTrack(this.track);
+    }
+
+    // JSON messages the core passes on; true when this game used it (the core has already stored the common parts)
+    message(m) {
+        const S = this.app.state;
+        switch (m.type) {
+            case "lesson":
+                if (m.track) this.setTrack(m.track);
+                return false;
+            case "roster":
+                this.scene.setKarts(m.karts || []);
+                this.renderPlaces();
+                return true;
+            case "race":
+                this.race = S.race = m;
+                for (const e of m.events || []) this.app.addEvent(e);
+                this.renderRace();
+                this.renderPlaces();
+                if (S.tab === "learners") this.app.renderPanel();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    binary(data, now) {
+        if (kindOf(data) !== KIND_SNAPSHOT) return;
+        const snap = unpackSnapshot(data, KART_FIELDS);
+        this.app.pushSnap(snap, now);
+        this.phaseFlags = snap.flags & 0x0F;
+    }
+
+    // the state to draw: two snapshots behind, blended between the two around that moment
+    frame(now, dt) {
+        const pair = this.app.samplePair(now);
+        const states = new Map();
+        if (pair) {
+            const {a, b, f} = pair;
+            const byId = b ? new Map(b.entities.map(e => [e.id, e])) : new Map();
+            for (const e of a.entities) {
+                const n = byId.get(e.id);
+                if (!n) { states.set(e.id, e); continue; }
+                let dy = n.yaw - e.yaw;
+                dy = ((dy + 180) % 360 + 360) % 360 - 180;
+                states.set(e.id, {...n, x: e.x + (n.x - e.x) * f, y: e.y + (n.y - e.y) * f, yaw: e.yaw + dy * f, v: e.v + (n.v - e.v) * f});
+            }
+        }
+        if (this.race && this.race.places && this.race.places.length) this.scene.leader = this.race.places[0];
+        this.scene.frame(states, dt);
+        if (pair && this.race && (this.race.phase === 1 || this.phaseFlags === 1)) this.renderCountdown();
+    }
+
+    renderCountdown() {
+        const r = this.race;
+        if (r.go_in_ms !== null && r.go_in_ms !== undefined) {
+            const left = (r.go_in_ms - (Date.now() - (r.at || Date.now()))) / 1000;
+            $("countdown").textContent = left > 0 ? Math.ceil(left) : (left > -1.5 ? "GO!" : "");
+        } else {
+            $("countdown").textContent = "";
+        }
+    }
+
+    renderRace() {
+        const r = this.race;
+        r.at = Date.now();
+        const phase = r.phase === 0 ? (r.practice ? "Practice: the track is open" : "On the grid") : r.phase === 1 ? (r.practice ? "Practice" : `Racing · ${r.laps} laps`) : "Finished";
+        $("phase").textContent = (r.paused ? "PAUSED · " : "") + phase;
+        if (r.phase !== 1) $("countdown").textContent = r.phase === 2 ? "FINISH" : "";
+        if (r.phase === 2 && r.results && !this.shownResults) {
+            this.shownResults = true;
+            const lines = r.results.map(([name, laps, t], i) => `${i + 1}. ${name}${t !== null && t !== undefined ? ` ${fmtTime(t)}` : ` (${laps} laps)`}`);
+            this.app.toast(lines.join("\n"), true, 12000);
+        }
+        if (r.phase !== 2) this.shownResults = false;
+    }
+
+    renderPlaces() {
+        const r = this.race, roster = this.app.state.roster, esc = this.app.esc;
+        if (!r || !roster) return;
+        const karts = new Map((roster.karts || []).map(k => [k.id, k]));
+        const snaps = this.app.state.snaps;
+        const latest = snaps.length ? new Map(snaps[snaps.length - 1].entities.map(e => [e.id, e])) : new Map();
+        const rows = (r.places || []).map((id, i) => {
+            const k = karts.get(id) || {name: "?", colour: [128, 128, 128]};
+            const e = latest.get(id);
+            const lap = e ? Math.min(e.lap + 1, r.laps || e.lap + 1) : "";
+            const c = (k.colour || [128, 128, 128]).map(v => Math.round(v));
+            return `<div data-id="${id}"><span class="n">${i + 1}</span><span class="sw" style="background:rgb(${c.join(",")})"></span>` +
+                   `<span>${esc(k.name)}${k.cpu ? ` <small>(cpu)</small>` : ""}</span><span class="lap">${lap !== "" ? `lap ${lap}` : ""}</span></div>`;
+        });
+        $("places").innerHTML = rows.join("") || "<div><small>No karts yet</small></div>";
+        $("places").querySelectorAll("div[data-id]").forEach(el => el.onclick = () => this.followKart(Number(el.dataset.id)));
+    }
+
+    followKart(id) {
+        const sc = this.scene;
+        if (sc.follow === id && sc.mode === "chase") sc.setMode("tv", null);
+        else sc.setMode("chase", id);
+        this.app.updatePills();
+        if (this.app.state.tab === "camera") this.app.renderPanel();
+    }
+
+    pill() {
+        const L = this.app.state.lesson;
+        return L ? `Mission ${L.lesson_number} · ${this.track ? this.track.name : L.track} · ${L.mode === "race" ? "race" : "practice"}` : "";
+    }
+
+    cameraPill() {
+        const sc = this.scene;
+        return sc.mode === "chase" ? `Camera: chasing kart ${sc.follow}` : sc.mode === "tv" ? "Camera: TV (drag to orbit, wheel to zoom)" : "Camera: overview";
+    }
+
+    tabs() { return [["controls", "Controls"], ["camera", "Camera"]]; }
+
+    // the Learners table's game columns
+    learnerHead() { return ["Kart", "Lap", "brain"]; }
+    learnerCells(p) {
+        const S = this.app.state, roster = S.roster, esc = this.app.esc;
+        const kid = roster && roster.mine ? roster.mine[p.name] : null;
+        const snaps = S.snaps;
+        const e = kid !== null && kid !== undefined && snaps.length ? snaps[snaps.length - 1].entities.find(x => x.id === kid) : null;
+        const b = ((this.race && this.race.brains) || {})[p.name];
+        return [esc((p.design && p.design.name) || ""), e ? e.lap : "",
+                `${b ? (b.on ? "<span class='ok'>driving</span>" : b.has ? "loaded" : "") : ""}${b && b.error ? " <span class='bad'>error</span>" : ""}`];
+    }
+
+    renderTab(tab, body) {
+        const app = this.app, S = app.state, L = S.lesson, R = S.rules, send = app.send, esc = app.esc;
+        if (tab === "controls") {
+            if (!L || !R) { body.innerHTML = "<p class='note'>Waiting for the lesson…</p>"; return; }
+            const tracks = Object.entries(R.tracks || {}).map(([k, n]) => `<option value="${k}" ${k === L.track ? "selected" : ""}>${esc(n)}</option>`).join("");
+            const levels = (R.cpu_levels || []).map(l => `<option ${l === L.cpu_level ? "selected" : ""}>${l}</option>`).join("");
+            const racing = this.race && this.race.phase === 1;
+            const T = S.tournament;
+            body.innerHTML = `
+              ${app.missionRow()}
+              <h2>The race</h2>
+              <div class="row">
+                <button id="btn-start" class="go">${L.mode === "practice" ? "START A RACE" : racing ? "RESTART" : "START"}</button>
+                <button id="btn-grid">TO THE GRID</button>
+                <button id="btn-pause" class="${this.race && this.race.paused ? "on" : ""}">${this.race && this.race.paused ? "RESUME" : "PAUSE"}</button>
+              </div>
+              <div class="note">${L.mode === "practice" ? "Practice: the track is open and laps are timed. START A RACE closes it until GO." : "Race mode: START begins the countdown; TO THE GRID lines everyone up again."}</div>
+              <div class="row"><label>Mode</label>
+                <button data-mode="practice" class="${L.mode !== "race" ? "on" : ""}">Practice</button>
+                <button data-mode="race" class="${L.mode === "race" ? "on" : ""}">Race</button></div>
+              <div class="row"><label>Grand prix</label>
+                ${T ? `<span>${esc(T.title || T.label || "running")}</span> <button id="btn-gp-stop" class="stop">END IT</button>`
+                    : `<select id="gp-races"><option>2</option><option selected>3</option><option>4</option><option>5</option></select> races <button id="btn-gp" class="go">START THE GRAND PRIX</button>`}
+              </div>
+              ${T && T.standings ? `<table>${T.standings.map(([n, pts], i) => `<tr><td>${i + 1}.</td><td>${esc(n)}</td><td class="num">${pts} pts</td></tr>`).join("")}</table>
+                 ${T.champion ? `<p class="ok">Champion: ${esc(T.champion)}</p>` : ""}` : ""}
+              <h2>The track</h2>
+              <div class="row"><label>Track</label><select id="sel-track">${tracks}</select></div>
+              <div class="row"><label>Laps</label><select id="sel-laps">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<option ${n === L.laps ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+              <div class="row"><label>Computer karts</label><select id="sel-cpu">${[0, 1, 2, 3, 4, 5, 6, 7].map(n => `<option ${n === L.cpu_karts ? "selected" : ""}>${n}</option>`).join("")}</select>
+                <select id="sel-level">${levels}</select></div>
+              <div class="row"><label>Teacher's kart</label><button id="btn-tkart" class="${L.teacher_kart ? "on" : ""}">${L.teacher_kart ? "On the grid" : "Not racing"}</button></div>
+              <div class="row"><label>Designs</label><button id="btn-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>
+              ${app.restartRow()}`;
+            const lessonSend = patch => send({type: "lesson", lesson: patch});
+            app.wireMissionRow(body);
+            $("btn-start").onclick = () => send({type: "start"});
+            $("btn-grid").onclick = () => send({type: "grid"});
+            $("btn-pause").onclick = () => send({type: "pause"});
+            body.querySelectorAll("button[data-mode]").forEach(b => b.onclick = () => lessonSend({mode: b.dataset.mode}));
+            $("sel-track").onchange = e => lessonSend({track: e.target.value});
+            $("sel-laps").onchange = e => lessonSend({laps: Number(e.target.value)});
+            $("sel-cpu").onchange = e => lessonSend({cpu_karts: Number(e.target.value)});
+            $("sel-level").onchange = e => lessonSend({cpu_level: e.target.value});
+            $("btn-tkart").onclick = () => lessonSend({teacher_kart: !L.teacher_kart});
+            $("btn-lock").onclick = () => lessonSend({designs_locked: !L.designs_locked});
+            if ($("btn-gp")) $("btn-gp").onclick = () => send({type: "tournament", start: true, races: Number($("gp-races").value)});
+            if ($("btn-gp-stop")) $("btn-gp-stop").onclick = () => send({type: "tournament", start: false});
+            app.wireRestartRow(body);
+            return true;
+        }
+        if (tab === "camera") {
+            const sc = this.scene;
+            const karts = (S.roster && S.roster.karts) || [];
+            body.innerHTML = `
+              <h2>Camera</h2>
+              <div class="row"><button data-cam="tv" class="${sc.mode === "tv" ? "on" : ""}">TV</button>
+                <button data-cam="overview" class="${sc.mode === "overview" ? "on" : ""}">Whole track</button></div>
+              <div class="note">TV follows the leader (or the kart you pick below); drag to orbit, wheel to zoom. Chase sits behind one kart.</div>
+              <h2>Chase a kart</h2>
+              <div class="row">${karts.map(k => `<button data-follow="${k.id}" class="${sc.mode === "chase" && sc.follow === k.id ? "on" : ""}">${esc(k.name)}</button>`).join("") || "<span class='note'>No karts yet</span>"}</div>
+              <h2>Lap times</h2>
+              <table>${Object.entries((this.race && this.race.lap_times) || {}).map(([kid, times]) => {
+                  const k = karts.find(x => String(x.id) === kid);
+                  const t = Array.isArray(times) ? times : [];
+                  return `<tr><td>${esc(k ? k.name : kid)}</td><td class="num">${t.length ? fmtTime(Math.min(...t)) : ""}</td><td>${t.map(fmtTime).join(", ")}</td></tr>`;
+              }).join("") || "<tr><td class='note'>No laps yet</td></tr>"}</table>`;
+            body.querySelectorAll("button[data-cam]").forEach(b => b.onclick = () => { sc.setMode(b.dataset.cam, null); app.updatePills(); app.renderPanel(); });
+            body.querySelectorAll("button[data-follow]").forEach(b => b.onclick = () => this.followKart(Number(b.dataset.follow)));
+            return true;
+        }
+        return false;
+    }
+
+    dispose() {
+        this.scene.dispose();
+        $("places").innerHTML = "";
+        $("countdown").textContent = $("phase").textContent = "";
+    }
+}
+
+export function fmtTime(t) {
+    const m = Math.floor(t / 60), s = (t - m * 60).toFixed(2).padStart(5, "0");
+    return m ? `${m}:${s}` : `${s}s`;
+}

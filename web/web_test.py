@@ -21,6 +21,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +31,14 @@ KART = next((p for p in (os.path.join(os.path.dirname(HERE), "games", "kartlab")
                          os.path.join(os.path.dirname(os.path.dirname(HERE)), "kart"))
              if os.path.isdir(p)), None)
 DESK = os.path.join(os.path.dirname(HERE), "desk")  # (club-coders/desk, or desk/ in the public repository)
+
+
+def game_folder(public, dev):  # (games/<game> in the public repository, the game's own folder in the working one)
+    return next((p for p in (os.path.join(os.path.dirname(HERE), "games", public),
+                             os.path.join(os.path.dirname(os.path.dirname(HERE)), dev)) if os.path.isdir(p)), None)
+
+
+ROBOT, FIGHT = game_folder("robotlab", "shared-world-demo"), game_folder("fightlab", "BeatEmUp")
 DESK_PASSWORD = "web-test-teacher-password"
 BROWSERS = [r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -79,6 +88,39 @@ def stop(proc):
         proc.wait(5)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+
+class Learner:
+    """A learner's window, scripted: logs in with the laptop server's learner code (a new name makes a profile)
+    and keeps reading, so the teacher sees someone in the class."""
+
+    def __init__(self, port, name):
+        from websockets.sync.client import connect
+        self.ws = connect(f"ws://127.0.0.1:{port}", max_size=None, open_timeout=20)
+        self.ws.send(json.dumps({"type": "hello", "name": name, "code": "CLUB42", "password": name + "-pass-1",
+                                 "version": ""}))
+        self.notes = []
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def read(self):
+        try:
+            while True:
+                m = self.ws.recv()
+                if isinstance(m, str):
+                    t = json.loads(m)
+                    if t.get("type") in ("notice", "ai_card_result", "design_result"):
+                        self.notes.append(t)
+        except Exception:
+            pass
+
+    def send(self, msg):
+        self.ws.send(json.dumps(msg))
+
+    def close(self):
+        try:
+            self.ws.close()
+        except Exception:
+            pass
 
 
 class Chrome:
@@ -190,7 +232,7 @@ def main():
 
         def wrong_password():
             chrome.open(base)
-            chrome.wait_for("!!window.__state && !!window.__state.scene && !document.getElementById('deskform').hidden",
+            chrome.wait_for("!!window.__state && !!window.__state.engine && !document.getElementById('deskform').hidden",
                             20, "the page's script and the teacher password box")
             chrome.js("document.getElementById('deskpass').value = 'not-the-password'; document.getElementById('connect').click()")
             text = chrome.wait_for("document.getElementById('status').textContent.includes('teacher password') && "
@@ -251,7 +293,7 @@ def main():
         def logged_in():
             chrome.wait_for("window.__state && window.__state.connected === true", 30, "the teacher's login")
             chrome.wait_for("window.__state.snaps.length > 10 && !!window.__state.roster", 20, "snapshots and the roster")
-            assert chrome.js("window.__state.game") == "kartlab"
+            assert chrome.js("window.__state.game.id") == "kartlab"
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
         check("The page logs in as the teacher and receives snapshots and the roster", logged_in)
@@ -281,7 +323,7 @@ def main():
             chrome.js("document.querySelector('button[data-mission=\"3\"]').click()")
             chrome.wait_for("window.__state.lesson.lesson_number === 3", 10, "mission 3")
             chrome.js("{ const s = document.getElementById('sel-track'); s.value = 'oval'; s.dispatchEvent(new Event('change')); }")
-            chrome.wait_for("window.__state.track && window.__state.track.name === 'Test Oval'", 10, "the oval")
+            chrome.wait_for("window.__state.game.track && window.__state.game.track.name === 'Test Oval'", 10, "the oval")
             chrome.wait_for("window.__state.scene.track && window.__state.scene.track.name === 'Test Oval'", 10, "the oval drawn")
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
@@ -382,6 +424,150 @@ def main():
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
         check("A class server's code still works (laptop test servers)", code_login)
+
+        def no_errors():
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+
+        def tab(name):
+            chrome.js("document.getElementById('panel').classList.add('open');"
+                      f"document.querySelector('#panelhead button[data-tab=\"{name}\"]').click()")
+            time.sleep(0.3)
+
+        game_env = {k: v for k, v in env.items() if not k.startswith("CLUBCODERS_")}
+        game_env.update({"TEACHER_CODE": "TEACH99", "JOIN_CODE": "CLUB42"})
+        servers = {}
+
+        def start_server(key, folder, script, port, data_var):
+            servers[key] = subprocess.Popen([sys.executable, script, "--port", str(port)], cwd=folder,
+                                            env={**game_env, data_var: os.path.join(work, key)},
+                                            stdout=open(os.path.join(work, key + ".log"), "a"), stderr=subprocess.STDOUT)
+            if not wait_port(port, 60):
+                raise RuntimeError(f"the {key} server didn't start")
+
+        def open_game(port, game, extra=""):
+            chrome.call("Page.navigate", url="about:blank")
+            time.sleep(1.0)
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{port}"
+                                             f"&code=TEACH99&autoconnect=1&auto=0&tier=low{extra}")
+            chrome.wait_for("window.__state && window.__state.connected === true && !!window.__state.game", 30, f"{game}'s login")
+            assert chrome.js("window.__state.game.id") == game, chrome.js("window.__state.game.id")
+
+        robot_port = free_port()
+
+        def robot_lab():
+            if ROBOT is None:
+                print("    (Robot Lab isn't beside this folder: not tested)")
+                return
+            start_server("robotlab", ROBOT, "lab_server.py", robot_port, "ROBOTLAB_DATA")
+            servers["amy"] = Learner(robot_port, "amy")
+            open_game(robot_port, "robotlab", "&cam=overview")
+            chrome.wait_for("window.__state.snaps.length > 10 && window.__state.scene.robots.size >= 3", 30,
+                            "the robots (the teacher's, amy's and the computer's)")
+            chrome.wait_for("window.__state.classList.some(p => p.name === 'amy')", 10, "amy in the class")
+            for tier in ("blocks", "high", "low"):
+                chrome.js(f"window.__state.scene.setTier('{tier}')")
+                time.sleep(0.8)
+                assert chrome.js("window.__state.scene.robots.size") >= 3, f"robots lost on {tier}"
+            time.sleep(1.0)
+            chrome.screenshot(os.path.join(work, "robotlab.png"))
+            no_errors()
+        check("Robot Lab: the arena and the robots are drawn from its snapshots, on every tier", robot_lab)
+
+        def shared_tabs():
+            if "amy" not in servers:
+                return
+            tab("rules")
+            chrome.js("document.querySelector('input[data-tool=\"code_view\"]').click()")
+            chrome.wait_for("window.__state.lesson.tools.code_view === false", 10, "code view switched off")
+            chrome.js("document.querySelector('input[data-haz=\"saws\"]').click()")
+            chrome.wait_for("window.__state.lesson.hazards.saws === true", 10, "the saws switched on")
+            tab("outcomes")
+            chrome.js("document.getElementById('oa-title').value = 'Explain your robot to a partner';"
+                      "document.getElementById('oa-add').click()")
+            added = chrome.wait_for("Object.keys(window.__state.teaching.edited['1'] || {}).find(k => k.startsWith('1t'))", 10,
+                                    "the added objective")
+            chrome.wait_for(f"!!document.querySelector('button[data-tick=\"{added}\"][data-who=\"amy\"]')", 10, "its tick button")
+            chrome.js(f"document.querySelector('button[data-tick=\"{added}\"][data-who=\"amy\"]').click()")
+            chrome.wait_for(f"window.__state.teaching.grid.amy.missions.includes('{added}')", 10,
+                            "amy ticked for the teacher's own objective")
+            chrome.js("document.getElementById('btn-missions-export').click()")
+            chrome.wait_for("(window.__downloads || []).some(d => d.name.startsWith('missions_'))", 10, "the missions file")
+            chrome.js("window.__app.send({type: 'missions_import', data: JSON.parse(window.__downloads.find(d => d.name.startsWith('missions_')).text)})")
+            time.sleep(2.5)  # (an import used to break every teaching update after it)
+            assert chrome.js("window.__state.connected && Date.now() - window.__state.teachingAt < 2000"), "teaching stopped after an import"
+            chrome.js("document.getElementById('btn-export-csv').click()")
+            csv = chrome.wait_for("((window.__downloads || []).find(d => d.name.startsWith('evidence_')) || {}).text", 10, "the evidence CSV")
+            assert "amy" in csv and added in csv, csv[:300]
+            servers["amy"].send({"type": "ai_card", "card": {"goal": "Make my robot bright green", "variables": "colour = [0, 255, 0]",
+                                                            "test": "Build it then drive round the arena and look at it",
+                                                            "predict": "It turns green", "privacy": True, "review": True,
+                                                            "credit": True, "target": "robot"}})
+            tab("cards")
+            chrome.wait_for("(window.__state.teaching.cards || []).length >= 1 && !!document.querySelector('button[data-cst=\"rejected\"]')",
+                            10, "amy's AI card on the page")
+            chrome.js("document.querySelector('button[data-cst=\"rejected\"]').click()")
+            chrome.wait_for("window.__state.teaching.cards[0].status === 'rejected'", 10, "the card sent back")
+            tab("learners")
+            chrome.js("document.querySelector('button[data-pick=\"amy\"]').click()")
+            chrome.wait_for("window.__state.viewing && window.__state.viewing.for === 'amy' && document.getElementById('panelbody').textContent.includes('Mission')",
+                            10, "amy's mission")
+            chrome.js("document.querySelector('button[data-sub=\"build\"]').click()")
+            time.sleep(0.3)
+            chrome.js("document.getElementById('dz-name').value = 'Zap'; document.getElementById('dz-build').click()")
+            chrome.wait_for("window.__state.classList.some(p => p.name === 'amy' && p.design.name === 'Zap')", 10, "amy's robot rebuilt as Zap")
+            for t in ("warnings", "camera", "graphics", "about", "controls"):
+                tab(t)
+            chrome.screenshot(os.path.join(work, "robotlab_panel.png"))
+            no_errors()
+        check("The shared teacher tabs: a tool and a hazard, an objective added and ticked, missions out and back in, "
+              "the evidence CSV, an AI card sent back, a learner's mission and robot", shared_tabs)
+
+        def restart():
+            if "robotlab" not in servers:
+                return
+            tab("controls")
+            chrome.js("document.getElementById('btn-restart-server').click()")
+            chrome.js("document.getElementById('btn-restart-server').click()")
+            end = time.time() + 15
+            while servers["robotlab"].poll() is None and time.time() < end:
+                time.sleep(0.2)
+            assert servers["robotlab"].poll() is not None, "the server didn't restart"
+            start_server("robotlab", ROBOT, "lab_server.py", robot_port, "ROBOTLAB_DATA")  # (as its .bat would)
+            chrome.wait_for("window.__state.connected === true && window.__state.reconnects === 0 && window.__state.snaps.length > 5", 40,
+                            "the page reconnecting by itself")
+            no_errors()
+        check("Restart server (pressed twice): the page reconnects by itself", restart)
+
+        def fight_lab():
+            if FIGHT is None:
+                print("    (Fight Lab isn't beside this folder: not tested)")
+                return
+            port = free_port()
+            start_server("fightlab", FIGHT, "fight_server.py", port, "FIGHTLAB_DATA")
+            servers["ben"] = Learner(port, "ben")
+            open_game(port, "fightlab", "&cam=tv")
+            chrome.wait_for("window.__state.snaps.length > 10 && window.__state.scene.fighters.size >= 2", 30, "the fighters")
+            chrome.wait_for("[...window.__state.scene.fighters.values()].some(f => Math.abs(f.n.rs.rotation.x) > 0.2)", 10,
+                            "a fighter in its stance (posed)")
+            for tier in ("blocks", "high", "low"):
+                chrome.js(f"window.__state.scene.setTier('{tier}')")
+                time.sleep(0.8)
+                assert chrome.js("window.__state.scene.fighters.size") >= 2, f"fighters lost on {tier}"
+            tab("controls")
+            chrome.js("document.querySelector('button[data-mode=\"battle\"]').click()")
+            chrome.wait_for("window.__state.lesson.mode === 'battle'", 10, "battle mode")
+            tab("matches")
+            tab("rules")
+            chrome.js("document.querySelector('input[data-haz=\"fire_jets\"]').click()")
+            chrome.wait_for("window.__state.lesson.hazards.fire_jets === true", 10, "the fire jets")
+            tab("camera")
+            time.sleep(2.0)
+            chrome.screenshot(os.path.join(work, "fightlab.png"))
+            no_errors()
+        check("Fight Lab: the rings and the posed fighters are drawn, and its controls reach the server", fight_lab)
+        for key, proc in servers.items():
+            proc.close() if isinstance(proc, Learner) else stop(proc)
 
         def lessons_current():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_lessons.py"), "--check"], capture_output=True, text=True)

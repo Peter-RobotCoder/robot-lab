@@ -63,7 +63,8 @@ teacher password (the app's Teacher screen one). Since 1.9.4 it is the whole Tea
 Launch and Stop, this session's notes, and Records, printed (or saved as PDFs) from the browser. Watching a class,
 the desk gives it a ticket; it draws the race from the same snapshots the windows get, carries the lesson controls
 and shows how every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
-Kart Lab teacher window on the laptop first. Kart Lab classes are drawn; Robot Lab and Fight Lab follow.
+Kart Lab teacher window on the laptop first. Since 1.9.5 it draws all three games and has every teacher tab (learners, outcomes, AI cards, rules, warnings,
+Restart server); sending an AI card to Claude still happens in the app on your laptop.
 `robotlab-update` installs the new Caddy settings with the release.
 
 ## Live code updates (no new download)

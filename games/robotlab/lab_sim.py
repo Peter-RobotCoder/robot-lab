@@ -1778,6 +1778,23 @@ class Arena:
             self.impacts.append(((end.x, end.y, max(0.1, end.z)), 4.0, "laser"))
             self.events.append((now, f"{a.name}'s laser pushes {v.name}"))
 
+    def flame_pit_burn(self, now):
+        """Flame pit (user mod): the flames climb while a robot is down in the pit, and a robot that has been in
+        for FLAME_PIT_SECONDS is deactivated. With nobody in, they sink back to the baseline the teacher set.
+        (Put back: a later change took it out while step() still calls it, which stopped the server.)"""
+        inside = [r for r in self.robots if not r.knocked_out and self.in_flame_pit(r)]
+        self.flame_pit_since = {r: t for r, t in self.flame_pit_since.items() if r in inside}
+        longest = 0.0
+        for r in inside:
+            if r not in self.flame_pit_since:
+                self.flame_pit_since[r] = now
+                self.events.append((now, f"{r.name} is in the flame pit!"))
+            longest = max(longest, now - self.flame_pit_since[r])
+            if now - self.flame_pit_since[r] >= FLAME_PIT_SECONDS and not r.house:  # (Resident Robots are put back)
+                self.knock_out(r, now, f"{r.name} is deactivated by the flame pit!")
+        want = self.flame_pit_cm / 100 * (1 + (FLAME_PIT_RISE - 1) * min(1.0, longest / FLAME_PIT_SECONDS))
+        self.flame_height += (want - self.flame_height) * 0.1
+
     def flame_hits(self, now):
         """Flame throwers burn anything in a cone in front of the nozzle (FLAME_THROWER_POWER x FLAME_THROWER_BURN
         damage, once every FLAME_THROWER_EVERY seconds), and melt its tyres: it slides for FLAME_THROWER_MELT seconds."""

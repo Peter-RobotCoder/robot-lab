@@ -150,14 +150,27 @@ class Teaching:
         self.server.use_mission_settings()  # (then what the teacher saved for this mission, if anything)
 
     # ---------- missions ----------
+    def mission_info(self, mid):
+        """(lesson, title, text, outcomes, check) for a built-in mission or an objective the teacher added (CHANGE
+        130: those are teacher-checked, with no outcomes); an id that has gone (an added one taken out) still reads."""
+        if mid in self.g.missions.MISSIONS:
+            return self.g.missions.MISSIONS[mid]
+        added = self.mission_edits()["added"].get(mid)
+        if added:
+            return (added[0], added[1], added[2], [], "teacher")
+        return (0, str(mid), "", [], "teacher")
+
+    def known_mission(self, mid):
+        return mid in self.g.missions.MISSIONS or mid in self.mission_edits()["added"]
+
     def complete(self, name, mission, detail, by_teacher=False):
         r = self.record(name)
         if mission in r.done:
             return False
-        if not by_teacher and self.g.missions.MISSIONS[mission][0] != self.lesson_number:
+        if not by_teacher and self.mission_info(mission)[0] != self.lesson_number:
             return False  # missions count in their own lesson, so evidence matches the plan
         r.done[mission] = {"time": now_text(), "detail": detail}
-        title = self.g.missions.MISSIONS[mission][1]
+        title = self.mission_info(mission)[1]
         world = self.g.world(self.server)
         world.events.append((world.time, f"{name} completed: {title}"))
         self.save()
@@ -315,7 +328,7 @@ class Teaching:
                     text = str(e)
                 return [(p.ws, {"type": "notice", "text": text})] + self.teacher_update()
             if kind == "tick":
-                if m.get("mission") in self.g.missions.MISSIONS and m.get("learner"):
+                if isinstance(m.get("mission"), str) and self.known_mission(m["mission"]) and m.get("learner"):
                     self.complete(m["learner"], m["mission"], "Checked by the teacher", by_teacher=True)
                 return self.teacher_update() + self.learner_updates()
             if kind == "card_status":
@@ -365,7 +378,8 @@ class Teaching:
 
     # ---------- AI request cards ----------
     def submit_card(self, p, card):
-        target = card.get("target") if card.get("target") in self.g.missions.AI_TARGETS else "robot"
+        targets = self.g.missions.AI_TARGETS
+        target = card.get("target") if card.get("target") in targets else next(iter(targets))
         card = {k: str(card.get(k, ""))[:2000] for k in ("goal", "variables", "test", "predict")} | \
                {k: bool(card.get(k)) for k in ("privacy", "review", "credit")} | {"target": target}
         problems, tips = self.g.missions.check_ai_card(card)
@@ -430,14 +444,15 @@ class Teaching:
     def card_data(self, name):
         """A learner's own card: the outcomes they've shown so far in this game, and what they did each day."""
         done = self.record(name).done
-        outcomes = {o: sum(1 for mid in done if o in self.g.missions.MISSIONS[mid][3]) for o in self.g.missions.OUTCOMES}
+        outcomes = {o: sum(1 for mid in done if o in self.mission_info(mid)[3]) for o in self.g.missions.OUTCOMES}
         days = {}
         for mid, info in done.items():
-            if mid not in self.g.missions.MISSIONS:
+            if not self.known_mission(mid):
                 continue
+            m_lesson, m_title, _, m_outcomes, _ = self.mission_info(mid)
             day = str(info.get("time", ""))[:10] or "earlier"
-            days.setdefault(day, []).append({"id": mid, "title": self.g.missions.MISSIONS[mid][1], "outcomes": self.g.missions.MISSIONS[mid][3],
-                                             "lesson": self.g.missions.MISSIONS[mid][0], "time": info.get("time", ""),
+            days.setdefault(day, []).append({"id": mid, "title": m_title, "outcomes": m_outcomes,
+                                             "lesson": m_lesson, "time": info.get("time", ""),
                                              "detail": str(info.get("detail", ""))[:160]})  # (what exactly: CHANGE 96)
         history = [{"date": day, "missions": sorted(ms, key=lambda m: m["time"])} for day, ms in sorted(days.items(),
                                                                                                         reverse=True)]
@@ -448,9 +463,9 @@ class Teaching:
         (missions and their outcomes) since it started, and the AI cards handled."""
         done = {}
         for name, r in self.records.items():
-            new = {mid: {"time": info.get("time", ""), "detail": info.get("detail", ""), "title": self.g.missions.MISSIONS[mid][1],
-                         "outcomes": self.g.missions.MISSIONS[mid][3], "check": self.g.missions.MISSIONS[mid][4]}
-                   for mid, info in r.done.items() if mid in self.g.missions.MISSIONS and str(info.get("time", "")) >= since}
+            new = {mid: {"time": info.get("time", ""), "detail": info.get("detail", ""), "title": self.mission_info(mid)[1],
+                         "outcomes": list(self.mission_info(mid)[3]), "check": self.mission_info(mid)[4]}
+                   for mid, info in r.done.items() if self.known_mission(mid) and str(info.get("time", "")) >= since}
             if new:
                 done[name] = new
         cards = [{"id": c["id"], "learner": c["learner"], "status": c["status"], "time": c["time"],
@@ -468,7 +483,7 @@ class Teaching:
         for n in names:
             done = self.record(n).done
             grid[n] = {"missions": sorted(done),
-                       "outcomes": {o: sum(1 for mid in done if o in self.g.missions.MISSIONS[mid][3]) for o in self.g.missions.OUTCOMES}}
+                       "outcomes": {o: sum(1 for mid in done if o in self.mission_info(mid)[3]) for o in self.g.missions.OUTCOMES}}
         return [(t.ws, {"type": "teaching", "lesson": self.lesson_number, "grid": grid, "cards": self.cards,
                         "accounts": self.accounts,
                         "outcomes": {k: v[:2] for k, v in self.g.missions.OUTCOMES.items()},
@@ -588,19 +603,22 @@ class Teaching:
         """Every mission as the learners see it, as a pretty-printed JSON file the teacher can edit."""
         out = {}
         for n, lesson in self.g.missions.LESSONS.items():
+            hidden = self.mission_edits()["hidden"]
             out[str(n)] = {"title": lesson["title"],
                            "objectives": {k: {"title": v[1], "text": v[2], "outcomes": list(v[3]), "check": v[4]}
-                                          for k, v in self.objectives(n).items()}}
+                                          | ({"hidden": True} if k in hidden else {})
+                                          for k, v in self.objectives(n, everything=True).items()}}
         return json.dumps({"_how": "Edit title and text (outcomes and check are information). Add an objective "
-                                   "as a new id under a mission; delete one to take it out. Then IMPORT in the "
-                                   "Outcomes tab.", "missions": out}, indent=2, ensure_ascii=False)
+                                   "as a new id under a mission; delete one to take it out; \"hidden\": true keeps "
+                                   "one from the learners for now. Then IMPORT in the Outcomes tab.", "missions": out},
+                          indent=2, ensure_ascii=False)
 
     def import_missions(self, data):
         """The teacher's edited file back in: returns a message for the teacher."""
         missions = data.get("missions") if isinstance(data, dict) else None
         if not isinstance(missions, dict):
             return "That file has no missions in it."
-        e = {"changed": {}, "removed": [], "added": {}}
+        e = {"changed": {}, "removed": [], "added": {}, "hidden": []}  # (no "hidden" key broke every update after)
         changed = added = removed = 0
         for n_text, lesson in missions.items():
             try:
@@ -620,6 +638,8 @@ class Teaching:
                     continue
                 title = tidy_words(o.get("title", ""), 120)
                 text = tidy_words(o.get("text", ""), 4000)
+                if o.get("hidden") is True:
+                    e["hidden"].append(k[:12])
                 if k in builtin:
                     if (title, text) != (builtin[k][1], builtin[k][2]):
                         e["changed"][k] = {"title": title, "text": text}
@@ -765,7 +785,7 @@ class Teaching:
             w.writerow(["Learner", "Mission", "Objective", "Title", "Outcomes", "Curriculum", "When", "Evidence"])
             for n, r in sorted(self.records.items()):
                 for mid, info in sorted(r.done.items()):
-                    lesson, title, _, outcomes, _ = self.g.missions.MISSIONS[mid]
+                    lesson, title, _, outcomes, _ = self.mission_info(mid)
                     w.writerow([n, lesson, mid, title, " ".join(outcomes),
                                 " || ".join(self.g.missions.OUTCOMES[o][2] for o in outcomes), info["time"], info["detail"]])
         return path
