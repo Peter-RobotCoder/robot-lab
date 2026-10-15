@@ -12,11 +12,16 @@
 // number; on the VPS the page reads it from /live/version).
 
 import {TIERS, pageEngine, engineInfo, setSkyData} from "./base3d.js";
-import {DeskLink, renderDesk} from "./desk.js";
+import {DeskLink, LearnerLink, renderDesk} from "./desk.js";
 import {KartGame} from "./kart.js";
 import {RobotGame} from "./robot.js";
 import {FightGame} from "./fight.js";
-import {TEACHER_TABS, renderTeacherTab, missionRow, wireMissionRow, restartRow, wireRestartRow, download, esc} from "./teacher.js";
+import {TEACHER_TABS, renderTeacherTab, missionRow, wireMissionRow, restartRow, wireRestartRow, download, esc, twice, claudeChanged} from "./teacher.js";
+import {LEARNER_TABS, renderLearnerTab, uploadBrain} from "./learner.js";
+import {setupCodePanel, toggleCode, renderCode, designResult} from "./garage.js";
+import {Keys, Controller} from "./play.js";
+import {Sound, SETTINGS_ROWS, MUSIC, HAS_MUSIC} from "./sound.js";
+import {hideHud} from "./hud.js";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -79,7 +84,7 @@ function deskLogin() {
             if (first) {
                 $("deskpass").value = "";
                 try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({id: "teacher", password})); } catch (e) { /* not offered */ }
-                try { localStorage.setItem("mode", "desk"); } catch (e) { /* private window */ }
+                try { localStorage.setItem("mode", "teacher"); } catch (e) { /* private window */ }
                 setStatus("");
                 showDesk();
                 if (params.get("game")) watch(params.get("game"));
@@ -87,6 +92,7 @@ function deskLogin() {
             updateDeskButton();
         },
         changed: () => { if (deskShown()) drawDesk(); updateDeskButton(); },
+        claude: () => claudeChanged(appApi),  // (Claude for the browser said something: CHANGE 136)
         message: (text, ok) => { state.deskUi.message = {text, ok}; if (deskShown()) drawDesk(); else if (!ok) toast(text); },
         closed: text => {
             state.desk = null;
@@ -97,6 +103,76 @@ function deskLogin() {
             setStatus(text);
         },
     });
+}
+
+// A learner's login (CHANGE 134): the desk checks the username and password (a starter one is changed first), then
+// says to wait or gives the game's address and a ticket; the page opens the game, and goes back to waiting after it
+function learnerLogin() {
+    const name = $("lname").value.trim(), password = $("lpass").value;
+    if (!name || !password) return setStatus("Your username and password are needed.");
+    setStatus("Logging in…", true);
+    if (state.learnerLink) state.learnerLink.close();
+    const link = state.learnerLink = new LearnerLink(deskUrl(), name, password, {
+        changePassword: () => {
+            showLoginPart("newpass");
+            setStatus("Choose your own password to go on.", true);
+        },
+        waiting: text => {
+            try { localStorage.setItem("mode", "learner"); localStorage.setItem("lname", link.name); } catch (e) { /* private window */ }
+            $("lpass").value = "";
+            if (state.ws && state.connected) return;  // (already playing: the desk's word is for later)
+            showLogin();
+            showLoginPart("wait");
+            $("waittext").textContent = `Hello ${link.name}. ${text}`;
+            setStatus("");
+        },
+        go: go => {
+            $("lpass").value = "";
+            state.liveId = go.live_id;
+            state.ticket = {game: go.game, address: go.address, ticket: go.ticket};
+            if (state.ws) dropView();
+            $("waittext").textContent = "Opening the game…";
+            connect(go.address, {ticket: go.ticket, name: link.name});
+        },
+        message: text => setStatus(text, /changed/i.test(text)),
+        closed: text => {
+            state.learnerLink = null;
+            dropView();
+            showLogin();
+            showLoginPart("form");
+            setStatus(text);
+        },
+    });
+}
+
+function setNewPassword() {
+    const a = $("npass").value, b = $("npass2").value;
+    if (a.length < 6) return setStatus("At least 6 characters, please.");
+    if (a !== b) return setStatus("The two passwords aren't the same.");
+    $("npass").value = $("npass2").value = "";
+    state.learnerLink.setPassword(a);
+    setStatus("Saving your password…", true);
+}
+
+// which part of the login card shows: the learner's form, the new password, waiting, or the teacher's forms
+function showLoginPart(part) {
+    const learner = state.mode === "learner";
+    $("learnerform").hidden = !(learner && !state.codeMode && part === "form");
+    $("newpassform").hidden = part !== "newpass";
+    $("waitbox").hidden = part !== "wait";
+    $("deskform").hidden = !(!learner && !state.codeMode && part === "form");
+    $("codeform").hidden = !(state.codeMode && part === "form");
+    $("connect").hidden = part === "wait";
+    $("connect").textContent = part === "newpass" ? "SAVE MY PASSWORD" : "LOG IN";
+    $("modetabs").hidden = part !== "form";
+    state.loginPart = part;
+}
+
+function setMode(mode) {
+    state.mode = mode;
+    $("modetabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+    showLoginPart("form");
+    setStatus("");
 }
 
 const DRAWN = new Set(["kartlab", "robotlab", "fightlab"]);  // the games this page draws
@@ -170,15 +246,16 @@ function deskLogout() {
 }
 
 function login() {
+    if (state.loginPart === "newpass") return setNewPassword();
     if (state.codeMode) return connect();
+    if (state.mode === "learner") return learnerLogin();
     return deskLogin();
 }
 
 function setCodeMode(on) {
     state.codeMode = on;
-    $("codeform").hidden = !on;
-    $("deskform").hidden = on;
-    $("switchmode").textContent = on ? "Use the teacher password instead" : "Use a class server's code instead";
+    $("switchmode").textContent = on ? "Log in through the club's desk instead" : "Use a class server's code instead";
+    showLoginPart("form");
     setStatus("");
 }
 
@@ -203,7 +280,7 @@ function connect(address = null, how = null) {
     state.offset = state.lastSeq = null;
     ws.onopen = () => {
         const hello = how && how.ticket ? {type: "hello", name, ticket: how.ticket, version: state.version}
-                                        : {type: "hello", name, code, version: state.version};
+                                        : {type: "hello", name, code, version: state.version, password: $("cpass").value};
         ws.send(JSON.stringify(hello));
         setStatus("Logging in…", true);
     };
@@ -215,11 +292,19 @@ function connect(address = null, how = null) {
         state.connected = false;
         state.ws = null;
         state.leaving = false;
+        renderCode(appApi);
         if (!left && was && !(ev.code >= 4000 && ev.code < 4100) && state.reconnects < 30) {  // (a restart or the Wi-Fi)
             state.reconnects++;
             toast(state.expectRestart && Date.now() - state.expectRestart < 60000 ? "The class server is restarting: reconnecting…"
                                                                                 : "Lost the class: reconnecting…", false, 4000);
             setTimeout(reconnect, Math.min(5000, 1000 + 500 * state.reconnects));
+            return;
+        }
+        if (state.learnerLink && !left) {  // (a learner: the game ended or turned us away; back to waiting at the desk)
+            showLogin();
+            showLoginPart("wait");
+            $("waittext").textContent = `${text} Waiting for your teacher…`;
+            state.learnerLink.wait(state.liveId);
             return;
         }
         if (state.desk) {  // (back to the Teacher screen, still logged in to the desk)
@@ -234,12 +319,16 @@ function connect(address = null, how = null) {
     ws.onerror = () => { /* onclose follows with the reason */ };
     try {
         if (!how) { sessionStorage.setItem("code", code); localStorage.setItem("class", $("class").value); localStorage.setItem("name", name); }
-        localStorage.setItem("mode", state.codeMode ? "code" : "desk");
+        localStorage.setItem("mode", state.codeMode ? "code" : state.mode === "learner" ? "learner" : "teacher");
     } catch (e) { /* private window */ }
 }
 
 function reconnect() {
     if (state.ws || state.connected) return;
+    if (state.learnerLink && !state.codeMode) {  // (a learner: the desk gives a fresh ticket when the group is still live)
+        state.learnerLink.wait(null);
+        return;
+    }
     if (state.desk && state.ticket && !state.codeMode) {  // (a fresh ticket from the desk)
         state.desk.ask({type: "watch", game: state.ticket.game}, "watch").then(m => {
             state.ticket = m.watch;
@@ -276,6 +365,9 @@ function startGame(m) {
                    : GAMES.find(G => G.detect(m)) || RobotGame;
     if (state.game && state.game.constructor === wanted) return state.game;  // (a reconnect: keep what's drawn)
     if (state.game) state.game.dispose();
+    hideHud();
+    document.body.classList.remove("fightscreen");
+    sound.stopAll();
     state.game = new wanted(appApi);
     state.scene = state.game.scene;
     return state.game;
@@ -298,17 +390,29 @@ function onMessage(data) {
             state.rules = m.rules || {};
             state.lesson = m.lesson || null;
             state.myDesign = m.design || null;
+            state.draft = m.design ? JSON.parse(JSON.stringify(m.design)) : null;  // (the garage's: the window's draft)
+            state.myDefault = m.default || null;  // (Robot Lab: the lesson's starting robot, RESET CODE's)
+            state.viewDrafts = {};
+            state.codeShown = null;
             state.liveReady = m.live_ready || null;
+            state.makersSent = null;  // (the class server hears who made each user mod again: claudeChanged)
+            state.prefs = m.prefs || {};
+            if (state.prefs.card) state.card = Object.assign({}, state.prefs.card);
+            state.name = m.name || state.name;
+            if (m.role === "learner" && !LEARNER_TABS.some(([k]) => k === state.tab)) state.tab = "mission";
             state.snaps = [];
             state.offset = state.lastSeq = null;
             const g = startGame(m);
             g.welcome(m);
+            state.ctrl = g.controlKind ? new Controller(appApi, keys, g.controlKind) : null;
+            sound.setLesson((m.lesson || {}).sound);
             hideLogin();
             hideDesk();
             buildTabs();
             $("where").textContent = `${g.title} · ${state.url.replace(/^wss?:\/\//, "")} · ${m.role}`;
             addEvent(`Logged in to ${g.title} as ${m.name} (${m.role})`);
             send({type: "ping", t: Date.now()});
+            send({type: "slot", do: "list"});  // (my saved designs, as the windows ask: CHANGE 83)
             if (params.get("panel")) { $("panel").classList.add("open"); state.tab = params.get("panel"); buildTabs(); }
             updatePills();
             renderPanel();
@@ -319,9 +423,11 @@ function onMessage(data) {
             state.classList = m.class || [];
             state.tournament = m.tournament || null;
             state.mods = m.mods || state.mods;
+            if (state.role === "teacher") claudeChanged(appApi, true);
             if (game) game.message(m);
             updatePills();
             renderPanelSoon();
+            renderCode(appApi);  // (the code view may have been switched on or off)
             return;
         case "roster":
             state.roster = m;
@@ -337,7 +443,33 @@ function onMessage(data) {
             }
             return;
         case "missions":
-            if (m.for) { state.viewing = m; if (state.tab === "learners") renderPanelSoon(); }
+            if (m.for) { state.viewing = m; if (state.tab === "learners") renderPanelSoon(); return; }
+            // our own: the mission, the cards, my card (a learner's window, or the teacher's own)
+            if (JSON.stringify(m) !== state.myMissionsKey) {
+                state.myMissionsKey = JSON.stringify(m);
+                state.myMissions = m;
+                if (["mission", "aicard", "mycard"].includes(state.tab)) renderPanelSoon();
+            }
+            if (state.lesson && state.lesson.show_missions && state.role === "learner" && !state.shownMissions) {
+                state.shownMissions = true;  // (the teacher's Show learners: the Mission tab opens by itself)
+                state.tab = "mission";
+                $("panel").classList.add("open");
+                buildTabs();
+                renderPanel();
+            }
+            return;
+        case "slots":
+            if (!m.who || m.who === state.name) { state.slots = m.slots || {}; if (state.tab === "garage") renderPanelSoon(); }
+            else { state.theirSlots = m; if (state.tab === "learners") renderPanelSoon(); }
+            return;
+        case "ai_card_result":
+            state.cardResult = {ok: m.ok, text: m.ok ? `Sent to your teacher.${(m.tips || []).length ? " Tips: " + m.tips.join(" ") : ""}`
+                                                     : (m.problems || []).join(" ") + ((m.tips || []).length ? " " + m.tips.join(" ") : "")};
+            if (m.ok && state.card) { state.card.goal = state.card.variables = state.card.test = state.card.predict = ""; keepPrefs({card: state.card}); }
+            if (state.tab === "aicard") renderPanel();
+            return;
+        case "brain_result":
+            toast(m.ok ? "Your brain is uploaded." : `Brain not used: ${m.error || ""}`, false, 6000);
             return;
         case "session":
             state.session = m.session || null;
@@ -351,9 +483,12 @@ function onMessage(data) {
             state.history = m.items || [];
             if (state.tab === "learners") renderPanel();
             return;
-        case "design_result":
-            if (m.ok && !m.by_teacher) state.myDesign = m.design;
-            toast(m.ok ? "Built." : `Not built: ${(m.problems || []).join("; ")}`, false, 5000);
+        case "design_result":  // (the window's: the garage's draft is the built design again, or it says why not)
+            designResult(appApi, m);
+            state.formSeq = (state.formSeq || 0) + 1;
+            if (state.tab === "garage" || state.tab === "learners") renderPanelSoon();
+            toast(m.ok ? (m.by_teacher ? `Your teacher changed your ${game ? game.word : "design"}.` : "Built.")
+                       : `Not built: ${(m.problems || []).join("; ")}`, false, 5000);
             return;
         case "evidence_csv":
             download(m.name || "evidence.csv", m.text || "", "text/csv");
@@ -374,7 +509,8 @@ function onMessage(data) {
             toast(m.text || "", !!m.big, m.big ? 12000 : 5000);
             if (/RESTARTING|UPDATING/.test(m.text || "")) state.expectRestart = Date.now();
             return;
-        case "restart_client":
+        case "restart_client":  // (the teacher's Reopen learners' windows: a page just connects again)
+            if (state.role === "learner" && state.ws) { const old = state.ws; old.close(); }
             return;
         default:
             if (game) game.message(m);
@@ -435,9 +571,12 @@ function loop() {
         }
         if (state.connected) {
             send({type: "ping", t: Date.now()});
-            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + state.tier, stalls: state.stalls, delay: DELAY_MS});
+            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + state.tier, stalls: state.stalls, delay: DELAY_MS,
+                  ...(state.ctrl && state.ctrl.ctrlMs !== null ? {ctrl: Math.round(state.ctrl.ctrlMs)} : {})});
+            if (state.prefsDirty && now - (state.prefsAt || 0) > 3000) { state.prefsDirty = false; state.prefsAt = now; send({type: "prefs", prefs: state.prefs}); }
         }
     }
+    if (state.ctrl && state.connected && !covered) state.ctrl.tick(now);
     if (state.game && !covered) {
         state.game.frame(now, dt);
         state.game.scene.render();
@@ -487,8 +626,13 @@ function toast(text, big = false, ms = 3500) {
 // ---------- the side panel ----------
 function allTabs() {
     const g = state.game;
+    if (state.role === "learner") {  // (the learner window's tabs, then the page's own)
+        const own = g && g.learnerTabs ? g.learnerTabs() : [["camera", "Camera"]];
+        return [...LEARNER_TABS, ...own, ["graphics", "Settings"], ["about", "Keys"]];
+    }
     const gameTabs = g ? g.tabs() : [];
-    return [gameTabs[0] || ["controls", "Controls"], ...TEACHER_TABS, ...gameTabs.slice(1), ["graphics", "Graphics"], ["about", "About"]];
+    return [gameTabs[0] || ["controls", "Controls"], ...TEACHER_TABS, ...gameTabs.slice(1), ["mission", "My mission"],
+            ["graphics", "Graphics"], ["about", "About"]];
 }
 
 function buildTabs() {
@@ -498,6 +642,7 @@ function buildTabs() {
     $("panelhead").querySelectorAll("button").forEach(b => b.onclick = () => {
         state.tab = b.dataset.tab;
         $("panelhead").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+        updateTabCounts();
         renderPanel();
     });
     updateTabCounts();
@@ -505,7 +650,11 @@ function buildTabs() {
 
 function updateTabCounts() {
     const b = $("panelhead").querySelector('button[data-tab="warnings"]');
-    if (b) b.textContent = (state.warnings || []).length ? `Warnings (${state.warnings.length})` : "Warnings";
+    // (the window counts the warnings not yet seen: opening the tab sees them)
+    const n = (state.warnings || []).length;
+    if (state.tab === "warnings") state.warnSeen = n;
+    const unseen = Math.max(0, n - (state.warnSeen || 0));
+    if (b) b.textContent = unseen ? `Warnings (${unseen})` : "Warnings";
 }
 
 let panelTimer = null;
@@ -517,6 +666,7 @@ function renderPanelSoon() {  // (several messages in a burst: draw the panel on
 // typed text survives the redraws (the lesson and the teaching data arrive every second); a different page of
 // the panel (another tab, learner or mission) starts clean
 function renderPanel() {
+    if (state.dragging) { renderPanelSoon(); return; }  // (a garage slider is held: draw when it's let go)
     const body = $("panelbody");
     const key = [state.tab, state.pick, state.sub, state.editLesson, state.formSeq].join("|");
     const same = key === state.panelKey;
@@ -544,8 +694,10 @@ function renderPanel() {
 function drawPanel(body) {
     const g = state.game;
     if (!g) { body.innerHTML = "<p class='note'>Not connected.</p>"; return; }
+    if (state.role === "learner" && renderLearnerTab(appApi, state.tab, body)) return;
+    if (state.role !== "learner" && state.tab === "mission" && renderLearnerTab(appApi, "mission", body)) return;
     if (g.renderTab(state.tab, body)) return;
-    if (renderTeacherTab(appApi, state.tab, body)) return;
+    if (state.role !== "learner" && renderTeacherTab(appApi, state.tab, body)) return;
     if (state.tab === "graphics") {
         const sc = state.scene, info = engineInfo(engine);
         body.innerHTML = `
@@ -565,6 +717,39 @@ function drawPanel(body) {
           <div class="note">These numbers from a school laptop and a Chromebook are the measurement nobody has published: note them down.</div>`;
         body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => setTier(b.dataset.tier));
         $("btn-auto").onclick = () => { state.autoTier = !state.autoTier; renderPanel(); };
+        // the window's own Settings: the text size and the look (kept on this computer)
+        body.insertAdjacentHTML("beforeend", `<h2>Text and look</h2><div class="row">Text size ${[1, 2, 3, 4].map(k =>
+            `<button data-tsize="${k}" class="${(state.textSize || 2) === k ? "on" : ""}">${["Small", "Normal", "Large", "Larger"][k - 1]}</button>`).join("")}</div>
+          <div class="row">Look <button data-look="dark" class="${state.look !== "light" ? "on" : ""}">Dark</button><button data-look="light" class="${state.look === "light" ? "on" : ""}">Light</button></div>`);
+        body.querySelectorAll("button[data-tsize]").forEach(b => b.onclick = () => { setLook({textSize: Number(b.dataset.tsize)}); renderPanel(); });
+        body.querySelectorAll("button[data-look]").forEach(b => b.onclick = () => { setLook({look: b.dataset.look}); renderPanel(); });
+        // the sound (the windows' Settings rows: each sound with its switch and volume; N mutes)
+        const gid = g.id, S2 = sound.settings, rows = SETTINGS_ROWS[gid] || [];
+        let snd = `<h2>Sound</h2><div class="row"><button id="snd-mute" class="${sound.muted ? "" : "on"}">${sound.muted ? "Sound is off (N)" : "Sound is on (N)"}</button></div>`;
+        if (HAS_MUSIC[gid]) snd += `<div class="row">Music ${Object.entries(MUSIC).map(([k, n]) => `<button data-music="${k}" class="${S2.music === k ? "on" : ""}">${n}</button>`).join("")}
+            <input type="range" min="0" max="1" step="0.1" value="${S2.music_volume}" data-vol="music_volume"></div>`;
+        for (const [on, label, vol] of rows) {
+            snd += `<div class="row"><label><input type="checkbox" data-snd="${on}" ${S2[on] ? "checked" : ""}> ${esc(label)}</label>
+              <input type="range" min="0" max="1" step="0.1" value="${S2[vol]}" data-vol="${vol}"></div>`;
+        }
+        body.insertAdjacentHTML("beforeend", snd);
+        $("snd-mute").onclick = () => { sound.unlock(); sound.toggleMute(); renderPanel(); };
+        body.querySelectorAll("button[data-music]").forEach(b => b.onclick = () => { sound.unlock(); sound.set({music: b.dataset.music}); renderPanel(); });
+        body.querySelectorAll("input[data-snd]").forEach(el => el.onchange = () => sound.set({[el.dataset.snd]: el.checked}));
+        body.querySelectorAll("input[data-vol]").forEach(el => el.onchange = () => sound.set({[el.dataset.vol]: Number(el.value)}));
+        return;
+    }
+    if (state.role === "learner") {  // (the learner's key list, as the windows show it)
+        const KEYS = {
+            robotlab: [["Arrows", "drive"], ["Space", "weapon"], ["V", "camera"], ["B", "the health bars: small or full"], ["P", "autopilot"], ["U", "upload a brain"]],
+            fightlab: [["Arrows", "move"], ["A", "punch (again for a combo)"], ["S", "kick (forward + S: high kick)"], ["D", "special"],
+                       ["W", "throw"], ["Space", "jump"], ["F", "cartwheel (when it's on)"], ["Shift", "block"], ["X", "crouch (X + Shift: low block)"],
+                       ["V", "camera"], ["P", "autopilot"], ["U", "upload a brain"]],
+            kartlab: [["Arrows or WASD", "drive"], ["Shift or Space", "drift"], ["R", "respawn"], ["V", "camera"], ["P", "autopilot"], ["U", "upload a brain"]],
+        }[g.id] || [];
+        body.innerHTML = `<h2>Keys</h2><table>${[...KEYS, ["I or Tab", "this panel"], ["C", "your code"]].map(([k, w]) =>
+            `<tr><td><b>${esc(k)}</b></td><td>${esc(w)}</td></tr>`).join("")}</table>
+          <p class="note">Click the game first so the keys go to it. While you type in the panel, the keys type instead.</p>`;
         return;
     }
     body.innerHTML = `
@@ -574,9 +759,9 @@ function drawPanel(body) {
         the picture is smooth, and sends the same commands. Kart Lab, Robot Lab and Fight Lab are drawn.</p>
       <p class="note">The TEACHER DESK button (top left) is the app's Teacher screen: learners, groups, Launch and Stop, this
         session's notes and the printed records.</p>
-      <p class="note">What still needs the Club Coders app on your laptop: sending AI cards to Claude (Send, Keep, Undo) and the
-        Changes tab, because Claude edits the game's files on your laptop. Not here yet: playing, and the learners' side.</p>
-      <p class="note">Keys: <b>Tab</b> opens and closes this panel.</p>`;
+      <p class="note">Sending AI cards to Claude (Send, Keep, Undo) and the Changes tab need Claude for the browser running on a
+        computer of yours with Claude Code (it uses that computer's own Claude login). Still only in the app: Try it on this laptop.</p>
+      <p class="note">Keys: <b>Tab</b> opens and closes this panel.${g.id === "robotlab" ? " <b>B</b> makes the health bars small or full." : ""}</p>`;
 }
 
 // what the games and teacher.js reach the page through
@@ -586,7 +771,52 @@ const appApi = {
     send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, esc,
     missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
     restartRow: () => restartRow(appApi), wireRestartRow: body => wireRestartRow(appApi, body),
+    twice: (key, text, then) => twice(appApi, key, text, then), keepPrefs: p => keepPrefs(p),
+    sendBinary: buf => { if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.send(buf); },
+    get keys() { return keys; }, get ctrl() { return state.ctrl; }, get role() { return state.role; }, get sound() { return sound; },
+    openCode: () => toggleCode(appApi),
 };
+
+// the window's text size (four) and dark or light look: on this computer, and in a learner's profile as the windows keep them
+function setLook(change = {}) {
+    Object.assign(state, change);
+    for (const k of [1, 2, 3, 4]) document.body.classList.toggle("text-" + k, (state.textSize || 2) === k && k !== 2);
+    document.body.classList.toggle("light", state.look === "light");
+    try { localStorage.setItem("look", JSON.stringify({textSize: state.textSize || 2, look: state.look || "dark"})); } catch (e) { /* private window */ }
+    if (Object.keys(change).length && state.role === "learner") keepPrefs({hud: {text_size: state.textSize || 2, light: state.look === "light"}});
+}
+try { const saved = JSON.parse(localStorage.getItem("look") || "{}"); state.textSize = saved.textSize; state.look = saved.look; } catch (e) { /* none */ }
+setLook();
+
+// a learner's preferences (the camera, the half-typed AI card...) kept in their profile, as the windows do
+function keepPrefs(p) {
+    state.prefs = Object.assign({}, state.prefs || {}, p);
+    state.prefsDirty = true;
+}
+
+// the games' sounds (sound.js): nothing plays until the first click or key, as browsers insist
+const sound = new Sound({base: "sfx/"});
+
+// the keyboard: playing (play.js), and the windows' keys for the panel and the rest
+const keys = new Keys();
+keys.onKey = (k, e) => {
+    if (!state.connected || deskShown()) return;
+    if (k === "i") { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); }
+    else if (k === "c" && state.game) toggleCode(appApi);
+    else if (k === "p" && state.role === "learner") send({type: "autopilot"});
+    else if (k === "u" && state.role === "learner") pickBrain();
+    else if (k === "v" && state.game && state.game.cycleCamera) { state.game.cycleCamera(); updatePills(); }
+    else if (k === "b" && state.game && state.game.toggleBoard) state.game.toggleBoard();  // (Robot Lab's health bars)
+    else if (k === "n") { sound.toggleMute(); toast(sound.muted ? "Sound off (N)" : "Sound on (N)"); if (state.tab === "graphics") renderPanel(); }
+};
+
+function pickBrain() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".py,.txt";
+    input.onchange = () => uploadBrain(appApi, input.files[0]);
+    input.click();
+}
 
 // ---------- start ----------
 function setupUi() {
@@ -595,11 +825,15 @@ function setupUi() {
         $("host").hidden = $("hostlabel").hidden = !other;
     };
     $("connect").onclick = () => login();
+    $("modetabs").querySelectorAll("button").forEach(b => b.onclick = () => { setMode(b.dataset.mode); try { localStorage.setItem("mode", b.dataset.mode); } catch (e) { /* private */ } });
+    for (const id of ["lname", "lpass", "npass", "npass2"]) $(id).onkeydown = e => { if (e.key === "Enter") login(); };
     $("code").onkeydown = e => { if (e.key === "Enter") connect(); };
     $("deskpass").onkeydown = e => { if (e.key === "Enter") deskLogin(); };
     $("switchmode").onclick = e => { e.preventDefault(); setCodeMode(!state.codeMode); };
     $("toggle").onclick = () => { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); };
     $("btn-desk").onclick = () => showDesk();
+    window.addEventListener("pointerup", () => { state.dragging = false; });
+    window.addEventListener("pointercancel", () => { state.dragging = false; });
     document.addEventListener("keydown", e => {
         if (e.key === "Tab" && state.connected && !deskShown() && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); $("panel").classList.toggle("open"); }
     });
@@ -611,8 +845,12 @@ function setupUi() {
     if (params.get("host")) { $("class").value = "other"; $("host").value = params.get("host"); $("host").hidden = $("hostlabel").hidden = false; }
     if (params.get("code")) $("code").value = params.get("code");
     let mode = null;
-    try { mode = localStorage.getItem("mode"); } catch (e) { /* storage blocked */ }
-    setCodeMode(!!(params.get("host") || params.get("code")) || (mode === "code" && !params.get("desk")));    if (params.get("name")) $("name").value = params.get("name");
+    try { mode = localStorage.getItem("mode"); if (localStorage.getItem("lname")) $("lname").value = localStorage.getItem("lname"); } catch (e) { /* storage blocked */ }
+    // learner or teacher: ?mode=, else as last time on this computer ("desk" was the teacher's before CHANGE 134), else a learner
+    state.mode = params.get("mode") || (mode === "desk" || mode === "teacher" ? "teacher" : "learner");
+    $("modetabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.mode === state.mode));
+    setCodeMode(!!(params.get("host") || params.get("code")) || (mode === "code" && !params.get("desk")));
+    if (params.get("name")) $("name").value = params.get("name");
 }
 
 // anything that goes wrong is shown on the page (a school laptop has no console open) and kept for the tests
@@ -640,6 +878,11 @@ async function main() {
         const r = await fetch("tex/manifest.json");
         if (r.ok) setSkyData(await r.json());
     } catch (e) { /* no reflections */ }
+    try {  // the games' design schemas: the garage's tables and the code panel (schemas.json, made by make_schemas.py)
+        const r = await fetch("schemas.json");
+        if (r.ok) state.schemas = await r.json();
+    } catch (e) { /* no garage or code panel until it loads */ }
+    setupCodePanel(appApi);
     try {  // (the lessons' names, for the printed records)
         const r = await fetch("lessons.json");
         if (r.ok) state.lessons = await r.json();

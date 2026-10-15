@@ -31,6 +31,29 @@
 		header Cache-Control "no-store"
 		file_server
 	}
+	# Fight Lab's detailed fighters for the browser window (CHANGE 135): the release's own model files (each body
+	# and shape's .gltf and .bin, their textures, moves.json), fetched by web/fightmodels.js only when a fighter with
+	# that body appears. Only those files; the page asks for them with ?v=<release>, so a new release is fetched anew
+	# and they can be kept a day. The .gltf (4.9 MB of JSON) is compressed as it goes (to 0.16 MB, quickly); the .bin
+	# (6-7.6 MB) isn't compressed as it goes, as that would take the game servers' CPU for every learner: setup.sh and
+	# robotlab-update make a .bin.gz beside each once (about 5.2 MB), which is sent instead; the pictures are PNGs already.
+	handle_path /live/models/fightlab/* {
+		@not_model not path_regexp ^/([a-z]+_[a-z]+\.(gltf|bin)|moves\.json|textures/[A-Za-z0-9_.-]+\.png)$
+		respond @not_model 404
+		root * /opt/robotlab/app/games/fightlab/models
+		@text path *.gltf *.json
+		encode @text {
+			zstd
+			gzip
+			match {
+				header Content-Type *
+			}
+		}
+		header Cache-Control "public, max-age=86400"
+		file_server {
+			precompressed zstd gzip
+		}
+	}
 	handle_path /live/* {
 		root * /opt/robotlab/app/web
 		encode zstd gzip

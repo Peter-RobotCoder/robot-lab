@@ -2,10 +2,15 @@
 // its hazards from each snapshot (the drop zone, floor flipper, saws, wall spikes, Resident Robots, the user mods),
 // the robots built from their designs with their weapons, the 30-a-second JSON states blended two behind, and the
 // teacher's Robot Lab controls. Positions are game (x, y, z) -> Babylon (x, z, y); quaternions via gameQuat.
+// The app's effects (rw_fx.py, in robotfx.js: sparks, saw showers, the flame jet, smoke and fire, debris, the camera
+// shake) and rw_gfx.py's real damage (armour panels that bend, rattle and fly off, failing wheels, a shaking weapon,
+// darkened and scorched parts, the hit bars), the saws' blur and hot rims, lasers, beacons and the running chain.
 
 /* global BABYLON */
 
 import {BaseScene, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} from "./base3d.js";
+import {Sound} from "./sound.js";
+import {RobotFX, HitBar, qmul, qrot, hprQuat, quatHpr, fromBabylonQuat} from "./robotfx.js";
 
 const $ = id => document.getElementById(id);
 const ARENA = 20;
@@ -18,6 +23,13 @@ const HOUSE_WEAPONS = {BLAZE: "flame", CRUSHER: "hammer", RIPSAW: "chainsaw", VO
 const SPINNERS = new Set(["spinner", "drum", "vdisc"]);
 const STEEL = [0.6, 0.62, 0.66], DARK = [0.12, 0.12, 0.13], YELLOW = [0.95, 0.75, 0.08];
 const PAINT_YELLOW = [0.95, 0.7, 0.05], CPZ = 4.8, GUTTER = 3.0;  // (rw_gfx.py, lab_sim.py)
+// the window's five views (rw_camera.py): behind your robot, from its nose, the TV camera on the rail, the whole
+// arena, the fixed centre camera
+export const RIG_MODES = ["third", "fpv", "zoom", "arena", "centre"];
+const RIG_NAMES = {third: "Third person", fpv: "First person", zoom: "Zoomed arena follow", arena: "Full arena", centre: "Centre camera"};
+const HALF = 10.0;
+const PARTS = ["armour", "weapon", "wheel0", "wheel1", "wheel2", "wheel3"];  // (lab_sim.PARTS: pt is the body's, then these)
+const WHEELS = [[0.72, 0.55], [-0.72, 0.55], [0.72, -0.55], [-0.72, -0.55]];
 const LEVELS = [["none", "No brain"], ["empty", "Empty"], ["easy", "Easy"], ["medium", "Medium"], ["expert", "Expert"]];
 
 function designSize(d) {
@@ -42,12 +54,14 @@ export class RobotScene extends BaseScene {
         this.designs = [];
         this.mode = "overview";
         this.follow = null;
-        this.sparks = [];
+        this.fx = null;
         this.build();
     }
 
     populate() {
         this.buildArena();
+        this.fx = new RobotFX(this);  // (rw_fx.Effects: sparks, smoke, fire, debris, the camera shake)
+        this.shook = null;
         const designs = this.designs;
         this.robots.clear();
         for (const r of designs) this.addRobot(r);
@@ -105,7 +119,7 @@ export class RobotScene extends BaseScene {
             const d = S(this.box(null, 0.17, 0.05, 0.004, yellow, Math.cos(a) * 3, Math.sin(a) * 3, 0.005));
             d.rotation.y = -(a + Math.PI / 2);
         }
-        if (!mods.flame_pit) this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7);
+        if (!mods.flame_pit) this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7, "#e6cf86", 0.75);  // (the window's yellow paint under the spotlights)
         // the drop zone: a dark shaft, a striped rim, the lights round its edge and the lid that drops
         const [px, py, ps] = PIT;
         for (const [ox, oy, hx, hy] of [[0, ps / 2 + 0.05, ps / 2 + 0.1, 0.05], [0, -ps / 2 - 0.05, ps / 2 + 0.1, 0.05],
@@ -165,7 +179,14 @@ export class RobotScene extends BaseScene {
                 sawParts.push(tooth);
             }
             this.mergeParts(sawParts, spin);
-            return {node, spin, angle: 0};
+            // (rw_gfx.build_saw) a see-through disc as it spins up, and the hot rim while it grinds a robot
+            const blur = this.cyl(node, R * 1.1, 0.011, "y", this.seeThrough("sawblur", [0.55, 0.57, 0.62], 0.22, 0.3, 1), 0, 0, 0, null, 64);
+            const glow = BABYLON.MeshBuilder.CreateCylinder("sawglow", {height: 0.04, diameter: R * 2.08, tessellation: 64, cap: BABYLON.Mesh.NO_CAP}, this.scene);
+            glow.material = M("sawglow", [0, 0, 0], 1, 0, null, null, [3.5, 1.2, 0.2]);
+            glow.rotation.x = Math.PI / 2;
+            glow.parent = node;
+            glow.isVisible = false;
+            return {node, spin, angle: 0, blur, glow};
         });
         // the wall spikes (west wall), unless there is no cage
         this.spikeBank = null;
@@ -303,20 +324,82 @@ export class RobotScene extends BaseScene {
         return mesh;
     }
 
+    // a see-through material (a spinning blade's blur, a laser's glow), as the app's parts give it: its colour,
+    // alpha, roughness, metal and glow; not writing depth
+    seeThrough(name, rgb, alpha, rough, metal, emission = null) {
+        const key = `see:${name}`;
+        if (this.materials[key]) return this.materials[key];
+        let m;
+        if (this.lighting) {
+            m = this.lighting.material(key, {rgb, rough, metal, alpha, emission});
+        } else {
+            m = new BABYLON.StandardMaterial(key, this.scene);
+            m.diffuseColor = col(rgb);
+            m.specularColor = new BABYLON.Color3(0, 0, 0);
+            if (emission) m.emissiveColor = col(emission.map(c => Math.min(1, c)));
+            m.alpha = alpha;
+            m.backFaceCulling = false;
+        }
+        m.disableDepthWrite = true;
+        this.materials[key] = m;
+        return m;
+    }
+
+    // a laser's beam, 1 m long along its node's z (aimed and stretched each frame): a white-hot core inside a red
+    // glow (rw_gfx.build_laser)
+    buildLaser() {
+        const aim = new BABYLON.TransformNode("laser", this.scene);
+        this.cyl(aim, 0.02, 0.5, "y", this.material("lasercore", [0, 0, 0], 1, 0, 0, {emission: [10, 4, 3]}), 0, 0.5, 0, null, 8);
+        this.cyl(aim, 0.06, 0.5, "y", this.seeThrough("laserglow", [0, 0, 0], 0.5, 1, 0, [8, 0.3, 0.2]), 0, 0.5, 0, null, 10);
+        aim.setEnabled(false);
+        return aim;
+    }
+
     // ---------- the robots ----------
-    // a robot's hull: its paint (darker when knocked out, glowing for a moment when hit)
-    hullMaterial(colour, scale) {
-        const opts = {tex: this.tier === "blocks" ? "" : "paint", tile: 1.2};
-        if (scale > 1) opts.emission = colour.map(v => v * 0.8);
-        return this.material("hull", colour.map(v => Math.min(1, v * Math.min(scale, 1))), 1, 1, 0, opts);
+    // a material that remembers how it was made, so a part can be darkened or flashed (rw_gfx's colour scales)
+    paintOf(name, rgb, rough, metal, opts) {
+        const m = this.material(name, rgb, rough, metal, 0, opts);
+        if (!m.ccArgs) m.ccArgs = {name, rgb, rough, metal, opts};
+        return m;
+    }
+
+    // Panda's colour scale k (linear, per channel) on a group of parts: their colours times k (the screen colour
+    // times k^(1/2.2)); a glow isn't scaled, as simplepbr doesn't scale it. Steps of 0.05, so few materials are made.
+    tint(v, group, k) {
+        const q = k.map(c => Math.round(c * 20) / 20), key = q.join(",");
+        if (v.tints[group] === key) return;
+        v.tints[group] = key;
+        const one = q.every(c => c === 1);
+        for (const mesh of v.groups[group]) {
+            const base = mesh.ccBase, a = base && base.ccArgs;
+            if (!a) continue;
+            mesh.material = one ? base : this.material(a.name, a.rgb.map((c, i) => c * Math.pow(q[i], 1 / 2.2)), a.rough, a.metal, 0, a.opts);
+        }
     }
 
     setRobots(list) {
-        // (ids are given out again on every rebuild of the arena: every model is made again, as the window does)
-        for (const r of this.robots.values()) { r.label.dispose(false, true); r.root.dispose(); r.weapon.dispose(); }
-        this.robots.clear();
+        // (ids are given out again on every rebuild of the arena: a robot is made again when its id, design or owner
+        // is new. The roster comes again whenever a window's report changes, about once a second: a robot that is
+        // the same keeps its model, and what real damage has done to it)
+        const keep = new Map();
+        for (const r of list) {
+            const v = this.robots.get(r.id), key = JSON.stringify([r.design || {}, r.owner || ""]);
+            if (v && v.key === key) keep.set(r.id, v);
+        }
+        for (const [id, v] of this.robots) if (keep.get(id) !== v) this.disposeRobot(v);
+        this.robots = keep;
         this.designs = list;
-        for (const r of list) this.addRobot(r);
+        for (const r of list) if (!keep.has(r.id)) this.addRobot(r);
+    }
+
+    disposeRobot(v) {
+        for (const f of v.flying) if (!f.node.parent) f.node.dispose();  // (parts that came off lie in the world)
+        for (const b of Object.values(v.bars)) b.dispose();
+        v.label.dispose(false, true);
+        if (v.deckName) v.deckName.dispose(false, true);  // (its own writing)
+        v.root.dispose();
+        v.weapon.dispose();
+        if (v.rear) v.rear.dispose();
     }
 
     addRobot(info) {
@@ -325,109 +408,327 @@ export class RobotScene extends BaseScene {
         const weaponType = d.weapon || HOUSE_WEAPONS[d.model] || "wedge";
         const colour = rgb255(d.colour, [200, 120, 40]);
         const style = d.style || {};
-        const trim = rgb255(style.trim, [30, 30, 34]), lights = rgb255(style.lights, [255, 60, 30]);
+        const trim = rgb255(style.trim, [30, 30, 34]), lights = rgb255(style.lights, [255, 60, 30]).map(v => v * 6);
+        const blocks = this.tier === "blocks";
         // rw_gfx.RobotVisual's looks: the paint and steel texture sets (their maps give the shine), tread on the tyres
-        const T = (name, rgb, tex, tile = 1, rough = 1, metal = 1) => this.material(name, rgb, rough, metal, 0, {tex, tile});
-        const paint = this.hullMaterial(colour, 1);
+        const T = (name, rgb, tex, tile = 1, rough = 1, metal = 1) => this.paintOf(name, rgb, rough, metal, {tex, tile});
+        const paint = T("hull", colour, "paint", 1.2);
         const trimM = T("trim", trim, "paint", 1.2);
         const steel = T("steel", [1, 1, 1], "steel");
         const bar = T("bar", [0.7, 0.72, 0.76], "steel", 1.5);
+        const hazardM = blocks ? this.paintOf("yellow", YELLOW, 0.6, 0, {}) : T("hazard", [1, 1, 1], "hazard", 0.8, 1, 0);
         const glow = this.material("eyes", [0, 0, 0], 0.3, 0, 0, {emission: lights});
         const hx = 0.6 * s, hy = 0.8 * s, hzz = 0.18 * s, z0 = 0.1, top = z0 + hzz;
         const root = new BABYLON.TransformNode("robot" + info.id, scene);
         root.rotationQuaternion = BABYLON.Quaternion.Identity();
-        const parts = [];
-        parts.push(this.box(root, hx, hy, hzz, paint, 0, 0, z0));
-        parts.push(this.box(root, 0.78 * hx, 0.72 * hy, 0.045, trimM, 0, -0.08 * hy, top + 0.04));
-        for (const sd of [-1, 1]) parts.push(this.box(root, 0.03, 0.9 * hy, 0.7 * hzz, T("skirt", [0.35, 0.36, 0.38], "steel", 1.5), sd * (hx + 0.02), 0, z0 - 0.02));
-        parts.push(this.box(root, 0.5 * hx, 0.012, 0.025, glow, 0, hy + 0.005, z0 + 0.45 * hzz));
-        parts.push(this.box(root, 0.72 * hx, 0.012, 0.55 * hzz, T("back", [0.3, 0.3, 0.33], "steel", 1.5), 0, -hy - 0.005, z0));
-        parts.push(this.box(root, 0.6 * hx, 0.014, 0.02, this.material("taillight", [0, 0, 0], 0.3, 0, 0, {emission: [4, 0.2, 0.1]}), 0, -hy - 0.012, z0 + 0.3 * hzz));
-        parts.push(this.cyl(root, 0.008, 0.18, "z", steel, -0.6 * hx, -0.7 * hy, top + 0.24, null, 6));
-        if (big) parts.push(this.sphere(root, 0.08, this.material("beacon", [0, 0, 0], 0.3, 0, 0, {emission: [6, 3, 0]}), 0.55 * hx, -0.55 * hy, top + 0.26));
+        // the parts in their groups (rw_gfx: the chassis, its armour, the weapon, each wheel), each darkened or
+        // flashed as a group; real damage bends and throws the armour panels and wheels
+        const groups = {chassis: [], armour: [], weapon: [], wheel0: [], wheel1: [], wheel2: [], wheel3: []};
+        const all = [];
+        const G = (group, mesh) => { mesh.ccBase = mesh.material; groups[group].push(mesh); all.push(mesh); return mesh; };
+        G("chassis", this.box(root, hx, hy, hzz, paint, 0, 0, z0));
+        // armour: bolted-on panels, each on a hinge edge, so under real damage they bend, rattle and come off
+        const armour = new BABYLON.TransformNode("armour", scene);
+        armour.parent = root;
+        const panels = [];
+        const panel = (hinge, bend, lie) => {
+            const node = new BABYLON.TransformNode("panel", scene);
+            node.parent = armour;
+            node.position = v3(...hinge);
+            node.rotationQuaternion = BABYLON.Quaternion.Identity();
+            panels.push({node, hinge, bend, lie});
+            return node;
+        };
+        const deck = panel([0, -hy * 0.8, top + 0.04], [0, 28, 0], [0, 0]);  // hinged at its back edge: the front lifts
+        G("armour", this.box(deck, 0.78 * hx, 0.72 * hy, 0.045, trimM, 0, 0.72 * hy, 0));
+        const rivets = [];
+        for (let i = 0; i < 8; i++) for (const sd of [-1, 1]) rivets.push(this.cyl(deck, 0.018, 0.008, "z", steel, sd * hx * 0.72, hy * 0.18 + i * hy * 0.16, 0.05, null, 8));
+        const skirtM = T("skirt", [0.35, 0.36, 0.38], "steel", 1.5);
+        const hingeZ = z0 - 0.02 + hzz * 0.7;
+        for (const sd of [-1, 1]) {  // side skirts, hinged at the top
+            const skirt = panel([sd * (hx + 0.02), 0, hingeZ], [0, 0, sd * 34], [0, sd * 90]);
+            G("armour", this.box(skirt, 0.03, 0.9 * hy, 0.7 * hzz, skirtM, 0, 0, -0.7 * hzz));
+            if (big) G("armour", this.box(skirt, 0.02, 0.8 * hy, 0.45 * hzz, hazardM, sd * 0.025, 0, z0 + hzz * 0.2 - hingeZ));  // warning stripes
+        }
+        const rear = panel([0, -hy - 0.018, top - 0.03], [0, -34, 0], [-90, 0]);  // the back plate, with the rear light bar
+        G("armour", this.box(rear, 0.72 * hx, 0.012, 0.55 * hzz, T("back", [0.3, 0.3, 0.33], "steel", 1.5), 0, 0, -0.55 * hzz));
+        all.push(this.box(rear, 0.6 * hx, 0.012, 0.02, this.material("taillight", [0, 0, 0], 0.3, 0, 0, {emission: [4, 0.2, 0.1]}), 0, -0.01, z0 + hzz * 0.3 - (top - 0.03)));
+        // glowing eyes at the front, an antenna with a tip light
+        all.push(this.box(root, 0.5 * hx, 0.012, 0.025, glow, 0, hy + 0.005, z0 + 0.45 * hzz));
+        G("chassis", this.cyl(root, 0.008, 0.18, "z", steel, -0.6 * hx, -0.7 * hy, top + 0.24, null, 6));
+        all.push(this.cyl(root, 0.022, 0.022, "z", glow, -0.6 * hx, -0.7 * hy, top + 0.43, null, 10));
+        if (big) {  // Resident Robots: grab handles, armour plates on the deck, a flashing beacon
+            for (const sd of [-1, 1]) G("chassis", this.box(root, 0.03, 0.03, 0.12, T("handle", [0.3, 0.3, 0.32], "steel"), sd * hx * 0.5, -hy - 0.04, top - 0.05));
+            for (let i = 0; i < 3; i++) G("armour", this.box(deck, hx * 0.36, hy * 0.2, 0.03, T("plate", [0.4, 0.4, 0.42], "steel"), 0, hy * 0.35 + i * hy * 0.45, 0.06));
+            G("chassis", this.cyl(root, 0.1, 0.05, "z", T("beaconbase", [0.2, 0.2, 0.22], "steel"), 0.55 * hx, -0.55 * hy, top + 0.14, null, 16));
+            this.beaconMat = this.material("beacon", [0, 0, 0], 0.3, 0, 0, {emission: [6, 3, 0]});
+            all.push(this.cyl(root, 0.08, 0.07, "z", this.beaconMat, 0.55 * hx, -0.55 * hy, top + 0.26, null, 16));
+        }
+        for (const m of this.mergeParts(rivets, deck)) G("armour", m);
         const wr = big ? 0.32 : 0.2, ww = big ? 0.12 : 0.075;
-        const wheels = [[0.72, 0.55], [-0.72, 0.55], [0.72, -0.55], [-0.72, -0.55]].map(([x, y]) => {
-            const spin = new BABYLON.TransformNode("wheel", scene);
-            spin.parent = root;
-            spin.position = v3(x * s, y * s, 0.08);
-            const tyre = this.cyl(spin, wr, ww, "x", this.tier === "blocks" ? this.material("tyre", [0.07, 0.07, 0.08], 1, 0) : T("tyre", [1, 1, 1], "tyre", 2.5, 1, 0), 0, 0, 0, null, 20);
-            const hub = this.cyl(spin, wr * 0.55, ww + 0.005, "x", T("hub", [0.7, 0.7, 0.72], "steel"), 0, 0, 0, null, 14);
-            parts.push(tyre, hub);
-            return spin;
+        const tyreM = blocks ? this.paintOf("tyre", [0.07, 0.07, 0.08], 1, 0, {}) : T("tyre", [1, 1, 1], "tyre", 2.5, 1, 0);
+        const wheels = WHEELS.map(([x, y], i) => {
+            const lean = new BABYLON.TransformNode("wheel", scene);  // (leans and wobbles when it's failing)
+            lean.parent = root;
+            lean.position = v3(x * s, y * s, 0.08);
+            lean.rotationQuaternion = BABYLON.Quaternion.Identity();
+            const spin = new BABYLON.TransformNode("wheelspin", scene);
+            spin.parent = lean;
+            G("wheel" + i, this.cyl(spin, wr, ww, "x", tyreM, 0, 0, 0, null, 20));
+            G("wheel" + i, this.cyl(spin, wr * 0.55, ww + 0.005, "x", T("hub", [0.7, 0.7, 0.72], "steel"), 0, 0, 0, null, 14));
+            return {lean, spin, x: x * s, y: y * s};
         });
         // the weapon: a node placed in the world from the snapshot (its origin is the hinge), the shapes around it
         const weapon = new BABYLON.TransformNode("weapon" + info.id, scene);
         weapon.rotationQuaternion = BABYLON.Quaternion.Identity();
         const spin = new BABYLON.TransformNode("wspin", scene);
         spin.parent = weapon;
-        const wparts = [];
-        let blur = null, jet = null;
+        const W = m => G("weapon", m);
+        let blur = null, chain = null, chainBase = 0;
         if (weaponType === "wedge") {
-            wparts.push(this.box(weapon, hx + 0.02, 0.6, 0.02, trimM, 0, 0.6, -0.01));
-            wparts.push(this.box(weapon, hx + 0.02, 0.06, 0.021, this.tier === "blocks" ? this.material("yellow", YELLOW, 0.6) : T("hazard", [1, 1, 1], "hazard", 0.8, 1, 0), 0, 1.14, -0.009));
-            wparts.push(this.cyl(weapon, 0.05, hx, "x", steel, 0, 0, 0, null, 10));
+            this.wedge(weapon, hx, trimM, hazardM, trim).forEach(W);
         } else if (weaponType === "spinner") {
-            wparts.push(this.box(spin, 0.8 * s, 0.08, 0.05, bar));
-            for (const sd of [-1, 1]) wparts.push(this.box(spin, 0.09, 0.1, 0.07, steel, sd * (0.8 * s - 0.07), 0, 0));
-            wparts.push(this.cyl(spin, 0.11, 0.06, "z", trimM));
-            blur = this.cyl(weapon, 0.8 * s, 0.01, "z", this.glass("blur", [0.8, 0.82, 0.86], 0.2), 0, 0, 0, null, 32);
+            W(this.box(spin, 0.8 * s, 0.08, 0.05, bar));
+            for (const sd of [-1, 1]) W(this.box(spin, 0.09, 0.1, 0.07, steel, sd * (0.8 * s - 0.07), 0, 0));
+            W(this.cyl(spin, 0.11, 0.06, "z", trimM));
+            blur = this.cyl(weapon, 0.8 * s, 0.004, "z", this.seeThrough("spinblur", [0.8, 0.82, 0.86], 0.28, 0.2, 1), 0, 0, 0, null, 48);
         } else if (weaponType === "drum") {
-            wparts.push(this.cyl(spin, 0.2 * s, 0.8 * hx, "x", T("drum", [0.6, 0.62, 0.66], "steel", 2), 0, 0, 0, null, 20));
+            W(this.cyl(spin, 0.2 * s, 0.8 * hx, "x", T("drum", [0.6, 0.62, 0.66], "steel", 2), 0, 0, 0, null, 20));
             for (let t = 0; t < 6; t++) {
                 const a = t / 6 * Math.PI * 2;
-                wparts.push(this.box(spin, 0.6 * hx, 0.04, 0.04, steel, 0, Math.cos(a) * 0.22 * s, Math.sin(a) * 0.22 * s));
+                W(this.box(spin, 0.6 * hx, 0.04, 0.04, steel, 0, Math.cos(a) * 0.22 * s, Math.sin(a) * 0.22 * s));
             }
         } else if (weaponType === "vdisc") {
             const r = 0.42 * s;
-            wparts.push(this.cyl(spin, r, 0.035 * s, "x", bar, 0, 0, 0, null, 32));
+            W(this.cyl(spin, r, 0.035 * s, "x", bar, 0, 0, 0, null, 32));
             for (let t = 0; t < 8; t++) {
                 const a = t / 8 * Math.PI * 2;
-                wparts.push(this.box(spin, 0.03 * s, 0.06, 0.06, steel, 0, Math.cos(a) * 1.07 * r, Math.sin(a) * 1.07 * r));
+                W(this.box(spin, 0.03 * s, 0.06, 0.06, steel, 0, Math.cos(a) * 1.07 * r, Math.sin(a) * 1.07 * r));
             }
-            wparts.push(this.cyl(spin, 0.45 * r, 0.05 * s, "x", trimM, 0, 0, 0, null, 12));
-            blur = this.cyl(weapon, 1.12 * r, 0.02, "x", this.glass("blur", [0.8, 0.82, 0.86], 0.2), 0, 0, 0, null, 32);
-        } else if (weaponType === "flame") {
-            wparts.push(this.cyl(weapon, 0.07 * s, 0.22 * s, "y", steel, 0, 0.22 * s, 0, null, 10));
-            wparts.push(this.cyl(weapon, 0.1 * s, 0.04 * s, "y", trimM, 0, 0.44 * s, 0, null, 10));
-            for (const sd of [-1, 1]) parts.push(this.cyl(root, 0.08 * s, 0.25 * s, "y", T("tank", [0.75, 0.1, 0.08], "paint"), sd * 0.45 * hx, -0.2 * hy, top + 0.1));
-            jet = BABYLON.MeshBuilder.CreateCylinder("jet", {height: 2.6, diameterBottom: 0.06, diameterTop: 1.4, tessellation: 12}, scene);
-            jet.material = this.glass("jet", [1, 0.55, 0.1], 0.55, 2.5);
-            jet.rotation.x = Math.PI / 2;
-            jet.position = v3(0, 0.44 * s + 1.35, 0);
-            jet.parent = weapon;
-            jet.isVisible = false;
+            W(this.cyl(spin, 0.45 * r, 0.05 * s, "x", trimM, 0, 0, 0, null, 12));
+            blur = this.cyl(weapon, 1.12 * r, 0.004, "x", this.seeThrough("spinblur", [0.8, 0.82, 0.86], 0.28, 0.2, 1), 0, 0, 0, null, 48);
+        } else if (weaponType === "flame") {  // a nozzle with a pilot light, fed by two fuel tanks
+            W(this.cyl(weapon, 0.07 * s, 0.22 * s, "y", steel, 0, 0.22 * s, 0, null, 10));
+            W(this.cyl(weapon, 0.1 * s, 0.04 * s, "y", trimM, 0, 0.44 * s, 0, null, 10));
+            all.push(this.cyl(weapon, 0.025, 0.02, "z", this.material("pilot", [0, 0, 0], 0.3, 0, 0, {emission: [1, 0.5, 2.5]}), 0, 0.44 * s + 0.03, -0.07 * s - 0.02, null, 8));
+            for (const sd of [-1, 1]) G("chassis", this.cyl(root, 0.08 * s, 0.25 * s, "y", T("tank", [0.75, 0.1, 0.08], "paint"), sd * 0.45 * hx, -0.2 * hy, top + 0.1));
         } else if (weaponType === "laser") {
-            wparts.push(this.box(weapon, 0.06 * s, 0.18 * s, 0.05 * s, steel, 0, 0.18 * s, 0));
-            wparts.push(this.sphere(weapon, 0.04 * s, this.material("lens", [0, 0, 0], 0.3, 0, 0, {emission: [8, 0.3, 0.2]}), 0, 0.36 * s + 0.05, 0));
-        } else if (weaponType === "chainsaw") {
-            wparts.push(this.box(weapon, 0.06 * s, 0.3 * s, 0.05 * s, paint, 0, 0.3 * s, 0));
-            wparts.push(this.box(weapon, 0.025, 0.42 * s, 0.07 * s, T("chainbar", [0.75, 0.76, 0.8], "steel"), 0, 0.6 * s + 0.42 * s - 0.05, -0.04));
+            W(this.box(weapon, 0.06 * s, 0.18 * s, 0.05 * s, steel, 0, 0.18 * s, 0));
+            all.push(this.sphere(weapon, 0.04 * s, this.material("lens", [0, 0, 0], 0.3, 0, 0, {emission: [8, 1.5, 1]}), 0, 0.36 * s + 0.05, 0));
+        } else if (weaponType === "chainsaw") {  // an arm that lowers a chainsaw bar; the chain runs round the bar
+            const ay = 0.3 * s, b = [0.025 * s, 0.42 * s, 0.07 * s];
+            W(this.box(weapon, 0.06 * s, ay, 0.05 * s, paint, 0, ay, 0));
+            W(this.box(weapon, 0.06 * s * 2.2, 0.16, 0.05 * s * 2.2, T("housing", [0.2, 0.2, 0.22], "steel"), 0, ay * 2 - 0.08, -0.02));
+            chainBase = ay * 2 + b[1] - 0.05;
+            W(this.box(weapon, b[0], b[1], b[2], T("chainbar", [0.75, 0.76, 0.8], "steel"), 0, chainBase, -0.04));
+            chain = new BABYLON.TransformNode("chain", scene);
+            chain.parent = weapon;
+            chain.position = v3(0, chainBase, -0.04);
+            const links = [], linkM = T("chain", [0.35, 0.35, 0.37], "steel");
+            for (let y = -b[1]; y < b[1] - b[2]; y += 0.06) {
+                for (const zz of [-b[2] - 0.012, b[2] + 0.012]) links.push(this.box(chain, b[0] + 0.008, 0.02, 0.014, linkM, 0, y, zz));
+            }
+            this.mergeParts(links, chain).forEach(W);
         } else {  // hammer
             const m = Math.min(s, 1.3), L = Math.min(0.85 * s, 1.3);
-            wparts.push(this.box(weapon, 0.05 * m, L, 0.05 * m, T("arm", [0.4, 0.4, 0.42], "steel"), 0, L, 0));
-            wparts.push(this.box(weapon, 0.22 * s, 0.14 * s, 0.14 * s, T("head", [0.2, 0.2, 0.22], "steel"), 0, 2 * L, 0));
-            wparts.push(this.cyl(weapon, 0.08, 0.15, "x", steel, 0, 0, 0, null, 10));
+            W(this.box(weapon, 0.05 * m, L, 0.05 * m, T("arm", [0.4, 0.4, 0.42], "steel"), 0, L, 0));
+            W(this.box(weapon, 0.22 * s, 0.14 * s, 0.14 * s, T("head", [0.2, 0.2, 0.22], "steel"), 0, 2 * L, 0));
+            W(this.cyl(weapon, 0.08, 0.15, "x", steel, 0, 0, 0, null, 10));
         }
-        this.shadowCast([...parts, ...wparts]);
+        this.shadowCast(all);
+        // its name (or number) painted on the deck, as rw_gfx does
+        const painted = String(style.number || d.name || "").slice(0, 10).toUpperCase();
+        if (painted) {
+            const deckName = this.floorText(painted, 0, 0, 0, 2.3 * hx, "#ffffff", 0.85);  // (letters about 0.2 m, as the window paints them)
+            deckName.parent = deck;
+            deckName.position = v3(0, 0.72 * hy, 0.047);
+        }
         const owner = info.owner || "";
         const house = owner === "Resident Robot";
-        const label = this.makeLabel(house ? `${d.name || ""}\nResident Robot` : owner || d.name || "", house ? "#ffbf4d" : "#ffffff");
-        const vis = {root, hull: parts[0], weapon, spin, blur, jet, wheels, wr, label, design: d, owner, weaponType, s, angle: 0, roll: 0, hp: null, flash: 0, look: ""};
+        const label = this.makeLabel(house ? `${d.name || ""}\nResident Robot` : owner || d.name || "", house ? "#ffbf4d" : "#ffffff", 1.1, false);
+        const vis = {key: JSON.stringify([info.design || {}, owner]), deckName: painted ? deck.getChildMeshes(true).find(m => m.name === "floortext") : null, root, armour, panels, weapon, spin, blur, chain, chainBase, chainPos: 0, wheels, wr, ww, label, design: d, owner, weaponType, s, top,
+                     angle: 0, roll: 0, hp: null, flash: 0, groups, tints: {}, trimM, hazardM, trim, hx, rear: null,
+                     health: {}, weak: {}, gone: new Set(), flying: [], bars: {}, barUntil: {}, scorch: 0, fresh: true};
         this.robots.set(info.id, vis);
         return vis;
     }
 
+    // a wedge's plate on its hinge, the hazard stripe along its lip (and the Flipper on both ends' back plate)
+    wedge(node, hx, trimM, hazardM, trim) {
+        return [this.box(node, hx + 0.02, 0.6, 0.02, trimM, 0, 0.6, -0.01),
+                this.box(node, hx + 0.02, 0.06, 0.021, hazardM, 0, 1.14, -0.009),
+                this.cyl(node, 0.05, hx, "x", this.paintOf("hinge", trim, 1, 1, {tex: "steel", tile: 1}), 0, 0, 0, null, 16)];
+    }
+
+    // ---------- real damage (rw_gfx.RobotVisual.damage) ----------
+    // pt: the health % of the body, armour, weapon and four wheels (from the server). Weak parts darken, bend,
+    // wobble and rattle; a part at zero comes off and flies away (and goes back on for a new round); a part that has
+    // just been hit shows its bar for 1.5 seconds.
+    damage(v, r, now, dt, real) {
+        const pt = r.pt;
+        ["body", ...PARTS].forEach((name, i) => {
+            const f = i < pt.length ? Math.max(0, pt[i] / 100) : 1;
+            if (f < (v.health[name] ?? 1) - 0.004 && !v.fresh) v.barUntil[name] = now + 1.5;
+            if (name !== "body") {
+                if (f <= 0 && !v.gone.has(name)) this.comeOff(v, name, v.fresh);
+                else if (f > 0 && v.gone.has(name)) this.putBack(v, name);
+            }
+            v.health[name] = f;
+            v.weak[name] = f >= 0.6 ? 0 : (0.6 - f) / 0.6;
+        });
+        v.fresh = false;
+        v.scorch = v.weak.body;
+        const rattle = Math.sin(now * 37) * (v.weak.armour > 0.5 ? 1 : 0);
+        if (!v.gone.has("armour")) {  // armour panels bend out (and rattle when nearly off)
+            const k = v.weak.armour + 0.15 * rattle;
+            for (const pn of v.panels) pn.node.rotationQuaternion = gameQuat(hprQuat(pn.bend[0] * k, pn.bend[1] * k, pn.bend[2] * k));
+        }
+        const wd = v.weak.weapon;
+        if (wd > 0.5 && !v.gone.has("weapon")) {  // a weapon about to come off shakes on its mount
+            const right = qrot(r.quat, [1, 0, 0]), off = 0.025 * wd * Math.sin(now * 41);
+            v.weapon.position = v3(r.wpos[0] + right[0] * off, r.wpos[1] + right[1] * off, r.wpos[2] + right[2] * off);
+            const q = SPINNERS.has(v.weaponType) ? r.quat : r.wquat;
+            v.weapon.rotationQuaternion = gameQuat(qmul(q, hprQuat(0, 0, 5 * wd * Math.sin(now * 29))));
+        }
+        this.fly(v, dt);
+        for (const name of ["body", ...PARTS]) {  // the bars of the parts hit in the last 1.5 seconds
+            if (now < (v.barUntil[name] || 0) && (name === "body" || real)) {
+                if (!v.bars[name]) {
+                    v.bars[name] = new HitBar(this.scene, {body: real ? "BODY" : "HEALTH", armour: "ARMOUR", weapon: "WEAPON"}[name] || "WHEEL",
+                                              name === "body" || name === "armour" ? 0.7 : 0.36);
+                }
+                v.bars[name].show(this.barPos(v, r, name), v.health[name], now);
+            } else if (v.bars[name]) {
+                v.bars[name].hide();
+            }
+        }
+    }
+
+    // where a wheel is in the world (game coordinates)
+    wheelPos(v, r, i) {
+        const w = v.wheels[i];
+        if (v.gone.has("wheel" + i)) { const f = v.flying.find(f => f.node === w.lean); if (f) return f.p; }
+        const o = qrot(r.quat, [w.x, w.y, 0.08]);
+        return [r.pos[0] + o[0], r.pos[1] + o[1], r.pos[2] + o[2]];
+    }
+
+    // body and armour bars stack over the robot (above its name); the weapon's is out in front, each wheel's out
+    // to its side
+    barPos(v, r, name) {
+        const p = r.pos;
+        if (name === "body") return [p[0], p[1], p[2] + v.top + 1.55];
+        if (name === "armour") return [p[0], p[1], p[2] + v.top + 1.34];
+        if (name === "weapon") {
+            const f = qrot(r.quat, [0, 1, 0]);
+            return [r.wpos[0] + f[0] * 0.45, r.wpos[1] + f[1] * 0.45, r.wpos[2] + f[2] * 0.45 + 0.3];
+        }
+        const i = Number(name.slice(5)), w = this.wheelPos(v, r, i), rt = qrot(r.quat, [1, 0, 0]), k = v.wheels[i].x > 0 ? 0.45 : -0.45;
+        return [w[0] + rt[0] * k, w[1] + rt[1] * k, w[2] + rt[2] * k + 0.3];
+    }
+
+    // where a part is nearly off (world position, how bad 0..1): the window puffs smoke there
+    trouble(v, r) {
+        const out = [];
+        if ((v.weak.weapon || 0) > 0.5 && !v.gone.has("weapon")) out.push([r.wpos, v.weak.weapon]);
+        for (let i = 0; i < 4; i++) {
+            if ((v.weak["wheel" + i] || 0) > 0.5 && !v.gone.has("wheel" + i)) out.push([this.wheelPos(v, r, i), v.weak["wheel" + i]]);
+        }
+        if ((v.weak.armour || 0) > 0.5 && !v.gone.has("armour")) out.push([[r.pos[0], r.pos[1], r.pos[2] + v.top], v.weak.armour]);
+        return out;
+    }
+
+    // a part at zero: wheels and armour panels fly off (a lost weapon is moved by the server's physics). quiet: a
+    // part that was already off when this window first saw it (it joined late, or the tier changed): not shown
+    comeOff(v, name, quiet) {
+        v.gone.add(name);
+        const cx = v.root.position.x, cy = v.root.position.z;
+        const away = p => { const x = p[0] - cx, y = p[1] - cy, l = Math.hypot(x, y); return l > 1e-6 ? [x / l, y / l] : [0, 0]; };
+        const loosen = node => {  // (into the world, where it is now)
+            node.computeWorldMatrix(true);
+            node.setParent(null);
+            const b = node.position;
+            return {p: [b.x, b.z, b.y], q: fromBabylonQuat(node.rotationQuaternion)};
+        };
+        const U = (a, b) => a + Math.random() * (b - a);
+        if (name === "armour") {
+            for (const pn of v.panels) {
+                if (quiet) { pn.node.setEnabled(false); continue; }
+                const {p, q} = loosen(pn.node), o = away(p), k = U(1.5, 3.5);
+                v.flying.push({node: pn.node, p, vel: [o[0] * k, o[1] * k, U(3, 5)], spin: [U(-400, 400), U(-400, 400), U(-300, 300)],
+                               rest: 0.03, lie: pn.lie, hpr: quatHpr(q)});
+            }
+            this.tint(v, "armour", [1, 1, 1]);  // (off the robot: its own colour)
+        } else if (name.startsWith("wheel")) {
+            const w = v.wheels[Number(name.slice(5))].lean;
+            if (quiet) { w.setEnabled(false); return; }
+            const {p, q} = loosen(w), o = away(p), k = U(2.0, 4.0);
+            v.flying.push({node: w, p, vel: [o[0] * k, o[1] * k, U(2.5, 4)], spin: [U(-200, 200), 0, U(200, 500)], rest: v.ww, lie: [0, 90], hpr: quatHpr(q)});
+        }
+    }
+
+    // a new round: the part is back on the robot
+    putBack(v, name) {
+        v.gone.delete(name);
+        let nodes = [];
+        if (name === "armour") {
+            for (const pn of v.panels) {
+                pn.node.parent = v.armour;
+                pn.node.position = v3(...pn.hinge);
+                pn.node.rotationQuaternion = BABYLON.Quaternion.Identity();
+                pn.node.setEnabled(true);
+                nodes.push(pn.node);
+            }
+            v.tints.armour = null;
+        } else if (name.startsWith("wheel")) {
+            const w = v.wheels[Number(name.slice(5))];
+            w.lean.parent = v.root;
+            w.lean.position = v3(w.x, w.y, 0.08);
+            w.lean.rotationQuaternion = BABYLON.Quaternion.Identity();
+            w.lean.setEnabled(true);
+            nodes = [w.lean];
+        }
+        v.flying = v.flying.filter(f => !nodes.includes(f.node));
+    }
+
+    // parts that came off: thrown clear, they bounce and come to rest lying flat on the floor
+    fly(v, dt) {
+        const half = ARENA / 2 - 0.2;
+        for (const f of v.flying) {
+            if (!f.vel) continue;
+            f.vel[2] -= 9.81 * dt;
+            const p = f.p.map((c, i) => c + f.vel[i] * dt);
+            for (const axis of [0, 1]) {  // the arena walls
+                if (Math.abs(p[axis]) > half) { p[axis] = Math.sign(p[axis]) * half; f.vel[axis] *= -0.4; }
+            }
+            let settled = false;
+            if (p[2] < f.rest) {
+                p[2] = f.rest;
+                f.vel = [f.vel[0] * 0.55, f.vel[1] * 0.55, -f.vel[2] * 0.3];
+                f.spin = f.spin.map(a => a * 0.5);
+                if (Math.hypot(...f.vel) < 0.6) { f.hpr = [f.hpr[0], f.lie[0], f.lie[1]]; settled = true; }  // lying flat
+            }
+            f.p = p;
+            f.node.position = v3(...p);
+            if (settled) f.vel = null;
+            else f.hpr = f.hpr.map((a, i) => a + f.spin[i] * dt);
+            f.node.rotationQuaternion = gameQuat(hprQuat(...f.hpr));
+        }
+    }
+
     // ---------- each frame ----------
-    // st: the watched arena, blended ({robots: [...], hz}); dt seconds
+    // st: the watched arena, blended ({robots: [...], hz, intro, rd}); dt seconds
     frame(st, dt, t) {
-        const seen = new Set();
-        for (const r of (st && st.robots) || []) {
+        const seen = new Set(), fx = this.fx, real = !!(st && st.rd);
+        this.lastRobots = (st && st.robots) || [];
+        if (this.beaconMat) { const g = Math.floor(t * 3) % 2 === 0 ? 6 : 1; this.setGlow(this.beaconMat, [g, g * 0.5, 0]); }  // a turning amber beacon
+        for (const r of this.lastRobots) {
             const v = this.robots.get(r.id);
             if (!v) continue;
             seen.add(r.id);
             v.root.setEnabled(true);
             v.weapon.setEnabled(true);
             v.label.setEnabled(true);
+            for (const f of v.flying) f.node.setEnabled(true);
             v.root.position = v3(r.pos[0], r.pos[1], r.pos[2]);
             v.root.rotationQuaternion = gameQuat(r.quat);
             v.weapon.position = v3(r.wpos[0], r.wpos[1], r.wpos[2]);
@@ -435,26 +736,70 @@ export class RobotScene extends BaseScene {
                 v.weapon.rotationQuaternion = gameQuat(r.quat);  // (the spin itself is drawn here, from its speed)
                 v.angle += (r.rpm || 0) / 60 * 2 * Math.PI * dt * 0.35;
                 if (v.weaponType === "spinner") v.spin.rotation.y = v.angle; else v.spin.rotation.x = v.angle;
-                if (v.blur) { v.blur.visibility = Math.min(1, (r.rpm || 0) / 400); v.blur.isVisible = (r.rpm || 0) > 30; }
+                if (v.blur) {  // a see-through disc when it spins fast
+                    const a = Math.min(0.28, (r.rpm || 0) / 1400);
+                    v.blur.isVisible = a > 0.002;
+                    v.blur.visibility = a / 0.28;
+                }
             } else {
                 v.weapon.rotationQuaternion = gameQuat(r.wquat);
             }
-            if (v.jet) v.jet.isVisible = !!r.fl;
+            if (r.w2 && v.weaponType === "wedge") {  // the Flipper on both ends user mod: the back plate is a copy of the front one
+                if (!v.rear) {
+                    v.rear = new BABYLON.TransformNode("rear", this.scene);
+                    v.rear.rotationQuaternion = BABYLON.Quaternion.Identity();
+                    for (const m of this.wedge(v.rear, v.hx, v.trimM, v.hazardM, v.trim)) { m.ccBase = m.material; v.groups.weapon.push(m); }
+                    this.shadowCast(v.rear.getChildMeshes());
+                    v.tints.weapon = null;
+                }
+                v.rear.setEnabled(true);
+                v.rear.position = v3(r.w2[0], r.w2[1], r.w2[2]);
+                v.rear.rotationQuaternion = gameQuat(qmul(r.w2.slice(3, 7), hprQuat(180, 0, 0)));  // (the front plate's shape, pointing backwards)
+            } else if (v.rear) {
+                v.rear.setEnabled(false);
+            }
             v.roll += (r.speed || 0) * dt / v.wr;
-            for (const w of v.wheels) w.rotation.x = v.roll;
-            v.label.position = v3(r.pos[0], r.pos[1], r.pos[2] + 1.3 * Math.max(1, v.s));
+            const spinDeg = v.roll * 180 / Math.PI;
+            v.wheels.forEach((w, i) => {
+                if (v.gone.has("wheel" + i)) return;
+                const weak = v.weak["wheel" + i] || 0;  // a failing wheel leans out and wobbles as it turns
+                w.lean.rotationQuaternion = weak ? gameQuat(hprQuat(0, 0, (w.x > 0 ? 1 : -1) * weak * 9 + weak * 7 * Math.sin(spinDeg * Math.PI / 180)))
+                                                 : BABYLON.Quaternion.Identity();
+                w.spin.rotation.x = v.roll;
+            });
+            if (v.chain && (r.on ?? true)) {  // the chain runs round the bar
+                v.chainPos = (v.chainPos + dt * 3.0) % 0.06;
+                v.chain.position.z = v.chainBase + v.chainPos;  // (Babylon's z: the game's y, along the bar)
+            }
+            if (r.fl && fx) {  // the flame thrower: a jet of fire from its nozzle
+                const fwd = qrot(r.quat, [0, 1, 0]), k = 0.44 * v.s + 0.05;
+                fx.flame([r.wpos[0] + fwd[0] * k, r.wpos[1] + fwd[1] * k, r.wpos[2] + fwd[2] * k], fwd, dt);
+            }
+            if (r.pt) {  // parts bending, wobbling and coming off, and the bars of parts just hit
+                this.damage(v, r, t, dt, real);
+                if (fx) for (const [p, amount] of this.trouble(v, r)) fx.smoke(p, 0.2 + 0.35 * amount, dt);
+            }
             if (v.hp !== null && r.hp < v.hp - 0.5) v.flash = 0.15;
             v.hp = r.hp;
             v.flash = Math.max(0, v.flash - dt);
-            const look = r.ko ? "ko" : v.flash > 0 ? "flash" : "";  // (knocked out: dark; just hit: a flash)
-            if (look !== v.look) {
-                v.look = look;
-                const scale = look === "ko" ? 0.35 : look === "flash" ? 2.2 : 1;
-                v.hull.material = this.hullMaterial(rgb255(v.design.colour, [200, 120, 40]), scale);
-            }
+            // the colours: a flash when hit, scorched as the body is hurt, each weak part darker (rw_gfx's colour scales)
+            const sc = v.scorch, ch = v.flash > 0 ? [2.2, 2.2, 2.2] : [1 - 0.4 * sc, 1 - 0.45 * sc, 1 - 0.5 * sc];
+            this.tint(v, "chassis", ch);
+            const a = v.weak.armour || 0;
+            this.tint(v, "armour", v.gone.has("armour") ? [1, 1, 1] : [ch[0] * (1 - 0.45 * a), ch[1] * (1 - 0.5 * a), ch[2] * (1 - 0.55 * a)]);
+            const wd = v.weak.weapon || 0;
+            this.tint(v, "weapon", [1 - 0.45 * wd, 1 - 0.5 * wd, 1 - 0.55 * wd]);
+            for (let i = 0; i < 4; i++) { const k = 1 - 0.4 * (v.weak["wheel" + i] || 0); this.tint(v, "wheel" + i, [k, k, k]); }
+            const damage = 1 - Math.max(0, r.hp) / Math.max(1, r.max || 1);
+            if (fx && damage > 0.55 && r.pos[2] > -1) fx.smoke(r.pos, (damage - 0.55) / 0.45 + (r.ko ? 1 : 0), dt);
+            v.label.position = v3(r.pos[0], r.pos[1], r.pos[2] + 1.3 * Math.max(1, v.s));
         }
         for (const [id, v] of this.robots) {
-            if (!seen.has(id)) { v.root.setEnabled(false); v.weapon.setEnabled(false); v.label.setEnabled(false); }
+            if (seen.has(id)) continue;
+            v.root.setEnabled(false); v.weapon.setEnabled(false); v.label.setEnabled(false);
+            if (v.rear) v.rear.setEnabled(false);
+            for (const f of v.flying) f.node.setEnabled(false);
+            for (const b of Object.values(v.bars)) b.hide();
         }
         const hz = st && st.hz;
         if (hz) {
@@ -471,6 +816,10 @@ export class RobotScene extends BaseScene {
                 saw.node.position.y = -1.1 + 1.35 * h;
                 saw.angle -= (400 + 1400 * Math.min(1, 2 * h)) * Math.PI / 180 * dt;
                 saw.spin.rotation.z = saw.angle;
+                const a = Math.min(0.22, h * 0.3);  // (rw_gfx: the blur as it rises, the hot rim while it grinds)
+                saw.blur.isVisible = a > 0.002;
+                saw.blur.visibility = a / 0.22;
+                saw.glow.isVisible = !!(hz.saw_hot || [])[i];
             });
             if (this.spikeBank) this.spikeBank.position.x = -10.5 + 0.6 * (hz.spikes || 0);
             for (const [i, f] of this.flames.entries()) {
@@ -480,34 +829,129 @@ export class RobotScene extends BaseScene {
             }
             if (this.boostMat) { const g = 0.9 + 0.35 * Math.sin(ht * 5); this.setGlow(this.boostMat, (hz.boost ?? 1) ? [0.25 * g, g, 0.35 * g] : [0.45, 0.06, 0.04]); }
             if (this.repairMat) { const g = hz.repair ? 2.0 + 1.2 * Math.sin(ht * 6) : 0.6; this.setGlow(this.repairMat, [0.2 * g, 0.5 * g, g]); }
-            for (const l of this.lasers) l.dispose();
-            this.lasers = (hz.lasers || []).map(([sx, sy, sz, ex, ey, ez]) => {
-                const a = v3(sx, sy, sz), b = v3(ex, ey, ez);
-                const beam = BABYLON.MeshBuilder.CreateTube("laser", {path: [a, b], radius: 0.04, tessellation: 6}, this.scene);
-                beam.material = this.material("beam", [0, 0, 0], 1, 0, 0, {emission: [8, 0.3, 0.2]});
-                return beam;
+            const beams = hz.lasers || [];  // lasers: a beam for each laser firing, from where it starts to its end
+            while (this.lasers.length < beams.length) this.lasers.push(this.buildLaser());
+            this.lasers.forEach((aim, i) => {
+                const b = beams[i], len = b ? Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) : 0;
+                if (len < 0.05) { aim.setEnabled(false); return; }
+                aim.position = v3(b[0], b[1], b[2]);
+                aim.lookAt(v3(b[3], b[4], b[5]));
+                aim.scaling.z = len;
+                aim.setEnabled(true);
             });
         }
-        for (const sp of this.sparks) {
-            sp.life -= dt;
-            sp.mesh.scaling.setAll(1 + (0.3 - sp.life) * 6);
-            sp.mesh.visibility = Math.max(0, sp.life / 0.3);
-            if (sp.life <= 0) sp.mesh.dispose();
-        }
-        this.sparks = this.sparks.filter(sp => sp.life > 0);
+        if (fx) fx.update(dt);
         this.updateCamera(st, dt, t);
         this.followSun();
     }
 
-    spark(pos, dmg, kind) {
-        if (this.sparks.length > 30) return;
-        const hot = ["flame", "saw", "spinner", "drum"].includes(kind);
-        const m = this.sphere(null, Math.min(0.35, 0.08 + dmg * 0.01), this.material(hot ? "sparkhot" : "spark", hot ? [1, 0.6, 0.15] : [1, 0.95, 0.7], 0.5, 0, 2), pos[0], pos[1], pos[2], 1, 1, 1, 6);
-        this.sparks.push({mesh: m, life: 0.3});
+    // sparks and debris where something hit (the debris in the colour of the robot nearest the hit, as the window
+    // picks it), a shower of sparks from a saw
+    impact(pos, dmg, kind) {
+        if (!this.fx) return;
+        let best = null, bd = Infinity;
+        for (const r of this.lastRobots || []) {
+            const dd = (r.pos[0] - pos[0]) ** 2 + (r.pos[1] - pos[1]) ** 2 + (r.pos[2] - pos[2]) ** 2;
+            if (dd < bd) { bd = dd; best = r; }
+        }
+        const v = best ? this.robots.get(best.id) : null;
+        this.fx.impact(pos, dmg, kind, v ? rgb255(v.design.colour, [200, 120, 40]) : [0.7, 0.7, 0.7]);
     }
 
+    stream(pos, dir, count) {
+        if (this.fx) this.fx.stream(pos, dir, count);
+    }
+
+    // the window's camera rig (rw_camera.GameCamera.update): where the camera wants to be and what it looks at, in
+    // game coordinates, eased there; your robot's node or null, its nose's distance, the robots still fighting
+    rigCamera(dt) {
+        const cam = this.camera, mode = this.mode;
+        const me = this.follow !== null ? this.robots.get(this.follow) : null;
+        const live = [];
+        for (const v of this.robots.values()) if (v.root.isEnabled() && v.root.position.y > -1) live.push([v.root.position.x, v.root.position.z, v.root.position.y]);
+        const centre = live.length ? [live.reduce((a, p) => a + p[0], 0) / live.length, live.reduce((a, p) => a + p[1], 0) / live.length, 0.3] : [0, 0, 0.3];
+        let mine = me && me.root.isEnabled() ? [me.root.position.x, me.root.position.z, me.root.position.y] : null;
+        if (mine && mine[2] < -1) mine = null;  // (fallen in the pit: watch the arena instead)
+        const focus = (mode === "third" || mode === "fpv") && !mine ? "zoom" : mode;
+        let want, look, k = 5, fov = 70, near = 0.2;
+        const flatOf = () => {
+            const f = new BABYLON.Vector3(0, 0, 1).rotateByQuaternionToRef(me.root.rotationQuaternion, new BABYLON.Vector3());
+            let x = f.x, y = f.z;
+            const l = Math.hypot(x, y);
+            if (l < 0.1) { x = 0; y = 1; } else { x /= l; y /= l; }
+            return [x, y, f];
+        };
+        if (focus === "third") {
+            const [fx, fy] = flatOf(), d = this.rigDist || 6.5;
+            want = [mine[0] - fx * d, mine[1] - fy * d, d * 0.55];
+            if (d < 9) {  // low down: stay inside the arena, in front of the wall posts; squeezed by a wall, go up instead
+                const inside = HALF - 0.6, back = Math.hypot(want[0] - mine[0], want[1] - mine[1]);
+                want[0] = Math.max(-inside, Math.min(inside, want[0]));
+                want[1] = Math.max(-inside, Math.min(inside, want[1]));
+                want[2] += Math.max(0, back - Math.hypot(want[0] - mine[0], want[1] - mine[1])) * 1.1;
+            }
+            look = [mine[0] + fx * 2, mine[1] + fy * 2, 0.4];
+        } else if (focus === "fpv") {
+            let [fx, fy] = flatOf();
+            const up = new BABYLON.Vector3(0, 1, 0).rotateByQuaternionToRef(me.root.rotationQuaternion, new BABYLON.Vector3());
+            if (up.y < 0.3 && this.rigLook) { fx = this.rigLook[0] - this.rigPos[0]; fy = this.rigLook[1] - this.rigPos[1]; const l = Math.hypot(fx, fy) || 1; fx /= l; fy /= l; }
+            const front = 0.8 * (me.s || 1);
+            want = [mine[0] + fx * (front + 0.15), mine[1] + fy * (front + 0.15), Math.max(0.35, mine[2] + 0.45)];
+            look = [want[0] + fx * 6, want[1] + fy * 6, want[2] - 0.35];
+            k = 14; fov = 95; near = 0.05;
+        } else if (focus === "zoom") {
+            let target = mine && mode !== "zoom" ? [mine[0], mine[1], 0.3] : centre;
+            if (mode === "zoom" && mine && live.length) target = [(mine[0] + centre[0]) / 2, (mine[1] + centre[1]) / 2, 0.3];
+            want = [Math.max(-8, Math.min(8, target[0] * 0.7)), -HALF - 1.2, 5.4];
+            const spread = Math.max(1.5, ...live.map(p => Math.hypot(p[0] - target[0], p[1] - target[1], p[2] - target[2])));
+            const dist = Math.hypot(want[0] - target[0], want[1] - target[1], want[2] - target[2]);
+            fov = Math.max(4, Math.min(100, 2 * Math.atan((spread + 1.3) / dist) * 180 / Math.PI));
+            look = target; k = 2.5;
+        } else if (focus === "arena") {
+            look = [0, -2, 0]; want = [0, -HALF + 1, 17]; fov = 90; k = 3;
+        } else {
+            look = [0, 0, 0.3]; want = [0, -HALF - 3.5, 6.5]; fov = 62; k = 3;
+        }
+        if (!this.rigPos || this.snapCamera) { this.rigPos = want.slice(); this.rigLook = look.slice(); this.rigFov = fov; this.snapCamera = false; }
+        const a = Math.min(1, dt * k);
+        for (let i = 0; i < 3; i++) { this.rigPos[i] += (want[i] - this.rigPos[i]) * a; this.rigLook[i] += (look[i] - this.rigLook[i]) * a; }
+        this.rigFov += (fov - this.rigFov) * Math.min(1, dt * 4);
+        cam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;  // (Panda's lens: the fov is across)
+        cam.fov = this.rigFov * Math.PI / 180;
+        cam.minZ = near;
+        cam.setTarget(v3(...this.rigLook));
+        cam.setPosition(v3(...this.rigPos));
+        return focus;
+    }
+
+    // the camera, then the shake from big hits (rw_fx.shake_offset, half of it, as lab_client passes it): the rig's
+    // views move the camera only (it still looks where it looked, as rw_camera does); the orbiting views move the
+    // camera and what it looks at together, put back before the next frame so the orbit isn't changed
     updateCamera(st, dt, t) {
         const cam = this.camera;
+        if (this.shook) { cam.target.subtractInPlace(this.shook); this.shook = null; }
+        this.placeCamera(st, dt, t);
+        const intro = st && st.intro !== null && st.intro !== undefined;
+        const off = this.fx && !intro ? this.fx.shakeOffset() : null;  // (none in the countdown's sweep)
+        if (!off) return;
+        if (RIG_MODES.includes(this.mode) && this.rigPos) {
+            cam.setPosition(v3(this.rigPos[0] + off[0], this.rigPos[1] + off[1], this.rigPos[2] + off[2]));
+        } else {
+            this.shook = v3(off[0], off[1], off[2]);
+            cam.target.addInPlace(this.shook);
+        }
+    }
+
+    placeCamera(st, dt, t) {
+        const cam = this.camera;
+        if (RIG_MODES.includes(this.mode) && !(st && st.intro !== null && st.intro !== undefined)) {
+            const focus = this.rigCamera(dt);
+            for (const m of this.rig || []) m.isVisible = focus !== "arena";  // (the full arena view looks down past the rig)
+            return;
+        }
+        cam.fovMode = BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
+        cam.fov = 0.8;
+        cam.minZ = 0.1;
         const above = cam.position.y > 9.0;  // (looking down past the lighting rig: hidden, as the app's full-arena camera does)
         for (const m of this.rig || []) m.isVisible = !above;
         if (st && st.intro !== null && st.intro !== undefined) {  // the pre-battle intro: round the arena
@@ -533,6 +977,8 @@ export class RobotScene extends BaseScene {
         this.follow = follow;
         this.snapCamera = true;
         const cam = this.camera;
+        if (this.shook) { cam.target.subtractInPlace(this.shook); this.shook = null; }
+        if (RIG_MODES.includes(mode)) return;  // (the rig places the camera every frame)
         if (mode === "overview") { cam.target = v3(0, 0, 0); cam.radius = 27; cam.alpha = -Math.PI / 2; cam.beta = 0.78; }
         if (mode === "follow") { cam.radius = 8; cam.beta = 0.95; }
     }
@@ -551,26 +997,72 @@ export class RobotGame {
         this.mods = ["mods/arena.py", "mods/rules.py", "mods/robots/<username>.py"];
         this.last = null;
         this.events = new Set();
+        this.controlKind = "robot";  // (play.js: the arrows drive, Space fires)
+        // B: the health bars small (just the title) or full, kept on this computer as the window keeps hud_small
+        try { this.boardSmall = localStorage.getItem("hud_small") === "1"; } catch (e) { this.boardSmall = false; }
     }
 
     welcome(m) {
         const p = this.app.params;
-        if (p.get("cam")) this.scene.setMode(p.get("cam") === "chase" ? "follow" : "overview", p.get("follow") !== null ? Number(p.get("follow")) : null);
+        this.followMine = this.app.state.role === "learner";  // (a learner's camera starts behind their own robot)
+        const saved = (m.prefs || {}).camera || {};  // (the view kept in their profile, as the window keeps it)
+        if (RIG_MODES.includes(saved.mode)) this.rigMode = saved.mode;
+        if (saved.dist) this.scene.rigDist = Math.max(1.5, Math.min(30, Number(saved.dist) || 6.5));
+        if (!this.wheelHooked) {  // (the wheel zooms the rig's views: how far behind, in third person)
+            this.wheelHooked = true;
+            this.app.canvas.addEventListener("wheel", e => {
+                if (this.scene.mode !== "third") return;
+                this.scene.rigDist = Math.max(1.5, Math.min(30, (this.scene.rigDist || 6.5) * (e.deltaY > 0 ? 1 / 0.88 : 0.88)));
+            }, {passive: true});
+        }
+        if (p.get("cam")) { this.followMine = false; this.scene.setMode(p.get("cam") === "chase" ? "follow" : "overview", p.get("follow") !== null ? Number(p.get("follow")) : null); }
     }
+
+    // our own robot's id (the roster's mine), or null: no robot of ours to drive
+    myId() {
+        const S = this.app.state, roster = S.roster;
+        const id = roster && roster.mine ? roster.mine[S.name] : null;
+        return id === undefined ? null : id;
+    }
+
+    // V: the camera views (behind your robot, the whole arena)
+    cycleCamera() {
+        const i = RIG_MODES.indexOf(this.scene.mode);
+        this.rigMode = RIG_MODES[(i + 1) % RIG_MODES.length];
+        this.scene.setMode(this.rigMode, this.myId());
+        this.app.keepPrefs && this.app.keepPrefs({camera: {mode: this.rigMode, dist: this.scene.rigDist || 6.5}});
+    }
+
+    // B, or the board's Hide/Show button (lab_client.toggle_hud)
+    toggleBoard() {
+        this.boardSmall = !this.boardSmall;
+        try { localStorage.setItem("hud_small", this.boardSmall ? "1" : "0"); } catch (e) { /* private window */ }
+        this.renderBoard();
+    }
+
+    learnerTabs() { return [["camera", "Camera"]]; }
 
     message(m) {
         if (m.type === "roster") {
             this.scene.setSetup({hazards: m.hazards || {}, user_mods: m.user_mods || {}, look: m.look || {}});
             this.scene.setRobots(m.robots || []);
+            const id = this.myId();
+            if (this.followMine && id !== null) this.scene.setMode(this.rigMode || "third", id);
             this.renderBoard();
             return true;
         }
         if (m.type === "state") {
             m.sm = m.sm >>> 0;
             this.app.pushSnap(m, performance.now());
+            const id = this.myId();  // (the server's acks: how long our key presses take to show)
+            if (id !== null && m.acks && m.acks[id] !== undefined && this.app.ctrl) this.app.ctrl.ack(m.acks[id], performance.now());
             this.last = m;
             const arena = this.arenaOf(m);
-            if (arena && arena.fx) for (const [p, dmg, kind] of arena.fx.impacts || []) this.scene.spark(p, dmg, kind);
+            if (arena && arena.fx) {  // sparks, debris and the camera shake (rw_fx), and saws' and chainsaws' spark showers
+                for (const [p, dmg, kind] of arena.fx.impacts || []) this.scene.impact(p, dmg, kind);
+                for (const [p, dir, n] of arena.fx.streams || []) this.scene.stream(p, dir, n);
+            }
+            if (arena && arena.fx) this.impacts = (this.impacts || []).concat(arena.fx.impacts || []);  // (heard next frame)
             for (const e of m.events || []) if (!this.events.has(e)) { this.events.add(e); this.app.addEvent(e); }
             if (this.events.size > 200) this.events = new Set([...this.events].slice(-60));
             this.renderBoard();
@@ -615,7 +1107,14 @@ export class RobotGame {
                   ff: A.hz.ff && B.hz.ff ? slerpQ(A.hz.ff, B.hz.ff, f) : B.hz.ff};
         }
         const top = pair.b || pair.a;
-        this.scene.frame({robots, hz, intro: top.intro}, dt, now / 1000);
+        this.scene.frame({robots, hz, intro: top.intro, rd: top.rd}, dt, now / 1000);
+        if (this.app.sound && this.last) {  // hits, spinners, saws, the motor, the countdown (sound.js, lab_client's sounds)
+            const keys = this.app.keys;
+            this.app.sound.robotFrame(this.arenaOf(this.last), {intro: this.last.intro, paused: this.last.paused}, this.impacts || [], this.myId(),
+                {listener: Sound.listenerFrom(this.scene.camera), weapons: Sound.robotWeapons(((this.app.state.roster || {}).robots)),
+                 driving: !!keys && keys.is("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"), now: now / 1000});
+            this.impacts = [];
+        }
     }
 
     renderBoard() {
@@ -625,15 +1124,34 @@ export class RobotGame {
         const roster = S.roster || {};
         const byId = new Map((roster.robots || []).map(r => [r.id, r]));
         const n = roster.arenas || 1;
-        const rows = ((arena && arena.robots) || []).map(r => {
+        const myId = this.myId();
+        // (the window's health bars: the robot's name and owner, YOU, the bar in its colour, the weapon and hits;
+        // Resident Robots last)
+        const list = [...((arena && arena.robots) || [])].sort((a, b) => ((byId.get(a.id) || {}).owner === "Resident Robot") - ((byId.get(b.id) || {}).owner === "Resident Robot"));
+        const rows = list.map(r => {
             const info = byId.get(r.id) || {design: {}};
+            const house = info.owner === "Resident Robot";
             const c = (info.design.colour || [128, 128, 128]).map(v => Math.round(v));
             const pc = Math.max(0, Math.min(100, Math.round(100 * r.hp / (r.max || 1))));
-            return `<div data-id="${r.id}"><span class="sw" style="background:rgb(${c.join(",")})"></span><span>${esc(info.design.name || "?")}<small> ${esc(info.owner || "")}</small></span>` +
-                   `<span class="hpbar"><i style="width:${pc}%;background:${pc > 50 ? "#4ade80" : pc > 25 ? "#facc15" : "#f87171"}"></i></span>` +
-                   `<span class="lap">${r.ko ? "KO" : r.hits ? `${r.hits} hits` : ""}</span></div>`;
+            const weapon = info.design.weapon || HOUSE_WEAPONS[info.design.model] || "wedge";
+            const wstate = ["spinner", "drum", "vdisc"].includes(weapon)
+                ? (r.on && r.rpm ? `${Math.round(r.rpm)} rpm` : r.on ? "on" : "off") : (r.on || r.act ? "firing" : "ready");
+            let status = r.ko ? (house ? "OUT OF ACTION" : "KNOCKED OUT") : `weapon ${wstate}${r.hits ? ` · ${r.hits} hits` : ""}`;
+            if (m.rd && !r.ko && r.pt) {  // real damage: armour, weapon and the four wheels' own bars (lab_client.hud_parts)
+                const pt = r.pt, bar = (v, w) => `<span style="display:inline-block;width:${w}px;height:6px;background:#333336;margin-right:3px;vertical-align:middle">` +
+                    `<i style="display:block;height:100%;width:${Math.max(0, Math.min(100, v))}%;background:${v > 60 ? "#4dd959" : v > 30 ? "#ffcc26" : "#ff4033"}"></i></span>`;
+                status = `<small>Armour</small> ${bar(pt[1], 34)}<small>Weapon</small> ${bar(pt[2], 34)}<small>Wheels</small> ${[pt[4], pt[3], pt[6], pt[5]].map(v => bar(v, 15)).join("")}`;
+            }
+            return `<div data-id="${r.id}" class="${r.id === myId ? "watched" : ""}"><span class="sw" style="background:rgb(${c.join(",")})"></span><span>${esc(info.design.name || "?")}<small> ${esc(info.owner || "")}${r.id === myId ? " (YOU)" : ""}</small></span>` +
+                   `<span class="hpbar"><i style="width:${pc}%;background:rgb(${c.join(",")})"></i></span>` +
+                   `<span class="lap">${status}</span></div>`;
         });
-        $("places").innerHTML = (n > 1 ? `<div><small>ARENA ${this.watched() + 1} of ${n}</small></div>` : "") + (rows.join("") || "<div><small>No robots yet</small></div>");
+        // (the window's title bar: ROBOT LAB, TEACHER: and the name, and Hide or Show; small is just the title)
+        const teacher = S.role !== "learner";
+        const head = `<div class="bhead"><b class="${teacher ? "teacher" : ""}">ROBOT LAB · ${teacher ? "TEACHER: " : ""}${esc(S.name || "")}</b>` +
+                     `<button id="rb-small" title="B does the same">${this.boardSmall ? "Show" : "Hide"}</button></div>`;
+        $("places").innerHTML = head + (this.boardSmall ? "" : (n > 1 ? `<div><small>ARENA ${this.watched() + 1} of ${n}</small></div>` : "") + (rows.join("") || "<div><small>No robots yet</small></div>"));
+        $("rb-small").onpointerdown = () => this.toggleBoard();  // (not onclick: the board is redrawn 30 times a second)
         $("places").querySelectorAll("div[data-id]").forEach(el => el.onclick = () => {
             const id = Number(el.dataset.id);
             this.scene.setMode(this.scene.mode === "follow" && this.scene.follow === id ? "overview" : "follow", id);
@@ -642,14 +1160,17 @@ export class RobotGame {
         let big = "";
         if (m.intro !== null && m.intro !== undefined) {
             const t = m.intro;
-            big = t < 2.5 ? ((roster.look || {}).name || "ROBOT LAB") : t < 5 ? "GET READY" : String(Math.max(1, 3 - Math.floor(t - 5)));
+            // (the window's intro: the arena's name, who is fighting, then 3, 2, 1; nobody moves until ACTIVATE!)
+            const fighting = ((arena && arena.robots) || []).map(r => byId.get(r.id)).filter(x => x && x.owner !== "Resident Robot").map(x => x.design.name || "?");
+            big = t < 2.5 ? esc((roster.look || {}).name || "ROBOT LAB") : t < 5 ? `${fighting.map(esc).join("  v  ")}<div class="sub">Get ready: nobody can move or fire until ACTIVATE!</div>`
+                : String(Math.max(1, 3 - Math.floor(t - 5)));
             this.activateAt = performance.now();
         } else if (this.activateAt && performance.now() - this.activateAt < 1200) {
             big = "ACTIVATE!";
         } else if (arena && arena.winner) {
-            big = arena.winner;
+            big = esc(arena.winner);
         }
-        $("countdown").textContent = big;
+        $("countdown").innerHTML = big;
         const tl = arena && arena.time_left !== null && arena.time_left !== undefined ? arena.time_left : m.time_left;
         const clock = tl !== null && tl !== undefined ? `${Math.floor(tl / 60)}:${String(Math.floor(tl % 60)).padStart(2, "0")}` : "";
         $("phase").textContent = (m.paused ? "PAUSED · " : "") + (m.practice ? "PRACTICE (no damage)" : `BATTLE ${clock}`) + (m.rd ? " · real damage" : "");
@@ -662,10 +1183,23 @@ export class RobotGame {
 
     cameraPill() {
         const sc = this.scene;
+        if (RIG_NAMES[sc.mode]) return `Camera: ${RIG_NAMES[sc.mode]} (V to change)`;
         return sc.mode === "follow" ? "Camera: following a robot (drag to orbit)" : "Camera: the whole arena (drag to orbit, wheel to zoom)";
     }
 
     tabs() { return [["controls", "Controls"], ["camera", "Camera"]]; }
+
+    // the knockout's first round as picked so far (lab_client.knockout_lineups): one pair an arena, empty places
+    // filled in order from the robots not yet in a line-up
+    knockoutLineups(entrants) {
+        const rows = Math.min(6, Math.floor(entrants.length / 2));
+        const picked = ((this.lineups || []).map(row => row.map(n => entrants.includes(n) ? n : null)).concat(Array.from({length: rows}, () => [null, null]))).slice(0, rows);
+        const used = new Set(picked.flat().filter(Boolean));
+        const spare = entrants.filter(n => !used.has(n));
+        for (const row of picked) for (const k of [0, 1]) if (row[k] === null && spare.length) row[k] = spare.shift();
+        this.lineups = picked;
+        return picked;
+    }
 
     learnerHead() { return ["Robot", "Arena"]; }
     learnerCells(p) {
@@ -681,8 +1215,9 @@ export class RobotGame {
         if (tab === "controls") {
             if (!L) { body.innerHTML = "<p class='note'>Waiting for the lesson…</p>"; return true; }
             const T = S.tournament;
-            const people = (S.classList || []).filter(p => p.role === "learner").map(p => p.name).concat(L.teacher_robot ? ["Teacher"] : []);
+            const people = (S.classList || []).filter(p => p.role === "learner").map(p => p.name).concat(L.teacher_robot ? [S.name] : []);
             const arenas = L.arenas || 1;
+            const rows = this.knockoutLineups(people);
             body.innerHTML = `
               ${app.missionRow()}
               <h2>The match</h2>
@@ -706,12 +1241,21 @@ export class RobotGame {
               ${arenas > 1 ? people.map((n, i) => `<div class="row"><label>${esc(n)}</label><select data-place="${i}"><option value="">any</option>${Array.from({length: arenas}, (_, k) =>
                   `<option value="${k}" ${(L.places || {})[n] === k ? "selected" : ""}>arena ${k + 1}</option>`).join("")}</select></div>`).join("") : ""}
               <h2>Tournament</h2>
-              ${T ? `<p><b>${esc(T.title || "")}</b>${T.champion ? ` · champion ${esc(T.champion)}` : ""}</p>
-                ${(T.table || []).length ? `<table><tr><th>Robot</th><th>wins</th><th>streak</th></tr>${T.table.map(([n, w, s]) => `<tr><td>${esc(n)}</td><td class="num">${w}</td><td class="num">${s}</td></tr>`).join("")}</table>` : ""}
-                ${(T.rounds || []).map((rd, i) => `<div class="note">Round ${i + 1}: ${rd.map(([a, b, w]) => `${esc(a)} v ${esc(b)}${w ? ` (${esc(w)})` : ""}`).join(", ")}</div>`).join("")}
-                <div class="row"><button id="rb-tstop" class="stop">STOP THE TOURNAMENT</button></div>`
-                : `<div class="row"><button id="rb-stays" class="go">Winner stays on</button><button id="rb-knock" class="go">Knockout</button></div>
-                   <div class="note">Winner stays on uses ${arenas} arena${arenas > 1 ? "s" : ""}; a knockout pairs everyone in order, one pair per arena.</div>`}
+              ${T ? `<div class="row"><button id="rb-tstop" class="stop">${T.kind === "knockout" ? "Stop: knockout" : "Stop: winner stays on"}</button></div>
+                ${T.kind === "knockout" ? `<p><b class="${T.champion ? "ok" : ""}">${esc(T.title || "")}</b></p>
+                    ${(T.rounds || []).map((rd, n) => rd.map(([a, b, w], i) => `<div class="${n === T.rounds.length - 1 ? "" : "note"} ${w ? "ok" : ""}">Round ${n + 1}${rd.length > 1 ? ` arena ${i + 1}` : ""}: ${esc(a)} v ${esc(b)}${w ? ` - ${esc(w)} through` : ""}</div>`).join("")).join("")}
+                    ${(T.queue || []).length ? `<div class="note">Waiting for the next round: ${T.queue.map(esc).join(", ")}</div>` : ""}`
+                  : `${(T.live || []).map(([a, b], i) => `<div>Arena ${i + 1}: ${esc(a || "-")} v ${esc(b || "-")}</div>`).join("")}
+                    <div class="note">Waiting: ${(T.queue || []).map(esc).join(", ") || "nobody"}</div>`}
+                <div class="note">Battles: ${T.played || 0}</div>
+                ${(T.table || []).length ? `<table>${T.table.slice(0, 12).map(([n, w, st]) => `<tr><td class="${w ? "ok" : ""}">${esc(n)}</td><td>${w} win${w !== 1 ? "s" : ""}${st > 1 ? ` · ${st} in a row` : ""}</td></tr>`).join("")}</table>` : ""}`
+                : `<div class="row"><button id="rb-stays" class="go">Winner stays on</button></div>
+                   <div class="note">Two arenas live; the loser queues, the next challenger comes in, the rest watch. Battle on, designs locked.</div>
+                   <h3>Knockout: pick round 1 (click a name to change it); the winners meet next round</h3>
+                   ${rows.length ? rows.map(([a, b], i) => `<div class="row"><label>Arena ${i + 1}</label><button data-lineup="${i},0">${esc(a || "-")}</button> v <button data-lineup="${i},1">${esc(b || "-")}</button></div>`).join("") +
+                       `<div class="row"><button id="rb-knock" class="go">START KNOCKOUT</button></div>
+                        <div class="note">${(() => { const w = people.filter(n => !rows.some(r => r.includes(n))); return w.length ? `Waiting for round 2: ${w.map(esc).join(", ")}` : "Battle on, designs locked."; })()}</div>`
+                     : `<div class="note">Needs at least 2 robots: learners, or your own robot.</div>`}`}
               ${app.restartRow()}`;
             app.wireMissionRow(body);
             body.querySelectorAll("button[data-mode]").forEach(b => b.onclick = () => lessonSend({mode: b.dataset.mode}));
@@ -731,12 +1275,15 @@ export class RobotGame {
             $("rb-turns").onclick = () => lessonSend({places: Object.fromEntries(people.map(n => [n, null]))});
             body.querySelectorAll("select[data-place]").forEach(sel => sel.onchange = () =>
                 lessonSend({places: {[people[Number(sel.dataset.place)]]: sel.value === "" ? null : Number(sel.value)}}));
-            if ($("rb-stays")) $("rb-stays").onclick = () => send({type: "tournament", start: true, kind: "stays", live: arenas});
-            if ($("rb-knock")) $("rb-knock").onclick = () => {
-                const pairs = [];
-                for (let i = 0; i + 1 < people.length && pairs.length < arenas; i += 2) pairs.push([people[i], people[i + 1]]);
-                send({type: "tournament", start: true, kind: "knockout", lineups: pairs});
-            };
+            if ($("rb-stays")) $("rb-stays").onclick = () => send({type: "tournament", start: true, kind: "stays", live: 2});
+            if ($("rb-knock")) $("rb-knock").onclick = () => send({type: "tournament", start: true, kind: "knockout", lineups: rows});
+            body.querySelectorAll("button[data-lineup]").forEach(b => b.onclick = () => {  // (the next robot not in a line-up)
+                const [i, k] = b.dataset.lineup.split(",").map(Number);
+                const used = new Set(rows.flatMap((row, r) => row.filter((n, j) => n && !(r === i && j === k))));
+                const free = people.filter(n => !used.has(n));
+                if (free.length) { const here = rows[i][k]; rows[i][k] = free.includes(here) ? free[(free.indexOf(here) + 1) % free.length] : free[0]; }
+                app.renderPanel();
+            });
             if ($("rb-tstop")) $("rb-tstop").onclick = () => send({type: "tournament", start: false});
             app.wireRestartRow(body);
             return true;

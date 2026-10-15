@@ -16,6 +16,7 @@ OUT = os.path.join(HERE, "lessons.json")
 GAMES = {"robotlab": ("Robot Lab", "lab_missions", "shared-world-demo"),
          "fightlab": ("Fight Lab", "fight_missions", "BeatEmUp"),
          "kartlab": ("Kart Lab", "kart_missions", "kart")}
+SIMS = {"robotlab": "lab_sim", "fightlab": "fight_sim", "kartlab": "kart_sim"}  # (each game's USER_MODS: their titles)
 
 
 def lesson_file(game):
@@ -34,6 +35,27 @@ def load(path, name):
     return module
 
 
+def user_mods(game):
+    """The game's user mods' titles and descriptions (USER_MODS in its sim file), read as data without running the
+    file (it needs the game's physics): the windows show these, and the class server sends only the switches."""
+    path = lesson_file(game)
+    if path is None:
+        return {}
+    path = os.path.join(os.path.dirname(path), SIMS[game] + ".py")
+    if not os.path.exists(path):
+        return {}
+    import ast
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "USER_MODS" for t in node.targets):
+            try:
+                return {k: list(v) for k, v in ast.literal_eval(node.value).items()}
+            except ValueError:
+                return {}
+    return {}
+
+
 def build():
     out = {}
     for game, (title, module, _) in GAMES.items():
@@ -47,6 +69,7 @@ def build():
             "tasks": {str(n): task for n, task in sorted(getattr(lm, "LESSON_TASKS", {}).items())},
             "outcomes": {code: [o[0], o[1]] for code, o in lm.OUTCOMES.items()},
             "missions": {mid: [m[0], m[1], list(m[3])] for mid, m in lm.MISSIONS.items()},
+            "user_mods": user_mods(game),
         }
     return out
 

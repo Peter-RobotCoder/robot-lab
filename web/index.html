@@ -12,9 +12,26 @@
 <div id="login">
   <div class="card">
     <h1>CLUB CODERS LIVE</h1>
-    <p>The teacher's desk and live view of a class, in the browser: learners, groups, Launch and Stop, the race, the
-       lesson's controls and how every learner's window is doing. Nothing to install.</p>
-    <form id="deskform" class="row" autocomplete="on" onsubmit="return false">
+    <p>The club's games in the browser: play in your class, or run it as the teacher. Nothing to install.</p>
+    <div class="row" id="modetabs">
+      <button data-mode="learner" class="on">I'm a learner</button>
+      <button data-mode="teacher">I'm the teacher</button>
+    </div>
+    <form id="learnerform" class="row" autocomplete="on" onsubmit="return false">
+      <label for="lname">Username</label>
+      <input id="lname" autocomplete="username" maxlength="20" placeholder="the username your teacher gave you">
+      <label for="lpass">Password</label>
+      <input id="lpass" type="password" autocomplete="current-password">
+    </form>
+    <form id="newpassform" class="row" autocomplete="off" onsubmit="return false" hidden>
+      <p class="note">Choose your own password now (at least 6 characters). Keep it to yourself.</p>
+      <label for="npass">New password</label>
+      <input id="npass" type="password" autocomplete="new-password">
+      <label for="npass2">Again</label>
+      <input id="npass2" type="password" autocomplete="new-password">
+    </form>
+    <div id="waitbox" class="row" hidden><p id="waittext" class="big"></p></div>
+    <form id="deskform" class="row" autocomplete="on" onsubmit="return false" hidden>
       <input type="text" name="username" value="teacher" autocomplete="username" hidden>
       <label for="deskpass">Teacher password</label>
       <input id="deskpass" type="password" autocomplete="current-password"
@@ -31,9 +48,11 @@
       <label for="host" id="hostlabel" hidden>Server</label>
       <input id="host" placeholder="ws://127.0.0.1:8782" hidden>
       <label for="code">Class code</label>
-      <input id="code" type="password" autocomplete="off" placeholder="the class server's teacher code">
+      <input id="code" type="password" autocomplete="off" placeholder="the class server's teacher or learner code">
       <label for="name">Name</label>
       <input id="name" value="Teacher" maxlength="12">
+      <label for="cpass">Password</label>
+      <input id="cpass" type="password" autocomplete="off" placeholder="learners: your game password">
     </div>
     <div class="actions">
       <button id="connect" class="go">LOG IN</button>
@@ -70,7 +89,17 @@
 </div>
 <button id="toggle" hidden>≡ PANEL</button>
 
+<div id="codepanel" hidden>
+  <header><b id="code-title">YOUR DESIGN AS PYTHON CODE</b><span class="spacer"></span><button id="code-close" title="C closes it too">✕</button></header>
+  <div class="note">Change a value, then press APPLY CODE (or Ctrl+Enter): the garage changes to match. Nothing in it is run:
+    the values are read as data.</div>
+  <div class="codebox"><pre id="code-gutter"></pre><textarea id="code-text" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea></div>
+  <div class="row"><button id="code-apply" class="go">APPLY CODE</button><button id="code-reset">RESET CODE</button><button id="code-rebuild" class="go">BUILD</button></div>
+  <div id="code-msg"></div>
+</div>
+
 <script src="vendor/babylon.js"></script>
+<script src="vendor/babylon.glTF2FileLoader.min.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

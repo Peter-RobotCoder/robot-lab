@@ -155,3 +155,146 @@ a { color: var(--blue); }
 #places .hpbar { width: 70px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; display: inline-block; }
 #places .hpbar i { display: block; height: 100%; }
 #places div.watched { color: var(--yellow); }
+#places .bhead { cursor: default; color: var(--yellow); font-size: 13px; }  /* (Robot Lab's title bar: B or Hide makes the board just this) */
+#places .bhead b.teacher { color: var(--blue); }
+#places .bhead button { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+
+/* the learner's login and tabs (CHANGE 134) */
+#login #modetabs { grid-template-columns: 1fr 1fr; }
+#login #modetabs button.on { background: var(--yellow); color: #111; }
+#login .row > p { grid-column: 1 / -1; margin: 0; }
+#waitbox p.big { font-size: 18px; color: var(--yellow); }
+.objhead { display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 6px 2px; cursor: pointer; font: inherit; }
+.objective.done .objhead { color: var(--green); }
+.objbody { padding: 4px 8px 10px 26px; }
+.objbody textarea, .formgrid.wide textarea { width: 100%; }
+.formgrid.wide { grid-template-columns: 1fr; }
+.note.ok { color: var(--green); }
+.note.bad { color: var(--red); }
+
+/* Claude for the browser (CHANGE 136): a card's result, the whole prompt, a change's lines */
+#panel .warn { color: #ffb347; font-size: 13px; }
+#panel .claudework { color: var(--blue); font-size: 13px; }
+#panel pre.claude, #panel pre.prompt, #panel pre.diff { white-space: pre-wrap; word-break: break-word; font: 12px/1.4 Consolas, "Cascadia Mono", monospace;
+    background: #0d0f15; border-radius: 4px; padding: 6px 8px; margin: 4px 0; }
+#panel pre.claude.ok { color: var(--green); }
+#panel pre.claude.bad { color: var(--red); }
+#panel pre.prompt { color: var(--grey); max-height: 46vh; overflow: auto; }
+#panel pre.diff { color: var(--grey); max-height: 50vh; overflow: auto; }
+#panel pre.diff .add { color: var(--green); }
+#panel pre.diff .del { color: var(--red); }
+#panel pre.diff .hunk { color: var(--blue); }
+#panel pre.diff .file { color: var(--yellow); }
+body.light #panel pre.claude, body.light #panel pre.prompt, body.light #panel pre.diff { background: #eef0f4; }
+body.light #panel .warn { color: #b25f00; }
+
+/* the games' on-screen displays (hud.js, CHANGE 134) */
+#gamehud { inset: 0; pointer-events: none; }
+.fighthud .fside { position: absolute; top: 50px; width: min(36vw, 460px); }
+.fighthud .fside.s0 { right: 50%; margin-right: 60px; text-align: left; }
+.fighthud .fside.s1 { left: 50%; margin-left: 60px; text-align: right; }
+.fighthud .fname { font-size: 22px; font-weight: 700; text-shadow: 0 2px 4px #000; }
+.fighthud .fname.you { color: var(--yellow); }
+.fighthud .fowner { font-size: 13px; color: #c0cce6; text-shadow: 0 1px 3px #000; margin-top: 2px; }
+.fighthud .fbar { position: relative; height: 22px; background: rgba(20,20,26,0.9); border: 3px solid rgba(20,20,26,0.9); margin-top: 4px; }
+.fighthud .fbar b { position: absolute; top: 0; bottom: 0; }
+.fighthud .s0 .fbar b { right: 0; }
+.fighthud .s1 .fbar b { left: 0; }
+.fighthud .fbar .trail { background: rgba(255,255,255,0.9); }
+.fighthud .pips { margin-top: 4px; }
+.fighthud .pips i { display: inline-block; width: 14px; height: 14px; margin: 0 3px; background: #333340; }
+.fighthud .pips i.won { background: var(--yellow); }
+.fighthud .energy { position: fixed; bottom: 112px; width: min(26vw, 300px); height: 10px; background: rgba(20,20,26,0.9); border: 2px solid rgba(20,20,26,0.9); }
+.fighthud .s0 .energy { right: 50%; margin-right: 160px; }
+.fighthud .s1 .energy { left: 50%; margin-left: 160px; }
+.fighthud .energy b { display: block; height: 100%; }
+.fighthud .s1 .energy b { margin-left: 0; }
+.fighthud .s0 .energy b { margin-left: auto; }
+.fighthud .etext { position: fixed; bottom: 92px; font-size: 13px; color: #8cd9ff; }
+.fighthud .s0 .etext { right: 50%; margin-right: 160px; }
+.fighthud .s1 .etext { left: 50%; margin-left: 160px; }
+.fighthud .etext.ready { color: var(--yellow); }
+.fighthud .combo { margin-top: 30vh; font-size: 40px; font-weight: 800; color: #ff9933; text-shadow: 0 3px 6px #000; }
+.fighthud .fmid { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); text-align: center; }
+.fighthud .flabel { font-size: 13px; color: var(--yellow); text-shadow: 0 1px 3px #000; }
+.fighthud .ftimer { font-size: 36px; font-weight: 700; background: rgba(12,12,18,0.85); padding: 2px 14px; border-radius: 4px; }
+.fighthud .ftimer.low { color: var(--red); }
+.fighthud .fbanner { position: absolute; top: 34%; left: 0; right: 0; text-align: center; font-size: 80px; font-weight: 900; color: var(--yellow); text-shadow: 0 4px 0 #4d0d00, 0 6px 14px #000; }
+.fighthud .fbanner.big { font-size: 110px; }
+.fighthud .fbanner.long { font-size: 60px; }
+.fighthud .fbanner.red { color: #ff4d40; }
+.fighthud .fsub { position: absolute; top: 52%; left: 0; right: 0; text-align: center; font-size: 30px; font-weight: 700; text-shadow: 0 2px 6px #000; }
+.fighthud .ftraining { position: absolute; bottom: 140px; left: 0; right: 0; text-align: center; font-size: 15px; color: var(--green); text-shadow: 0 1px 3px #000; }
+.karthud .ktop { position: absolute; top: 84px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 28px; font-size: 34px; font-weight: 700; text-shadow: 0 2px 6px #000; }
+.karthud #kh-wrong { display: none; position: absolute; top: 35%; left: 0; right: 0; text-align: center; font-size: 64px; font-weight: 900; color: #ff4d40; text-shadow: 0 4px 10px #000; }
+.karthud .kbottom { position: absolute; right: 28px; bottom: 70px; text-align: right; }
+.karthud #kh-speed { font-size: 40px; font-weight: 700; text-shadow: 0 2px 6px #000; }
+.karthud .kdrift span { font-size: 13px; color: #c0cce6; }
+.karthud .kmeter { position: relative; width: 260px; height: 14px; background: rgba(12,12,18,0.85); border: 2px solid rgba(12,12,18,0.85); }
+.karthud .kmeter b { display: block; height: 100%; }
+.karthud .kmeter i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; }
+.karthud #kh-map { position: absolute; left: 16px; bottom: 60px; background: rgba(12,12,18,0.55); border-radius: 6px; }
+body.fightscreen #places, body.fightscreen #race { display: none; }  /* (a player's fight screen has its own bars and banner) */
+#race .big .sub { font-size: 16px; font-weight: 400; color: #fff; }
+
+/* the window's Settings: four text sizes and the light look (CHANGE 134) */
+body.text-1 #panel, body.text-1 .hud { font-size: 13px; }
+body.text-3 #panel, body.text-3 .hud { font-size: 18px; }
+body.text-4 #panel, body.text-4 .hud { font-size: 21px; }
+body.light { --panel: rgba(246, 247, 250, 0.94); --box: #dfe3ea; --text: #15171c; --grey: #4a5160; --yellow: #8a6200; --green: #1d7a2c; --red: #b3261e; --blue: #1b5d8a; }
+body.light #panel, body.light #places, body.light #events div { color: var(--text); }
+
+/* the Garage (garage.js, CHANGE 135): engine/garage.py's tables */
+#panel .gtitle { letter-spacing: 0.03em; }
+#panel .ghead { color: var(--yellow); font-weight: 600; margin: 14px 0 4px; letter-spacing: 0.04em; }
+#panel .ghead .note { font-weight: 400; margin-left: 8px; letter-spacing: 0; }
+#panel .gcols { display: grid; grid-template-columns: 146px 1fr 90px; color: var(--blue); font-size: 12px; margin: 2px 0; }
+#panel .grow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; }
+#panel .gname { width: 140px; flex: none; font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; }
+#panel .gtype { color: var(--blue); font-size: 12px; }
+#panel .gvalue { font-family: Consolas, "Cascadia Mono", monospace; }
+#panel .grow input:not([type]) { width: 150px; }
+#panel .gsub { margin: 2px 0 8px 20px; }
+#panel .gchoose { display: flex; gap: 8px; align-items: flex-start; margin: 2px 0 6px 20px; }
+#panel .gbtns { display: grid; gap: 4px; }
+#panel .gbtns button { padding: 4px 8px; font-size: 13px; white-space: nowrap; }
+#panel .gbtns button.move { background: #3b4a7a; }
+#panel .gcode { font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; color: var(--grey); margin: 0 0 4px 20px; word-break: break-word; }
+#panel .swatches { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px 20px; align-items: center; }
+#panel .swatch { width: 30px; height: 22px; padding: 0; border-radius: 4px; border: 2px solid transparent; }
+#panel .swatch.small { width: 24px; height: 18px; }
+#panel .swatch.on { border-color: #fff; transform: scale(1.18); }
+#panel .swatch.empty { background: #3f4552; color: var(--grey); font-size: 10px; display: inline-grid; place-items: center; width: 44px; }
+#panel .gpoints { flex-wrap: nowrap; gap: 4px; }
+#panel .gpoints .gname { width: 128px; flex: none; }
+#panel .gpoints button { padding: 2px 7px; font-size: 13px; }
+#panel .gnum { min-width: 2.6em; text-align: center; font-variant-numeric: tabular-nums; }
+#panel .gbar { width: 64px; flex: none; margin-left: 6px; height: 9px; background: #33353d; border-radius: 3px; overflow: hidden; }
+#panel .gbar i { display: block; height: 100%; background: #e6b326; }
+#panel .gslider { width: 150px; }
+#panel .gstats { color: var(--green); font-size: 12.5px; white-space: pre-wrap; margin: 6px 0; font-family: inherit; }
+#panel .glook { margin: 2px 0 6px 20px; }
+#panel .glook .grow { flex-wrap: nowrap; align-items: flex-start; }
+#panel .glook .gname { width: 80px; font-family: inherit; padding-top: 3px; }
+#panel .glook .gbtns button { padding: 3px 6px; font-size: 12px; }
+#panel label.sees { width: auto; font-size: 12px; color: var(--blue); margin-left: auto; }
+#panel label.sees input { width: auto; }
+
+/* the code panel (garage.js): the design as Python code, edited and applied */
+#codepanel { position: fixed; left: 12px; top: 52px; bottom: 12px; width: min(620px, calc(100vw - 24px)); z-index: 6; background: var(--panel);
+             border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+#codepanel[hidden] { display: none; }
+#codepanel header { display: flex; align-items: center; gap: 8px; color: var(--yellow); letter-spacing: 0.03em; }
+#codepanel header .spacer { flex: 1; }
+#codepanel header button { padding: 2px 9px; }
+#codepanel .note { font-size: 12.5px; color: var(--grey); }
+#codepanel .codebox { flex: 1; display: flex; min-height: 120px; background: #11131a; border-radius: 6px; overflow: hidden; }
+#codepanel pre, #codepanel textarea { margin: 0; font: 13px/18px Consolas, "Cascadia Mono", "Courier New", monospace; padding: 8px 6px; }
+#codepanel pre { color: #5f6779; text-align: right; overflow: hidden; min-width: 3.2em; user-select: none; background: #0d0f15; }
+#codepanel pre b { color: #fff; background: #b3261e; border-radius: 3px; padding: 0 2px; }
+#codepanel textarea { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: #e8eaf0; white-space: pre; overflow: auto; tab-size: 4; }
+#codepanel .row { display: flex; gap: 8px; flex-wrap: wrap; }
+#code-msg { min-height: 1.3em; font-size: 14px; }
+body.light #codepanel .codebox { background: #fff; }
+body.light #codepanel pre { background: #eef0f4; color: #8a90a0; }
+body.light #codepanel textarea { color: #15171c; }

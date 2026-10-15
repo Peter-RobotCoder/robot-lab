@@ -17,6 +17,9 @@ export class DeskLink {
         this.everIn = false;
         this.tries = 0;
         this.ended = false;
+        this.claude = null;      // Claude for the browser (CHANGE 136): {machine, games, since, states: {game: ...}}, or none
+        this.claudeAsks = new Map();
+        this.claudeN = 0;
         this.open();
     }
 
@@ -24,12 +27,14 @@ export class DeskLink {
         let ws;
         try { ws = new WebSocket(this.url); } catch (e) { this.on.closed(`Can't reach the desk: ${e.message}`); return; }
         this.ws = ws;
-        ws.onopen = () => ws.send(JSON.stringify({type: "teacher", password: this.password}));
+        ws.onopen = () => ws.send(JSON.stringify({type: "teacher", password: this.password, claude: true}));
         ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } this.receive(m); };
         ws.onclose = () => {
             if (this.ws !== ws) return;
             this.ready = false;
             for (const w of this.waiting.splice(0)) w.reject(new Error("The connection to the desk closed."));
+            for (const w of this.claudeAsks.values()) w.reject(new Error("The connection to the desk closed."));
+            this.claudeAsks.clear();
             if (this.ended) return;
             if (this.everIn && this.tries < 30) {  // (logged in before: the Wi-Fi dropped; log in again by itself)
                 this.tries++;
@@ -43,6 +48,16 @@ export class DeskLink {
     }
 
     receive(m) {
+        if (m.claude_reply) {  // (Claude for the browser's answer to one request of this page's)
+            const r = m.claude_reply, w = this.claudeAsks.get(r.rid);
+            if (w) { this.claudeAsks.delete(r.rid); clearTimeout(w.timer); if (r.ok === false) w.reject(new Error(r.error || "Claude for the browser said no.")); else w.resolve(r); }
+            return;
+        }
+        if ("claude" in m) {
+            this.claude = m.claude;
+            if (this.on.claude) this.on.claude();
+            if (!m.state) return;
+        }
         if (m.ok === false) {
             if (!this.ready) {  // (the login itself was refused)
                 this.ended = true;
@@ -80,6 +95,26 @@ export class DeskLink {
             this.waiting.push({key, resolve, reject});
             this.ws.send(JSON.stringify(msg));
         });
+    }
+
+    // Claude for the browser: a request for the teacher's computer running Claude (CHANGE 136); the promise has its
+    // answer. game: the class's game; what: send, keep, undo, clear, prompt, diff, rollback, reapply, merge, forget...
+    claudeAsk(game, what, args = {}) {
+        return new Promise((resolve, reject) => {
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.ready) {
+                reject(new Error("Not connected to the desk just now: try again in a moment."));
+                return;
+            }
+            const rid = ++this.claudeN;
+            const timer = setTimeout(() => { if (this.claudeAsks.delete(rid)) reject(new Error("Claude's computer didn't answer.")); }, 60000);
+            this.claudeAsks.set(rid, {resolve, reject, timer});
+            this.ws.send(JSON.stringify({type: "claude", game, do: what, rid, ...args}));
+        });
+    }
+
+    claudeFor(game) {  // what Claude's computer last said about this game, or null when it isn't connected for it
+        const c = this.claude;
+        return c && (c.games || []).includes(game) ? Object.assign({machine: c.machine}, (c.states || {})[game] || {}) : null;
     }
 
     close() {
@@ -461,4 +496,69 @@ export function sessionPages(record, sessions, lessons) {
 function printSession(record, sessions, lessons) {
     const p = sessionPages(record, sessions, lessons);
     printPages(p.title, p.html);
+}
+
+// A learner's login at the desk (CHANGE 134), as the app's login screen does it (launcher/club_coders.py): the
+// username and password; a starter password must be changed first; then the desk says to wait for the group, or
+// gives the game's address and a ticket. The link stays open while the learner plays, so when the teacher launches
+// the next game it opens by itself; after a game ends the page tells the desk it is waiting again.
+// on: {changePassword(name), waiting(text), go(go), message(text), closed(text)}
+export class LearnerLink {
+    constructor(url, name, password, on) {
+        this.url = url;
+        this.name = name;
+        this.password = password;
+        this.on = on;
+        this.ended = false;
+        this.everIn = false;
+        this.tries = 0;
+        this.open();
+    }
+
+    open() {
+        let ws;
+        try { ws = new WebSocket(this.url); } catch (e) { this.on.closed(`Can't reach the desk: ${e.message}`); return; }
+        this.ws = ws;
+        ws.onopen = () => ws.send(JSON.stringify({type: "login", name: this.name, password: this.password}));
+        ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } this.receive(m); };
+        ws.onclose = () => {
+            if (this.ws !== ws || this.ended) return;
+            if (this.everIn && this.tries < 30) {  // (the Wi-Fi: log in again by itself)
+                this.tries++;
+                setTimeout(() => { if (!this.ended) this.open(); }, Math.min(10000, 1000 * this.tries));
+            } else {
+                this.ended = true;
+                this.on.closed(this.everIn ? "Lost the connection to the desk: log in again." : "Couldn't reach the desk on this server.");
+            }
+        };
+    }
+
+    receive(m) {
+        if (m.ok === false) {
+            if (!this.everIn) { this.ended = true; try { this.ws.close(); } catch (e) { /* closed */ } this.on.closed(m.error || "The desk said no."); }
+            else this.on.message(m.error || "The desk said no.");
+            return;
+        }
+        if (m.name) this.name = m.name;
+        if (m.change_password) { this.on.changePassword(this.name); return; }
+        this.everIn = true;
+        this.tries = 0;
+        if (m.changed) this.on.message("Password changed.");
+        if (m.go) this.on.go(m.go);
+        else if (m.waiting) this.on.waiting(m.message || "Your group hasn't started yet: wait for your teacher.");
+    }
+
+    setPassword(newPassword) {
+        this.ws.send(JSON.stringify({type: "set_password", name: this.name, password: this.password, new: newPassword}));
+        this.password = newPassword;
+    }
+
+    wait(after) {  // (the game window closed: still logged in, waiting for the next launch)
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({type: "wait", after}));
+    }
+
+    close() {
+        this.ended = true;
+        try { this.ws.close(); } catch (e) { /* closed */ }
+    }
 }

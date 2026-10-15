@@ -466,6 +466,14 @@ class Desk:
         self.names = {}          # learner connections that are logged in: ws -> name
         self.done_with = {}      # ws -> the id of the live session whose game window they closed (CHANGE 54: the
         #                          app is back and waiting, but not for that game to open again by itself)
+        # Claude for the browser (CHANGE 136, helper/claude_helper.py): a teacher's computer running Claude Code,
+        # logged in here as the teacher. The browser's AI cards go to it through here, and its state comes back.
+        self.helper = None       # its connection
+        self.helper_info = None  # {"machine", "games", "since"}
+        self.claude_states = {}  # game -> what it last said (its cards with Claude, the change history, the makers)
+        self.claude_watchers = set()  # the browser pages (the app's Teacher screen doesn't take these messages)
+        self.claude_asks = {}    # n -> (page connection, the page's own number): requests waiting for the helper
+        self.claude_n = 0
 
     def go_message(self, name):
         """Where a learner goes now: their live group's game, with a ticket; or None."""
@@ -535,7 +543,11 @@ class Desk:
                             raise DeskError("That isn't the teacher password.")
                         role = "teacher"
                         self.teachers.add(ws)
-                        await ws.send(json.dumps({"ok": True, "state": self.store.state()}))
+                        reply = {"ok": True, "state": self.store.state()}
+                        if m.get("claude"):  # (a browser page: it shows Claude for the browser's cards)
+                            self.claude_watchers.add(ws)
+                            reply["claude"] = self.claude_info()
+                        await ws.send(json.dumps(reply))
                     elif kind == "change_teacher_password":  # (from the login screen: it needs the password as it is now)
                         if not self.store.check_teacher(m.get("password", ""), self.teacher_password):
                             BAD_LOGINS.failed(where)
@@ -560,6 +572,8 @@ class Desk:
                         await ws.send(json.dumps({"ok": True, "changed": True}))
                         await self.after_login(ws, name)
                         await self.tell_teachers()
+                    elif role == "teacher" and kind in ("claude_helper", "claude_state", "claude_reply", "claude"):
+                        await self.claude_message(ws, m)
                     elif role == "teacher":
                         await self.teacher_command(ws, m)
                     else:
@@ -571,6 +585,80 @@ class Desk:
             self.waiting.pop(ws, None)
             self.names.pop(ws, None)
             self.done_with.pop(ws, None)
+            self.claude_watchers.discard(ws)
+            if ws is self.helper:  # (Claude's computer went: the pages say so, and what waited for it is answered)
+                self.helper, self.helper_info, self.claude_states = None, None, {}
+                for n, (page, rid) in list(self.claude_asks.items()):
+                    await self.claude_answer(page, {"rid": rid, "ok": False,
+                                                    "error": "Claude's computer disconnected before it answered."})
+                self.claude_asks.clear()
+                await self.tell_claude()
+
+    # ---------- Claude for the browser (CHANGE 136) ----------
+    def claude_info(self):
+        if self.helper is None:
+            return None
+        return {**self.helper_info, "states": self.claude_states}
+
+    async def tell_claude(self):
+        msg = json.dumps({"claude": self.claude_info()})
+        for ws in list(self.claude_watchers):
+            try:
+                await ws.send(msg)
+            except websockets.ConnectionClosed:
+                self.claude_watchers.discard(ws)
+
+    async def claude_answer(self, page, reply):
+        try:
+            await page.send(json.dumps({"claude_reply": reply}))
+        except websockets.ConnectionClosed:
+            pass
+
+    async def claude_message(self, ws, m):
+        kind = m.get("type")
+        if kind == "claude_helper":  # a computer of the teacher's offers Claude: the newest one is used
+            old = self.helper
+            games = [g for g in m.get("games", []) if g in GAMES] if isinstance(m.get("games"), list) else []
+            self.helper, self.claude_states = ws, {}
+            self.helper_info = {"machine": re.sub(r"[^A-Za-z0-9 ._-]", "", str(m.get("machine", "")))[:40] or "a computer",
+                                "games": games, "since": now()}
+            self.claude_watchers.discard(ws)
+            if old is not None and old is not ws:
+                try:
+                    await old.send(json.dumps({"claude_replaced": True}))
+                except websockets.ConnectionClosed:
+                    pass
+            print(f"Claude for the browser: {self.helper_info['machine']} ({', '.join(games)})", flush=True)
+            await self.tell_claude()
+        elif kind in ("claude_state", "claude_reply"):  # (only from the helper)
+            if ws is not self.helper:
+                raise DeskError("That comes only from Claude for the browser.")
+            if kind == "claude_state":
+                if m.get("game") in self.helper_info["games"] and isinstance(m.get("state"), dict):
+                    self.claude_states[m["game"]] = m["state"]
+                    await self.tell_claude()
+            else:
+                ask = self.claude_asks.pop(m.get("rid"), None)
+                if ask is not None:
+                    page, rid = ask
+                    await self.claude_answer(page, {**{k: v for k, v in m.items() if k not in ("type", "rid")},
+                                                    "rid": rid})
+        else:  # a page's request: on to the helper, its answer back to that page only
+            rid = m.get("rid")
+            if self.helper is None:
+                await self.claude_answer(ws, {"rid": rid, "ok": False, "error": "Claude's computer isn't connected: "
+                                              "start Claude for the browser on it (it logs in to this desk)."})
+                return
+            self.claude_n += 1
+            self.claude_asks[self.claude_n] = (ws, rid)
+            if len(self.claude_asks) > 200:  # (never answered: the oldest go)
+                self.claude_asks.pop(min(self.claude_asks))
+            req = {k: v for k, v in m.items() if k not in ("type", "rid")}
+            try:
+                await self.helper.send(json.dumps({"claude_request": {**req, "rid": self.claude_n}}))
+            except websockets.ConnectionClosed:
+                self.claude_asks.pop(self.claude_n, None)
+                await self.claude_answer(ws, {"rid": rid, "ok": False, "error": "Claude's computer isn't connected."})
 
     async def learner_login(self, ws, where, m):
         found = await asyncio.to_thread(self.store.check_password, m.get("name", ""), m.get("password", ""), False)
@@ -699,7 +787,8 @@ async def main():
             await desk.game_requests()
             if seconds % 5 == 0 and desk.store.live and desk.teachers:
                 await desk.tell_teachers()
-    async with websockets.serve(desk.handler, args.bind, args.port, max_size=16 * 1024):
+    # (1 MB: Claude for the browser's results carry a change's diff and its mod files; the rest are small)
+    async with websockets.serve(desk.handler, args.bind, args.port, max_size=1024 * 1024):
         print(f"Club desk on {args.bind}:{args.port}: {len(desk.store.learners)} learners, "
               f"{len(desk.store.groups)} groups, games {', '.join(games) or 'none'}", flush=True)
         await refresh()

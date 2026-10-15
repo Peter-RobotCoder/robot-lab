@@ -343,7 +343,7 @@ export class KartScene extends BaseScene {
         casters.push(beam);
         for (const face of [1, -1]) {  // (readable from both sides: each faces its way, a little in front of the beam)
             const h = (t.heading(0) + (face > 0 ? 90 : -90)) * Math.PI / 180;
-            const sign = this.signText("START", 2.2);
+            const sign = this.signText("START", 4.4);
             sign.position = v3(mid[0] + 0.25 * face * Math.sin(h), mid[1] - 0.25 * face * Math.cos(h), mid[2] + 5.6);
             sign.rotation.y = -h;
             this.trackMeshes.push(sign);
@@ -503,6 +503,17 @@ export class KartScene extends BaseScene {
             cam.alpha = snap ? wantAlpha : lerpAngle(cam.alpha, wantAlpha, Math.min(1, dt * 4));
             cam.beta = snap ? 1.25 : BABYLON.Scalar.Lerp(cam.beta, 1.25, Math.min(1, dt * 4));
             cam.radius = snap ? 7.5 : BABYLON.Scalar.Lerp(cam.radius, 7.5, Math.min(1, dt * 4));
+            this.snapCamera = false;
+        } else if (this.mode === "hood" && this.follow !== null && states.has(this.follow)) {
+            // (the window's hood camera: from just above your kart's nose, looking down the road)
+            const st = states.get(this.follow), k = this.karts.get(this.follow);
+            if (!k) return;
+            const yaw = st.yaw * Math.PI / 180, p = k.root.position;
+            const target = new BABYLON.Vector3(p.x + Math.cos(yaw) * 10.5, p.y + 0.6, p.z + Math.sin(yaw) * 10.5);
+            cam.target = target;
+            cam.alpha = Math.atan2(-Math.sin(yaw), -Math.cos(yaw));
+            cam.beta = Math.PI / 2 - 0.03;
+            cam.radius = 10;
             this.snapCamera = false;
         } else if (this.mode === "tv") {
             const lead = this.follow !== null && states.has(this.follow) ? this.follow : this.leader;

@@ -2536,8 +2536,12 @@ class Lab(hud.HudKit, ShowBase):
             goal = label(f, c["card"]["goal"], 0.84, y, 0.022, GREY, wrap=41)
             y -= 0.05 + (max(1, goal.textNode.getNumRows()) - 1) * 0.022  # (the whole of a long idea)
             res = job.get("result")
-            if job.get("status") == "Claude is working...":
-                took = int(time.time() - job.get("started", time.time()))
+            if job.get("status") == "Claude is working..." and getattr(job.get("change"), "waiting", False):
+                label(f, "Waiting: Claude is finishing another card first (one at a time, so neither undoes the "
+                         "other)", 0.84, y, 0.022, BLUE, wrap=46)
+                y -= 0.05
+            elif job.get("status") == "Claude is working...":
+                took = int(time.time() - (getattr(job.get("change"), "started", None) or job.get("started", time.time())))
                 label(f, f"Claude is working on it ({TARGETS[target]}), {took} s so far: usually under a minute, "
                          "a few minutes for whole-game changes, then it is tested...", 0.84, y, 0.022, BLUE, wrap=46)
                 y -= 0.05
@@ -2700,7 +2704,11 @@ class Lab(hud.HudKit, ShowBase):
 
     def ai_undo(self, c):
         job = self.ai_jobs[c["id"]]
-        job["change"].undo()
+        try:
+            job["change"].undo()
+        except RuntimeError as e:  # (Claude is at work on another card: the files mustn't change under it)
+            self.banner_note(str(e), 5)
+            return
         send({"type": "card_status", "id": c["id"], "status": "rejected",
               "note": "The teacher undid this change. Try making your request clearer."})
         job["status"] = "Undone"

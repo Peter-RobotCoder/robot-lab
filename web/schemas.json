@@ -1,0 +1,1664 @@
+{
+ "robotlab": {
+  "title": "Robot Lab",
+  "word": "ROBOT",
+  "old_name": "ROBOT",
+  "client_code_room": true,
+  "vars": [
+   {
+    "name": "forward_speed",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "forward_speed",
+    "note": "% of top speed, forwards",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "forward_speed"
+    ]
+   },
+   {
+    "name": "reverse_speed",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "reverse_speed",
+    "note": "% of top speed, in reverse",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "reverse_speed"
+    ]
+   },
+   {
+    "name": "turn_speed",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "turn_speed",
+    "note": "% of the fastest turn",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "turn_speed"
+    ]
+   },
+   {
+    "name": "acceleration",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "acceleration",
+    "note": "% of hardest acceleration",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "acceleration"
+    ]
+   },
+   {
+    "name": "size",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "size",
+    "note": "% of the standard size",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "size"
+    ]
+   },
+   {
+    "name": "speed_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for speed",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "speed"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "8aa29be5a4"
+    }
+   },
+   {
+    "name": "attack_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for attack",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "attack"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "8aa29be5a4"
+    }
+   },
+   {
+    "name": "armour_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for armour",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "armour"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "8aa29be5a4"
+    }
+   },
+   {
+    "name": "control_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for control",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "control"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "8aa29be5a4"
+    }
+   },
+   {
+    "name": "robot_name",
+    "kind": "str",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "name_and_colour",
+    "note": "a string: text made of chars",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "name"
+    ]
+   },
+   {
+    "name": "weapon",
+    "kind": "choice",
+    "group": "lists",
+    "garage": "strings",
+    "tool": "choose_weapon",
+    "note": "",
+    "list_name": "weapons",
+    "list_note": "the weapons allowed this mission",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": true,
+    "path": [
+     "weapon"
+    ],
+    "options": "lab_weapon_options",
+    "fingerprints": {
+     "options": "95d974b70d",
+     "valid": "3a9e3bbbf1",
+     "after": "9cf165db77",
+     "describe": "8529d738b4",
+     "allowed_values": "9fd5f7d397"
+    },
+    "valid": "lab_weapon_valid",
+    "after": "nothing",
+    "describe": "lab_weapon_text",
+    "allowed_values": "lab_weapons_allowed"
+   },
+   {
+    "name": "model",
+    "kind": "choice",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "house_robots",
+    "note": "driving a Resident Robot",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": true,
+    "none_text": "My design",
+    "per_row": 5,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "model"
+    ],
+    "options": "house_names",
+    "fingerprints": {
+     "options": "506593f3e8",
+     "after": "1a9ccbb92f"
+    },
+    "after": "lab_model_changed"
+   },
+   {
+    "name": "colour",
+    "kind": "rgb",
+    "group": "lists",
+    "garage": "lists",
+    "tool": "name_and_colour",
+    "note": "red, green, blue: 0 to 255",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "colour"
+    ]
+   }
+  ],
+  "limits": {
+   "settings": {
+    "forward_speed": [
+     10,
+     100,
+     80,
+     "% of your top speed when driving forwards"
+    ],
+    "reverse_speed": [
+     10,
+     100,
+     60,
+     "% of your top speed when reversing"
+    ],
+    "turn_speed": [
+     10,
+     100,
+     70,
+     "% of your fastest turn"
+    ],
+    "acceleration": [
+     10,
+     100,
+     70,
+     "% of your motor's push"
+    ],
+    "size": [
+     80,
+     120,
+     100,
+     "% of standard size: bigger is tougher but slower to turn"
+    ]
+   },
+   "full_settings": {
+    "forward_speed": [
+     0,
+     100
+    ],
+    "reverse_speed": [
+     0,
+     100
+    ],
+    "turn_speed": [
+     0,
+     100
+    ],
+    "acceleration": [
+     0,
+     100
+    ],
+    "size": [
+     12.5,
+     200
+    ]
+   },
+   "stats": [
+    "speed",
+    "attack",
+    "armour",
+    "control"
+   ],
+   "stat_range": [
+    5,
+    50
+   ],
+   "full_stat": [
+    0,
+    100
+   ],
+   "points_total": 100,
+   "full_points_total": 400
+  },
+  "consts": {
+   "weapons": [
+    "wedge",
+    "spinner",
+    "drum",
+    "hammer",
+    "flame",
+    "laser"
+   ],
+   "house_weapons": [
+    "flame",
+    "hammer",
+    "chainsaw",
+    "vdisc"
+   ],
+   "house": {
+    "BLAZE": "flame",
+    "CRUSHER": "hammer",
+    "RIPSAW": "chainsaw",
+    "VORTEX": "vdisc"
+   },
+   "settings_default": {
+    "forward_speed": 80,
+    "reverse_speed": 60,
+    "turn_speed": 70,
+    "acceleration": 70,
+    "size": 100
+   },
+   "swatches": [
+    [
+     220,
+     60,
+     50
+    ],
+    [
+     240,
+     140,
+     30
+    ],
+    [
+     240,
+     200,
+     40
+    ],
+    [
+     60,
+     190,
+     90
+    ],
+    [
+     60,
+     130,
+     230
+    ],
+    [
+     180,
+     90,
+     230
+    ],
+    [
+     230,
+     90,
+     170
+    ],
+    [
+     230,
+     230,
+     230
+    ]
+   ],
+   "standard_mass": 30.0,
+   "push_grip": 0.12,
+   "stat_max": 50
+  }
+ },
+ "fightlab": {
+  "title": "Fight Lab",
+  "word": "FIGHTER",
+  "old_name": "FIGHTER",
+  "client_code_room": true,
+  "vars": [
+   {
+    "name": "walk_speed",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "walk_speed",
+    "note": "% of top walking speed",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "walk_speed"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "sidestep_speed",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "sidestep_speed",
+    "note": "% of fastest sidestep",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "sidestep_speed"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "jump_height",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "jump_height",
+    "note": "% of highest jump",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "jump_height"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "attack_speed",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "attack_speed",
+    "note": "% attack speed: faster, softer",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "attack_speed"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "size",
+    "kind": "int",
+    "group": "settings",
+    "garage": "settings",
+    "tool": "size",
+    "note": "% of standard size",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "settings",
+     "size"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "power_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for power",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "power"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "speed_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for speed",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "speed"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "defence_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for defence",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "defence"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "stamina_points",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "points_table",
+    "note": "points for stamina",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "stamina"
+    ],
+    "unless": "has_model",
+    "fingerprints": {
+     "unless": "04e5f5018c"
+    }
+   },
+   {
+    "name": "fighter_name",
+    "kind": "str",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "name_and_colour",
+    "note": "a string: text made of chars",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "name"
+    ]
+   },
+   {
+    "name": "body",
+    "kind": "choice",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "body_choice",
+    "note": "robot, human, woman, man or robin",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 5,
+    "step": 0.14,
+    "always": false,
+    "path": [
+     "body"
+    ],
+    "options": "body_names",
+    "fingerprints": {
+     "options": "888e410562",
+     "after": "5bb0bf8626",
+     "extra": "481a265960",
+     "unless": "04e5f5018c"
+    },
+    "after": "fight_body_changed",
+    "extra": "look_section",
+    "unless": "has_model"
+   },
+   {
+    "name": "model",
+    "kind": "choice",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "bosses",
+    "note": "playing as a boss",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": true,
+    "none_text": "Mine",
+    "per_row": 4,
+    "step": 0.145,
+    "always": false,
+    "path": [
+     "model"
+    ],
+    "options": "boss_names",
+    "fingerprints": {
+     "options": "3c3a2842c3",
+     "after": "4b764b55b6"
+    },
+    "after": "fight_model_changed"
+   },
+   {
+    "name": "special",
+    "kind": "choice",
+    "group": "lists",
+    "garage": "strings",
+    "tool": "choose_special",
+    "note": "",
+    "list_name": "specials",
+    "list_note": "the specials allowed this mission",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.16,
+    "always": true,
+    "path": [
+     "special"
+    ],
+    "options": "mission_specials",
+    "fingerprints": {
+     "options": "997e2f167f",
+     "valid": "f64a1d4710",
+     "after": "566c3b4aec",
+     "fixed": "04e5f5018c",
+     "describe": "8dd912bdc7",
+     "allowed_values": "b1d9e47fee"
+    },
+    "valid": "all_specials",
+    "after": "fight_special_changed",
+    "fixed": "has_model",
+    "describe": "fight_special_text",
+    "allowed_values": "fight_specials_allowed"
+   },
+   {
+    "name": "fighting_style",
+    "kind": "choice",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "fighting_style",
+    "note": "kickboxer, boxer, capoeira...",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 3,
+    "step": 0.2,
+    "always": false,
+    "path": [
+     "fighting_style"
+    ],
+    "options": "style_names",
+    "fingerprints": {
+     "options": "a19a865ebf",
+     "after": "5b27363ba4",
+     "describe": "03d7848c74",
+     "unless": "04e5f5018c"
+    },
+    "after": "fight_style_changed",
+    "describe": "fight_style_text",
+    "unless": "has_model"
+   },
+   {
+    "name": "weapon",
+    "kind": "choice",
+    "group": "lists",
+    "garage": "strings",
+    "tool": "fighting_style",
+    "note": "",
+    "list_name": "weapons",
+    "list_note": "this style's weapons",
+    "max_len": 16,
+    "optional": true,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.2,
+    "always": false,
+    "path": [
+     "weapon"
+    ],
+    "options": "style_weapons",
+    "fingerprints": {
+     "options": "f1634684cb",
+     "after": "5b27363ba4",
+     "unless": "86fdd8b8c4"
+    },
+    "after": "fight_style_changed",
+    "unless": "has_model_or_unarmed"
+   },
+   {
+    "name": "colour",
+    "kind": "rgb",
+    "group": "lists",
+    "garage": "lists",
+    "tool": "name_and_colour",
+    "note": "red, green, blue: 0 to 255",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "colour"
+    ]
+   },
+   {
+    "name": "combo",
+    "kind": "words",
+    "group": "lists",
+    "garage": "lists",
+    "tool": "combo_editor",
+    "note": "moves in order (A, A, A...)",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "combo"
+    ],
+    "options": "combo_move_names",
+    "fingerprints": {
+     "options": "ee9e7812fd",
+     "extra": "6a156655b0",
+     "unless": "04e5f5018c"
+    },
+    "extra": "combo_section",
+    "unless": "has_model"
+   }
+  ],
+  "limits": {
+   "settings": {
+    "walk_speed": [
+     10,
+     100,
+     80,
+     "% of your top walking speed"
+    ],
+    "sidestep_speed": [
+     10,
+     100,
+     70,
+     "% of your fastest sidestep"
+    ],
+    "jump_height": [
+     10,
+     100,
+     70,
+     "% of your highest jump"
+    ],
+    "attack_speed": [
+     10,
+     100,
+     70,
+     "% attack speed: faster attacks come out sooner but hit softer"
+    ],
+    "size": [
+     80,
+     120,
+     100,
+     "% of standard size: bigger reaches further and has more health, but is slower"
+    ]
+   },
+   "full_settings": {
+    "walk_speed": [
+     10,
+     100
+    ],
+    "sidestep_speed": [
+     10,
+     100
+    ],
+    "jump_height": [
+     10,
+     100
+    ],
+    "attack_speed": [
+     10,
+     100
+    ],
+    "size": [
+     80,
+     120
+    ]
+   },
+   "stats": [
+    "power",
+    "speed",
+    "defence",
+    "stamina"
+   ],
+   "stat_range": [
+    5,
+    50
+   ],
+   "full_stat": [
+    5,
+    50
+   ],
+   "points_total": 100,
+   "full_points_total": 100
+  },
+  "consts": {
+   "swatches": [
+    [
+     220,
+     60,
+     50
+    ],
+    [
+     240,
+     140,
+     30
+    ],
+    [
+     240,
+     200,
+     40
+    ],
+    [
+     60,
+     190,
+     90
+    ],
+    [
+     60,
+     130,
+     230
+    ],
+    [
+     180,
+     90,
+     230
+    ],
+    [
+     230,
+     90,
+     170
+    ],
+    [
+     230,
+     230,
+     230
+    ]
+   ],
+   "hair_swatches": [
+    [
+     20,
+     16,
+     14
+    ],
+    [
+     60,
+     36,
+     22
+    ],
+    [
+     110,
+     62,
+     32
+    ],
+    [
+     140,
+     50,
+     25
+    ],
+    [
+     190,
+     95,
+     40
+    ],
+    [
+     215,
+     180,
+     110
+    ],
+    [
+     230,
+     225,
+     210
+    ],
+    [
+     60,
+     110,
+     200
+    ]
+   ],
+   "trim_swatches": [
+    [
+     30,
+     30,
+     36
+    ],
+    [
+     140,
+     145,
+     155
+    ],
+    [
+     220,
+     220,
+     225
+    ],
+    [
+     200,
+     160,
+     60
+    ],
+    [
+     160,
+     90,
+     40
+    ],
+    [
+     60,
+     60,
+     140
+    ],
+    [
+     120,
+     30,
+     30
+    ],
+    [
+     40,
+     100,
+     60
+    ]
+   ],
+   "light_swatches": [
+    [
+     255,
+     90,
+     25
+    ],
+    [
+     255,
+     40,
+     40
+    ],
+    [
+     90,
+     230,
+     255
+    ],
+    [
+     60,
+     255,
+     120
+    ],
+    [
+     255,
+     230,
+     80
+    ],
+    [
+     200,
+     120,
+     255
+    ],
+    [
+     255,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     160
+    ]
+   ],
+   "style_moves": {
+    "kickboxer": {
+     "punch": [
+      "jab",
+      1.0,
+      1.0,
+      1.0
+     ],
+     "kick": [
+      "front kick",
+      1.0,
+      1.0,
+      1.0
+     ],
+     "low": [
+      "low sweep",
+      1.0,
+      1.0,
+      1.0
+     ],
+     "high": [
+      "high kick",
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "boxer": {
+     "punch": [
+      "jab",
+      1.2,
+      0.95,
+      0.85
+     ],
+     "kick": [
+      "body hook",
+      1.05,
+      0.8,
+      0.8
+     ],
+     "low": [
+      "ducking body blow",
+      1.0,
+      0.8,
+      0.85
+     ],
+     "high": [
+      "uppercut",
+      1.1,
+      0.85,
+      0.9
+     ]
+    },
+    "capoeira": {
+     "punch": [
+      "martelo (round kick)",
+      0.95,
+      0.85,
+      0.92
+     ],
+     "kick": [
+      "bencao (push kick)",
+      1.05,
+      1.05,
+      1.04
+     ],
+     "low": [
+      "rasteira (sweep)",
+      1.0,
+      1.06,
+      1.04
+     ],
+     "high": [
+      "meia lua (spinning kick)",
+      1.05,
+      1.06,
+      1.08
+     ]
+    },
+    "knives": {
+     "punch": [
+      "stab",
+      0.8,
+      1.04,
+      0.92
+     ],
+     "kick": [
+      "front kick",
+      0.95,
+      1.0,
+      1.0
+     ],
+     "low": [
+      "low slash",
+      0.8,
+      1.0,
+      0.95
+     ],
+     "high": [
+      "rising slash",
+      0.85,
+      1.0,
+      0.95
+     ]
+    },
+    "swords": {
+     "punch": [
+      "thrust",
+      1.0,
+      1.12,
+      1.25
+     ],
+     "kick": [
+      "kick",
+      0.95,
+      1.0,
+      1.05
+     ],
+     "low": [
+      "low cut",
+      0.95,
+      1.1,
+      1.25
+     ],
+     "high": [
+      "rising cut",
+      0.95,
+      1.08,
+      1.25
+     ]
+    },
+    "sticks": {
+     "punch": [
+      "strike",
+      0.9,
+      1.07,
+      1.1
+     ],
+     "kick": [
+      "kick",
+      0.95,
+      1.0,
+      1.0
+     ],
+     "low": [
+      "low strike",
+      0.9,
+      1.05,
+      1.1
+     ],
+     "high": [
+      "rising strike",
+      0.9,
+      1.05,
+      1.12
+     ]
+    }
+   },
+   "weapon_mods": {
+    "knife": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "dagger": [
+     1.02,
+     1.04,
+     1.06
+    ],
+    "sword_shield": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "longsword": [
+     1.06,
+     1.05,
+     1.06
+    ],
+    "katana": [
+     0.92,
+     1.0,
+     0.94
+    ],
+    "stick": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "staff": [
+     0.96,
+     1.05,
+     1.1
+    ],
+    "glaive": [
+     1.02,
+     1.05,
+     1.14
+    ]
+   },
+   "weapon_moves": [
+    "punch",
+    "low",
+    "high"
+   ],
+   "style_movement": {
+    "boxer": {
+     "sidestep": 1.1
+    },
+    "capoeira": {
+     "sidestep": 1.15,
+     "jump": 1.05
+    }
+   },
+   "punch_startup": 0.1,
+   "gravity": 9.81,
+   "boss_stats": {
+    "size": 1.3,
+    "health": 260.0,
+    "damage": 1.35,
+    "taken": 0.8,
+    "walk": 1.9,
+    "sidestep": 1.8,
+    "jump": 3.3,
+    "attack_time": 1.1,
+    "reach": 1.3,
+    "energy_rate": 5.0,
+    "getup": 0.8
+   },
+   "bodies": [
+    "robot",
+    "human",
+    "woman",
+    "man",
+    "robin"
+   ],
+   "model_bodies": [
+    "woman",
+    "man",
+    "robin"
+   ],
+   "human_bodies": [
+    "woman",
+    "man"
+   ],
+   "robin_style": {
+    "trim": [
+     140,
+     145,
+     155
+    ],
+    "lights": [
+     255,
+     90,
+     25
+    ]
+   },
+   "hair_styles": {
+    "woman": [
+     "ponytail",
+     "braid",
+     "long",
+     "bob",
+     "short",
+     "afro"
+    ],
+    "man": [
+     "short",
+     "classic",
+     "spiky",
+     "crop",
+     "afro",
+     "long"
+    ]
+   },
+   "outfits": [
+    "hoplite",
+    "greek",
+    "commando",
+    "training",
+    "civilian",
+    "warrior"
+   ],
+   "shapes": [
+    "athletic",
+    "muscly",
+    "full"
+   ],
+   "wins": [
+    "victory",
+    "dance",
+    "bow",
+    "power_up"
+   ],
+   "height": [
+    90,
+    110
+   ],
+   "default_look": {
+    "robot": {
+     "shape": "athletic",
+     "height": 100,
+     "win": "victory"
+    },
+    "human": {
+     "shape": "athletic",
+     "height": 100,
+     "win": "victory"
+    },
+    "woman": {
+     "outfit": "hoplite",
+     "hair": "ponytail",
+     "hair_colour": [
+      70,
+      40,
+      25
+     ],
+     "shape": "athletic",
+     "height": 100,
+     "win": "victory"
+    },
+    "man": {
+     "outfit": "hoplite",
+     "hair": "short",
+     "hair_colour": [
+      70,
+      40,
+      25
+     ],
+     "shape": "athletic",
+     "height": 100,
+     "win": "victory"
+    },
+    "robin": {
+     "shape": "athletic",
+     "height": 100,
+     "win": "victory"
+    }
+   },
+   "styles": [
+    "kickboxer",
+    "boxer",
+    "capoeira",
+    "knives",
+    "swords",
+    "sticks"
+   ],
+   "weapons": {
+    "knife": "knives",
+    "dagger": "knives",
+    "sword_shield": "swords",
+    "longsword": "swords",
+    "katana": "swords",
+    "stick": "sticks",
+    "staff": "sticks",
+    "glaive": "sticks"
+   },
+   "specials": [
+    "blast",
+    "uppercut",
+    "spin_kick",
+    "slam"
+   ],
+   "combo_moves": [
+    "punch",
+    "kick",
+    "low",
+    "high"
+   ],
+   "combo_min": 2,
+   "combo_max": 5,
+   "bosses": {
+    "GOLIATH": "slam",
+    "VOLTRIX": "blast",
+    "KRAGG": "uppercut",
+    "SHADE": "spin_kick"
+   }
+  }
+ },
+ "kartlab": {
+  "title": "Kart Lab",
+  "word": "KART",
+  "old_name": null,
+  "client_code_room": false,
+  "vars": [
+   {
+    "name": "speed",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "speed",
+    "note": "points for top speed",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "speed"
+    ]
+   },
+   {
+    "name": "acceleration",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "acceleration",
+    "note": "points for acceleration",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "acceleration"
+    ]
+   },
+   {
+    "name": "grip",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "grip",
+    "note": "points for grip: how fast a slide dies, and how sharply it steers",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "grip"
+    ]
+   },
+   {
+    "name": "kart_name",
+    "kind": "str",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "name_and_colour",
+    "note": "a string: text made of chars",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 12,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "name"
+    ]
+   },
+   {
+    "name": "colour",
+    "kind": "rgb",
+    "group": "lists",
+    "garage": "lists",
+    "tool": "name_and_colour",
+    "note": "red, green, blue: 0 to 255",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "colour"
+    ]
+   }
+  ],
+  "limits": {
+   "settings": {},
+   "full_settings": {},
+   "stats": [
+    "speed",
+    "acceleration",
+    "grip"
+   ],
+   "stat_range": [
+    10,
+    60
+   ],
+   "full_stat": [
+    10,
+    60
+   ],
+   "points_total": 100,
+   "full_points_total": 100
+  },
+  "consts": {
+   "name_max": 12,
+   "swatches": [
+    [
+     220,
+     60,
+     50
+    ],
+    [
+     240,
+     140,
+     30
+    ],
+    [
+     240,
+     200,
+     40
+    ],
+    [
+     60,
+     190,
+     90
+    ],
+    [
+     60,
+     130,
+     230
+    ],
+    [
+     180,
+     90,
+     230
+    ],
+    [
+     230,
+     90,
+     170
+    ],
+    [
+     230,
+     230,
+     230
+    ]
+   ]
+  }
+ }
+}

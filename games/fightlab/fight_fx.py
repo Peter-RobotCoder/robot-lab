@@ -81,10 +81,11 @@ class Effects:
         self.spark_root = render.attachNewNode("sparks")
         add_blend(self.spark_root)
         self.spark_root.setBin("fixed", 30)
-        spark_geom = bevel_box(0.012, 0.08, 0.012, 0.0).node()
+        spark_geom = bevel_box(0.012, 0.08, 0.012, 0.0)
         self.sparks = []
         for _ in range(120 if low else 360):
-            np_ = self.spark_root.attachNewNode(spark_geom)
+            # a node each (sharing the vertices): attaching the one node 360 times gave them all one position and one hide
+            np_ = self.spark_root.attachNewNode(spark_geom.node("spark"))
             np_.hide()
             self.sparks.append([np_, Vec3(0), 0.0, 0.0, "hot"])  # node, velocity, life, max life, colour
         # flashes (a bright blob) and shock rings, facing the camera

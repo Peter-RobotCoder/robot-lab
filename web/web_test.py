@@ -9,7 +9,10 @@ which opens the class view with the desk's teacher ticket; the page draws the tr
 snapshots with no JavaScript errors;
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
-a learner removed, login slips, the teacher password changed; lessons.json and tex/ are up to date. Screenshots are
+a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
+game's schema, her code panel (APPLY CODE changes a value, a mistake is shown on its line, BUILD reaches the
+server); the teacher's own garage in Robot Lab and Fight Lab; lessons.json, schemas.json and tex/ are up to date,
+and schema_test.py passes (schema.js against the windows' Python). Screenshots are
 kept in the test folder. Exit code 0 = every check passed; the test
 says so and passes if no Chrome or Edge is installed.
 """
@@ -62,6 +65,10 @@ DRAWN_RIGHT = """(() => {
     if (eng._gl.getContextAttributes().alpha) return 'the canvas is see-through';
     const waiting = pbr.filter(m => Object.values(m._textures || {}).some(t => !t.isReady())).map(m => m.name.split(':')[0]);
     if (waiting.length) return 'pictures not loaded: ' + waiting.slice(0, 5).join(', ');
+    // (a shader that doesn't compile draws nothing and throws nothing: the effects' particles went missing that way)
+    const broken = Object.values(eng._compiledEffects || {}).concat(sc.materials.map(m => m.getEffect && m.getEffect()))
+        .filter(e => e && e.getCompilationError && e.getCompilationError()).map(e => e.name && (e.name.vertex || e.name.vertexElement || e.name) || '?');
+    if (broken.length) return 'shaders that did not compile: ' + broken.slice(0, 3).map(String).join(', ');
     const lost = sc.meshes.filter(x => x.material && !sc.materials.includes(x.material)).map(x => x.name);
     if (lost.length) return 'meshes with a thrown-away material: ' + lost.slice(0, 5).join(', ');
     const budget = {blocks: 1.0e6, low: 1.1e6, medium: 1.6e6, high: 2.4e6}[g.tier];
@@ -70,6 +77,41 @@ DRAWN_RIGHT = """(() => {
     if (px > Math.max(budget, css) * 1.02) return 'drawing ' + px + ' pixels on ' + g.tier;
     return 'ok';
 })()"""
+
+
+class StaticServer:
+    """This folder over http (python -m http.server's handler), with Fight Lab's models at models/fightlab/ as the
+    VPS serves them (Caddy: the release's games/fightlab/models)."""
+
+    def __init__(self, port):
+        from functools import partial
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        from urllib.parse import unquote, urlsplit
+        models = os.path.join(FIGHT, "models") if FIGHT else None
+
+        class Handler(SimpleHTTPRequestHandler):
+            def translate_path(self, path):
+                p = unquote(urlsplit(path).path)
+                if p.startswith("/models/fightlab/"):
+                    if not models:
+                        return os.path.join(HERE, "no-such-file")
+                    full = os.path.normpath(os.path.join(models, *p[len("/models/fightlab/"):].split("/")))
+                    return full if full.startswith(models + os.sep) else os.path.join(HERE, "no-such-file")
+                return super().translate_path(path)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, directory=HERE))
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def poll(self):  # (stop() treats it as a process)
+        return None
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
 
 
 def check(name, fn):
@@ -101,6 +143,9 @@ def wait_port(port, seconds=20):
 
 
 def stop(proc):
+    if isinstance(proc, StaticServer):
+        proc.stop()
+        return
     if proc is None or proc.poll() is not None:
         return
     if os.name == "nt":
@@ -244,14 +289,14 @@ def main():
     server = subprocess.Popen([sys.executable, "kart_server.py", "--port", str(kart_port), "--cpu", "2",
                                "--level", "easy", "--laps", "2"], cwd=KART, env={**env, "TEACHER_CODE": "TEACH99"},
                               stdout=open(os.path.join(work, "server.log"), "w"), stderr=subprocess.STDOUT)
-    http = subprocess.Popen([sys.executable, "-m", "http.server", str(http_port), "--bind", "127.0.0.1"], cwd=HERE,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    http = StaticServer(http_port)
     chrome = None
+    extra = []  # (Claude for the browser)
     try:
         if not wait_port(kart_port) or not wait_port(http_port) or not wait_port(desk_port):
             raise RuntimeError("the kart server, the desk or the static server didn't start")
         chrome = Chrome(exe, os.path.join(work, "profile"))
-        base = f"http://127.0.0.1:{http_port}/index.html?desk=ws://127.0.0.1:{desk_port}&auto=0&cam=tv&tier=low"
+        base = f"http://127.0.0.1:{http_port}/index.html?mode=teacher&desk=ws://127.0.0.1:{desk_port}&auto=0&cam=tv&tier=low"
 
         def wrong_password():
             chrome.open(base)
@@ -373,8 +418,85 @@ def main():
             assert "Teacher" in chrome.js("document.getElementById('panelbody').textContent")
         check("The Learners tab lists who is here", learners_tab)
 
+        def claude_cards():  # (CHANGE 136: Claude for the browser on a copy of Kart Lab, a stand-in for Claude)
+            rules = os.path.join(KART, "mods", "rules.py")  # (the class server writes a kept mod into its own mods/)
+            with open(rules, "rb") as f:
+                before = f.read()
+            try:
+                claude_cards_steps()
+            finally:
+                with open(rules, "wb") as f:
+                    f.write(before)
+
+        def claude_cards_steps():
+            copy = os.path.join(work, "claude")
+            shutil.copytree(KART, os.path.join(copy, "kart"), ignore=shutil.ignore_patterns(
+                ".venv", "__pycache__", "data", "profiles", "evidence", "ai_changes", "ai_requests", "brains", "assets"))
+            shutil.copytree(os.path.join(os.path.dirname(KART), "engine") if os.path.isdir(os.path.join(os.path.dirname(KART), "engine"))
+                            else os.path.join(os.path.dirname(os.path.dirname(KART)), "engine"), os.path.join(copy, "engine"),
+                            ignore=shutil.ignore_patterns("__pycache__", "assets"))
+            with open(os.path.join(copy, "fake_claude.py"), "w", encoding="utf-8") as f:
+                f.write("import json, os\np = os.path.join('mods', 'rules.py')\nt = open(p, encoding='utf-8', newline='').read()\n"
+                        "open(p, 'w', encoding='utf-8', newline='').write(t.replace('\"laps\": 3,', '\"laps\": 4,', 1))\n"
+                        "print(json.dumps({'result': '- mods/rules.py: laps 3 -> 4', 'total_cost_usd': 0}))\n")
+            helper = subprocess.Popen(
+                [sys.executable, os.path.join(os.path.dirname(HERE), "helper", "claude_helper.py"), "--server",
+                 f"ws://127.0.0.1:{desk_port}", "--password-stdin", "--games", "kartlab"], stdin=subprocess.PIPE,
+                env={**env, "CLUBCODERS_KARTLAB_DIR": os.path.join(copy, "kart"), "KARTLAB_DATA": os.path.join(copy, "data"),
+                     "CLAUDE_CMD": f'"{sys.executable}" "{os.path.join(copy, "fake_claude.py")}"'},
+                stdout=open(os.path.join(work, "helper.log"), "w"), stderr=subprocess.STDOUT)
+            extra.append(helper)
+            helper.stdin.write((DESK_PASSWORD + "\n").encode())
+            helper.stdin.flush()
+            chrome.wait_for("!!window.__state.desk.claudeFor('kartlab') && !!window.__state.desk.claudeFor('kartlab').history", 40,
+                            "Claude for the browser connected")
+            chrome.js("window.__app.send({type: 'ai_card', card: {goal: 'One more lap', variables: 'laps = 4', test: 'Start a race and count the laps it shows', "
+                      "predict: 'Four laps', target: 'rules', privacy: true, review: true, credit: true}})")
+            chrome.js("document.querySelector('#panel header button[data-tab=\"cards\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-ccheck]')", 15, "the card's Check and send")
+            assert chrome.js("document.querySelector('button[data-ctarget=\"rules\"]').classList.contains('on')")
+            chrome.js("document.querySelector('button[data-ccheck]').click()")
+            chrome.wait_for("(document.querySelector('pre.prompt') || {}).textContent.includes('mods/rules.py') && "
+                            "!document.getElementById('c-send').disabled", 20, "the whole prompt, from Claude's computer")
+            chrome.screenshot(os.path.join(work, "claude_check.png"))
+            chrome.js("document.getElementById('c-send').click()")
+            chrome.wait_for("!!document.querySelector('button[data-ckeep]')", 60, "the tested change, with Keep and Undo")
+            assert "Test: passed" in chrome.js("document.querySelector('pre.claude').textContent")
+            assert chrome.js("window.__state.teaching.cards.slice(-1)[0].status") == "working"
+            chrome.js("document.querySelector('button[data-cdiff]').click()")
+            chrome.wait_for("((document.querySelector('pre.diff .add') || {}).textContent || '').trim() === '+    \"laps\": 4,                 # laps in a race (1 to 9)'",
+                            5, "the change's lines")
+            chrome.screenshot(os.path.join(work, "claude_result.png"))
+            chrome.js("document.querySelector('button[data-ckeep]').click()")
+            chrome.wait_for("window.__state.teaching.cards.slice(-1)[0].status === 'ready'", 15, "the card kept for the learner")
+            chrome.js("document.querySelector('#panel header button[data-tab=\"changes\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-mswitch=\"1\"]')", 15, "mod 1 in the Changes tab")
+            chrome.js("document.querySelector('button[data-mswitch=\"1\"]').click()")
+            chrome.wait_for("document.getElementById('panelbody').textContent.includes('Mod 1 switched off')", 15, "mod 1 switched off")
+            assert '"laps": 3,' in open(os.path.join(copy, "kart", "mods", "rules.py"), encoding="utf-8").read()
+            chrome.screenshot(os.path.join(work, "claude_changes.png"))
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("Claude for the browser: a card checked (the whole prompt), sent, tested, its lines shown, kept; the Changes tab "
+              "switches the mod off", claude_cards)
+
         shot = os.path.join(work, "live.png")
         chrome.screenshot(shot)
+        pupil = {}
+
+        def learner_login():  # a learner's own page (another browser): the desk login, a starter password changed, waiting
+            pupil["chrome"] = lc = Chrome(exe, os.path.join(work, "profile-amy"))
+            lc.open(f"http://127.0.0.1:{http_port}/index.html?mode=learner&desk=ws://127.0.0.1:{desk_port}&auto=0&tier=blocks")
+            lc.wait_for("!!window.__state && !document.getElementById('learnerform').hidden", 20, "the learner's login form")
+            lc.js("document.getElementById('lname').value = 'amy'; document.getElementById('lpass').value = 'starter-amy';"
+                  "document.getElementById('connect').click()")
+            lc.wait_for("!document.getElementById('newpassform').hidden", 15, "the desk asking for her own password")
+            lc.js("document.getElementById('npass').value = 'amys-own-1'; document.getElementById('npass2').value = 'amys-own-1';"
+                  "document.getElementById('connect').click()")
+            lc.wait_for("!document.getElementById('waitbox').hidden && document.getElementById('waittext').textContent.includes('wait')",
+                        15, "waiting for the teacher (the learners' windows aren't launched yet)")
+            assert lc.js("JSON.stringify(window.__errors)") == "[]"
+        check("A learner logs in at the desk from the page: her own password first, then waiting for the teacher", learner_login)
 
         def session():
             chrome.js("document.getElementById('btn-desk').click()")
@@ -386,14 +508,69 @@ def main():
             chrome.js("{ const n = document.querySelector('input[data-name=\"ben\"]'); n.focus(); n.value = 'half-typ'; }")
             chrome.js("document.getElementById('dk-open').click()")
             chrome.wait_for("window.__state.desk.state.live.learners_in === true", 10, "the learners' windows launched")
+            if "chrome" in pupil:  # (the learner's page opens the game by itself, as the app does)
+                lc = pupil["chrome"]
+                lc.wait_for("window.__state.connected === true && window.__state.role === 'learner' && window.__state.game.id === 'kartlab'",
+                            30, "amy's page opening Kart Lab as a learner")
+                lc.wait_for("window.__state.game.myId() !== null && !!document.getElementById('kh-lap')", 20, "amy's kart and race display")
+                tabs = lc.js("[...document.querySelectorAll('#panelhead button')].map(b => b.dataset.tab).join(',')")
+                assert tabs.startswith("mission,garage,aicard,mycard,mods"), tabs
+                lc.screenshot(os.path.join(work, "learner_kart.png"))
             assert chrome.js("document.querySelector('input[data-name=\"ben\"]').value") == "half-typ", \
                 "typing was lost when the desk redrew"
             chrome.screenshot(os.path.join(work, "desk.png"))
+        check("The session: a note, LAUNCH LEARNERS' WINDOWS, and the learner's page opens the game", session)
+
+        def learner_garage():  # amy's Garage drawn from the schema; the code panel: APPLY CODE changes a value, BUILD
+            if "chrome" not in pupil:
+                return
+            lc = pupil["chrome"]
+            lc.js("const s = window.__app.send; window.__sent = []; window.__app.send = m => { window.__sent.push(m); s(m); };"
+                  "document.getElementById('panel').classList.add('open');"
+                  "document.querySelector('#panelhead button[data-tab=\"garage\"]').click()")
+            lc.wait_for("!!document.getElementById('gz-build')", 10, "amy's Garage")
+            # (the rows are the schema's: garageTables gives the same names the page shows)
+            names = lc.js("[...document.querySelectorAll('#panelbody .gname')].map(e => e.textContent).join(',')")
+            assert "GARAGE" in lc.js("document.getElementById('panelbody').textContent"), "no garage title"
+            # (a learner's garage shows a variable when its tool is on: engine/garage.py's visible())
+            for v in lc.js("window.__state.schemas.kartlab.vars.filter(v => !v.tool || window.__state.lesson.tools[v.tool]).map(v => v.name)"):
+                assert v in names, f"{v} isn't in the garage ({names})"
+            lc.screenshot(os.path.join(work, "learner_garage.png"))
+            lc.js("document.getElementById('gz-code').click()")
+            lc.wait_for("!document.getElementById('codepanel').hidden && document.getElementById('code-text').value.includes('speed: int =')",
+                        10, "the code panel with amy's kart as Python")
+            assert any(m.get("type") == "code_viewed" for m in lc.js("window.__sent")), "code_viewed wasn't sent"
+            speed = lc.js("window.__state.draft.speed")
+            lc.js("{ const t = document.getElementById('code-text');"
+                  f" t.value = t.value.replace(/^speed: int = \\d+$/m, 'speed: int = {speed - 1}');"
+                  " t.dispatchEvent(new Event('input')); document.getElementById('code-apply').click(); }")
+            lc.wait_for(f"window.__state.draft.speed === {speed - 1} && window.__state.codeChanged === true", 10, "the code applied")
+            assert "Applied" in lc.js("document.getElementById('code-msg').textContent"), lc.js("document.getElementById('code-msg').textContent")
+            lc.wait_for(f"document.getElementById('panelbody').textContent.includes('{speed - 1}')", 5, "the garage showing the new value")
+            lc.js("{ const t = document.getElementById('code-text'); t.value = t.value + '\\nx = [1, 2'; t.dispatchEvent(new Event('input'));"
+                  " document.getElementById('code-apply').click(); }")
+            lc.wait_for("document.getElementById('code-msg').textContent.includes('was never closed')", 5, "the mistake shown")
+            assert lc.js("document.querySelector('#code-gutter b') !== null"), "the line with the mistake isn't marked"
+            lc.screenshot(os.path.join(work, "learner_code.png"))
+            lc.js("document.getElementById('code-reset').click(); document.getElementById('gz-build').click()")
+            lc.wait_for(f"window.__state.myDesign.speed === {speed - 1}", 10, "the server building amy's kart from her code")
+            sent = [m for m in lc.js("window.__sent") if m.get("type") == "design"]
+            assert sent and sent[-1]["code"] is True, sent
+            assert lc.js("window.__state.codeChanged") is False, "the code flags weren't cleared by the build"
+            assert lc.js("JSON.stringify(window.__errors)") == "[]", lc.js("JSON.stringify(window.__errors)")
+        check("A learner's Garage is drawn from the game's schema, and her code panel: APPLY CODE changes a value, a "
+              "mistake is shown on its line, BUILD reaches the server (sent as code)", learner_garage)
+
+        def session_stop():
             chrome.js("document.getElementById('dk-stop').click()")
             assert chrome.js("window.__state.desk.state.live") is not None, "one press stopped it"
             chrome.js("document.getElementById('dk-stop').click()")
             chrome.wait_for("window.__state.desk.state.live === null && !!window.__state.desk.record", 10, "the session stopped")
             chrome.wait_for("window.__state.connected === false", 10, "the class view closing at Stop")
+            if "chrome" in pupil:  # (and back to waiting when the teacher stops)
+                pupil["chrome"].wait_for("!document.getElementById('waitbox').hidden", 20, "amy's page waiting again after Stop")
+                assert pupil["chrome"].js("JSON.stringify(window.__errors)") == "[]"
+                pupil["chrome"].close()
             chrome.wait_for("(window.__state.desk.sessions || []).length === 1 && !!document.querySelector('button[data-print]')",
                             10, "the record in Records")
             chrome.js("window.print = () => { window.__printed = (window.__printed || 0) + 1; };"
@@ -406,7 +583,7 @@ def main():
                 assert want in text, f"{want!r} isn't in the printed record"
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
-        check("The session: a note, LAUNCH LEARNERS' WINDOWS, STOP (pressed twice) and its printed record", session)
+        check("STOP (pressed twice) ends the session; its printed record", session_stop)
 
         def reset_remove():
             chrome.js("document.querySelector('button[data-dtab=\"people\"]').click()")
@@ -414,13 +591,15 @@ def main():
             chrome.js("document.querySelector('button[data-reset=\"1\"]').click()")
             chrome.wait_for(f"window.__state.desk.state.learners.find(L => L.name === 'ben').starter !== {json.dumps(before)}",
                             10, "ben's new starter password")
-            chrome.js("document.querySelector('button[data-remove=\"1\"]').click()")
-            assert chrome.js("window.__state.desk.state.learners.length") == 2, "one press removed ben"
-            chrome.js("document.querySelector('button[data-remove=\"1\"]').click()")
-            chrome.wait_for("window.__state.desk.state.learners.length === 1", 10, "ben removed")
+            # (amy chose her own password from her page: she's removed, and ben's slip, with his new starter, is printed)
+            chrome.js("document.querySelector('button[data-remove=\"0\"]').click()")
+            assert chrome.js("window.__state.desk.state.learners.length") == 2, "one press removed amy"
+            chrome.js("document.querySelector('button[data-remove=\"0\"]').click()")
+            chrome.wait_for("window.__state.desk.state.learners.length === 1", 10, "amy removed")
             chrome.wait_for("!!document.getElementById('dk-slips')", 5, "the login slips button")
             chrome.js("document.getElementById('dk-slips').click()")
-            assert "starter-amy" in chrome.js("document.getElementById('printout').textContent")
+            starter = chrome.js("window.__state.desk.state.learners.find(L => L.name === 'ben').starter")
+            assert starter and starter in chrome.js("document.getElementById('printout').textContent")
         check("A learner's password is reset, a learner removed (pressed twice), login slips printed", reset_remove)
 
         def change_password():
@@ -499,10 +678,20 @@ def main():
             chrome.js("window.__app.send({type: 'restart'})")  # (new robots: the old ones go, their materials stay)
             time.sleep(3.0)
             chrome.wait_for(f"window.__state.scene.robots.size >= 3 && {DRAWN_RIGHT} === 'ok'", 20, "Robot Lab drawn properly after a restart")
+            # B: the health bars just the title (Show) and back (Hide), kept on this computer (lab_client.toggle_hud)
+            press_b = ("window.dispatchEvent(new KeyboardEvent('keydown', {key: 'b'}));"
+                       "window.dispatchEvent(new KeyboardEvent('keyup', {key: 'b'}))")
+            chrome.js(press_b)
+            chrome.wait_for("!document.querySelector('#places div[data-id]') && document.getElementById('rb-small').textContent === 'Show'"
+                            " && localStorage.getItem('hud_small') === '1'", 5, "the health bars made small with B")
+            chrome.js(press_b)
+            chrome.wait_for("!!document.querySelector('#places div[data-id]') && document.getElementById('rb-small').textContent === 'Hide'"
+                            " && localStorage.getItem('hud_small') === '0'", 5, "the health bars full again with B")
             time.sleep(1.0)
             chrome.screenshot(os.path.join(work, "robotlab.png"))
             no_errors()
-        check("Robot Lab: the arena and the robots are drawn from its snapshots, on every tier", robot_lab)
+        check("Robot Lab: the arena and the robots are drawn from its snapshots, on every tier; B makes the health bars small",
+              robot_lab)
 
         def shared_tabs():
             if "amy" not in servers:
@@ -546,6 +735,13 @@ def main():
             time.sleep(0.3)
             chrome.js("document.getElementById('dz-name').value = 'Zap'; document.getElementById('dz-build').click()")
             chrome.wait_for("window.__state.classList.some(p => p.name === 'amy' && p.design.name === 'Zap')", 10, "amy's robot rebuilt as Zap")
+            chrome.screenshot(os.path.join(work, "robotlab_their_robot.png"))
+            chrome.js("document.querySelector('button[data-pick=\"*me\"]').click()")
+            chrome.wait_for("!!document.getElementById('dz-build') && document.getElementById('panelbody').textContent.includes('MY ROBOT')",
+                            10, "the teacher's own garage")
+            chrome.js("document.querySelector('button[data-choice=\"weapon\"][data-i=\"2\"]').click()")
+            chrome.wait_for("window.__state.draft.weapon === 'drum'", 5, "a weapon chosen in the garage")
+            chrome.screenshot(os.path.join(work, "robotlab_garage.png"))
             for t in ("warnings", "camera", "graphics", "about", "controls"):
                 tab(t)
             chrome.screenshot(os.path.join(work, "robotlab_panel.png"))
@@ -585,18 +781,58 @@ def main():
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.fighters.size") >= 2, f"fighters lost on {tier}"
                 chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Fight Lab drawn properly on {tier}")
+            # the detailed bodies (woman, man, Robin): the app's own skinned model and moves (fightmodels.js, the files
+            # from models/fightlab/) on the lit tiers, posed every frame; the primitive stand-in on blocks
+            chrome.js("window.__app.send({type: 'cpu_robot', design: {name: 'Ava', body: 'woman', colour: [200, 40, 40], "
+                      "look: {outfit: 'hoplite', hair: 'ponytail', hair_colour: [70, 40, 25], shape: 'athletic', height: 100, win: 'victory'}}})")
+            model = ("[...window.__state.scene.fighters.values()].some(f => f.design.body === 'woman' && f.model && f.model.ready"
+                     " && !f.body.isEnabled() && f.model.meshes.length > 5)")
+            chrome.wait_for(model, 60, "the computer's woman drawn from the app's model")
+            print(f"    model load (ms): {chrome.js('JSON.stringify(window.__fightModels.loadTimes)')}")
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 20, "Fight Lab drawn properly with a model")
+            chrome.wait_for("(() => { const f = [...window.__state.scene.fighters.values()].find(f => f.model && f.model.ready);"
+                            " const q = f && f.model.joints[0] && f.model.joints[0].rotationQuaternion.asArray().join();"
+                            " const moved = !!q && window.__hips !== undefined && window.__hips !== q; window.__hips = q; return moved; })()",
+                            15, "the model's joints posed from its moves")
+            chrome.screenshot(os.path.join(work, "fightlab_model.png"))
+            chrome.js("window.__state.scene.setTier('blocks')")
+            time.sleep(0.8)
+            assert chrome.js("[...window.__state.scene.fighters.values()].every(f => !f.model)"), "a model on blocks"
+            chrome.js("window.__state.scene.setTier('low')")
+            chrome.wait_for(model, 30, "the model again after the tier changed")
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 20, "Fight Lab drawn properly with a model, again")
             tab("controls")
             chrome.js("document.querySelector('button[data-mode=\"battle\"]').click()")
             chrome.wait_for("window.__state.lesson.mode === 'battle'", 10, "battle mode")
+            # winner stays on: the Matches tab shows the live ring, who is waiting, the matches played (fight_client)
+            mine = chrome.js("!!window.__state.lesson.teacher_fighter")
+            chrome.js("window.__app.send({type: 'lesson', lesson: {teacher_fighter: true}})")
+            chrome.wait_for("window.__state.lesson.teacher_fighter === true", 10, "the teacher's fighter in the class")
             tab("matches")
+            chrome.js("document.getElementById('fm-stays').click()")
+            chrome.wait_for("(window.__state.tournament || {}).kind === 'stays' && ['Ring 1: ', 'Waiting: ', 'Matches played: 0']"
+                            ".every(t => document.getElementById('panelbody').textContent.includes(t))", 10,
+                            "the winner-stays-on rings and queue in the Matches tab")
+            chrome.js("document.getElementById('fm-stop').click()")
+            chrome.wait_for("window.__state.tournament === null && !!document.getElementById('fm-stays')", 10, "winner stays on stopped")
+            chrome.js(f"window.__app.send({{type: 'lesson', lesson: {{teacher_fighter: {'true' if mine else 'false'}}}}})")
             tab("rules")
             chrome.js("document.querySelector('input[data-haz=\"fire_jets\"]').click()")
             chrome.wait_for("window.__state.lesson.hazards.fire_jets === true", 10, "the fire jets")
+            tab("learners")
+            chrome.js("document.querySelector('button[data-pick=\"*me\"]').click()")
+            chrome.wait_for("!!document.getElementById('dz-build') && document.getElementById('panelbody').textContent.includes('MY FIGHTER')",
+                            10, "the teacher's own fighter garage")
+            chrome.js("document.querySelector('button[data-choice=\"body\"][data-i=\"2\"]').click()")  # (the woman: her look)
+            chrome.wait_for("window.__state.draft.body === 'woman' && !!document.querySelector('button[data-look=\"outfit\"]')", 5,
+                            "the detailed body's look in the garage")
+            chrome.screenshot(os.path.join(work, "fightlab_garage.png"))
             tab("camera")
             time.sleep(2.0)
             chrome.screenshot(os.path.join(work, "fightlab.png"))
             no_errors()
-        check("Fight Lab: the rings and the posed fighters are drawn, and its controls reach the server", fight_lab)
+        check("Fight Lab: the rings and the posed fighters are drawn (a woman with the app's own model), and its controls "
+              "reach the server (winner stays on: the rings and the queue)", fight_lab)
         for key, proc in servers.items():
             proc.close() if isinstance(proc, Learner) else stop(proc)
 
@@ -609,12 +845,32 @@ def main():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_textures.py"), "--check"], capture_output=True, text=True)
             assert r.returncode == 0, r.stdout + r.stderr
         check("tex/ (the app's textures and skies) is up to date with the games' texture generators", textures_current)
+
+        def schemas_current():
+            r = subprocess.run([sys.executable, os.path.join(HERE, "make_schemas.py"), "--check"], capture_output=True, text=True)
+            assert r.returncode == 0, r.stdout + r.stderr
+        check("schemas.json (the games' design schemas) matches the games' files", schemas_current)
+
+        def schema_js():  # (Node runs schema.js; without Node it says so and passes)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "schema_test.py")], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+            last = (r.stdout.strip().splitlines() or [""])[-1]
+            print(f"    schema_test: {last}")
+            assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-2000:]
+        check("schema.js writes and reads the code exactly as the windows' Python does (schema_test.py)", schema_js)
+
+        def sounds_current():
+            r = subprocess.run([sys.executable, os.path.join(HERE, "make_sounds.py"), "--check"], capture_output=True, text=True)
+            assert r.returncode == 0, r.stdout + r.stderr
+        check("sfx/ (the games' sounds) is up to date with the games' sound generators", sounds_current)
         print(f"Screenshot and test data: {work}")
     finally:
         if chrome:
             chrome.close()
         stop(server)
         stop(http)
+        for proc in extra:
+            stop(proc)
         stop(desk)
     for name, ok, note in results:
         if not ok:

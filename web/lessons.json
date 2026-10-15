@@ -255,7 +255,13 @@
    ]
   },
   "tasks": {},
-  "title": "Fight Lab"
+  "title": "Fight Lab",
+  "user_mods": {
+   "cartwheel_kick": [
+    "Cartwheel kick (F)",
+    "Pressing F does a cartwheel into a kick that takes half of the other fighter's full health if it lands clean."
+   ]
+  }
  },
  "kartlab": {
   "lessons": {
@@ -519,7 +525,8 @@
    "4": "Improve the game itself with AI. Write a safe, precise request to change a game rule, predict what it will do, then review the AI's code: does it work, was it tested, can you explain it? Then find a mistake hidden in AI-written code.",
    "5": "Bring everything together for the class grand prix: a final design and an uploaded brain, one new feature of your own made with AI, then evaluate what worked using evidence from the races and explain your code to the group."
   },
-  "title": "Kart Lab"
+  "title": "Kart Lab",
+  "user_mods": {}
  },
  "robotlab": {
   "lessons": {
@@ -759,6 +766,40 @@
    "4": "Improve the game itself with AI. Write a safe, precise request to change a game rule, predict what it will do, then review the AI's code: does it work, was it tested, can you explain it? Then find a mistake hidden in AI-written code.",
    "5": "Bring everything together for the class tournament: a final design and an uploaded brain, one new feature of your own made with AI, then evaluate what worked using evidence from the battles and explain your code to the group."
   },
-  "title": "Robot Lab"
+  "title": "Robot Lab",
+  "user_mods": {
+   "boost_pad": [
+    "3 second boost",
+    "A boost button on the floor by the east wall: the robot that touches it is faster for 3 seconds, then the button rests for 5 seconds"
+   ],
+   "double_flipper": [
+    "Flipper on both ends",
+    "A flipper robot has a second flipper on its back end: both lift when it fires"
+   ],
+   "flame_pit": [
+    "Flame pit",
+    "A pit of flames in the middle of the arena: the flames rise while a robot is in it, and after 3 seconds in the pit the robot is deactivated"
+   ],
+   "hammer_slam": [
+    "Hammer jump slam",
+    "A hammer robot jumps and slams down: the robot it hits goes flying and takes fall damage"
+   ],
+   "no_cage": [
+    "No cage",
+    "No walls round the arena: a drop into a gutter all the way round (the wall spikes rest)"
+   ],
+   "ramps": [
+    "Jump ramps",
+    "Two ramps facing each other across the arena, each with a speed-burst pad: drive up one to fly through the air, and a robot that lands on another robot body slams it, so it goes flying and takes damage"
+   ],
+   "repair_bay": [
+    "Repair bay",
+    "A lit square on the floor by the west wall: a robot on it gets 5 armour back a second, and every 3 seconds on it one lost part goes back on"
+   ],
+   "spike_pit": [
+    "Spike pit",
+    "A square pit of spikes in the floor: a robot pushed in is stuck there and its armour drains away"
+   ]
+  }
  }
 }

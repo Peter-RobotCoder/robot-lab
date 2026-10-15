@@ -364,7 +364,9 @@ export class BaseScene {
         return m;
     }
 
-    makeLabel(text, colour = "#ffffff", width = 2.4) {
+    // a name over a player, always facing the camera: on a dark plate (Kart Lab and Fight Lab, as their windows draw
+    // them) or, with plate false, white words with a shadow (Robot Lab's window)
+    makeLabel(text, colour = "#ffffff", width = 2.4, plate = true) {
         const lines = String(text).split("\n");
         const h = (lines.length > 1 ? 0.95 : 0.6) * width / 2.4;
         const plane = BABYLON.MeshBuilder.CreatePlane("label", {width, height: h}, this.scene);
@@ -373,8 +375,13 @@ export class BaseScene {
         tex.hasAlpha = true;
         const ctx = tex.getContext();
         ctx.clearRect(0, 0, 384, th);
-        ctx.fillStyle = "rgba(10,12,20,0.7)";
-        ctx.fillRect(0, 0, 384, th);
+        if (plate) {
+            ctx.fillStyle = "rgba(10,12,20,0.7)";
+            ctx.fillRect(0, 0, 384, th);
+        } else {
+            ctx.shadowColor = "rgba(0,0,0,0.9)";
+            ctx.shadowBlur = 8;
+        }
         lines.forEach((line, i) => tex.drawText(line, null, lines.length > 1 ? 62 + i * 64 : 68,
                                                  `bold ${i ? 42 : 52}px sans-serif`, colour, null, true, i === lines.length - 1));
         const m = new BABYLON.StandardMaterial("labelmat", this.scene);
@@ -390,7 +397,7 @@ export class BaseScene {
     }
 
     // a flat text decal lying on the floor (game z up)
-    floorText(text, x, y, z, width, colour = "#f2c40d") {
+    floorText(text, x, y, z, width, colour = "#f2c40d", paint = 0.6) {
         const plane = BABYLON.MeshBuilder.CreatePlane("floortext", {width, height: width / 4}, this.scene);
         const tex = new BABYLON.DynamicTexture("floortex", {width: 1024, height: 256}, this.scene, true);
         tex.hasAlpha = true;
@@ -402,7 +409,7 @@ export class BaseScene {
         m.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
         if (this.lighting) {  // (paint in a dim hall, as the app draws it: not lit by Babylon's brighter lights)
             m.disableLighting = true;
-            m.emissiveColor = new BABYLON.Color3(0.6, 0.6, 0.6);
+            m.emissiveColor = new BABYLON.Color3(paint, paint, paint);
         }
         m.backFaceCulling = false;
         plane.material = m;

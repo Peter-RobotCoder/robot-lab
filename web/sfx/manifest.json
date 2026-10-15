@@ -1,0 +1,1005 @@
+{
+ "versions": {
+  "rw_sound": "7",
+  "kart_sound": "1",
+  "fight_sound": "1",
+  "maker": "1"
+ },
+ "format": "mp3",
+ "encoding": "MP3, mono, 44.1 kHz, LAME VBR -q:a 5 (ffmpeg)",
+ "loop_pad": 0.5,
+ "onset_threshold": 0.05,
+ "bytes": 1477893,
+ "seconds": 194.4,
+ "left_out": {
+  "yours": "the teacher's own music files (engine/music): never copied to the page"
+ },
+ "games": {
+  "robotlab": [
+   "clang",
+   "smash",
+   "launch",
+   "hammer",
+   "flip",
+   "saw",
+   "spikes",
+   "bump",
+   "wall",
+   "pneumatic",
+   "swing",
+   "spin",
+   "chainsaw",
+   "flame",
+   "grind",
+   "motor",
+   "arena",
+   "crowd",
+   "ooh",
+   "cheer",
+   "applause",
+   "beep",
+   "go",
+   "chip",
+   "rock"
+  ],
+  "fightlab": [
+   "wall",
+   "crowd",
+   "ooh",
+   "cheer",
+   "applause",
+   "chip",
+   "rock",
+   "f_punch",
+   "f_kick",
+   "f_heavy",
+   "f_block",
+   "f_whoosh",
+   "f_land",
+   "f_metal",
+   "f_jump",
+   "f_blast_fire",
+   "f_blast_hit",
+   "f_uppercut",
+   "f_spin",
+   "f_slam",
+   "f_zap",
+   "f_fire",
+   "f_bell",
+   "f_ko",
+   "f_counter"
+  ],
+  "kartlab": [
+   "bump",
+   "wall",
+   "motor",
+   "crowd",
+   "cheer",
+   "applause",
+   "beep",
+   "go",
+   "horn",
+   "k_skid",
+   "k_boost"
+  ]
+ },
+ "sounds": {
+  "clang": {
+   "files": [
+    "clang_0.mp3",
+    "clang_1.mp3",
+    "clang_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    2e-05,
+    0.0,
+    0.0
+   ],
+   "seconds": [
+    1.6,
+    1.6,
+    1.6
+   ]
+  },
+  "smash": {
+   "files": [
+    "smash_0.mp3",
+    "smash_1.mp3",
+    "smash_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    5e-05,
+    0.0,
+    7e-05
+   ],
+   "seconds": [
+    1.9,
+    1.9,
+    1.9
+   ]
+  },
+  "launch": {
+   "files": [
+    "launch_0.mp3",
+    "launch_1.mp3",
+    "launch_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    5e-05,
+    0.0,
+    9e-05
+   ],
+   "seconds": [
+    1.9,
+    1.9,
+    1.9
+   ]
+  },
+  "hammer": {
+   "files": [
+    "hammer_0.mp3",
+    "hammer_1.mp3",
+    "hammer_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    0.0,
+    0.0,
+    7e-05
+   ],
+   "seconds": [
+    2.0,
+    2.0,
+    2.0
+   ]
+  },
+  "flip": {
+   "files": [
+    "flip_0.mp3",
+    "flip_1.mp3",
+    "flip_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    0.00048,
+    0.00045,
+    0.00048
+   ],
+   "seconds": [
+    0.8,
+    0.8,
+    0.8
+   ]
+  },
+  "saw": {
+   "files": [
+    "saw_0.mp3",
+    "saw_1.mp3",
+    "saw_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    2e-05,
+    0.0,
+    0.0
+   ],
+   "seconds": [
+    2.1,
+    2.1,
+    2.1
+   ]
+  },
+  "spikes": {
+   "files": [
+    "spikes_0.mp3",
+    "spikes_1.mp3",
+    "spikes_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    0.0,
+    0.0,
+    5e-05
+   ],
+   "seconds": [
+    1.4,
+    1.4,
+    1.4
+   ]
+  },
+  "bump": {
+   "files": [
+    "bump_0.mp3",
+    "bump_1.mp3",
+    "bump_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "kartlab"
+   ],
+   "onset": [
+    0.0,
+    0.00014,
+    0.00018
+   ],
+   "seconds": [
+    1.3,
+    1.3,
+    1.3
+   ]
+  },
+  "wall": {
+   "files": [
+    "wall_0.mp3",
+    "wall_1.mp3",
+    "wall_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "fightlab",
+    "kartlab"
+   ],
+   "onset": [
+    0.0,
+    0.0002,
+    0.0
+   ],
+   "seconds": [
+    1.8,
+    1.8,
+    1.8
+   ]
+  },
+  "pneumatic": {
+   "files": [
+    "pneumatic_0.mp3",
+    "pneumatic_1.mp3",
+    "pneumatic_2.mp3"
+   ],
+   "loop": false,
+   "volume": 0.8,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    0.0005,
+    0.00045,
+    0.00039
+   ],
+   "seconds": [
+    1.3,
+    1.3,
+    1.3
+   ]
+  },
+  "swing": {
+   "files": [
+    "swing_0.mp3",
+    "swing_1.mp3",
+    "swing_2.mp3"
+   ],
+   "loop": false,
+   "volume": 0.8,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    0.00084,
+    0.00077,
+    0.00077
+   ],
+   "seconds": [
+    0.5,
+    0.5,
+    0.5
+   ]
+  },
+  "spin": {
+   "files": [
+    "spin.mp3"
+   ],
+   "loop": true,
+   "volume": 0.7,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 2.25,
+   "pitch": {
+    "hz": 110,
+    "follows": "weapon rpm",
+    "min_rpm": 30,
+    "rate": [
+     0.3,
+     0.002631578947368421
+    ],
+    "volume": [
+     0.12,
+     0.0011111111111111111
+    ],
+    "volume_max": 0.7,
+    "rate_min": 0.2
+   }
+  },
+  "chainsaw": {
+   "files": [
+    "chainsaw.mp3"
+   ],
+   "loop": true,
+   "volume": 0.55,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 1.5
+  },
+  "flame": {
+   "files": [
+    "flame.mp3"
+   ],
+   "loop": true,
+   "volume": 0.6,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 2.25
+  },
+  "grind": {
+   "files": [
+    "grind.mp3"
+   ],
+   "loop": true,
+   "volume": 0.5,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 1.5
+  },
+  "motor": {
+   "files": [
+    "motor.mp3"
+   ],
+   "loop": true,
+   "volume": 0.25,
+   "channel": "motors",
+   "games": [
+    "robotlab",
+    "kartlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 1.5,
+   "pitch": {
+    "hz": 170,
+    "follows": "speed (Robot Lab: m/s; Kart Lab: the fraction of top speed)",
+    "robot": {
+     "rate": [
+      0.6,
+      0.125
+     ],
+     "volume_per_speed": 0.05,
+     "volume_driven": 0.04,
+     "volume_max": 0.25
+    },
+    "kart": {
+     "rate": [
+      0.55,
+      1.3
+     ],
+     "volume": [
+      0.18,
+      0.3
+     ],
+     "boost_rate": 0.25,
+     "boost_volume": 0.12
+    }
+   }
+  },
+  "arena": {
+   "files": [
+    "arena.mp3"
+   ],
+   "loop": true,
+   "volume": 0.6,
+   "channel": "arena",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 6.5
+  },
+  "crowd": {
+   "files": [
+    "crowd.mp3"
+   ],
+   "loop": true,
+   "volume": 0.7,
+   "channel": "crowd",
+   "games": [
+    "robotlab",
+    "fightlab",
+    "kartlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 14.699977
+  },
+  "ooh": {
+   "files": [
+    "ooh.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "crowd",
+   "games": [
+    "robotlab",
+    "fightlab"
+   ],
+   "onset": [
+    0.07018
+   ],
+   "seconds": [
+    3.4
+   ]
+  },
+  "cheer": {
+   "files": [
+    "cheer.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "crowd",
+   "games": [
+    "robotlab",
+    "fightlab",
+    "kartlab"
+   ],
+   "onset": [
+    0.09034
+   ],
+   "seconds": [
+    5.3
+   ]
+  },
+  "applause": {
+   "files": [
+    "applause.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "crowd",
+   "games": [
+    "robotlab",
+    "fightlab",
+    "kartlab"
+   ],
+   "onset": [
+    0.09268
+   ],
+   "seconds": [
+    7.5
+   ]
+  },
+  "beep": {
+   "files": [
+    "beep.mp3"
+   ],
+   "loop": false,
+   "volume": 0.6,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "kartlab"
+   ],
+   "onset": [
+    0.00025
+   ],
+   "seconds": [
+    0.18
+   ]
+  },
+  "go": {
+   "files": [
+    "go.mp3"
+   ],
+   "loop": false,
+   "volume": 0.8,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "kartlab"
+   ],
+   "onset": [
+    0.00043
+   ],
+   "seconds": [
+    0.6
+   ]
+  },
+  "horn": {
+   "files": [
+    "horn.mp3"
+   ],
+   "loop": false,
+   "volume": 0.9,
+   "channel": "effects",
+   "games": [
+    "kartlab"
+   ],
+   "onset": [
+    0.00102
+   ],
+   "seconds": [
+    1.4
+   ]
+  },
+  "chip": {
+   "files": [
+    "chip.mp3"
+   ],
+   "loop": true,
+   "volume": 0.6,
+   "channel": "music",
+   "games": [
+    "robotlab",
+    "fightlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 26.666667
+  },
+  "rock": {
+   "files": [
+    "rock.mp3"
+   ],
+   "loop": true,
+   "volume": 0.6,
+   "channel": "music",
+   "games": [
+    "robotlab",
+    "fightlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 30.0
+  },
+  "k_skid": {
+   "files": [
+    "k_skid.mp3"
+   ],
+   "loop": true,
+   "volume": 0.55,
+   "channel": "effects",
+   "games": [
+    "kartlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 1.5,
+   "pitch": {
+    "follows": "the fraction of top speed, while drifting above 6 m/s",
+    "min_speed": 6,
+    "rate": [
+     0.9,
+     0.3
+    ],
+    "volume": [
+     0.35,
+     0.2
+    ]
+   }
+  },
+  "k_boost": {
+   "files": [
+    "k_boost.mp3"
+   ],
+   "loop": false,
+   "volume": 0.8,
+   "channel": "effects",
+   "games": [
+    "kartlab"
+   ],
+   "onset": [
+    0.00011
+   ],
+   "seconds": [
+    1.1
+   ]
+  },
+  "f_punch": {
+   "files": [
+    "f_punch_0.mp3",
+    "f_punch_1.mp3",
+    "f_punch_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.0002,
+    0.00018,
+    7e-05
+   ],
+   "seconds": [
+    0.85,
+    0.85,
+    0.85
+   ]
+  },
+  "f_kick": {
+   "files": [
+    "f_kick_0.mp3",
+    "f_kick_1.mp3",
+    "f_kick_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00043,
+    0.00039,
+    0.00045
+   ],
+   "seconds": [
+    1.05,
+    1.05,
+    1.05
+   ]
+  },
+  "f_heavy": {
+   "files": [
+    "f_heavy_0.mp3",
+    "f_heavy_1.mp3",
+    "f_heavy_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00029,
+    0.00023,
+    0.00018
+   ],
+   "seconds": [
+    1.9,
+    1.9,
+    1.9
+   ]
+  },
+  "f_block": {
+   "files": [
+    "f_block_0.mp3",
+    "f_block_1.mp3",
+    "f_block_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.0,
+    2e-05,
+    0.0
+   ],
+   "seconds": [
+    0.7,
+    0.7,
+    0.7
+   ]
+  },
+  "f_whoosh": {
+   "files": [
+    "f_whoosh_0.mp3",
+    "f_whoosh_1.mp3",
+    "f_whoosh_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.02426,
+    0.02376,
+    0.02687
+   ],
+   "seconds": [
+    0.3,
+    0.3,
+    0.3
+   ]
+  },
+  "f_land": {
+   "files": [
+    "f_land_0.mp3",
+    "f_land_1.mp3",
+    "f_land_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00041,
+    0.0005,
+    0.00039
+   ],
+   "seconds": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  "f_metal": {
+   "files": [
+    "f_metal_0.mp3",
+    "f_metal_1.mp3",
+    "f_metal_2.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "seconds": [
+    1.4,
+    1.4,
+    1.4
+   ]
+  },
+  "f_jump": {
+   "files": [
+    "f_jump.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00023
+   ],
+   "seconds": [
+    0.25
+   ]
+  },
+  "f_blast_fire": {
+   "files": [
+    "f_blast_fire.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.05485
+   ],
+   "seconds": [
+    1.6
+   ]
+  },
+  "f_blast_hit": {
+   "files": [
+    "f_blast_hit.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00034
+   ],
+   "seconds": [
+    1.2
+   ]
+  },
+  "f_uppercut": {
+   "files": [
+    "f_uppercut.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.01098
+   ],
+   "seconds": [
+    0.45
+   ]
+  },
+  "f_spin": {
+   "files": [
+    "f_spin.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.01456
+   ],
+   "seconds": [
+    0.55
+   ]
+  },
+  "f_slam": {
+   "files": [
+    "f_slam.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00034
+   ],
+   "seconds": [
+    2.8
+   ]
+  },
+  "f_zap": {
+   "files": [
+    "f_zap.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00032
+   ],
+   "seconds": [
+    0.5
+   ]
+  },
+  "f_fire": {
+   "files": [
+    "f_fire.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00249
+   ],
+   "seconds": [
+    0.8
+   ]
+  },
+  "f_bell": {
+   "files": [
+    "f_bell.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.00027
+   ],
+   "seconds": [
+    1.8
+   ]
+  },
+  "f_ko": {
+   "files": [
+    "f_ko.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.0007
+   ],
+   "seconds": [
+    4.2
+   ]
+  },
+  "f_counter": {
+   "files": [
+    "f_counter.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    7e-05
+   ],
+   "seconds": [
+    1.0
+   ]
+  }
+ }
+}

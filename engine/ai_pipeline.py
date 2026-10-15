@@ -35,6 +35,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -59,6 +61,16 @@ HERE = DATA = CHANGES = MAKERS = None
 PROTECTED, SKIP_DIRS, TARGET_NAMES = set(), set(), {}
 CLAUDE = shlex.split(os.environ.get("CLAUDE_CMD", "claude"))  # CLAUDE_CMD lets tests use a stand-in
 NEEDS_GAME = "NEEDS THE WHOLE GAME"
+# One change with Claude at a time. Each change puts back whatever it touched outside its own files, judged against
+# the snapshot it took first, so two at once each undid the other's work (CHANGE 137). A second card waits its turn
+# (its snapshot is taken then), and Undo and the mod switches wait until Claude is done.
+RUN_LOCK = threading.Lock()
+BUSY = "Wait until Claude has finished the card it's working on"
+
+
+def busy():
+    """Is Claude at work on a change now (so the game's files mustn't be changed under it)?"""
+    return RUN_LOCK.locked()
 
 
 def setup(game):
@@ -220,8 +232,16 @@ class AIChange:
         self.user_mods = []  # the user mods this change added (known once it's kept)
         self.prompt, self.prompt_file = "", ""  # exactly what was sent to Claude, and the file it is kept in
         self.result = {}
+        self.waiting = False  # waiting for Claude to finish another card
+        self.started = None   # when Claude began on this one
 
     def run(self, progress=print, timeout=None):
+        self.waiting = True
+        with RUN_LOCK:  # (one at a time: see RUN_LOCK)
+            self.waiting, self.started = False, time.time()
+            return self._run(progress, timeout)
+
+    def _run(self, progress, timeout):
         self.before = snapshot_files()  # before the robot file is made, so Undo removes a new one
         stub = None
         if self.target == G.design_target:
@@ -290,6 +310,8 @@ class AIChange:
 
     def undo(self):
         """Put the changed files back exactly as they were before Claude ran."""
+        if busy():  # (Claude is at work on another card: its snapshot would take this undo for its own change)
+            raise RuntimeError(BUSY + ", then press Undo.")
         for f in self.changed:
             restore(f, self.before)
 
@@ -466,6 +488,8 @@ def merge3(current, base, other):
 
 def _switch(n, to):
     """Switch a mod off (to = "before") or on (to = "after"), changing only the mod's own lines."""
+    if busy():
+        return {"ok": False, "message": f"{BUSY}, then switch mod {n} {'off' if to == 'before' else 'on'}."}
     log = history()
     e = next((e for e in log if e["n"] == n), None)
     if e is None:

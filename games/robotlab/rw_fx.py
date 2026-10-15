@@ -36,10 +36,11 @@ class Effects:
         self.spark_root.setAttrib(ColorBlendAttrib.make(ColorBlendAttrib.M_add))
         self.spark_root.setDepthWrite(False)
         self.spark_root.setBin("fixed", 30)
-        spark_geom = bevel_box(0.012, 0.09, 0.012, 0.0).node()
+        spark_geom = bevel_box(0.012, 0.09, 0.012, 0.0)
         self.sparks = []
         for _ in range(n_sparks):
-            np_ = self.spark_root.attachNewNode(spark_geom)
+            # a node each (sharing the vertices): attaching the one node 400 times gave them all one position and one hide
+            np_ = self.spark_root.attachNewNode(spark_geom.node("spark"))
             np_.hide()
             self.sparks.append([np_, Vec3(0), 0.0, 0.0])  # node, velocity, life, max life
         # smoke: soft grey puffs that rise and fade

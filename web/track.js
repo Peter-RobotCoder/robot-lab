@@ -1,6 +1,10 @@
 // A race track as data (kart/kart_track.py, ported line for line): a smooth closed centre line through a few
 // points, a width, dash pads and oil placed by distance along (s) and across (lateral, positive to the left).
 // The browser asks it the same questions the window does: where is s, where on the track is (x, y), how high.
+// Its numbers are Python's to the last bit (math.hypot, % and degrees done as Python does them: pymath.js), because
+// the browser's prediction (kart_sim.js) steps a kart on it and must land where the server's step does.
+
+import {hypot, pyMod, degrees} from "./pymath.js";
 
 export const GATES = 8;
 
@@ -29,8 +33,8 @@ export const TRACKS = {
 export const BOOST_RADIUS = 2.6;
 export const OIL_RADIUS = 2.2;
 
-function dist2d(a, b) {
-    return Math.hypot(a[0] - b[0], a[1] - b[1]);
+function dist2d(a, b) {  // (math.dist)
+    return hypot(a[0] - b[0], a[1] - b[1]);
 }
 
 export function catmullRom(points, step = 1.2) {
@@ -67,7 +71,7 @@ export class Track {
         for (let i = 0; i < n; i++) {
             const a = this.pts[i], b = this.pts[(i + 1) % n];
             const dx = b[0] - a[0], dy = b[1] - a[1];
-            const length = Math.hypot(dx, dy) || 1e-6;
+            const length = hypot(dx, dy) || 1e-6;
             this.segLen.push(length);
             this.tan.push([dx / length, dy / length]);
             this.s.push(total);
@@ -80,9 +84,8 @@ export class Track {
         this.oil = (data.oil || []).map(([s, lat]) => [Number(s), Number(lat)]);
     }
 
-    wrap(s) {
-        s = s % this.length;
-        return s < 0 ? s + this.length : s;
+    wrap(s) {  // (Python's s % length)
+        return pyMod(s, this.length);
     }
 
     segmentAt(s) {
@@ -107,7 +110,7 @@ export class Track {
 
     heading(s) {
         const [tx, ty] = this.tan[this.segmentAt(s)];
-        return Math.atan2(ty, tx) * 180 / Math.PI;
+        return degrees(Math.atan2(ty, tx));
     }
 
     height(s) {
@@ -141,6 +144,15 @@ export class Track {
 
     gateZone(s) {
         return Math.min(GATES - 1, Math.floor(this.wrap(s) / (this.length / GATES)));
+    }
+
+    // is (s, lateral) within radius of one of these [s, lateral] features (the dash pads, the oil)?
+    near(features, s, lateral, radius) {
+        for (const [fs, fl] of features) {
+            const ds = pyMod(s - fs + this.length / 2, this.length) - this.length / 2;
+            if (Math.abs(ds) < radius && Math.abs(lateral - fl) < radius) return true;
+        }
+        return false;
     }
 
     grid(place) {

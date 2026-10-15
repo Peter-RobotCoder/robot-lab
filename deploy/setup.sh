@@ -158,6 +158,9 @@ fi
 [ -f "$APP/games/robotlab/lab_server.py" ] || fail "games/robotlab/lab_server.py isn't in $REPO: is that the right repository?"
 # approved AI changes to the arenas, stages and rules are saved in each game's mods/ folder
 for m in "$APP"/games/*/mods; do chown -R robotlab:robotlab "$m"; done
+# Fight Lab's fighters for the browser window: a .bin.gz beside each model's .bin, which Caddy sends in its place
+# (7.6 MB as about 5.2 MB, compressed once here rather than for every learner)
+for b in "$APP"/games/fightlab/models/*.bin; do [ -e "$b" ] && gzip -k -f -9 "$b"; done
 
 say "Python packages for the server"
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"

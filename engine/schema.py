@@ -86,6 +86,25 @@ def comment(key, **words):
     return ["# " + line for line in textwrap.wrap(COMMENTS[key].format(**words), 60)]
 
 
+def quote(text):
+    r"""A string as json.dumps writes it (ASCII only), but a character beyond the first 65536 (an emoji) as one
+    \UXXXXXXXX escape, not json's two surrogates, which Python reads back as two characters: the name would always
+    look changed after APPLY CODE, and an emoji would count twice against its length."""
+    return '"' + "".join("\\U%08x" % ord(c) if ord(c) > 0xFFFF else json.dumps(c)[1:-1] for c in text) + '"'
+
+
+def dumps(value):
+    """json.dumps(value), its strings written by quote()."""
+    if isinstance(value, str):
+        return quote(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(dumps(x) for x in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{quote(k if isinstance(k, str) else json.dumps(k))}: {dumps(x)}"
+                               for k, x in value.items()) + "}"
+    return json.dumps(value)
+
+
 def code_lines(schema, design, ctx):
     """The design as Python: one typed variable a line, with a sentence above it saying what the line does, in the
     HUD's groups. ctx.title: "MY ROBOT"; ctx.points_total: the points to share (None: no points line)."""
@@ -111,7 +130,7 @@ def code_lines(schema, design, ctx):
             value = v.get(design)
             if value is None and v.optional:
                 continue
-            text = json.dumps(str(value))
+            text = dumps(str(value))
             lines.extend(comment("str", name=v.name, value=text, note=v.note) if v.note else
                          comment("str_plain", name=v.name, value=text))
             lines.append(f"{v.name}: str = {text}")
@@ -129,20 +148,20 @@ def code_lines(schema, design, ctx):
             elif v.kind == "choice":
                 options = list(v.options(ctx)) if v.options else []
                 lines.extend(comment("options", list=v.list_name, note=v.list_note or "the choices"))
-                lines.append(f"{v.list_name}: list = {json.dumps(options)}")
+                lines.append(f"{v.list_name}: list = {dumps(options)}")
                 if value in options:
                     i = options.index(value)
-                    lines.extend(comment("choice", i=i, item=json.dumps(value), list=v.list_name, name=v.name))
+                    lines.extend(comment("choice", i=i, item=dumps(value), list=v.list_name, name=v.name))
                     lines.append(f"{v.name}: str = {v.list_name}[{i}]")
                 else:
-                    lines.extend(comment("choice_other", name=v.name, value=json.dumps(str(value))))
-                    lines.append(f"{v.name}: str = {json.dumps(str(value))}")
+                    lines.extend(comment("choice_other", name=v.name, value=dumps(str(value))))
+                    lines.append(f"{v.name}: str = {dumps(str(value))}")
             elif v.kind == "words":
                 lines.extend(comment("list", name=v.name, note=v.note) if v.note else comment("list_plain", name=v.name))
-                lines.append(f"{v.name}: list = {json.dumps(list(value or []))}")
+                lines.append(f"{v.name}: list = {dumps(list(value or []))}")
             else:
                 lines.extend(comment("list", name=v.name, note=v.note) if v.note else comment("list_plain", name=v.name))
-                lines.append(f"{v.name}: list = {json.dumps(value)}")
+                lines.append(f"{v.name}: list = {dumps(value)}")
     while lines and lines[-1] == "":
         lines.pop()
     return lines

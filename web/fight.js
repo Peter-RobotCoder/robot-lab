@@ -2,13 +2,19 @@
 // fight_gfx.StageVisual), the hazards from each snapshot (fire jets, spikes, ice, ropes or an open edge), the
 // fighters built from their designs on a 13-joint skeleton and posed by the game's own pose code (fight_gfx.py's
 // stance, attacks, falls, ported line for line below), the 30-a-second JSON states blended two behind, and the
-// teacher's Fight Lab controls. The skinned models (woman, man, Robin) are drawn as the primitive human or robot in
-// their colours, with their weapon, until the page loads the models themselves.
+// teacher's Fight Lab controls. The skinned models (woman, man, Robin) are the app's own (fightmodels.js, on the lit
+// tiers); until a fighter's model is loaded, and on blocks, it is drawn as the primitive human or robot in its
+// colours, with its weapon. The effects and the camera are the window's (fightfx.js: fight_fx.py, the stage's jets,
+// blasts and glowing ropes and edges from fight_gfx.StageVisual, and fight_camera.py's five views).
 // Panda joint angles (h, p, r) are Babylon rotation (-p, -h, -r); positions game (x, y, z) -> Babylon (x, z, y).
 
 /* global BABYLON */
 
 import {BaseScene, v3, rgb255, lerp, lerpDeg, mulberry} from "./base3d.js";
+import {FighterModel} from "./fightmodels.js";
+import {FightFX, FightCamera, CAM_MODES, CAM_NAMES} from "./fightfx.js";
+import {FightHud} from "./hud.js";
+import {Sound} from "./sound.js";
 
 const $ = id => document.getElementById(id);
 const D2R = Math.PI / 180;
@@ -249,12 +255,15 @@ export class FightScene extends BaseScene {
         this.setup = {rings: [0], rs: 4.5, hazards: {}, look: {}};
         this.fighters = new Map();
         this.list = [];
-        this.mode = "fight";
+        this.cam = new FightCamera("fight");  // (fight_camera.FightCamera: the five views, each with its zoom)
+        this.myId = null;                     // (your fighter: the one the camera's own views follow)
         this.ringMeshes = new Map();
-        this.blasts = [];
-        this.sparks = [];
+        this.stageT = 0;                      // (the stage's clock: the jets' puffs, the ropes' and edges' pulses)
+        this.zapUntil = {};
         this.build();
     }
+
+    get mode() { return this.cam.mode; }
 
     static spots(rings) {  // fight_gfx.build_lights: one over each ring in use (at most 6)
         return (rings || [0]).slice(0, 6).map(i => {
@@ -265,6 +274,17 @@ export class FightScene extends BaseScene {
 
     populate() {
         this.buildStage();
+        this.fx = new FightFX(this);
+        // the camera is placed by the window's views every frame (drags, the wheel and keys are FightGame's), so it
+        // takes no input of its own and may go anywhere they put it
+        const cam = this.camera;
+        cam.detachControl();
+        cam.lowerRadiusLimit = 0.01;
+        cam.upperRadiusLimit = 1000;
+        cam.lowerBetaLimit = 0.001;
+        cam.upperBetaLimit = Math.PI - 0.001;
+        cam.maxZ = 300;
+        this.cam.pos = null;
         const list = this.list;
         this.fighters.clear();
         for (const f of list) this.addFighter(f);
@@ -292,6 +312,7 @@ export class FightScene extends BaseScene {
         const hazard = blocks ? M("hazard", [0.95, 0.75, 0.08], 1, 0) : M("hazard", [1, 1, 1], 1, 0, "hazard", 0.8);
         this.jets = new Map();
         this.ropes = [];
+        this.glows = new Map();  // ring -> {ropes, edge}: the materials that pulse (fight_gfx.StageVisual.update)
         for (const i of rings || [0]) {
             const [cx, cy] = RING_CENTRES[i] || [0, 0];
             const platR = roped ? R + 0.7 : R + 0.1;
@@ -304,7 +325,7 @@ export class FightScene extends BaseScene {
                 d.rotation.y = -(a + Math.PI / 2);
             }
             for (const sx of [-1.6, 1.6]) S(this.box(null, 0.05, 0.45, 0.003, marks, cx + sx, cy, 0.004));
-            this.floorText(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, cx, cy - 0.25, 0.008, 3.4, "#f2bf1a");
+            this.floorText(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, cx, cy - 0.25, 0.008, 4.8, "#e8d49a", 0.8);
             if (roped) {
                 const postR = (R + 0.08) / Math.cos(22.5 * D2R);
                 const posts = [];
@@ -314,7 +335,8 @@ export class FightScene extends BaseScene {
                     S(this.cyl(null, 0.08, 0.7, "z", M("post", [0.75, 0.75, 0.8], 1, 1, "steel", 0.8), px, py, 0.7, null, 12));
                     S(this.box(null, 0.12, 0.12, 0.45, M("pad" + (i % 3), PAD_COLOURS[i % 3], 0.6, 0.2, "paint"), px, py, 0.85));
                 }
-                const ropeMat = hz.electric_ropes ? M("eropes", [0.5, 0.8, 1.0], 0.5, 0, null, null, [0.4, 1.2, 3.0]) : M("ropes", [0.85, 0.12, 0.1], 0.5, 0);
+                const ropeMat = hz.electric_ropes ? M("eropes" + i, [0.5, 0.8, 1.0], 0.5, 0, null, null, [0.4, 1.2, 3.0]) : M("ropes", [0.85, 0.12, 0.1], 0.5, 0);
+                if (hz.electric_ropes) this.glows.set(i, {ropes: ropeMat});
                 for (const z of [0.45, 0.85, 1.25]) for (let k = 0; k < 8; k++) {
                     const [ax, ay] = posts[k], [bx, by] = posts[(k + 1) % 8];
                     const rope = BABYLON.MeshBuilder.CreateTube("rope", {path: [v3(ax, ay, z), v3(bx, by, z)], radius: 0.035, tessellation: 8}, this.scene);
@@ -323,20 +345,17 @@ export class FightScene extends BaseScene {
                 }
             } else {
                 const band = BABYLON.MeshBuilder.CreateTorus("edge", {diameter: R * 2, thickness: 0.09, tessellation: 64}, this.scene);
-                band.material = M("edge", [0, 0, 0], 1, 0, null, null, EDGE_GLOW);
+                band.material = M("edge" + i, [0, 0, 0], 1, 0, null, null, EDGE_GLOW);
                 band.scaling.y = 0.1;
                 band.position = v3(cx, cy, 0.006);
+                this.glows.set(i, {edge: band.material});
             }
-            if (hz.fire_jets) {
+            if (hz.fire_jets) {  // the striped plates and nozzles; the flames are soft puffs rising up each jet (fightfx.js)
                 const jets = JET_ANGLES.map(a => {
                     const x = cx + Math.cos(a * D2R) * 0.55 * R, y = cy + Math.sin(a * D2R) * 0.55 * R;
                     S(this.cyl(null, 0.32, 0.01, "z", hazard, x, y, 0.005, null, 20));
                     S(this.cyl(null, 0.16, 0.02, "z", M("nozzle", [0.15, 0.15, 0.16], 1, 1, "steel"), x, y, 0.01, null, 16));
-                    const flame = BABYLON.MeshBuilder.CreateCylinder("jet", {height: 1, diameterBottom: 0.5, diameterTop: 0.05, tessellation: 10}, this.scene);
-                    flame.material = this.glass("fire", [1, 0.55, 0.12], 0.75, 3);
-                    flame.position = v3(x, y, 0.5);
-                    flame.isVisible = false;
-                    return flame;
+                    return [x, y];
                 });
                 this.jets.set(i, jets);
             }
@@ -351,6 +370,8 @@ export class FightScene extends BaseScene {
             if (hz.slippery) {
                 S(this.cyl(null, 0.45 * R, 0.006, "z", M("ice", [0.55, 0.75, 0.92], 0.06, 0.3), cx, cy, 0.002, null, 48));
                 S(this.cyl(null, 0.45 * R + 0.05, 0.004, "z", M("iceedge", [0.85, 0.95, 1.0], 0.3, 0), cx, cy, 0, null, 48));
+                const shine = M("iceshine", [1, 1, 1], 0.02, 0, null, null, [0.6, 0.8, 1.0]);  // (glowing streaks across the ice)
+                for (let k = 0; k < 6; k++) S(this.box(null, 0.3 * R, 0.012, 0.002, shine, cx + Math.cos(k * 1.05) * 0.12 * R, cy + Math.sin(k * 1.05) * 0.15 * R, 0.01));
             }
         }
         this.mergeStatic(statics);
@@ -401,7 +422,7 @@ export class FightScene extends BaseScene {
             S(this.box(null, 6.2, 0.05, 1.75, M("screenglow", [0, 0, 0], 1, 0, null, null, [0.05, 0.02, 0.12]), cx, y + 0.3 * back, 6.0));
             const name = this.floorText(look.name || "FIGHT LAB", cx, y + 0.4 * back, 5.95, 9, "#ff8a3d");
             name.rotation.x = 0;
-            name.rotation.y = back > 0 ? 0 : Math.PI;
+            name.rotation.y = back < 0 ? 0 : Math.PI;  // (each screen's words face the rings)
         }
         // the lighting truss over the rings
         const truss = [], trussM = M("truss", [0.2, 0.2, 0.22], 1, 1, "steel"), lampM = M("lamp", [1, 1, 1], 0.3, 0, null, null, [6, 5.5, 5]);
@@ -423,7 +444,7 @@ export class FightScene extends BaseScene {
 
     // ---------- the fighters ----------
     setFighters(list) {
-        for (const f of this.fighters.values()) { f.label.dispose(false, true); f.root.dispose(); }
+        for (const f of this.fighters.values()) { f.label.dispose(false, true); f.root.dispose(); if (f.model) f.model.dispose(); }
         this.fighters.clear();
         this.list = list;
         for (const f of list) this.addFighter(f);
@@ -545,6 +566,7 @@ export class FightScene extends BaseScene {
         const label = this.makeLabel(`${d.name || ""}\n${computer && boss ? "Boss" : info.owner || ""}`, computer ? "#ffbf4d" : "#ffffff", 0.9);
         const f = {root, body, n, size, design: d, label, glows, cur: stance(), pos: null, h: 0, wheel: null, owner: info.owner, ring: info.ring, robot, main: M.main};
         this.applyPose(f, f.cur);
+        if (FighterModel.wanted(this, d)) f.model = new FighterModel(this, f, d, info.id);  // (the app's own model, once loaded)
         this.fighters.set(info.id, f);
         return f;
     }
@@ -558,22 +580,24 @@ export class FightScene extends BaseScene {
         }
     }
 
-    // fs: [{id, pos, h, a, k, hu, ...}] for the drawn rings; dt seconds
+    // fs: [{id, pos, h, a, k, hu, ri (its ring), ...}] for the drawn rings; dt seconds
     frame(fs, rings, dt, t) {
         const seen = new Set();
+        const closeUp = ["fight", "me", "shoulder"].includes(this.cam.mode), watched = this.watchRing ?? 0;
         for (const s of fs) {
             const f = this.fighters.get(s.id);
             if (!f) continue;
             seen.add(s.id);
             const hide = s.pos[2] < -1.5;
             f.root.setEnabled(!hide);
-            f.label.setEnabled(!hide);
-            if (hide) continue;
+            f.label.setEnabled(!hide && !(closeUp && s.ri === watched));  // (the fight screen shows their names)
+            if (hide) { if (f.model) f.model.show(false); continue; }
             const target = s.pos;
             if (!f.pos || Math.hypot(target[0] - f.pos[0], target[1] - f.pos[1], target[2] - f.pos[2]) > 2.5) f.pos = [...target];
             else f.pos = f.pos.map((v, i) => v + (target[i] - v) * Math.min(1, dt * 20));
             const dh = ((s.h - f.h + 180) % 360 + 360) % 360 - 180;
             f.h += Math.abs(dh) > 60 ? dh : dh * Math.min(1, dt * 22);
+            if (f.model) f.model.frame(s, dt);
             const want = animPose(s.a || "idle", s.k || 0);
             f.cur = blend(f.cur, want, 1 - Math.exp(-dt * (MOVES.has(s.a) ? 40 : 18)));
             this.applyPose(f, f.cur);
@@ -595,78 +619,92 @@ export class FightScene extends BaseScene {
                 f.flashing = flash;
                 f.root.getChildMeshes(false).forEach(m => { if (m.material === f.main || m.material === f.flashMat) m.material = flash ? (f.flashMat = f.flashMat || this.material("flash", [1, 0.95, 0.9], 0.5, 0, 0.8)) : f.main; });
             }
-            f.label.position = v3(f.pos[0], f.pos[1], f.pos[2] + 2.05 * f.size + 0.1);
+            f.label.position = v3(f.pos[0], f.pos[1], f.pos[2] + 2.05 * f.size + (f.labelLift ?? 0.1));
         }
-        for (const [id, f] of this.fighters) if (!seen.has(id)) { f.root.setEnabled(false); f.label.setEnabled(false); }
-        for (const r of rings) {
-            const jets = this.jets.get(r.i);
-            if (jets && r.hz && r.hz.jets) r.hz.jets.forEach((power, k) => {
-                const fl = jets[k];
-                if (!fl) return;
-                fl.isVisible = power > 0.05;
-                const hgt = 0.4 + 1.5 * power;
-                fl.scaling.set(0.6 + 0.6 * power, hgt * (0.9 + 0.1 * Math.sin(t * 25 + k)), 0.6 + 0.6 * power);
-                fl.position.y = 0.03 + hgt / 2;
-            });
+        for (const [id, f] of this.fighters) if (!seen.has(id)) { f.root.setEnabled(false); f.label.setEnabled(false); if (f.model) f.model.show(false); }
+        // the camera first (the effects that face it face it where it is drawn), then the stage's moving parts and
+        // the effects (fight_gfx.StageVisual.update, fight_fx.Effects.update)
+        this.updateCamera(fs, rings, dt);
+        this.stageT += dt;
+        const T = this.stageT, fx = this.fx;
+        fx.begin();
+        const byIndex = new Map(rings.map(r => [r.i, r]));
+        for (const [i, jets] of this.jets) {
+            const powers = ((byIndex.get(i) || {}).hz || {}).jets || [];
+            jets.forEach(([x, y], k) => { if ((powers[k] || 0) > 0.05) fx.jet(x, y, powers[k], T); });
         }
-        for (const b of this.blasts) b.dispose();
-        this.blasts = rings.flatMap(r => (r.sh || []).map(([x, y, z]) => this.sphere(null, 0.2, this.material("blast", [0.4, 0.9, 1], 0.5, 0, 2), x, y, z)));
-        for (const sp of this.sparks) {
-            sp.life -= dt;
-            sp.mesh.scaling.setAll(1 + (0.3 - sp.life) * 6);
-            sp.mesh.visibility = Math.max(0, sp.life / 0.3);
-            if (sp.life <= 0) sp.mesh.dispose();
+        for (const [i, g] of this.glows) {
+            if (g.ropes) {  // electric ropes: a steady blue pulse, a white-blue flicker for a moment after a zap
+                if ((this.zapUntil[i] ?? -1) > T) {
+                    const f = Math.floor(T * 30) % 2 ? 6 : 2;
+                    this.setGlow(g.ropes, [f * 0.6, f * 0.9, f * 1.6]);
+                } else {
+                    const pulse = 0.8 + 0.4 * Math.sin(T * 6 + i);
+                    this.setGlow(g.ropes, [0.3 * pulse, 0.9 * pulse, 2.6 * pulse]);
+                }
+            }
+            if (g.edge) {  // an open edge's glowing line breathes
+                const pulse = 0.75 + 0.25 * Math.sin(T * 3 + i);
+                this.setGlow(g.edge, EDGE_GLOW.map(c => c * pulse));
+            }
         }
-        this.sparks = this.sparks.filter(sp => sp.life > 0);
-        this.updateCamera(fs, dt);
+        let shots = 0;
+        for (const r of rings) for (const sh of r.sh || []) if (shots++ < 12) fx.shot(sh, T);
+        fx.update(dt);
         this.followSun();
     }
 
-    spark(pos, dmg, kind) {
-        if (this.sparks.length > 30 || kind === "land") return;
-        const colour = {special: [0.6, 0.85, 1], counter: [1, 0.85, 0.2], block: [0.6, 0.8, 1], zap: [0.4, 0.7, 1], fire: [1, 0.5, 0.1]}[kind] || [1, 0.92, 0.7];
-        const m = this.sphere(null, Math.min(0.3, 0.07 + dmg * 0.015), this.material("fspark" + kind, colour, 0.5, 0, 2), pos[0], pos[1], pos[2], 1, 1, 1, 6);
-        this.sparks.push({mesh: m, life: 0.3});
+    // the hits (m.fx: [pos, damage, kind]) as the window takes them: the victim is the fighter nearest the hit (its
+    // colour for the debris; a robot throws more sparks); a zap flashes that ring's electric ropes
+    impacts(list, rings) {
+        if (!this.fx || !list || !list.length) return;
+        const all = (rings || []).flatMap(r => r.f || []);
+        for (const [pos, dmg, kind] of list) {
+            let best = null, far = Infinity;
+            for (const f of all) {
+                const d = (f.pos[0] - pos[0]) ** 2 + (f.pos[1] - pos[1]) ** 2 + (f.pos[2] - pos[2]) ** 2;
+                if (d < far) { far = d; best = f; }
+            }
+            const v = best ? this.fighters.get(best.id) : null, d = v ? v.design || {} : {};
+            const colour = v && Array.isArray(d.colour) ? rgb255(d.colour) : [0.8, 0.8, 0.8];
+            this.fx.impact(pos, dmg, kind, colour, (d.body || "robot") === "robot");
+            if (kind === "zap") this.zap(pos);
+        }
     }
 
-    updateCamera(fs, dt) {
-        const cam = this.camera, ring = this.watchRing ?? 0;
-        for (const m of this.rig || []) m.isVisible = cam.position.y < 8.0;  // (looking down past the truss: hidden)
-        const [cx, cy] = RING_CENTRES[ring] || [0, 0];
-        const here = fs.filter(s => this.fighters.has(s.id) && this.fighters.get(s.id).ring === ring && s.pos[2] > -1.5);
-        let target, radius, beta;
-        if (this.mode === "fight" && here.length >= 1) {
-            const xs = here.map(s => s.pos[0]), ys = here.map(s => s.pos[1]);
-            const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
-            const gap = here.length > 1 ? Math.hypot(xs[1] - xs[0], ys[1] - ys[0]) : 1;
-            target = v3(mx, my, 1.0);
-            radius = 4.3 + 0.8 * gap;
-            beta = 1.25;
-            if (here.length > 1) {  // side-on to the line between them, staying on the side the camera is on
-                const ax = xs[1] - xs[0], ay = ys[1] - ys[0];
-                let want = Math.atan2(ax, -ay);  // (the camera off to the side of the line: Babylon alpha is measured in the game's x-y)
-                const alt = want + Math.PI;
-                const d1 = Math.abs(((want - cam.alpha + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
-                const d2 = Math.abs(((alt - cam.alpha + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
-                if (d2 < d1) want = alt;
-                cam.alpha = this.snapCamera ? want : cam.alpha + (((want - cam.alpha + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI) * Math.min(1, dt * 3);
-            }
-        } else if (this.mode === "ring" || this.mode === "fight") {
-            target = v3(cx, cy, 0.5); radius = 12; beta = 0.9;
-        } else {
-            const used = this.setup.rings || [0];
-            const xs = used.map(i => (RING_CENTRES[i] || [0, 0])[0]), ys = used.map(i => (RING_CENTRES[i] || [0, 0])[1]);
-            const span = Math.max(...xs) - Math.min(...xs) + Math.max(...ys) - Math.min(...ys) + 10;
-            target = v3((Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2, 0);
-            radius = span * 1.05; beta = 0.85;
+    zap(pos) {  // (fight_gfx.StageVisual.zap: the nearest ring's electric ropes flash)
+        let best = null, far = Infinity;
+        for (const i of this.setup.rings || [0]) {
+            const [cx, cy] = RING_CENTRES[i] || [0, 0], d = Math.hypot(pos[0] - cx, pos[1] - cy);
+            if (d < far) { far = d; best = i; }
         }
-        if (this.snapCamera) { cam.target = target; cam.radius = radius; cam.beta = beta; this.snapCamera = false; return; }
-        cam.target = BABYLON.Vector3.Lerp(cam.target, target, Math.min(1, dt * 5));
-        if (!this.userZoom) { cam.radius = lerp(cam.radius, radius, Math.min(1, dt * 3)); cam.beta = lerp(cam.beta, beta, Math.min(1, dt * 3)); }
+        if (best !== null) this.zapUntil[best] = this.stageT + 0.35;
+    }
+
+    // the window's camera (fight_camera.FightCamera.update, fightfx.js), on the watched ring: your fighter (or the
+    // first in the ring) and the other one, then the shake from big hits (half of fight_fx's, as fight_client passes
+    // it): the camera moves, what it looks at doesn't
+    updateCamera(fs, rings, dt) {
+        const cam = this.camera, watched = this.watchRing ?? 0;
+        if (this.snapCamera) { this.cam.pos = null; this.snapCamera = false; }
+        const ring = rings.find(r => r.i === watched) || null;
+        const here = fs.filter(s => s.ri === watched && (s.a !== "ringout" || s.pos[2] > -1.5));
+        const first = here.find(s => s.id === this.myId) || here[0] || null, other = here.find(s => s !== first) || null;
+        const centreOf = r => r.c || RING_CENTRES[r.i] || [0, 0];
+        const v = this.cam.update(dt, first ? first.pos.slice() : null, other ? other.pos.slice() : null,
+                                  ring ? centreOf(ring) : [0, 0], rings.map(centreOf));
+        const rig = ["fight", "me", "shoulder"].includes(v.mode);  // (the high views look down past the lighting rig: hidden)
+        for (const m of this.rig || []) m.isVisible = rig;
+        const off = this.fx ? this.fx.shakeOffset() : null;
+        cam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;  // (Panda's lens: the fov is across)
+        cam.fov = v.fov * D2R;
+        cam.minZ = 0.1;
+        cam.setTarget(v3(...v.look));
+        cam.setPosition(v3(v.pos[0] + (off ? off[0] : 0), v.pos[1] + (off ? off[1] : 0), v.pos[2] + (off ? off[2] : 0)));
     }
 
     setMode(mode) {
-        this.mode = mode;
+        this.cam.setMode(mode);
         this.snapCamera = true;
     }
 }
@@ -685,12 +723,104 @@ export class FightGame {
         this.last = null;
         this.events = new Set();
         this.pickA = this.pickB = "";
+        this.controlKind = "fight";  // (play.js: the arrows move, A S D W Space F the moves, Shift blocks, X crouches)
+        this.hud = new FightHud();
+        this.hookCamera();
+    }
+
+    // the window's camera controls: dragging swings the view round and tilts it, the wheel (or + and -) zooms the
+    // view in use, Q and E swing it round, Home puts it back, O shows every ring, [ and ] watch another ring
+    hookCamera() {
+        const canvas = this.app.canvas, cam = () => this.scene.cam;
+        this.listeners = [
+            [canvas, "wheel", e => { cam().wheel(e.deltaY > 0 ? 1 / 0.88 : 0.88); this.keepCamera(); }, {passive: true}],
+            [canvas, "pointerdown", e => { this.dragFrom = [e.clientX, e.clientY]; try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } }],
+            [canvas, "pointermove", e => {
+                if (!this.dragFrom) return;
+                cam().drag((e.clientX - this.dragFrom[0]) / Math.max(1, canvas.clientWidth), (e.clientY - this.dragFrom[1]) / Math.max(1, canvas.clientHeight));
+                this.dragFrom = [e.clientX, e.clientY];
+            }],
+            [canvas, "pointerup", () => { if (this.dragFrom) { this.dragFrom = null; this.keepCamera(); } }],
+            [canvas, "pointercancel", () => { this.dragFrom = null; }],
+            [canvas, "contextmenu", e => e.preventDefault()],  // (the window drags with the right button)
+            [window, "keydown", e => {
+                const a = document.activeElement;
+                if (e.ctrlKey || e.metaKey || e.altKey || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) || !this.app.state.connected) return;
+                const k = e.key.length === 1 ? e.key.toLowerCase() : e.key, c = cam();
+                if (k === "q") c.turn(e.repeat ? 6 : 20);
+                else if (k === "e") c.turn(e.repeat ? -6 : -20);
+                else if (k === "Home") c.resetView();
+                else if (k === "o") { this.scene.setMode("all"); this.app.updatePills(); }
+                else if (k === "=" || k === "+") c.wheel(e.repeat ? 0.9 : 0.8);
+                else if (k === "-") c.wheel(e.repeat ? 1.11 : 1.25);
+                else if (k === "[" || k === "]") this.watchRing(k === "[" ? -1 : 1);
+                else return;
+                this.keepCamera();
+            }],
+        ];
+        for (const [el, ev, fn, opts] of this.listeners) el.addEventListener(ev, fn, opts);
+    }
+
+    // a learner's camera kept in their profile, as the window keeps it (fight_camera.settings)
+    keepCamera() {
+        if (this.app.state.role === "learner" && this.app.keepPrefs) this.app.keepPrefs({camera: this.scene.cam.settings()});
+    }
+
+    // [ and ]: watch the next ring (fight_client.watch_ring); the view of every ring goes back to the fight
+    watchRing(delta) {
+        const rings = ((this.last || {}).rings || []).map(r => r.i);
+        if (!rings.length) return;
+        const cur = rings.indexOf(this.watched()), next = rings[((cur < 0 ? 0 : cur) + delta + rings.length) % rings.length];
+        const r = this.roster, id = this.myId(), mine = r && id !== null ? ((r.fighters || []).find(x => x.id === id) || {}).ring : undefined;
+        this.watch = next === mine ? null : next;
+        this.scene.setMode(this.scene.mode !== "all" ? this.scene.mode : "fight");
+        this.renderBoard();
+        if (this.app.toast) this.app.toast(`Watching ring ${next + 1}${next === mine ? "  (yours)" : ""}`);
+        this.app.updatePills();
     }
 
     welcome(m) {
         const p = this.app.params;
         if (p.get("cam")) this.scene.setMode({tv: "fight", chase: "fight", overview: "all"}[p.get("cam")] || p.get("cam"));
+        else if ((m.prefs || {}).camera) this.scene.cam.restore(m.prefs.camera);  // (the view kept in their profile)
     }
+
+    myId() {
+        const S = this.app.state, r = this.roster;
+        const id = r && r.mine ? r.mine[S.name] : null;
+        return id === undefined ? null : id;
+    }
+
+    // the arrows as (forward, side) for your fighter, as fight_client.stick does: the camera decides which way is
+    // which, so right always moves right on the screen; forward is towards your opponent
+    stick(sx, sy) {
+        const id = this.myId(), m = this.last;
+        const ring = m ? (m.rings || []).find(r => (r.f || []).some(x => x.id === id)) : null;
+        const mine = ring ? ring.f.find(x => x.id === id) : null;
+        if (!mine) return [0, 0];
+        const other = ring.f.find(x => x.id !== id);
+        const cam = this.scene.camera;
+        const r = cam.getDirection(BABYLON.Axis.X), a = cam.getDirection(BABYLON.Axis.Z);
+        let right = [r.x, r.z], ahead = [a.x, a.z];  // (Babylon's x and z are the game's x and y)
+        const norm = v => { const l = Math.hypot(v[0], v[1]); return l < 1e-3 ? null : [v[0] / l, v[1] / l]; };
+        right = norm(right); ahead = norm(ahead);
+        if (!right || !ahead) return [sy, -sx];
+        const want = [right[0] * sx + ahead[0] * sy, right[1] * sx + ahead[1] * sy];
+        let face = other ? [other.pos[0] - mine.pos[0], other.pos[1] - mine.pos[1]]
+                         : [-Math.sin(mine.h * Math.PI / 180), Math.cos(mine.h * Math.PI / 180)];
+        face = norm(face);
+        if (!face) return [sy, -sx];
+        const left = [-face[1], face[0]];
+        const clamp = v => Math.max(-1, Math.min(1, v * 1.4));
+        return [clamp(want[0] * face[0] + want[1] * face[1]), clamp(want[0] * left[0] + want[1] * left[1])];
+    }
+
+    cycleCamera() {  // V: the window's five views (fight camera, my fighter, over the shoulder, ring view, all rings)
+        this.scene.setMode(CAM_MODES[(CAM_MODES.indexOf(this.scene.mode) + 1) % CAM_MODES.length]);
+        this.keepCamera();
+    }
+
+    learnerTabs() { return [["camera", "Camera"]]; }
 
     message(m) {
         if (m.type === "roster") {
@@ -703,9 +833,12 @@ export class FightGame {
         }
         if (m.type === "state") {
             m.sm = m.sm >>> 0;
+            const myId = this.myId();  // (the server's acks: how long our key presses take to show)
+            if (myId !== null && m.acks && m.acks[myId] !== undefined && this.app.ctrl) this.app.ctrl.ack(m.acks[myId], performance.now());
             this.app.pushSnap(m, performance.now());
             this.last = m;
-            for (const [p, dmg, kind] of m.fx || []) this.scene.spark(p, dmg, kind);
+            this.scene.impacts(m.fx || [], m.rings || []);  // (sparks, flashes, dust, debris and the shake: fightfx.js)
+            this.impacts = (this.impacts || []).concat(m.fx || []);  // (heard on the next frame: sound.js)
             for (const e of m.events || []) if (!this.events.has(e)) { this.events.add(e); this.app.addEvent(e); }
             if (this.events.size > 200) this.events = new Set([...this.events].slice(-60));
             this.renderBoard();
@@ -735,13 +868,24 @@ export class FightGame {
             const byId = rb ? new Map((rb.f || []).map(x => [x.id, x])) : new Map();
             for (const x of ra.f || []) {
                 const y = byId.get(x.id);
-                if (!y) { fighters.push(x); continue; }
+                if (!y) { fighters.push({...x, ri: ra.i}); continue; }
                 fighters.push({...y, pos: x.pos.map((v, i) => lerp(v, y.pos[i], f)), h: lerpDeg(x.h, y.h, f),
-                               k: x.a === y.a ? lerp(x.k, y.k, f) : y.k});
+                               k: x.a === y.a ? lerp(x.k, y.k, f) : y.k, ri: ra.i});
             }
         }
         this.scene.watchRing = this.watched();
+        this.scene.myId = this.myId();
         this.scene.frame(fighters, (b || a).rings || [], dt, now / 1000);
+        // the fight screen (hud.js): the watched ring's two fighters, from the newest snapshot
+        const ring = this.last ? (this.last.rings || []).find(r => r.i === this.watched()) : null;
+        const names = new Map(((this.roster || {}).fighters || []).map(x => [x.id, {name: (x.design || {}).name || "?", owner: x.owner || ""}]));
+        this.hud.update(ring, names, this.myId(), ((this.app.state.lesson || {}).rounds_to_win) || 2, dt, now);
+        if (this.app.sound && this.last) {  // the hits, the bell, the crowd (sound.js, fight_client's sounds)
+            this.app.sound.fightFrame(this.last.rings || [], this.impacts || [], this.watched(),
+                {robots: Sound.fightRobots((this.roster || {}).fighters), listener: Sound.listenerFrom(this.scene.camera), now: now / 1000});
+            this.impacts = [];
+        }
+        document.body.classList.toggle("fightscreen", !!ring && this.myId() !== null);
     }
 
     renderBoard() {
@@ -774,7 +918,7 @@ export class FightGame {
     }
 
     cameraPill() {
-        return {fight: "Camera: the fight, side on", ring: "Camera: the whole ring", all: "Camera: every ring"}[this.scene.mode] || "";
+        return `Camera: ${CAM_NAMES[this.scene.mode] || ""} (V to change)`;
     }
 
     tabs() { return [["controls", "Controls"], ["matches", "Matches"], ["camera", "Camera"]]; }
@@ -845,13 +989,19 @@ export class FightGame {
               <div class="row"><select id="fm-a">${opts(this.pickA)}</select> v <select id="fm-b">${opts(this.pickB)}</select><button id="fm-add" class="go">Add match</button></div>
               <table>${matches.map(([a, b], i) => `<tr><td>${esc(a)} v ${esc(b)}</td><td><button data-mrm="${i}">Remove</button></td></tr>`).join("") || "<tr><td class='note'>No matches set: everyone spars.</td></tr>"}</table>
               <div class="row"><button id="fm-clear">Clear all</button></div>
-              <h2>Tournament</h2>
-              ${T ? `<p><b>${esc(T.title || "")}</b>${T.champion ? ` · champion ${esc(T.champion)}` : ""}</p>
-                  ${(T.table || []).length ? `<table><tr><th>Fighter</th><th>wins</th><th>streak</th></tr>${T.table.map(([n, w, s]) => `<tr><td>${esc(n)}</td><td class="num">${w}</td><td class="num">${s}</td></tr>`).join("")}</table>` : ""}
-                  ${(T.rounds || []).map((rd, i) => `<div class="note">Round ${i + 1}: ${rd.map(([a, b, w]) => `${esc(a)} v ${esc(b)}${w ? ` (${esc(w)})` : ""}`).join(", ")}</div>`).join("")}
-                  <div class="row"><button id="fm-stop" class="stop">STOP THE TOURNAMENT</button></div>`
-                : `<div class="row"><button id="fm-knock" class="go">Knockout</button><button id="fm-stays" class="go">Winner stays on</button></div>
-                   <div class="note">A knockout of everyone with a fighter (computer fighters fill the gaps). Winner stays on uses ${L.rings || 2} rings.</div>`}`;
+              <h2>Tournament (battle switched on, designs locked)</h2>
+              ${!T ? `<div class="row"><button id="fm-knock" class="go">Knockout</button><span class="note">computer fighters fill the gaps</span></div>
+                   <div class="row"><button id="fm-stays" class="go">Winner stays on</button></div>
+                   <div class="note">Two rings live; the loser queues, the next challenger comes in; the rest watch ([ and ]).</div>`
+                : T.kind === "stays" ? `<div class="row"><button id="fm-stop" class="stop">Stop: winner stays on</button></div>
+                   ${(T.live || []).map(([a, b], i) => `<div>Ring ${i + 1}: ${esc(a || "-")} v ${esc(b || "-")}</div>`).join("")}
+                   <div class="note">Waiting: ${(T.queue || []).map(esc).join(", ") || "nobody"}</div>
+                   <div class="note">Matches played: ${T.played || 0}</div>
+                   ${(T.table || []).length ? `<table>${T.table.slice(0, 12).map(([n, w, st]) => `<tr><td class="${w ? "ok" : ""}">${esc(n)}</td><td class="${w ? "ok" : ""}">${w} win${w !== 1 ? "s" : ""}${st > 1 ? ` · ${st} in a row` : ""}</td></tr>`).join("")}</table>` : ""}`
+                : `<div class="row"><button id="fm-stop" class="stop">Stop the tournament</button></div>
+                   ${T.champion ? `<p><b>CHAMPION: ${esc(T.champion)}</b></p>` : ""}
+                   ${(T.rounds || []).map(rd => `<div style="color: var(--blue)">${rd.length === 1 ? "Final" : rd.length === 2 ? "Semi-finals" : rd.length === 4 ? "Quarter-finals" : "Round 1"}</div>` +
+                       rd.map(([a, b, w]) => `<div class="${w ? "ok" : ""}">${esc(a)} v ${esc(b)}${w ? ` -&gt; ${esc(w)}` : " (fighting)"}</div>`).join("")).join("")}`}`;
             $("fm-a").onchange = e => { this.pickA = e.target.value; };
             $("fm-b").onchange = e => { this.pickB = e.target.value; };
             $("fm-add").onclick = () => {
@@ -863,7 +1013,7 @@ export class FightGame {
             body.querySelectorAll("button[data-mrm]").forEach(b => b.onclick = () => lessonSend({matches: matches.filter((_, i) => i !== Number(b.dataset.mrm))}));
             $("fm-clear").onclick = () => lessonSend({matches: []});
             if ($("fm-knock")) $("fm-knock").onclick = () => send({type: "tournament", start: true});
-            if ($("fm-stays")) $("fm-stays").onclick = () => send({type: "tournament", start: true, kind: "stays", live: L.rings || 2});
+            if ($("fm-stays")) $("fm-stays").onclick = () => send({type: "tournament", start: true, kind: "stays", live: 2});  // (two rings, as the window's)
             if ($("fm-stop")) $("fm-stop").onclick = () => send({type: "tournament", start: false});
             return true;
         }
@@ -871,18 +1021,27 @@ export class FightGame {
             const sc = this.scene, rings = (this.roster && this.roster.rings) || [0];
             body.innerHTML = `
               <h2>Camera</h2>
-              <div class="row">${[["fight", "The fight"], ["ring", "The ring"], ["all", "Every ring"]].map(([k, n]) => `<button data-view="${k}" class="${sc.mode === k ? "on" : ""}">${n}</button>`).join("")}</div>
-              <div class="note">The fight follows the watched ring's two fighters, side on. Drag to orbit, wheel to zoom.</div>
+              <div class="row">${CAM_MODES.map(k => `<button data-view="${k}" class="${sc.mode === k ? "on" : ""}">${CAM_NAMES[k]}</button>`).join("")}</div>
+              <div class="row"><button data-zoom="0.8">Closer</button><button data-zoom="1.25">Further</button><button id="fc-reset">Straight on again</button></div>
+              <div class="note">V changes the view. The fight camera keeps both fighters in shot, side on; my fighter and over the shoulder follow your own fighter (or the first in the ring). Drag to swing the view round and tilt it (or Q and E), the wheel or + and − zoom, Home puts it back, O shows every ring, [ and ] watch another ring.</div>
               <h2>Watch a ring</h2>
               <div class="row">${rings.map(k => `<button data-ring="${k}" class="${this.watched() === k ? "on" : ""}">Ring ${k + 1}</button>`).join("")}</div>`;
-            body.querySelectorAll("button[data-view]").forEach(b => b.onclick = () => { sc.setMode(b.dataset.view); app.updatePills(); app.renderPanel(); });
-            body.querySelectorAll("button[data-ring]").forEach(b => b.onclick = () => { this.watch = Number(b.dataset.ring); sc.snapCamera = true; this.renderBoard(); app.renderPanel(); });
+            body.querySelectorAll("button[data-view]").forEach(b => b.onclick = () => { sc.setMode(b.dataset.view); this.keepCamera(); app.updatePills(); app.renderPanel(); });
+            body.querySelectorAll("button[data-zoom]").forEach(b => b.onclick = () => { sc.cam.wheel(Number(b.dataset.zoom)); this.keepCamera(); });
+            $("fc-reset").onclick = () => { sc.cam.resetView(); this.keepCamera(); };
+            body.querySelectorAll("button[data-ring]").forEach(b => b.onclick = () => {
+                this.watch = Number(b.dataset.ring);
+                sc.setMode(sc.mode !== "all" ? sc.mode : "fight");
+                this.renderBoard(); app.updatePills(); app.renderPanel();
+            });
             return true;
         }
         return false;
     }
 
     dispose() {
+        for (const [el, ev, fn, opts] of this.listeners || []) el.removeEventListener(ev, fn, opts);
+        this.listeners = [];
         this.scene.dispose();
         $("places").innerHTML = "";
         $("countdown").textContent = $("phase").textContent = "";

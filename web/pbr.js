@@ -20,6 +20,7 @@ attribute vec2 uv;
 attribute vec4 color;
 #endif
 #include<instancesDeclaration>
+#include<bonesDeclaration>
 uniform mat4 viewProjection;
 varying vec3 vPos;
 varying vec3 vNormal;
@@ -29,6 +30,7 @@ varying vec4 vColor;
 #endif
 void main(void) {
 #include<instancesVertex>
+#include<bonesVertex>
     vec4 wp = finalWorld * vec4(position, 1.0);
     vPos = wp.xyz;
     vNormal = mat3(finalWorld) * normal;
@@ -56,8 +58,10 @@ uniform vec4 lightPos[NUM_LIGHTS];   // xyz: the position, or the direction to t
 uniform vec3 lightCol[NUM_LIGHTS];
 uniform vec3 lightAtt[NUM_LIGHTS];   // constant, linear, quadratic
 uniform vec4 lightSpot[NUM_LIGHTS];  // xyz: a spotlight's direction, w: the cosine of its cut-off (-1: not a spot)
-#ifdef TEXTURED
+#if defined(TEXTURED) || defined(ALBEDOMAP)
 uniform sampler2D albedoTex;
+#endif
+#if defined(TEXTURED) || defined(MRMAP)
 uniform sampler2D mrTex;
 #endif
 #ifdef NORMALMAP
@@ -134,8 +138,10 @@ float shadowAt(vec3 p) {
 void main(void) {
     vec4 mr = vec4(1.0);
     vec4 albedo = vec4(1.0);
-#ifdef TEXTURED
+#if defined(TEXTURED) || defined(MRMAP)
     mr = texture2D(mrTex, vUV);
+#endif
+#if defined(TEXTURED) || defined(ALBEDOMAP)
     albedo = texture2D(albedoTex, vUV);
     albedo.rgb = pow(albedo.rgb, vec3(2.2));  // (an sRGB picture, as the app loads it)
 #endif
@@ -212,9 +218,11 @@ const DEPTH_VERT = `
 precision highp float;
 attribute vec3 position;
 #include<instancesDeclaration>
+#include<bonesDeclaration>
 uniform mat4 viewProjection;
 void main(void) {
 #include<instancesVertex>
+#include<bonesVertex>
     gl_Position = viewProjection * finalWorld * vec4(position, 1.0);
 }`;
 
@@ -334,18 +342,29 @@ export class Lighting {
     addCaster(mesh) {
         if (!this.rtt || !mesh || this.rtt.renderList.includes(mesh)) return;
         this.rtt.renderList.push(mesh);
-        this.rtt.setMaterialForRendering(mesh, this.depthMat);
+        // (a skinned mesh, Fight Lab's models: a depth material of its own, so the shared one's shader isn't
+        // switched between the posed and the plain meshes every draw)
+        if (mesh.skeleton && !this.depthSkinMat) {
+            this.depthSkinMat = new BABYLON.ShaderMaterial("ccdepth", this.scene, {vertex: "ccdepth", fragment: "ccdepth"},
+                {attributes: ["position"], uniforms: ["world", "viewProjection"]});
+            this.depthSkinMat.backFaceCulling = false;
+        }
+        this.rtt.setMaterialForRendering(mesh, mesh.skeleton ? this.depthSkinMat : this.depthMat);
     }
 
     // a material: {rgb (screen colour), rough, metal, glow (emission as a share of the colour) or emission (linear, as
-    // the app gives it), alpha, tex (a texture set's name)}
+    // the app gives it), alpha, tex (a texture set's name)}; or a model's own (fightmodels.js, as a glTF file gives
+    // it): {linear (the base colour, linear, with its alpha), rough, metal, emission, albedoUrl and mrUrl (its
+    // pictures, if it has them), blend (alpha blended)}
     material(key, o) {
         const scene = this.scene, tier = this.tier;
         const defines = [`NUM_LIGHTS ${this.lights.count}`];
         const textured = !!o.tex;
         if (textured) defines.push("TEXTURED");
+        if (o.albedoUrl) defines.push("ALBEDOMAP");
+        if (o.mrUrl) defines.push("MRMAP");
         if (textured && tier.normal) defines.push("NORMALMAP");
-        if (textured && tier.occlusion) defines.push("OCCLUSION");
+        if ((textured || o.mrUrl) && tier.occlusion) defines.push("OCCLUSION");
         if (tier.ibl && this.reflect) defines.push("IBL");
         if (this.rtt) defines.push("SHADOWS");
         const m = new BABYLON.ShaderMaterial(key, scene, {vertex: "ccpbr", fragment: "ccpbr"}, {
@@ -354,10 +373,10 @@ export class Lighting {
                        "exposure", "visibility", "lightPos", "lightCol", "lightAtt", "lightSpot", "sh", "shadowMatrix", "shadowBias"],
             samplers: ["albedoTex", "mrTex", "normalTex", "reflectTex", "brdfTex", "shadowMap"],
             defines,
-            needAlphaBlending: (o.alpha ?? 1) < 1,
+            needAlphaBlending: (o.alpha ?? 1) < 1 || !!o.blend,
         });
-        const c = lin(o.rgb);
-        m.setColor4("baseColor", new BABYLON.Color4(c[0], c[1], c[2], o.alpha ?? 1));  // (one Color4: its alpha is what the canvas shows)
+        const c = o.linear || lin(o.rgb);
+        m.setColor4("baseColor", new BABYLON.Color4(c[0], c[1], c[2], o.linear ? (o.linear[3] ?? 1) : o.alpha ?? 1));  // (one Color4: its alpha is what the canvas shows)
         const e = o.emission || (o.glow ? lin(o.rgb).map(v => v * o.glow) : [0, 0, 0]);
         m.setVector3("emission", new BABYLON.Vector3(e[0], e[1], e[2]));
         m.setFloat("roughness", o.rough);
@@ -372,6 +391,9 @@ export class Lighting {
             m.setTexture("mrTex", this.texture(`tex/${o.tex}_mr.jpg`));
             if (tier.normal) m.setTexture("normalTex", this.texture(`tex/${o.tex}_normal.jpg`));
         }
+        // (a glTF file's pictures: its texture coordinates start at the top, so the pictures aren't turned over)
+        if (o.albedoUrl) m.setTexture("albedoTex", this.texture(o.albedoUrl, true, false));
+        if (o.mrUrl) m.setTexture("mrTex", this.texture(o.mrUrl, true, false));
         if (tier.ibl && this.reflect) {
             m.setArray3("sh", this.sh.flat());
             m.setTexture("reflectTex", this.reflect);

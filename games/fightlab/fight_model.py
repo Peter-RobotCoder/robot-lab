@@ -267,8 +267,10 @@ class ModelFighterVisual:
         t.setText(text)
         t.setAlign(TextNode.ACenter)
         tn = self.chest.attachNewNode(t)
-        tn.setPos(0, -0.145, 0.07)  # (just in front of the chest plate, above the core light)
-        tn.setHpr(180, 0, 0)
+        # on the chest plate's face just under the core light, reading forwards (the Spine2 joint's -y is the
+        # robot's front and the plate leans back 19 degrees there; at -0.145 the text was inside the plate, facing in)
+        tn.setPos(0, -0.236, 0.012)
+        tn.setHpr(0, -19.3, 0)
         tn.setScale(0.045)
         c = (design.get("style") or {}).get("lights") or sim.ROBIN_STYLE["lights"]
         tn.setColor(*(v / 255 for v in c), 1)

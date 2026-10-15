@@ -63,6 +63,9 @@ fi
 echo "Installing $TAG..."
 git -C "$APP" -c advice.detachedHead=false checkout -q -f "$TAG"
 for m in "$APP"/games/*/mods; do chown -R robotlab:robotlab "$m"; done
+# Fight Lab's fighters for the browser window: a .bin.gz beside each model's .bin, which Caddy sends in its place
+# (7.6 MB as about 5.2 MB, compressed once here rather than for every learner; -f renews it for a changed model)
+for b in "$APP"/games/fightlab/models/*.bin; do [ -e "$b" ] && gzip -k -f -9 "$b"; done
 "$VENV/bin/pip" install -q -r "$APP/deploy/requirements-server.txt"
 
 # the service files and tools may have changed with the release too

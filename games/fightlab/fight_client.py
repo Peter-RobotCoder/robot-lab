@@ -2234,8 +2234,12 @@ class Lab(hud.HudKit, ShowBase):
             label(f, c["card"]["goal"], 0.84, y, 0.022, GREY, wrap=44)
             y -= 0.05
             res = job.get("result")
-            if job.get("status") == "Claude is working...":
-                took = int(time.time() - job.get("started", time.time()))
+            if job.get("status") == "Claude is working..." and getattr(job.get("change"), "waiting", False):
+                label(f, "Waiting: Claude is finishing another card first (one at a time, so neither undoes the "
+                         "other)", 0.84, y, 0.022, BLUE, wrap=46)
+                y -= 0.05
+            elif job.get("status") == "Claude is working...":
+                took = int(time.time() - (getattr(job.get("change"), "started", None) or job.get("started", time.time())))
                 label(f, f"Claude is working on it ({TARGETS[target]}), {took} s so far: usually under a minute, "
                          "a few minutes for whole-game changes, then it is tested...", 0.84, y, 0.022, BLUE, wrap=46)
                 y -= 0.05
@@ -2411,7 +2415,11 @@ class Lab(hud.HudKit, ShowBase):
 
     def ai_undo(self, c):
         job = self.ai_jobs[c["id"]]
-        job["change"].undo()
+        try:
+            job["change"].undo()
+        except RuntimeError as e:  # (Claude is at work on another card: the files mustn't change under it)
+            self.banner_note(str(e), 5)
+            return
         send({"type": "card_status", "id": c["id"], "status": "rejected",
               "note": "The teacher undid this change. Try making your request clearer."})
         job["status"] = "Undone"
@@ -2841,7 +2849,7 @@ class Lab(hud.HudKit, ShowBase):
                 if a in ATTACK_ANIMS and (last is None or last[0] != a or f["k"] < last[1] - 0.5) and f["k"] < 1.5:
                     self.snd.swing(a, 0.7 * vol * near)
                 elif a == "jump" and (last is None or last[0] != "jump"):
-                    self.snd.play("jump", 0.4 * vol * near)
+                    self.snd.play("f_jump", 0.4 * vol * near)  # (CHANGE 134: the pool has f_jump; "jump" was silent)
                 self.last_anim[f["id"]] = (a, f["k"])
 
     def draw_state(self, dt, now, watched_ring):

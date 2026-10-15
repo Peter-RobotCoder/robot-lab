@@ -570,6 +570,14 @@ class KartServer:
             await self.send(p.ws, {"type": "pong", "t": m.get("t"), "sm": server_ms()})
         elif kind == "perf":
             p.perf = {k: m.get(k) for k in ("fps", "ping", "tier", "stalls", "delay", "ctrl", "corr") if k in m}
+        elif kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab (CHANGE 134:
+            # the votes were kept and shown but never taken in)
+            votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
+                (self.arena_votes, m.get("item"), STAGE_ITEMS)
+            in_vote = self.lesson.get("mods_in_vote" if kind == "mod_vote" else "arena_in_vote", {})
+            if isinstance(key, str) and key in known and in_vote.get(key, True):
+                votes[key] = [n for n in votes.get(key, []) if n != p.name] + ([p.name] if m.get("on") else [])
+                await self.broadcast_lesson()
         elif kind == "control":  # a JSON control (tests, a brainless window): the same as a binary input
             try:
                 p.inputs.push(int(m.get("seq", 0)), (float(m.get("throttle", 0)), float(m.get("steer", 0)),
