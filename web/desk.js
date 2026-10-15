@@ -227,13 +227,22 @@ const DESK_TABS = {
             return `<tr><td class="${here ? "" : "away"}">${esc(name)}</td><td>${here ? "<span class='ok'>here</span>" : "<span class='note'>away</span>"}</td>
               <td class="num">${here ? (done[name] || 0) : ""}</td>
               <td class="grow"><input id="note-${i}" data-name="${esc(name)}" maxlength="400" value="${esc(notes[name] || "")}" placeholder="a note for this session"></td>
-              <td><button data-note="${i}">Save</button></td></tr>`;
+              <td><button data-note="${i}">Save</button> <button data-sout="${esc(name)}" title="Takes them out of the game, back to their lobby">Back to lobby</button></td></tr>`;
         }).join("");
+        // (CHANGE 141) the lobby: who is logged in and waiting; adding a learner pulls them into the game at once
+        const inGame = new Set(live.learners || []), lobby = (st.lobby || []).filter(n => !inGame.has(n));
+        const others = (st.learners || []).map(L => L.name).filter(n => !inGame.has(n) && !lobby.includes(n));
+        const addRow = names => names.map(n => `<button data-sin="${esc(n)}">${esc(n)} +</button>`).join(" ");
         return `<h2>This session</h2>
           <p>${present.size} of ${(live.learners || []).length} learners here · ${missions} missions completed · ${ses.cards || 0} AI cards</p>
           <table class="wide"><tr><th>Learner</th><th></th><th>Completed</th><th>Note (saved with the record at Stop)</th><th></th></tr>
-            ${rows || "<tr><td class='note'>Nobody is in this group.</td></tr>"}</table>
-          <p class="note">Press Enter or Save after typing a note. "Completed" is the missions done in this session.
+            ${rows || "<tr><td class='note'>Nobody is in this game yet: add learners below.</td></tr>"}</table>
+          <h2>In the lobby (${lobby.length})</h2>
+          <div class="row">${lobby.length ? addRow(lobby) : "<span class='note'>Nobody is waiting in the lobby.</span>"}</div>
+          ${others.length ? `<p class="note">Not logged in: ${addRow(others)}</p>` : ""}
+          <p class="note">Press a name to add them to this game: from the lobby their game opens at once (once you have pressed
+            LAUNCH LEARNERS' WINDOWS); anyone else goes straight in when they log in. Back to lobby takes a learner out of the game.
+            Press Enter or Save after typing a note. "Completed" is the missions done in this session.
             STOP ends the session and files its record; print it from Records.</p>`;
     },
     people(ctx, st, title) {
@@ -318,6 +327,8 @@ const DESK_WIRE = {
             command(ctx, {type: "note", name: box.dataset.name, text: box.value});
         };
         root.querySelectorAll("button[data-note]").forEach(b => b.onclick = () => save(b.dataset.note));
+        root.querySelectorAll("button[data-sin]").forEach(b => b.onclick = () => command(ctx, {type: "session_learner", name: b.dataset.sin, in: true}));
+        root.querySelectorAll("button[data-sout]").forEach(b => b.onclick = () => command(ctx, {type: "session_learner", name: b.dataset.sout, in: false}));
         root.querySelectorAll("input[id^='note-']").forEach(el => el.onkeydown = e => { if (e.key === "Enter") save(el.id.slice(5)); });
     },
     people(root, ctx, st) {
@@ -545,7 +556,7 @@ export class LearnerLink {
         this.tries = 0;
         if (m.changed) this.on.message("Password changed.");
         if (m.go) this.on.go(m.go);
-        else if (m.waiting) this.on.waiting(m.message || "Your group hasn't started yet: wait for your teacher.");
+        else if (m.waiting) this.on.waiting(m.message || "You're in the lobby: your game opens by itself when your teacher adds you to it.");
     }
 
     setPassword(newPassword) {

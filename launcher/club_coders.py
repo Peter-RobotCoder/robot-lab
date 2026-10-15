@@ -501,9 +501,9 @@ def launcher(args, passed_on):
             button(f, "SAVE MY PASSWORD", 0, -0.22, self.change_password, (), 0.06, go_col)
 
         def draw_waiting(self, f, keep):
-            label(f, "NOT STARTED YET" if not self.came_back else "WAITING FOR THE NEXT GAME", 0, 0.55, 0.08, yellow)
-            label(f, (f"Hello {self.me}. Your group hasn't started yet: wait for your teacher.\n"
-                      "The game will open by itself as soon as it does.") if not self.came_back else
+            label(f, "THE LOBBY", 0, 0.55, 0.08, yellow)
+            label(f, (f"Hello {self.me}. You're in the lobby: your game opens by itself when your teacher adds you "
+                      "to it.") if not self.came_back else
                      (f"The game has closed. You're still logged in, {self.me}: when your teacher starts the "
                       "next game it will open by itself.\nClose this window to leave."),
                   0, 0.25, 0.045, white, wrap=45)

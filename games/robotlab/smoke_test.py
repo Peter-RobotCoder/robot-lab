@@ -5,9 +5,10 @@
 1. every Python file compiles
 2. the mods load and a test fight runs
 3. the class server runs a Lesson 5 arena (every hazard and Resident Robot) for 10 seconds
-4. pushing follows the robots' stats: one-on-one, two-on-one and two on a Resident Robot
-5. the showcase (robot_wars.py) draws a frame
-6. a real server with a learner window and a teacher window, logged in and drawing
+4. four computer robots in the arenas the teacher chose, kept over a restart (CHANGE 140)
+5. pushing follows the robots' stats: one-on-one, two-on-one and two on a Resident Robot
+6. the showcase (robot_wars.py) draws a frame
+7. a real server with a learner window and a teacher window, logged in and drawing
 Test data goes to a temporary folder, never to the real profiles or evidence. Exit code 0 = all fine.
 """
 import os
@@ -69,6 +70,63 @@ def server_physics():
     srv.arena.set_hazards({"saws": False, "house_robots": ["BLAZE"]})
     for _ in range(60):
         srv.arena.step()
+
+
+def computer_robots():
+    """CHANGE 140: four computer robots, each set up by the teacher and in its own arena (or every arena), are
+    where they should be, and still are after the server starts again; an older computer_robot.json (the first
+    one alone) still loads as computer robot 1."""
+    import asyncio
+    import json
+    import lab_server
+
+    class Window:  # (the teacher's, as the server sees it: what it is sent)
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, text):
+            self.sent.append(json.loads(text))
+
+    def where(srv):  # arena index -> the names of the computer's robots in it
+        return {a.index: sorted(r.name for r in a.robots if r.owner == "Computer") for a in srv.arena}
+    try:
+        srv = lab_server.LabServer()
+        srv.lesson.update(cpu_robots=4, arenas=2)
+        srv.rebuild_arena()
+        every = ["Sparky 1", "Sparky 2", "Sparky 3", "Sparky 4"]
+        if where(srv) != {0: every, 1: every}:
+            raise RuntimeError(f"every computer robot should start in every arena: {where(srv)}")
+        ws = Window()
+        srv.players[ws] = lab_server.Player(ws, "teacher", "Smoke", (180, 90, 230))
+        d = dict(srv.cpus[2].design, name="Crusher")
+        for m in ({"n": 2, "arena": 0}, {"n": 3, "design": d}, {"n": 3, "arena": 1}, {"n": 4, "arena": 5}):
+            asyncio.run(srv.cpu_robot_command({"type": "cpu_robot", **m}))
+        want = {0: ["Sparky 1", "Sparky 2"], 1: ["Crusher", "Sparky 1", "Sparky 4"]}  # (arena 6 of 2: the last one)
+        if where(srv) != want:
+            raise RuntimeError(f"the computer robots should be {want}: {where(srv)}")
+        listed = [c for c in [m for m in ws.sent if m["type"] == "lesson"][-1]["class"] if c["role"] == "computer"]
+        if [(c["n"], c["design"]["name"], c["arena"], c["in"]) for c in listed] != [
+                (1, "Sparky 1", None, None), (2, "Sparky 2", 0, 0), (3, "Crusher", 1, 1), (4, "Sparky 4", 5, 1)]:
+            raise RuntimeError(f"the class list's computer robots: {listed}")
+        srv.players.clear()
+        srv.save_mission_settings()  # (Save settings: 4 computer robots, 2 arenas for mission 1)
+        again = lab_server.LabServer()  # the server starts again
+        if where(again) != want or again.cpus[2].design["name"] != "Crusher":
+            raise RuntimeError(f"after a restart the computer robots should be {want}: {where(again)}")
+        os.remove(lab_server.MISSIONS_FILE)  # (no saved mission: the arenas still come from computer_robot.json)
+        if lab_server.LabServer().lesson["cpu_arenas"] != [None, 0, 1, 5]:
+            raise RuntimeError("computer_robot.json didn't keep the computer robots' arenas")
+        old = dict(srv.cpus[0].design, name="Oldie")
+        with open(lab_server.CPU_FILE, "w", encoding="utf-8") as f:
+            json.dump({"design": old, "brain": ""}, f)  # (the file as it was before CHANGE 140)
+        older = lab_server.LabServer()
+        if [c.design["name"] for c in older.cpus] != ["Oldie", "Sparky 2", "Sparky 3", "Sparky 4"] \
+                or older.lesson["cpu_arenas"] != [None] * 4:
+            raise RuntimeError("an older computer_robot.json should load as computer robot 1")
+    finally:
+        for path in (lab_server.MISSIONS_FILE, lab_server.CPU_FILE):
+            if os.path.exists(path):
+                os.remove(path)
 
 
 def pushing():
@@ -164,6 +222,7 @@ if __name__ == "__main__":
     check("Every file compiles", compile_all)
     check("Mods load and a test fight runs", mods)
     check("Server runs a full arena", server_physics)
+    check("Four computer robots in their arenas, kept over a restart", computer_robots)
     check("Pushing follows the stats", pushing)
     check("Showcase draws", showcase)
     check("Learner and teacher windows log in and draw", windows)

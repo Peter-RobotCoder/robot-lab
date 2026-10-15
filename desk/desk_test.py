@@ -47,11 +47,13 @@ def check(name, fn):
 
 def ask(ws, msg, want="ok"):
     ws.send(json.dumps(msg))
-    for _ in range(20):
+    seen, end = [], time.time() + 30
+    while time.time() < end:  # (the desk sends the teacher its state now and then: read past it)
         m = json.loads(ws.recv(timeout=15))
         if want in m or "error" in m:
             return m
-    raise AssertionError("no answer")
+        seen.append(",".join(sorted(m)))
+    raise AssertionError(f"no answer to {msg.get('type')} (got: {'; '.join(seen[:6])})")
 
 
 def game_hello(port, hello, game_version):
@@ -82,8 +84,8 @@ try:
                JOIN_CODE="desk-test-join", CLUBCODERS_TICKET_KEY=os.path.join(desk_data, "ticket_key"),
                CLUBCODERS_LIVE_FILE=os.path.join(desk_data, "live.json"))
     procs.append(subprocess.Popen([PY, os.path.join(HERE, "club_desk.py"), "--port", str(DESK), "--games",
-                                   os.path.join(TMP, "games.json")], env=env, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL))
+                                   os.path.join(TMP, "games.json")], env=env,
+                                  stdout=open(os.path.join(TMP, "desk.log"), "w"), stderr=subprocess.STDOUT))
     time.sleep(2)  # (the desk makes the ticket key first)
     for game, (folder, server, data_env, port) in GAMES.items():
         procs.append(subprocess.Popen([PY, server, "--class-server", "--port", str(port)], cwd=os.path.join(CLUB, folder),
@@ -284,6 +286,57 @@ try:
             m = ask(ws, {"type": "wait"})
             assert "error" in m, m  # (not logged in on this connection)
     check("after Stop: the app waits, logged in, and the next launch opens the next game by itself", back_to_waiting)
+
+    def lobby_in_out():  # (CHANGE 141) the teacher pulls a learner in from the lobby, and sends them back to it
+        assert ask(teacher, {"type": "launch", "group": "Tuesday", "lesson": 1}).get("ok")
+        assert ask(teacher, {"type": "open_learners"}).get("ok")
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            assert ask(ws, {"type": "login", "name": "Jo", "password": "jo-starter"}).get("change_password")
+            ask(ws, {"type": "set_password", "name": "Jo", "password": "jo-starter", "new": "jo-own-pass"}, want="changed")
+            m = json.loads(ws.recv(timeout=10))
+            assert m.get("waiting") and "lobby" in m.get("message", ""), m  # (Jo isn't in Tuesday: the lobby)
+            m = ask(teacher, {"type": "state"})
+            for _ in range(5):
+                if "Jo" in m.get("state", {}).get("lobby", []):
+                    break
+                m = json.loads(teacher.recv(timeout=10))
+            assert "Jo" in m["state"]["lobby"], m.get("state", {}).get("lobby")
+            assert ask(teacher, {"type": "session_learner", "name": "Jo", "in": True}).get("ok")
+            m = json.loads(ws.recv(timeout=10))
+            assert m.get("go") and m["go"]["game"] == "robotlab", m  # (pulled in from the lobby at once)
+            time.sleep(3)  # (the game reads live.json every 2 s)
+            with connect(f"ws://127.0.0.1:{RL}", max_size=None) as game:
+                game.send(json.dumps({"type": "hello", "version": versions["robotlab"], "ticket": m["go"]["ticket"]}))
+                for _ in range(40):
+                    if json.loads(game.recv(timeout=10)).get("type") == "welcome":
+                        break
+                assert ask(teacher, {"type": "session_learner", "name": "Jo", "in": False}).get("ok")
+                closed = None
+                try:
+                    for _ in range(400):
+                        game.recv(timeout=10)
+                except Exception as e:
+                    closed = getattr(getattr(e, "rcvd", None), "code", None)
+                    reason = getattr(getattr(e, "rcvd", None), "reason", "")
+                assert closed == 4009 and "lobby" in reason, f"Jo wasn't sent back to the lobby ({closed})"
+            live_id = m["go"]["live_id"]
+            m = ask(ws, {"type": "wait", "after": live_id}, want="waiting")  # (the app, back in the lobby)
+            assert m.get("waiting"), m
+            assert ask(teacher, {"type": "session_learner", "name": "Jo", "in": True}).get("ok")
+            m = json.loads(ws.recv(timeout=10))
+            assert m.get("go") and m["go"]["live_id"] == live_id, m  # (pulled in again, though it's the same game)
+        # the live group edited: its game's learners follow (Alex out, Jo kept as the teacher added her)
+        assert ask(teacher, {"type": "set_group", "name": "Tuesday", "game": "robotlab", "learners": ["Sam"]}).get("ok")
+        m = ask(teacher, {"type": "state"})
+        for _ in range(5):
+            if "state" in m:
+                break
+            m = json.loads(teacher.recv(timeout=10))
+        assert sorted(m["state"]["live"]["learners"]) == ["Jo", "Sam"], m["state"]["live"]
+        assert ask(teacher, {"type": "set_group", "name": "Tuesday", "game": "robotlab", "learners": ["Sam", "Alex"]}).get("ok")
+        assert ask(teacher, {"type": "stop"}).get("ok")
+    check("the lobby: a learner added to the live game is pulled in, taken out goes back to the lobby (closed by the "
+          "game), and can be pulled in again; editing the live group changes its game's learners", lobby_in_out)
 
     def removed():
         m = ask(teacher, {"type": "remove_learner", "name": "Sam"})

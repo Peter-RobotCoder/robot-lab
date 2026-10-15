@@ -38,6 +38,7 @@ import lab_version
 sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
 from engine import club_ticket  # noqa: E402
 from engine import schema  # noqa: E402
+from engine import gfx_tiers  # noqa: E402
 import lab_teaching
 import rw_mods
 from engine import rw_sound  # noqa: E402
@@ -118,7 +119,8 @@ WEEK1_LESSON = {
     "lesson_number": 1,            # which of the 5 lessons: sets missions, tools and hazards
     "mode": "practice",            # practice = no damage, robots come back; battle = real fight
     "time_limit": 120,             # seconds per battle
-    "cpu_robots": 1,               # computer-driven sparring robots
+    "cpu_robots": 1,               # computer-driven sparring robots (up to MAX_CPUS, each the teacher's to set up)
+    "cpu_arenas": [None] * 4,      # CHANGE 140: the arena each one is in (its index), or None: every arena
     "cpu_level": cpu_brains.START_LEVEL,  # their brains: none (still, as every game starts), empty (the teacher's
                                    # demo brain), easy, medium, expert
     "teacher_robot": True,
@@ -135,6 +137,7 @@ WEEK1_LESSON = {
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd, arena hum and hit sounds
     "limits": sim.default_limits(),  # the learners' ranges for every setting and point (the teacher's Limits tab)
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
+    "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
     "tools": {                     # the learner's garage: what is shown and changeable
         "points_table": True,
         "forward_speed": True, "reverse_speed": True, "turn_speed": True, "acceleration": True, "size": True,
@@ -152,14 +155,25 @@ SOUND_FILE = os.path.join(lab_teaching.DATA, "sound_saved.json")  # the teacher'
 
 LIMITS_FILE = os.path.join(lab_teaching.DATA, "limits_saved.json")  # ...and the learners' ranges, kept the same way
 CARD_NOTE_FILE = os.path.join(lab_teaching.DATA, "card_note_saved.json")  # ...and the teacher's words on the AI card
-CPU_FILE = os.path.join(lab_teaching.DATA, "computer_robot.json")  # ...and the first computer robot, as the teacher set it up
+GFX_MAX_FILE = os.path.join(lab_teaching.DATA, "gfx_max_saved.json")  # ...and the class's graphics maximum
+CPU_FILE = os.path.join(lab_teaching.DATA, "computer_robot.json")  # ...and the computer robots, as the teacher set them up
 TEACHER_FILE = os.path.join(lab_teaching.DATA, "teacher_robot.json")  # ...and the teacher's own robot (kept over restarts)
 MISSIONS_FILE = os.path.join(lab_teaching.DATA, "mission_settings.json")  # ...and the teacher's settings for each
 # mission, kept by Save settings and used whenever that mission is chosen (CHANGE 58 and 59): these keys
-MISSION_KEYS = ("mode", "time_limit", "cpu_robots", "teacher_robot", "arenas", "designs_locked", "real_damage", "user_mods",
-                "start_design",
+MISSION_KEYS = ("mode", "time_limit", "cpu_robots", "cpu_arenas", "teacher_robot", "arenas", "designs_locked", "real_damage",
+                "user_mods", "start_design",
                 "mods_in_vote", "arena_in_vote", "flame_pit_cm", "hazards", "tools", "limits")
 CPU_NAME = "Computer robot"  # the first computer robot's name in the teacher's Learner view (its robot is Sparky 1)
+MAX_CPUS = 4  # CHANGE 140: computer robots 2 to 4 are named CPU_NAME 2 and so on (their robots Sparky 2 to 4)
+CPU_NAMES = [CPU_NAME] + [f"{CPU_NAME} {k}" for k in range(2, MAX_CPUS + 1)]
+CPU_WEAPONS = ["wedge", "spinner", "drum", "hammer"]  # (each one's weapon as it comes)
+
+
+def clean_cpu_arenas(v):
+    """The arena each computer robot is in: an index, or None (every arena); anything else is every arena."""
+    v = v if isinstance(v, list) else []
+    return [(a if isinstance(a, int) and not isinstance(a, bool) and 0 <= a < sim.MAX_ARENAS else None)
+            for a in (v + [None] * MAX_CPUS)[:MAX_CPUS]]
 
 
 def load_saved(path):
@@ -191,13 +205,20 @@ class Player:
 class LabServer:
     def __init__(self, lesson_file=None):
         self.lesson = copy.deepcopy(WEEK1_LESSON)
+        cpu_saved = load_saved(CPU_FILE)  # (CHANGE 140: an older file is the first computer robot alone)
+        cpu_saved = [e if isinstance(e, dict) else {} for e in (cpu_saved["robots"] if isinstance(
+            cpu_saved.get("robots"), list) else [cpu_saved])][:MAX_CPUS]
+        cpu_saved += [{}] * (MAX_CPUS - len(cpu_saved))
+        self.lesson["cpu_arenas"] = clean_cpu_arenas([e.get("arena") for e in cpu_saved])  # (as last set)
         if lesson_file and os.path.exists(lesson_file):
             with open(lesson_file) as f:
                 self.lesson.update(json.load(f))
+        self.lesson["cpu_arenas"] = clean_cpu_arenas(self.lesson.get("cpu_arenas"))
         self.lesson["cpu_level"] = cpu_brains.START_LEVEL  # (every start: nothing attacks until the teacher says)
         self.lesson["sound"] = rw_sound.sound_settings(self.lesson.get("sound"), load_sound())  # as last set
         self.lesson["limits"] = sim.clean_limits(load_saved(LIMITS_FILE), sim.clean_limits(self.lesson.get("limits")))
         self.lesson["ai_card_note"] = str(load_saved(CARD_NOTE_FILE).get("note", ""))[:300]
+        self.lesson["gfx_max"] = gfx_tiers.class_max(load_saved(GFX_MAX_FILE).get("gfx_max"))
         self.mission_settings = load_saved(MISSIONS_FILE)  # mission number (as text) -> the teacher's saved settings
         self.lesson["saved_missions"] = self.saved_missions()  # (the Controls tab says which have saved settings)
         self.use_mission_settings()
@@ -219,21 +240,25 @@ class LabServer:
         self.group = []          # the launched group's learners (from the club desk), here yet or not
         self.warnings = []       # for the teacher: learners who changed, in the code, something outside the lesson
         self.session = {"desk": bool(LIVE_FILE)}  # for the teacher's Accounts tab: who is in this session, and the next
-        # The first computer robot is the teacher's to set up, as a learner sets up theirs (the Learner view): its
-        # design and its own brain are kept between sessions. Its autopilot is off at every start: until the teacher
-        # switches it on, the robot follows Computer brains in Controls like the others (so it starts still).
-        self.cpu = Player(None, "computer", CPU_NAME, (150, 150, 160))
-        self.cpu.robots = []  # its robot in each arena (the first computer robot of every arena)
-        self.cpu.design = sim.default_design("Sparky 1", (150, 150, 160), "wedge")  # (the computer robot as it comes)
-        self.cpu.default = copy.deepcopy(self.cpu.design)
-        self.cpu_source, self.cpu_own_brain, self.cpu_autopilot = "", None, False
-        saved = load_saved(CPU_FILE)
-        if isinstance(saved.get("design"), dict) and not sim.check_design(saved["design"], sim.full_limits()) \
-                and rw_mods.colour_ok(saved["design"].get("colour")):
-            self.cpu.design = saved["design"]
-        if saved.get("brain"):
-            self.cpu_source = str(saved["brain"])[:20000]
-            self.cpu_own_brain = self.make_demo_brain(self.cpu_source)[0]
+        # The computer robots are the teacher's to set up, as a learner sets up theirs (the Learner view): their
+        # designs and their own brains are kept between sessions (CHANGE 140: all four, and the arena each is in;
+        # before, only the first). Their autopilots are off at every start: until the teacher switches one on, the
+        # robot follows Computer brains in Controls (so they start still).
+        self.cpus = []
+        for k, saved in enumerate(cpu_saved):
+            c = Player(None, "computer", CPU_NAMES[k], (150, 150, 160))
+            c.n, c.robots = k + 1, []  # its robot in each arena it is in
+            c.design = sim.default_design(f"Sparky {k + 1}", (150, 150, 160), CPU_WEAPONS[k % 4])  # (as it comes)
+            c.default = copy.deepcopy(c.design)
+            c.source, c.own_brain, c.autopilot = "", None, False
+            if isinstance(saved.get("design"), dict) and not sim.check_design(saved["design"], sim.full_limits()) \
+                    and rw_mods.colour_ok(saved["design"].get("colour")):
+                c.design = saved["design"]
+            if saved.get("brain"):
+                c.source = str(saved["brain"])[:20000]
+                c.own_brain = self.make_demo_brain(c.source)[0]
+            self.cpus.append(c)
+        self.cpu = self.cpus[0]  # (the first: the one the game window's Learner view sets up)
         self.arena = None
         self.look = {}
         try:  # the mod rules and arena look (hazards come from the lesson)
@@ -262,7 +287,8 @@ class LabServer:
             if key in saved:
                 self.lesson[key] = copy.deepcopy(saved[key])
         self.lesson["limits"] = sim.clean_limits(self.lesson.get("limits"))
-        self.lesson["cpu_robots"] = max(0, min(3, int(self.lesson.get("cpu_robots", 1))))
+        self.lesson["cpu_robots"] = max(0, min(MAX_CPUS, int(self.lesson.get("cpu_robots", 1))))
+        self.lesson["cpu_arenas"] = clean_cpu_arenas(self.lesson.get("cpu_arenas"))
         self.lesson["arenas"] = max(1, min(sim.MAX_ARENAS, int(self.lesson.get("arenas", 1))))
         self.lesson["places"] = {k: v for k, v in self.lesson.get("places", {}).items()
                                  if isinstance(k, str) and isinstance(v, int) and 0 <= v < sim.MAX_ARENAS}
@@ -335,7 +361,8 @@ class LabServer:
             #                                              else watches (after a knockout's final: everyone plays)
             for p in self.players.values():
                 p.robot = None
-            self.cpu.robots = []
+            for c in self.cpus:
+                c.robots = []
             for i, (a_name, b_name, _) in enumerate(self.tournament.current):
                 for who in (a_name, b_name):
                     p = self.player_named(who)
@@ -364,17 +391,14 @@ class LabServer:
                 t.robot = r
         elif t:
             t.robot = None
-        self.cpu.robots = []  # the computer's robots are in every arena: the same opponents for everyone
+        for c in self.cpus:  # each computer robot in every arena (the same opponents for everyone), or in its own
+            c.robots = []
         for i in range(count):
-            for k in range(self.lesson["cpu_robots"]):
-                if k == 0:  # (the one the teacher sets up in the Learner view)
-                    r = put(self.cpu.design, "Computer", self.cpu_robot_brain(), i)
+            for c in self.cpus[:self.lesson["cpu_robots"]]:
+                if self.cpu_arena(c) in (None, i):
+                    r = put(c.design, "Computer", self.cpu_robot_brain(c), i)
                     if r is not None:
-                        self.cpu.robots.append(r)
-                else:
-                    cpu = sim.default_design(f"Sparky {k + 1}", (150, 150, 160),
-                                             ["wedge", "spinner", "drum", "hammer"][k % 4])
-                    put(cpu, "Computer", self.cpu_brain(), i)
+                        c.robots.append(r)
         self.fight_started = self.arena.time
         for a in self.arena:
             a.fight_started = a.time
@@ -523,48 +547,76 @@ class LabServer:
     def cpu_brain(self):
         return cpu_brains.for_level(self.lesson.get("cpu_level", cpu_brains.START_LEVEL), self.demo_brain)
 
-    def cpu_robot_brain(self):
-        """What drives the first computer robot: its own brain while its autopilot is on, or the level's brain."""
-        return self.cpu_own_brain if (self.cpu_own_brain and self.cpu_autopilot) else self.cpu_brain()
+    def cpu_robot_brain(self, c=None):
+        """What drives a computer robot (the first if none is given): its own brain while its autopilot is on, or
+        the level's brain."""
+        c = c or self.cpu
+        return c.own_brain if (c.own_brain and c.autopilot) else self.cpu_brain()
+
+    def cpu_arena(self, c):
+        """The arena a computer robot is in: None (every arena), or the one the teacher set; one past the arenas
+        there are is in the last of them (CHANGE 140)."""
+        a = self.lesson["cpu_arenas"][c.n - 1]
+        count = len(self.arena) if self.arena is not None else self.lesson.get("arenas", 1)
+        return None if a is None else min(a, count - 1)
 
     def attach_cpu(self):
         if self.arena is not None:
-            for r in self.cpu.robots:
-                if r in self.arena.robots:
-                    r.brain = self.cpu_robot_brain()
+            for c in self.cpus:
+                for r in c.robots:
+                    if r in self.arena.robots:
+                        r.brain = self.cpu_robot_brain(c)
 
     def save_cpu(self):
+        """CHANGE 140: every computer robot (its design, brain and arena) in "robots"; the first one's design and
+        brain also as before, for an older server."""
         try:
-            if self.cpu.design == self.cpu.default and not self.cpu_source:
+            arenas = self.lesson["cpu_arenas"]
+            if all(c.design == c.default and not c.source and arenas[c.n - 1] is None for c in self.cpus):
                 if os.path.exists(CPU_FILE):
-                    os.remove(CPU_FILE)  # (as it comes: nothing to keep)
+                    os.remove(CPU_FILE)  # (as they come: nothing to keep)
                 return
+            robots = [{"design": c.design, "brain": c.source, "arena": arenas[c.n - 1]} for c in self.cpus]
             with open(CPU_FILE + ".tmp", "w", encoding="utf-8") as f:
-                json.dump({"design": self.cpu.design, "brain": self.cpu_source}, f)
+                json.dump({"design": self.cpu.design, "brain": self.cpu.source, "robots": robots}, f)
             os.replace(CPU_FILE + ".tmp", CPU_FILE)
         except OSError:
             pass
 
-    def rebuild_cpu_robot(self):
-        """The first computer robot has a new design: it is built again on its start square, in every arena."""
+    def rebuild_cpu_robot(self, c=None):
+        """A computer robot (the first if none is given) has a new design: it is built again on its start square,
+        in every arena it is in."""
+        c = c or self.cpu
         rebuilt = []
-        for r in self.cpu.robots:
+        for r in c.robots:
             if r in self.arena.robots:
                 start, arena = r.start_index, r.arena
                 self.arena.remove_robot(r)
-                rebuilt.append(self.arena.add_robot(self.cpu.design, brain=self.cpu_robot_brain(), owner="Computer",
+                rebuilt.append(self.arena.add_robot(c.design, brain=self.cpu_robot_brain(c), owner="Computer",
                                                     start=start, arena=arena))
-        self.cpu.robots = rebuilt
+        c.robots = rebuilt
         self.roster_version += 1
 
     async def cpu_robot_command(self, m):
-        """The teacher sets up the first computer robot (the Learner view): its design, its own brain, its
-        autopilot, or Reset (back to the computer robot as it comes: Sparky 1, with no brain of its own)."""
+        """The teacher sets up a computer robot (the Learner view; n: which, 1 to MAX_CPUS, the first if not
+        given): its design, its own brain, its autopilot, its arena (an index, or None: every arena), or Reset
+        (back to the computer robot as it comes: Sparky n, with no brain of its own)."""
         t = self.teacher()
         text = None
-        if "design" in m:
+        try:
+            c = self.cpus[max(1, min(MAX_CPUS, int(m.get("n") or 1))) - 1]
+        except (TypeError, ValueError):
+            c = self.cpu
+        whose = "the computer's robot" if c.n == 1 else f"computer robot {c.n}"
+        if "arena" in m:  # CHANGE 140: which arena it is in (everyone's robots go back to their start squares)
+            a = clean_cpu_arenas([m["arena"]])[0]
+            self.lesson["cpu_arenas"][c.n - 1] = a
+            self.rebuild_arena()
+            text = f"{whose[0].upper()}{whose[1:]} is in " + ("every arena" if a is None else f"arena {a + 1}") + \
+                (f" (there are {len(self.arena)}: it is in arena {len(self.arena)})" if a is not None and a >= len(self.arena) else "")
+        elif "design" in m:
             d = m["design"] if isinstance(m["design"], dict) else {}
-            new = copy.deepcopy(self.cpu.design)
+            new = copy.deepcopy(c.design)
             new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", str(d.get("name", new["name"])))[:16] or new["name"]
             for key in ("colour", "weapon", "points", "settings"):
                 if key in d:
@@ -579,29 +631,29 @@ class LabServer:
             if problems:
                 text = "Not built: " + "; ".join(problems)
             else:
-                self.cpu.design = new
-                self.rebuild_cpu_robot()
-                text = f"Built {new['name']} for the computer"
-                self.arena.events.append((self.arena.time, "The teacher rebuilt the computer's robot"))
+                c.design = new
+                self.rebuild_cpu_robot(c)
+                text = f"Built {new['name']} for the computer" + ("" if c.n == 1 else f" (computer robot {c.n})")
+                self.arena.events.append((self.arena.time, f"The teacher rebuilt {whose}"))
         elif m.get("reset"):
-            old, self.cpu_own_brain = self.cpu_own_brain, None
+            old, c.own_brain = c.own_brain, None
             if old is not None:
                 old.close()
-            self.cpu.design, self.cpu_source, self.cpu_autopilot = copy.deepcopy(self.cpu.default), "", False
-            self.rebuild_cpu_robot()
-            text = "The computer's robot is back as it comes: Sparky 1, with no brain of its own"
+            c.design, c.source, c.autopilot = copy.deepcopy(c.default), "", False
+            self.rebuild_cpu_robot(c)
+            text = f"{whose[0].upper()}{whose[1:]} is back as it comes: Sparky {c.n}, with no brain of its own"
         elif "brain" in m:  # (loaded off the game loop: checking a brain can take a moment)
             source = str(m["brain"])[:20000]
             brain, problem = await asyncio.to_thread(self.make_demo_brain, source)
             if brain is None:
                 text = f"Brain problem: {problem}"
             else:
-                old, self.cpu_own_brain, self.cpu_source = self.cpu_own_brain, brain, source
+                old, c.own_brain, c.source = c.own_brain, brain, source
                 if old is not None:
                     old.close()
-                text = "Brain uploaded for the computer's robot. Switch its autopilot on to use it."
+                text = f"Brain uploaded for {whose}. Switch its autopilot on to use it."
         elif "autopilot" in m:
-            self.cpu_autopilot = bool(m["autopilot"]) and self.cpu_own_brain is not None
+            c.autopilot = bool(m["autopilot"]) and c.own_brain is not None
         self.attach_cpu()
         self.save_cpu()
         if t and text:
@@ -1030,9 +1082,12 @@ class LabServer:
                                       else "The drop zone is closed"))
             await self.broadcast_lesson()
             return
-        if kind == "cpu_robot" or (kind == "design_for" and m.get("learner") == CPU_NAME
-                                   and not any(q.name == CPU_NAME for q in self.learners())):
-            await self.cpu_robot_command(m)  # the first computer robot, set up from the Learner view
+        if kind == "design_for" and m.get("learner") in CPU_NAMES \
+                and not any(q.name == m["learner"] for q in self.learners()):
+            m = {**m, "n": CPU_NAMES.index(m["learner"]) + 1}  # (a computer robot, by its name in the class list)
+            kind = "cpu_robot"
+        if kind == "cpu_robot":
+            await self.cpu_robot_command(m)  # a computer robot, set up from the Learner view
             return
         if kind == "design_for_all":  # CHANGE 85: every learner gets exactly this robot (and anyone who joins later)
             d = m.get("design", {}) if isinstance(m.get("design"), dict) else {}
@@ -1141,7 +1196,7 @@ class LabServer:
                 self.lesson["real_damage"] = self.arena.real_damage = bool(update["real_damage"])
                 self.arena.events.append((self.arena.time, "Real damage ON: parts can come off" if
                                           self.arena.real_damage else "Real damage off"))
-            self.lesson["cpu_robots"] = max(0, min(3, int(self.lesson["cpu_robots"])))
+            self.lesson["cpu_robots"] = max(0, min(MAX_CPUS, int(self.lesson["cpu_robots"])))
             self.lesson["time_limit"] = max(30, min(300, int(self.lesson["time_limit"])))
             for key in ("hazards", "tools"):
                 for k, v in update.get(key, {}).items():
@@ -1163,6 +1218,13 @@ class LabServer:
                 try:
                     with open(CARD_NOTE_FILE, "w", encoding="utf-8") as f:
                         json.dump({"note": self.lesson["ai_card_note"]}, f)
+                except OSError:
+                    pass
+            if "gfx_max" in update:  # CHANGE 139: the best graphics a learner may draw, kept between sessions
+                self.lesson["gfx_max"] = gfx_tiers.class_max(update["gfx_max"])
+                try:
+                    with open(GFX_MAX_FILE, "w", encoding="utf-8") as f:
+                        json.dump({"gfx_max": self.lesson["gfx_max"]}, f)
                 except OSError:
                     pass
             if isinstance(update.get("limits"), dict):  # the learners' ranges: kept between sessions, as the sound is
@@ -1297,9 +1359,12 @@ class LabServer:
                "tournament": self.tournament.summary() if self.tournament else None,
                "class": [{"name": p.name, "role": p.role, "design": p.design, "default": p.default}
                          for p in self.players.values()] +
-                        [{"name": CPU_NAME, "role": "computer", "design": self.cpu.design, "default": self.cpu.default,
-                          "brain": self.cpu_own_brain is not None, "autopilot": self.cpu_autopilot,
-                          "in_arena": bool(self.cpu.robots)}]}
+                        # every computer robot, the first first (the game window's Learner view sets up that one);
+                        # n: which it is; arena: the one the teacher set (None: every arena), in: the one it is in
+                        [{"name": c.name, "role": "computer", "design": c.design, "default": c.default,
+                          "brain": c.own_brain is not None, "autopilot": c.autopilot, "in_arena": bool(c.robots),
+                          "n": c.n, "arena": self.lesson["cpu_arenas"][c.n - 1], "in": self.cpu_arena(c)}
+                         for c in self.cpus]}
         for ws in list(self.players):
             await self.send(ws, msg)
 
@@ -1422,12 +1487,12 @@ class LabServer:
             mine = live if live and live.get("game") == GAME_ID else None
             key = mine["id"] if mine else None
             if key == seen and mine and sorted(mine.get("learners", [])) != self.group:
-                # the same session, but the teacher has let someone in or taken someone out (the Accounts tab)
+                # the same session, but the teacher has let someone in or taken someone out: back to the lobby (CHANGE 141)
                 self.group = sorted(mine.get("learners", []))
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in self.group:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "You aren't in this session.")
+                        await ws.close(4009, "Your teacher took you out of this game: back to the lobby.")
                         self.rebuild_arena()
             session = self.session_msg()
             if session != self.session:  # (for the teacher's Accounts tab)
@@ -1440,7 +1505,8 @@ class LabServer:
                 self.warnings = []
                 await self.warn_teacher()
                 self.lesson["cpu_level"] = cpu_brains.START_LEVEL  # ...and nothing attacks until the teacher says
-                self.cpu_autopilot = False
+                for c in self.cpus:
+                    c.autopilot = False
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in allowed:
                         self.players.pop(ws, None)

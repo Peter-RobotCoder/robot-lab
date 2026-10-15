@@ -5,7 +5,7 @@
 // hazards, user mods and the vote, the limits) and Warnings. Built from what each game's server sends (its rules,
 // lesson and class), not from a list per game, so a game's new tool or hazard shows up here by itself.
 
-import {renderGarage, buildMine, draftOf, takeDesign} from "./garage.js";
+import {renderGarage, buildMine, draftOf, takeDesign, cpuOf} from "./garage.js";
 const $ = id => document.getElementById(id);
 
 export const TEACHER_TABS = [["learners", "Learners"], ["outcomes", "Outcomes"], ["cards", "AI cards"], ["changes", "Changes"],
@@ -112,24 +112,34 @@ function learners(app) {  // the connected learners, from the lesson's class lis
     return (app.state.classList || []).filter(p => p.role === "learner");
 }
 
+// the computer's robots or fighters the teacher sets up: Fight Lab's one, or Robot Lab's (CHANGE 140: up to four,
+// each with its n; those past the lesson's Computer robots are left out, but never the first)
+function computers(app) {
+    const L = app.state.lesson || {};
+    return (app.state.classList || []).filter(p => p.role === "computer" && !(p.n > Math.max(1, L.cpu_robots ?? 1)));
+}
+const cpuPick = c => c.n > 1 ? `*cpu${c.n}` : "*cpu";
+
 function learnersTab(app, body) {
     const S = app.state, game = app.game, send = app.send;
     const perf = (S.roster && S.roster.perf) || {};
-    const people = S.classList || [];
+    const cpus = computers(app);
+    const people = (S.classList || []).filter(p => p.role !== "computer" || cpus.includes(p));
     const extraHead = game.learnerHead ? game.learnerHead() : [];
     const rows = people.map(p => {
         const pf = perf[p.name] || {};
         const stalls = pf.stalls ?? "";
         const extra = game.learnerCells ? game.learnerCells(p) : [];
-        return `<tr data-learner="${esc(p.name)}" class="${S.pick === p.name ? "picked" : ""}"><td>${esc(p.name)}</td><td>${esc(p.role)}</td>` +
+        const key = p.role === "computer" ? cpuPick(p) : p.name;
+        return `<tr data-learner="${esc(key)}" class="${S.pick === key ? "picked" : ""}"><td>${esc(p.name)}</td><td>${esc(p.role)}</td>` +
                extra.map(c => `<td>${c}</td>`).join("") +
                `<td class="num">${pf.fps ?? ""}</td><td class="num">${pf.ping ?? ""}</td>` +
                `<td class="num ${Number(stalls) > 5 ? "bad" : ""}">${stalls}</td><td>${esc(pf.tier ?? "")}</td></tr>`;
     }).join("");
-    const cpu = people.find(p => p.role === "computer");
     const picks = [...learners(app).map(p => [p.name, p.name]), ["*all", "All learners"],
-                   ...(cpu ? [["*cpu", cpu.name]] : []), ["*me", `My ${game.word}`]];
-    if (!S.pick) S.pick = learners(app)[0] ? learners(app)[0].name : "*all";
+                   ...cpus.map(c => [cpuPick(c), c.n ? `Computer ${c.n}` : c.name]), ["*me", `My ${game.word}`]];
+    if (!S.pick || (cpuOf(app, S.pick) && !picks.some(([k]) => k === S.pick)))  // (a computer robot no longer in use)
+        S.pick = learners(app)[0] ? learners(app)[0].name : "*all";
     body.innerHTML = `
       <h2>Who is here</h2>
       <table><tr><th>Name</th><th>Role</th>${extraHead.map(h => `<th>${esc(h)}</th>`).join("")}<th>fps</th><th>ping</th><th>stalls</th><th>graphics</th></tr>${rows}</table>
@@ -148,9 +158,11 @@ function learnersTab(app, body) {
 function pickBody(app, box) {
     const S = app.state, send = app.send, game = app.game, L = S.lesson || {};
     const people = S.classList || [];
-    if (S.pick === "*all" || S.pick === "*me" || S.pick === "*cpu") {
-        const cpu = people.find(p => p.role === "computer");
+    const cpu = cpuOf(app, S.pick);
+    if (S.pick === "*all" || S.pick === "*me" || cpu) {
         const who = S.pick === "*me" ? null : S.pick;
+        const which = cpu && cpu.n ? {n: cpu.n} : {};  // (which computer robot: Robot Lab's, CHANGE 140)
+        const arenas = L.arenas || 1, all = people.filter(p => p.role === "computer").length;
         box.innerHTML = `<div id="dzgarage"></div>
           <div class="row"><button id="dz-history">Load a saved design</button></div>
           ${S.history ? `<div class="row"><select id="dz-hist">${S.history.slice(0, 80).map((h, i) => `<option value="${i}">${esc(h.when)} ${esc(h.who)}: ${esc(h.name)}</option>`).join("")}</select><button id="dz-load">Load it</button></div>` : ""}
@@ -159,10 +171,18 @@ function pickBody(app, box) {
               ${L.start_design ? `<button id="dz-standard">Standard again</button>` : ""}</div>
               <div class="note">The ${esc(game.word)} every learner starts this mission with (with their own name and colour); "Reset every
                 learner" on All learners gives it to everyone now.</div>` : ""}
-          ${S.pick === "*cpu" ? `<h3>Its brain</h3><div class="row"><button id="cpu-reset" class="stop">Reset: as it comes</button>
-              <button id="cpu-auto" class="${cpu && cpu.autopilot ? "on" : ""}">Autopilot ${cpu && cpu.autopilot ? "on" : "off"}</button>
+          ${cpu && "arena" in cpu ? `<h3>Where it is</h3><div class="row"><label>Computer robots</label><select id="cpu-count">${
+                Array.from({length: all + 1}, (_, k) => `<option ${k === L.cpu_robots ? "selected" : ""}>${k}</option>`).join("")}</select>
+              <label>Its arena</label><select id="cpu-arena"><option value="">Every arena</option>${
+                Array.from({length: Math.max(arenas, (cpu.arena ?? -1) + 1)}, (_, k) => `<option value="${k}" ${cpu.arena === k ? "selected" : ""}>Arena ${k + 1}</option>`).join("")}</select></div>
+              <div class="note">${!cpu.in_arena ? `It isn't in the arena: Computer robots is ${esc(L.cpu_robots)}.`
+                : cpu.arena === null ? "It is in every arena: the same opponent for everyone."
+                : cpu.in !== cpu.arena ? `Set to arena ${cpu.arena + 1}, but there ${arenas === 1 ? "is 1 arena" : `are ${arenas}`}: it is in arena ${cpu.in + 1}.`
+                : `It is in arena ${cpu.arena + 1} only.`}</div>` : ""}
+          ${cpu ? `<h3>Its brain</h3><div class="row"><button id="cpu-reset" class="stop">Reset: as it comes</button>
+              <button id="cpu-auto" class="${cpu.autopilot ? "on" : ""}">Autopilot ${cpu.autopilot ? "on" : "off"}</button>
               <label class="filebtn">Upload its brain (.py)<input id="cpu-brain" type="file" accept=".py,text/x-python,text/plain" hidden></label></div>
-              <div class="note">${cpu && cpu.brain ? "It has its own brain." : "No brain of its own yet."} Autopilot uses the uploaded brain.</div>` : ""}`;
+              <div class="note">${cpu.brain ? "It has its own brain." : "No brain of its own yet."} Autopilot uses the uploaded brain.</div>` : ""}`;
         renderGarage(app, $("dzgarage"), {who, pre: "dz", codeButton: !who,
             after: S.pick === "*all" ? `<div class="note">Everyone connected gets exactly this, and so does anyone who joins this session.</div>` : "",
             build: d => {
@@ -170,7 +190,7 @@ function pickBody(app, box) {
                 const name = $("dz-name");  // (the window's send_design_for: the name as it is in the box)
                 if (name) d.name = Array.from(name.value).slice(0, game.id === "kartlab" ? 12 : 16).join("");
                 if (S.pick === "*all") send({type: "design_for_all", design: d});
-                else send({type: "cpu_robot", design: d});
+                else send({type: "cpu_robot", ...which, design: d});
             }});
         $("dz-history").onclick = () => send({type: "history"});
         if ($("dz-load")) $("dz-load").onclick = () => {
@@ -181,9 +201,13 @@ function pickBody(app, box) {
         if ($("dz-start")) $("dz-start").onclick = () => { send({type: "lesson", lesson: {start_design: draftOf(app)}}); app.toast("Saved as the learners' starting design."); };
         if ($("dz-standard")) $("dz-standard").onclick = () => send({type: "lesson", lesson: {start_design: null}});
         if ($("cpu-reset")) {
-            $("cpu-reset").onclick = () => send({type: "cpu_robot", reset: true});
-            $("cpu-auto").onclick = () => send({type: "cpu_robot", autopilot: !(cpu && cpu.autopilot)});
-            $("cpu-brain").onchange = async e => { const f = e.target.files[0]; if (f) send({type: "cpu_robot", brain: await f.text()}); };
+            $("cpu-reset").onclick = () => send({type: "cpu_robot", ...which, reset: true});
+            $("cpu-auto").onclick = () => send({type: "cpu_robot", ...which, autopilot: !cpu.autopilot});
+            $("cpu-brain").onchange = async e => { const f = e.target.files[0]; if (f) send({type: "cpu_robot", ...which, brain: await f.text()}); };
+        }
+        if ($("cpu-arena")) {
+            $("cpu-arena").onchange = e => send({type: "cpu_robot", ...which, arena: e.target.value === "" ? null : Number(e.target.value)});
+            $("cpu-count").onchange = e => send({type: "lesson", lesson: {cpu_robots: Number(e.target.value)}});
         }
         return;
     }

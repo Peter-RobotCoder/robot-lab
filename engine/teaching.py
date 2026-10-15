@@ -288,8 +288,9 @@ class Teaching:
             if kind == "view_learner":  # the teacher's learner view: that learner's missions, as they see them
                 q = next((x for x in self.server.learners() if x.name == m.get("name")), None)
                 cpu = getattr(self.server, "cpu", None)  # (the computer's robot or fighter: the Mission tab as a
-                if q is None and cpu is not None and m.get("name") == cpu.name:  # learner sees it, CHANGE 23)
-                    q = cpu
+                for c in getattr(self.server, "cpus", None) or [cpu]:  # learner sees it, CHANGE 23; Robot Lab
+                    if q is None and c is not None and m.get("name") == c.name:  # has four, CHANGE 140)
+                        q = c
                 if q is None:
                     return [(p.ws, {"type": "notice", "text": "That learner isn't connected."})]
                 return [(p.ws, self.missions_msg(q) | {"for": q.name})]

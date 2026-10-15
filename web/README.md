@@ -9,12 +9,15 @@ except play.
 What it does now:
 
 - logs in with the desk's teacher password (the one the app's Teacher screen takes), and stays connected to the
-  desk (logging in again by itself if the Wi-Fi drops; the password is kept only in the page's memory);
-  "Use a class server's code instead" is still there for a laptop test server;
+  desk (logging in again by itself if the Wi-Fi drops; the password is kept only in the page's memory). No class
+  codes (CHANGE 141): a learner logs in with their username and waits in THE LOBBY until the teacher adds them to a
+  game (only a laptop test server's address, ?host=&code=, still takes a code, for the tests). The login card
+  scrolls on a short screen;
 - the TEACHER DESK (`desk.js`): everything the app's Teacher screen does. Learners (add, with a starter password or
   one made up; reset; remove, pressed twice; print login slips), groups (name, proposed time, game, learners),
   Launch on a lesson, LAUNCH LEARNERS' WINDOWS, Stop (pressed twice), This session (who is here, missions
-  completed, a note each), Records (past sessions; Print makes the session summary and the learner cards, as the
+  completed, a note each; Back to lobby takes a learner out of the game, and a name from the lobby or the class
+  adds them: their game opens at once; editing the live group does the same), Records (past sessions; Print makes the session summary and the learner cards, as the
   app's PDFs, through the browser's print box: "Save as PDF" keeps them), Watch a class, and changing the teacher
   password. Launching a group opens its live view by itself; the view's TEACHER DESK button goes back. The desk
   hands the page a teacher ticket for a class (CHANGE 128), so no class code is needed;
@@ -33,7 +36,7 @@ What it does now:
     tiers (`fightmodels.js`: `fight_model.py`'s clips, frames, blending, cartwheel and dressing, ported), the
     primitive stand-in until a model is loaded and on blocks;
 - each game's own controls (Kart Lab: race, track, laps, grand prix; Robot Lab: practice or battle, restart, time,
-  computer robots and their brain, real damage, the drop zone, arenas and who is where, winner stays on or a
+  computer robots (up to four, CHANGE 140: each the teacher's to set up in Learners, in every arena or one) and their brain, real damage, the drop zone, arenas and who is where, winner stays on or a
   knockout; Fight Lab: practice or battle, rounds, sparring partners and bosses, rings and who is where, matches,
   tournaments), the missions and their saved settings, and Restart server / Reopen learners' windows (the page
   reconnects by itself after a restart);
@@ -70,10 +73,24 @@ What it does now:
   Each tier draws at most so many pixels (1.0, 1.1, 1.6 and 2.4 million), however fine the screen: a 4K laptop
   at 300% would otherwise draw 7.7 million a frame where the app's window draws 0.9 million. The canvas's own
   multisampling smooths the edges; the tone curve is applied as each pixel is drawn, so there is no pass after the
-  scene. Scenery that never moves is drawn as one mesh per material. Auto steps down one tier after three seconds
-  under 28 frames a second, and the page remembers the tier on that computer (first visit: medium, high on a
-  graphics card). The Graphics tab shows the browser's WebGL and WebGPU state, the renderer, how many pixels are
-  drawn and how many meshes.
+  scene. Scenery that never moves is drawn as one mesh per material. Auto (CHANGE 139, `base3d.js`'s `AutoTier`) steps
+  down one tier after three seconds under 28 frames a second and back up one after 25 seconds with headroom (with
+  vsync the frame time sits at the screen's rate, so: 45 a second or more, no more than one frame over 25 ms a
+  second), never past the class maximum or one above the best tier this computer has run cleanly; a tier stepped
+  down from is held off for 10 minutes, twice as long each time it fails again (up to a day). The page remembers
+  the tier, Auto and what Auto learnt on that computer (first visit: medium, high on a graphics card). The Graphics
+  tab (a learner's Settings) has Auto and the four tiers (picking one turns Auto off, as the windows' Graphics: Low
+  does), then every part of a tier to fine-tune (shadows off/512/1024/2048, normal maps, occlusion maps, the sky's
+  reflections, anisotropic filtering, the pixels drawn, from 0.6 million to as fine as the screen; picking a tier
+  sets them all back to its own), the canvas's multisampling (read as the page opens) and the frame rate box; and
+  the browser's WebGL and WebGPU state, the renderer, how many pixels are drawn and how many meshes.
+- the teacher's **class maximum** (CHANGE 139, the teacher's Graphics tab): blocks, low, medium, high or no limit,
+  sent as the lesson's `gfx_max` (the windows' names: `basic` for blocks), kept by each class server between
+  sessions (`gfx_max_saved.json`). A learner's page can't choose above it, part by part too, Auto never steps past
+  it, and a page above it drops to it at once (back to the learner's own choice when it is lifted). The game windows
+  obey it too (`engine/gfx_tiers.py`): a window opens at most at it, and one already open turns its shadow map,
+  MSAA and LOD down to the maximum's at once (simplepbr's shaders are made as the window opens, so the rest waits
+  for its next start); its monitor never steps up past it. The teacher's own view and window aren't held to it.
 
 Sending an AI card to Claude (Check and send with the whole prompt, Send to Claude, Keep, Undo, sending again with
 more allowed) and the Changes tab (each kept change as a mod: its lines, switched off and on, merged into the game,
@@ -113,6 +130,7 @@ escapes; code nested more than about 1,500 deep).
 | `pbr.js` | the app's lighting: simplepbr's shader as a Babylon ShaderMaterial, the key light's shadow, the sky's reflections, the tone curve |
 | `tex/`, `make_textures.py` | the app's texture sets (512 x 512 JPEGs), each sky's reflections as simplepbr works them out (`env` for Robot Lab and Fight Lab, `sky` for Kart Lab: spherical harmonics in `manifest.json`, the blurred sky as a picture), simplepbr's BRDF table. Made with the games' Python (`shared-world-demo\.venv`): run `make_textures.py` after a texture generator or simplepbr changes; the test checks the version numbers |
 | `lessons.json`, `make_lessons.py` | each game's lesson titles, aims, outcomes and missions for the printouts, made from the games' lesson files (run `make_lessons.py` after changing one; the test checks it) |
+| `fonts/` | JetBrains Mono (OFL 1.1, `OFL.txt`), the code panel's font (CHANGE 138: the promo videos' code window, the Python highlighted as it is typed), served with the page so no font server is needed |
 | `vendor/babylon.js` | Babylon.js 9.28.0 (Apache-2.0), served from the VPS so a school need only reach one domain |
 | `vendor/babylon.glTF2FileLoader.min.js` | Babylon's glTF 2 loader, babylonjs-loaders 9.28.0 (Apache-2.0): loads Fight Lab's models |
 | `web_test.py` | the test: a desk and laptop servers for all three games, the page in headless Chrome or Edge |
@@ -125,7 +143,7 @@ Start a game's laptop server (`1 Kart Lab server.bat`, or `python lab_server.py`
     http://127.0.0.1:8090/index.html?host=ws://127.0.0.1:8782&code=TEACH99
 
 (Robot Lab 8780, Fight Lab 8781, Kart Lab 8782.) Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`
-(watch it straight after logging in), `autoconnect=1`, `tier=blocks|low|medium|high`, `auto=0` (no auto step-down),
+(watch it straight after logging in), `autoconnect=1`, `tier=blocks|low|medium|high`, `auto=0` (no Auto),
 `cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.7` (a class server wants the release's
 number; on the VPS the page reads `/live/version`), `models=<url>` (where Fight Lab's models are: by default
 `models/fightlab/` beside the page, then `../games/fightlab/models/` or `../../BeatEmUp/models/` when the page is
@@ -141,10 +159,11 @@ Launch opening the class view with the desk's ticket; a learner's own page (her 
 opening by itself; her Garage drawn from the schema, her code panel: APPLY CODE changing a value, a mistake shown
 on its line, BUILD reaching the server sent as code); a note, LAUNCH LEARNERS' WINDOWS, Stop and the printed
 record (kept as `records.pdf` in the test folder); a reset, a removal, login slips; the teacher password changed.
-Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the app's lighting, every picture loaded, no mesh left holding a thrown-away material, the pixel budget kept), the Learners tab, the class-code login. Robot Lab, with a
+Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the app's lighting, every picture loaded, no mesh left holding a thrown-away material, the pixel budget kept), the teacher's class maximum holding the learner's page (and Auto's steps, fed simulated frame rates), the Learners tab, the class-code login. Robot Lab, with a
 scripted learner: the arena and robots on every tier; the shared tabs (a tool and a hazard, an objective added and
 ticked, missions out and back in, the evidence CSV, an AI card sent back, a learner's mission and robot rebuilt);
-the teacher's own garage (a weapon chosen); Restart server and the page reconnecting. Fight Lab: the rings and posed
+the teacher's own garage (a weapon chosen); computer robot 2 renamed and put in arena 2 from the Learners tab (the
+snapshot has it there alone); Restart server and the page reconnecting. Fight Lab: the rings and posed
 fighters, the detailed model, its controls, the teacher's own garage (the woman's look). lessons.json, schemas.json,
 tex/ and sfx/ up to date; `schema_test.py` passing. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
 or Edge.

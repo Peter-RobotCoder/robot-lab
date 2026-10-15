@@ -43,6 +43,7 @@ import fight_version
 sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
 from engine import club_ticket  # noqa: E402
 from engine import schema  # noqa: E402
+from engine import gfx_tiers  # noqa: E402
 from engine import rw_sound  # noqa: E402
 from engine.tournament import WinnerStaysOn  # noqa: E402
 
@@ -78,6 +79,7 @@ def server_ms():
     return int((time.perf_counter() - T0) * 1000) & 0xFFFFFFFF
 HERE = os.path.dirname(os.path.abspath(__file__))
 CARD_NOTE_FILE = os.path.join(fight_teaching.DATA, "card_note_saved.json")  # the teacher's words on the AI card
+GFX_MAX_FILE = os.path.join(fight_teaching.DATA, "gfx_max_saved.json")  # ...and the class's graphics maximum
 LIMITS_FILE = os.path.join(fight_teaching.DATA, "limits_saved.json")  # the learners' ranges, kept between sessions
 CPU_FILE = os.path.join(fight_teaching.DATA, "computer_fighter.json")  # the computer fighter, as the teacher set it up
 CPU_NAME = "Computer fighter"  # its name in the teacher's Learner view (CHANGE 77: one design for every ring)
@@ -106,6 +108,7 @@ WEEK1_LESSON = {
                                    # and anyone not named takes the rings in turn
     "hazards": {"ring_out": True, "electric_ropes": False, "fire_jets": False, "slippery": False, "spikes": False},
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
+    "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
     "limits": sim.default_limits(),  # the learners' ranges for every setting and point (the teacher's Limits tab)
     "user_mods": {},               # features learners asked for (fight_sim.USER_MODS): the teacher switches them on
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears: music, crowd and hit sounds
@@ -210,6 +213,11 @@ class FightServer:
         try:
             with open(CARD_NOTE_FILE, encoding="utf-8") as f:
                 self.lesson["ai_card_note"] = str(json.load(f).get("note", ""))[:300]
+        except (OSError, ValueError, AttributeError):
+            pass
+        try:
+            with open(GFX_MAX_FILE, encoding="utf-8") as f:
+                self.lesson["gfx_max"] = gfx_tiers.class_max(json.load(f).get("gfx_max"))
         except (OSError, ValueError, AttributeError):
             pass
         self.use_mission_settings()
@@ -997,6 +1005,13 @@ class FightServer:
                         json.dump({"note": self.lesson["ai_card_note"]}, f)
                 except OSError:
                     pass
+            if "gfx_max" in update:  # CHANGE 139: the best graphics a learner may draw, kept between sessions
+                self.lesson["gfx_max"] = gfx_tiers.class_max(update["gfx_max"])
+                try:
+                    with open(GFX_MAX_FILE, "w", encoding="utf-8") as f:
+                        json.dump({"gfx_max": self.lesson["gfx_max"]}, f)
+                except OSError:
+                    pass
             if isinstance(update.get("mods_in_vote"), dict):  # which mods learners see and vote on (CHANGE 55)
                 in_vote = {k: bool(v) for k, v in update["mods_in_vote"].items() if k in sim.USER_MODS}
                 self.lesson["mods_in_vote"] = {**self.lesson.get("mods_in_vote", {}), **in_vote}
@@ -1270,6 +1285,15 @@ class FightServer:
             live = read_live()
             mine = live if live and live.get("game") == GAME_ID else None
             key = mine["id"] if mine else None
+            if key == seen and mine and sorted(mine.get("learners", [])) != self.group:
+                # the same session, but the teacher has added someone or taken someone out (the desk's This session, the
+                # live group's learners, or the Accounts tab): who was taken out goes back to the lobby (CHANGE 141)
+                self.group = sorted(mine.get("learners", []))
+                for ws, p in list(self.players.items()):
+                    if p.role == "learner" and p.name not in self.group:
+                        self.players.pop(ws, None)
+                        await ws.close(4009, "Your teacher took you out of this game: back to the lobby.")
+                        self.rebuild_stage()
             if key != seen:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()

@@ -33,12 +33,93 @@ export function setSkyData(manifest) {
     skyData = manifest && manifest.sh ? manifest : null;
 }
 
+// The parts of a tier the Graphics tab changes one by one (CHANGE 139), over the tier's own: shadow (0, 512, 1024,
+// 2048), normal, occlusion, ibl (the sky's reflections), aniso (1, 2, 4, 8, 16) and pixels (a budget; SCREEN: as
+// fine as the screen). Picking a tier clears them. A class maximum (the teacher's gfx_max, on a learner's page)
+// caps every part at that tier's own, whatever was chosen.
+export const SCREEN = 1e9;  // (a number, not Infinity: the parts are kept as JSON)
+export const PARTS = {shadow: [0, 512, 1024, 2048], aniso: [1, 2, 4, 8, 16], pixels: [0.6e6, 1.0e6, 1.1e6, 1.6e6, 2.4e6, 3.7e6, SCREEN]};
+export function cleanParts(parts) {  // (what was kept on this computer: only the parts there are, of the right kind)
+    const out = {};
+    for (const [k, v] of Object.entries(parts && typeof parts === "object" ? parts : {})) {
+        if (PARTS[k] ? PARTS[k].includes(v) : ["normal", "occlusion", "ibl"].includes(k) && typeof v === "boolean") out[k] = v;
+    }
+    return out;
+}
+let tweaks = {}, classMax = null;
+export function setGraphics(parts = {}, cap = null) {
+    tweaks = Object.assign({}, parts);
+    classMax = TIERS.includes(cap) ? cap : null;
+}
+
+export function cappedTier(tier, cap = classMax) {
+    return cap && TIERS.indexOf(tier) > TIERS.indexOf(cap) ? cap : tier;
+}
+
+// what a tier draws with: its own settings, the parts changed by hand, then the class maximum's
+export function tierSettings(tier) {
+    const s = Object.assign({}, TIER_SETTINGS[tier] || TIER_SETTINGS.medium, tweaks);
+    if (classMax) {
+        const c = TIER_SETTINGS[classMax];
+        for (const k of ["shadow", "aniso", "pixels"]) s[k] = Math.min(s[k], c[k]);
+        for (const k of ["pbr", "normal", "ibl", "occlusion"]) s[k] = s[k] && c[k];
+    }
+    return s;
+}
+
 // how many pixels the canvas draws for each CSS pixel: the tier's budget over the page's size, never finer than
 // the screen, and not much coarser than one for one
 let shownTier = "medium";
 export function resolutionFor(tier, cssW = window.innerWidth, cssH = window.innerHeight, dpr = window.devicePixelRatio || 1) {
-    const budget = (TIER_SETTINGS[tier] || TIER_SETTINGS.medium).pixels;
+    const budget = tierSettings(tier).pixels;
     return Math.max(Math.min(dpr, 0.75), Math.min(dpr, Math.sqrt(budget / Math.max(1, cssW * cssH))));
+}
+
+// Auto (CHANGE 131, 139): fed once a second with the frame rate and the frames that took over MISS_MS. Three
+// seconds under 28 frames a second: one tier down, and the tier stepped down from is held off (10 minutes, twice as
+// long each time it fails again, up to a day). UP_SECS seconds in a row with headroom (with vsync the frame time
+// sits at the screen's rate, so headroom is: no more than one frame missed a second, at 45 a second or more): one
+// tier up, never past the class maximum, a tier held off, or one above the best this computer has run cleanly
+// (CLEAN_SECS of headroom at it). store is what is kept on this computer: {best, failed: {tier: [until, times]}}.
+export class AutoTier {
+    static SLOW_FPS = 28; static SLOW_SECS = 3; static MISS_MS = 25; static UP_FPS = 45; static UP_SECS = 25;
+    static CLEAN_SECS = 10; static GAP_MS = 8000; static HOLD_MS = 600000; static HOLD_MAX = 86400000;
+
+    constructor(store = {}) {
+        this.store = {best: TIERS.includes(store.best) ? store.best : null, failed: Object.assign({}, store.failed || {})};
+        this.slow = this.good = 0;
+        this.at = -Infinity;  // (the last change: the next waits GAP_MS)
+    }
+
+    // fps, missed: this second's; tier: the one drawn; cap: the class maximum; active: a game is drawn and seen;
+    // now: performance.now(), wall: Date.now() (the holds are kept on this computer, so in the clock's time).
+    // Returns {tier, up} when the tier should change, else null
+    second({fps, missed = 0, tier, cap = null, active = true, now = performance.now(), wall = Date.now()}) {
+        if (!active || !fps) { this.slow = this.good = 0; return null; }
+        const C = AutoTier, i = TIERS.indexOf(tier);
+        this.slow = fps < C.SLOW_FPS ? this.slow + 1 : 0;
+        this.good = fps >= C.UP_FPS && missed <= 1 ? this.good + 1 : 0;
+        if (this.good >= C.CLEAN_SECS && TIERS.indexOf(this.store.best) < i) this.store.best = tier;
+        if (now - this.at < C.GAP_MS) return null;
+        if (this.slow >= C.SLOW_SECS && i > 0) {
+            const [, times] = this.store.failed[tier] || [0, 0];
+            this.store.failed[tier] = [wall + Math.min(C.HOLD_MAX, C.HOLD_MS * 2 ** times), times + 1];
+            return this.change(TIERS[i - 1], false, now);
+        }
+        if (this.good >= C.UP_SECS && i < TIERS.length - 1) {
+            const up = TIERS[i + 1], held = this.store.failed[up];
+            const ceiling = Math.min(cap ? TIERS.indexOf(cap) : TIERS.length - 1, TIERS.indexOf(this.store.best) + 1);
+            if (i + 1 <= ceiling && !(held && held[0] > wall)) return this.change(up, true, now);
+            this.good = 0;  // (not now: look again in another UP_SECS)
+        }
+        return null;
+    }
+
+    change(tier, up, now) {
+        this.at = now;
+        this.slow = this.good = 0;
+        return {tier, up};
+    }
 }
 
 export function applyResolution(engine, tier = shownTier) {
@@ -114,11 +195,12 @@ export function upwardNormals(pos, idx) {
 }
 
 let sharedEngine = null;
-export function pageEngine(canvas) {
+export function pageEngine(canvas, antialias = true) {
     if (!sharedEngine) {
         // alpha false: the canvas is opaque, so the page behind can never show through the drawing (CHANGE 132: a
-        // material that wrote alpha 0 made every lit tier black in a real window, though headless pictures were fine)
-        sharedEngine = new BABYLON.Engine(canvas, true, {stencil: true, antialias: true, alpha: false}, true);
+        // material that wrote alpha 0 made every lit tier black in a real window, though headless pictures were fine).
+        // antialias: the canvas's multisampling, fixed when the page opens (CHANGE 139: the Graphics tab's switch)
+        sharedEngine = new BABYLON.Engine(canvas, antialias, {stencil: true, antialias, alpha: false}, true);
         sharedEngine.ccKeep = {scene: new BABYLON.Scene(sharedEngine), textures: {}};  // (pbr.js: pictures kept loaded)
         window.addEventListener("resize", () => applyResolution(sharedEngine));
         applyResolution(sharedEngine);
@@ -159,7 +241,7 @@ export class BaseScene {
         const old = this.scene;
         if (old) old.dispose();
         const L = this.look;
-        const settings = this.settings = Object.assign({}, TIER_SETTINGS[this.tier]);
+        const settings = this.settings = tierSettings(this.tier);  // (with the parts changed by hand: CHANGE 139)
         if (!this.engine.webGLVersion || this.engine.webGLVersion < 2) settings.pbr = false;  // (the app's lighting needs WebGL 2)
         applyResolution(this.engine, this.tier);
         const scene = this.scene = new BABYLON.Scene(this.engine);
@@ -279,8 +361,8 @@ export class BaseScene {
 
     populate() { /* the subclass's world */ }
 
-    setTier(tier) {
-        if (!TIERS.includes(tier) || tier === this.tier) return;
+    setTier(tier, again = false) {  // (again: the same tier with other parts, built afresh)
+        if (!TIERS.includes(tier) || (tier === this.tier && !again)) return;
         this.tier = tier;
         this.build();
     }

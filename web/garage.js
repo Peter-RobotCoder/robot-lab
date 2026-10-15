@@ -1,14 +1,16 @@
 // The Garage and the code panel (CHANGE 135), as the game windows draw them: the tables from the game's design
 // schema (engine/garage.py: STRING VARIABLES, VARIABLE LISTS, INTEGER VARIABLES), the window's own sections (Fight
 // Lab's detailed look and combo editor), the stats readout, the five saved designs and BUILD; and the design as
-// Python code (engine/schema.py through schema.js), edited and applied as the window's code panel does.
+// Python code (engine/schema.py through schema.js), edited and applied as the window's code panel does, in an
+// editor drawn as the promo videos' code window (CHANGE 138).
 //
 // What is edited is the window's "draft": a copy of the design, built when BUILD sends it. BUILD sends what the
 // window sends ({type: "design", design, code}: code is true when the draft holds a value changed in the code), so
 // the class server, the teacher's Warnings and the missions ("hack the code") see the page as a window.
 //
 // who: null for your own design (a learner's, or the teacher's own with the widest limits); a learner's name, "*all"
-// or "*cpu" for the teacher's Learner view (every row shown, with a "learner sees" box for each tool).
+// or "*cpu" for the teacher's Learner view (every row shown, with a "learner sees" box for each tool); "*cpu2" to
+// "*cpu4" are Robot Lab's other computer robots (CHANGE 140).
 
 import * as SC from "./schema.js";
 
@@ -35,6 +37,15 @@ export function gameSchema(app) {
 // ---------- what the garage edits, with which tools and limits (each window's cur(), tools(), limits()) ----------
 function teacherRole(app) { return app.state.role !== "learner"; }
 
+const isCpu = who => /^\*cpu\d?$/.test(who || "");
+
+// the computer's robot or fighter a pick is ("*cpu": the first, or the only one; "*cpu2": Robot Lab's n 2), or null
+export function cpuOf(app, who) {
+    if (!isCpu(who)) return null;
+    const n = Number(who.slice(4) || 1);
+    return (app.state.classList || []).find(p => p.role === "computer" && (p.n || 1) === n) || null;
+}
+
 export function draftOf(app, who = null) {
     const S = app.state;
     if (!who) {
@@ -44,7 +55,7 @@ export function draftOf(app, who = null) {
     S.viewDrafts = S.viewDrafts || {};
     if (!S.viewDrafts[who]) {
         const people = S.classList || [];
-        const base = who === "*cpu" ? (people.find(p => p.role === "computer") || {}).design
+        const base = isCpu(who) ? (cpuOf(app, who) || {}).design
             : who === "*all" ? (S.myDesign || {})  // ("All learners" starts from the teacher's own: CHANGE 85)
             : (people.find(p => p.name === who) || {}).design;
         S.viewDrafts[who] = copy(base || S.myDesign || {});
@@ -70,7 +81,7 @@ export function limitsOf(app, who = null) {
 
 function ctxOf(app, who, d) {
     const S = app.state;
-    const name = who === "*all" ? "every learner" : who === "*cpu" ? (((S.classList || []).find(p => p.role === "computer") || {}).name || "the computer") : who;
+    const name = who === "*all" ? "every learner" : isCpu(who) ? ((cpuOf(app, who) || {}).name || "the computer") : who;
     return SC.codeCtx(gameSchema(app), {rules: S.rules || {}, tools: toolsOf(app), limits: limitsOf(app, who), design: d,
                                         who: name, makers: (S.mods || {}).makers || {}});
 }
@@ -91,7 +102,7 @@ export function renderGarage(app, box, opts = {}) {
         ticked.add(tool);
         return `<label class="sees"><input type="checkbox" data-sees="${esc(tool)}" ${seen[tool] ? "checked" : ""}> learner sees</label>`;
     };
-    const title = opts.title || (who === "*all" ? `EVERY LEARNER'S ${WORD}` : who === "*cpu" ? `${esc(ctx.title)}` : who ? `${esc(who.toUpperCase())}'S ${WORD}`
+    const title = opts.title || (who === "*all" ? `EVERY LEARNER'S ${WORD}` : isCpu(who) ? `${esc(ctx.title)}` : who ? `${esc(who.toUpperCase())}'S ${WORD}`
                                  : teacher ? `MY ${WORD}` : `GARAGE  -  your ${word} as variables`);
     let html = `<h2 class="gtitle">${title}</h2>`;
     if (app.game.id === "kartlab") html += `<p class="note">${esc(limits.points_total)} points between top speed, acceleration and grip: every choice is a trade-off.</p>`;
@@ -156,7 +167,7 @@ export function renderGarage(app, box, opts = {}) {
     if (SC.showsStats(G, d, tools)) html += `<div class="grow">${tick("stats_readout")}</div><pre class="gstats" id="${pre}-stats">${esc(SC.statsText(G, d))}</pre>`;
     if (!who) html += slotsHtml(app);
     else if (opts.loadFrom) html += opts.loadFrom;
-    const label = opts.buildLabel || (who === "*all" ? "BUILD FOR ALL LEARNERS" : who === "*cpu" ? `BUILD ${esc(ctx.title.replace(/'S \w+$/, ""))}` : who ? `${app.game.id === "robotlab" ? "REBUILD" : "BUILD"} FOR ${esc(who.toUpperCase())}`
+    const label = opts.buildLabel || (who === "*all" ? "BUILD FOR ALL LEARNERS" : isCpu(who) ? `BUILD ${esc(ctx.title.replace(/'S \w+$/, ""))}` : who ? `${app.game.id === "robotlab" ? "REBUILD" : "BUILD"} FOR ${esc(who.toUpperCase())}`
                                       : `${app.game.id === "robotlab" ? "REBUILD" : "BUILD"} MY ${WORD}`);
     html += `<div class="row"><button id="${pre}-build" class="go">${label}</button>${opts.codeButton !== false ? `<button id="${pre}-code">Code (C)</button>` : ""}</div>`;
     if (!who && S.garageMsg && S.garageMsg[0]) html += `<div class="note" style="color:${COLOUR[S.garageMsg[1]] || "var(--grey)"}">${esc(S.garageMsg[0])}</div>`;
@@ -405,26 +416,90 @@ export function renderCode(app) {
         S.codeErr = null;
     }
     $("code-title").textContent = `YOUR ${word} AS PYTHON CODE`;
+    if ($("code-file")) $("code-file").textContent = `my_${app.game.word.toLowerCase()}.py`;
     $("code-rebuild").textContent = app.game.id === "robotlab" ? "REBUILD MY ROBOT" : `BUILD MY ${word}`;
     const ta = $("code-text");
     if (ta.value !== S.codeText) ta.value = S.codeText;
-    gutter();
+    paint();
     const msg = S.codeMsg || ["", "grey"];
     $("code-msg").textContent = msg[0];
     $("code-msg").style.color = COLOUR[msg[1]] || "var(--grey)";
 }
 
-function gutter() {
-    const S = app_ && app_.state, ta = $("code-text");
-    if (!ta) return;
-    const n = ta.value.split("\n").length;
-    let out = "";
-    for (let i = 1; i <= n; i++) out += (S && S.codeErr === i ? `<b>${i}</b>` : String(i)) + "\n";
-    $("code-gutter").innerHTML = out;
-    $("code-gutter").scrollTop = ta.scrollTop;
+let app_ = null;
+
+// ---------- the code panel as an editor (CHANGE 138): the promo videos' code window ----------
+// The Python is drawn highlighted in a <pre> (#code-hl) under the textarea, whose own text is transparent (only its
+// caret and selection show): the same font, lines and padding, moved with the textarea's scroll. Under both, a bar
+// on the cursor's line and one on the mistake's; a bracket beside the cursor is marked with its partner.
+const PY_KEYWORDS = new Set(("False None True and as assert async await break case class continue def del elif else except " +
+    "finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield").split(" "));
+const PY_TYPES = new Set("int float str list dict tuple set bool bytes".split(" "));
+// comment | string (any prefix; triple-quoted across lines; one left open runs to the line's end, or the text's) | name | number | bracket
+const PY_TOKEN = /(#[^\n]*)|((?:[rRbBuUfF]{1,2})?(?:'''[\s\S]*?(?:'''|$)|"""[\s\S]*?(?:"""|$)|'(?:[^'\\\n]|\\[\s\S])*'?|"(?:[^"\\\n]|\\[\s\S])*"?))|([A-Za-z_]\w*)|((?:0[xXoObB][\da-fA-F_]+|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?[jJ]?))|([()[\]{}])/g;
+const CALL = /[ \t]*\(/y;
+
+export function codeTokens(text) {  // [[start, end, class]] and each bracket's partner (exported for the test)
+    const tokens = [], pairs = new Map(), open = [];
+    let m, before = "";
+    PY_TOKEN.lastIndex = 0;
+    while ((m = PY_TOKEN.exec(text))) {
+        const s = m.index, e = s + m[0].length;
+        let c = m[1] ? "c" : m[2] ? "s" : m[4] ? "n" : m[5] ? "p" : null;
+        if (m[3]) {
+            CALL.lastIndex = e;
+            c = PY_KEYWORDS.has(m[3]) ? "k" : (before === "def" || before === "class" || CALL.test(text)) ? "f" : PY_TYPES.has(m[3]) ? "t" : null;
+            before = m[3];
+        } else before = "";
+        if (m[5]) {
+            if ("([{".includes(m[5])) open.push(s);
+            else if (open.length && text[open[open.length - 1]] === {")": "(", "]": "[", "}": "{"}[m[5]]) {
+                const o = open.pop();
+                pairs.set(o, s).set(s, o);
+            }
+        }
+        if (c) tokens.push([s, e, c]);
+        if (!m[0].length) PY_TOKEN.lastIndex++;
+    }
+    return {tokens, pairs};
 }
 
-let app_ = null;
+const HL = {text: null, tokens: [], pairs: new Map(), marks: null, gutter: null};
+
+function paint() {  // the highlighted text, the gutter, the bars, all where the textarea's scroll puts them
+    const ta = $("code-text"), hl = $("code-hl");
+    if (!ta || !hl) return;
+    const S = app_ && app_.state, text = ta.value;
+    if (HL.text !== text) Object.assign(HL, {text, marks: null}, codeTokens(text));
+    const at = ta.selectionStart === ta.selectionEnd && document.activeElement === ta ? ta.selectionStart : -1;
+    const a = at < 0 ? -1 : HL.pairs.has(at - 1) ? at - 1 : HL.pairs.has(at) ? at : -1, b = a < 0 ? -1 : HL.pairs.get(a);
+    if (HL.marks !== `${a},${b}`) {
+        HL.marks = `${a},${b}`;
+        let out = "", i = 0;
+        for (const [s, e, c] of HL.tokens) {
+            out += esc(text.slice(i, s)) + `<span class="${c}${s === a || s === b ? " mb" : ""}">${esc(text.slice(s, e))}</span>`;
+            i = e;
+        }
+        hl.innerHTML = out + esc(text.slice(i));
+    }
+    const caret = ta.selectionDirection === "backward" ? ta.selectionStart : ta.selectionEnd;
+    const line = text.slice(0, caret).split("\n").length, n = text.split("\n").length, err = S ? S.codeErr : null;
+    if (HL.gutter !== `${n},${line},${err}`) {
+        HL.gutter = `${n},${line},${err}`;
+        let out = "";
+        for (let i = 1; i <= n; i++) out += (err === i ? `<b>${i}</b>` : i === line ? `<span class="cur">${i}</span>` : String(i)) + "\n";
+        $("code-gutter").innerHTML = out;
+    }
+    const cs = getComputedStyle(ta), lh = parseFloat(cs.lineHeight) || 20, top = parseFloat(cs.paddingTop) || 0;
+    hl.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+    $("code-gutter").style.transform = `translateY(${-ta.scrollTop}px)`;
+    const bar = (id, lineno) => {
+        $(id).hidden = !lineno;
+        if (lineno) $(id).style.transform = `translateY(${top + (lineno - 1) * lh - ta.scrollTop}px)`;
+    };
+    bar("code-curline", line);
+    bar("code-errline", err);
+}
 
 function selectLine(lineno) {  // the cursor goes to the line with the mistake (as the window's)
     const ta = $("code-text"), lines = ta.value.split("\n");
@@ -434,7 +509,7 @@ function selectLine(lineno) {  // the cursor goes to the line with the mistake (
     ta.focus();
     ta.setSelectionRange(start, end);
     ta.scrollTop = Math.max(0, (lineno - 4) * parseFloat(getComputedStyle(ta).lineHeight || "18"));
-    gutter();
+    paint();
 }
 
 // APPLY CODE: read the code (schema.js, never run), change the design to match. True if all of it was used.
@@ -494,9 +569,21 @@ function resetCode(app) {
 
 export function setupCodePanel(app) {  // (once, at the start)
     app_ = app;
-    const ta = $("code-text");
-    ta.addEventListener("input", () => { app.state.codeText = ta.value; gutter(); });
-    ta.addEventListener("scroll", () => { $("code-gutter").scrollTop = ta.scrollTop; });
+    const ta = $("code-text"), box = ta.parentNode, gut = document.createElement("div"), edit = document.createElement("div");
+    // the editor's window (CHANGE 138): the title bar's three dots and the file's name; the gutter, the bars and the
+    // highlighted text under the textarea
+    $("codepanel").querySelector("header").insertAdjacentHTML("afterbegin", '<span class="dots"><i></i><i></i><i></i></span>');
+    $("code-close").insertAdjacentHTML("beforebegin", '<span id="code-file"></span>');
+    gut.className = "gut";
+    gut.append($("code-gutter"));
+    edit.className = "edit";
+    edit.innerHTML = '<div class="line" id="code-curline" hidden></div><div class="line err" id="code-errline" hidden></div><pre id="code-hl" aria-hidden="true"></pre>';
+    edit.append(ta);
+    box.append(gut, edit);
+    ta.addEventListener("input", () => { app.state.codeText = ta.value; paint(); });
+    ta.addEventListener("scroll", paint);
+    for (const ev of ["keyup", "mouseup", "focus", "blur", "select"]) ta.addEventListener(ev, paint);
+    document.addEventListener("selectionchange", () => { if (document.activeElement === ta) paint(); });
     ta.addEventListener("keydown", e => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyCodeNow(app); }
         else if (e.key === "Escape") { e.preventDefault(); ta.blur(); }

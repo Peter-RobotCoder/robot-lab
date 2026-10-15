@@ -34,7 +34,7 @@ import websockets
 
 import kart_version
 sys.path.insert(0, kart_version.ENGINE_HOME)
-from engine import club_ticket, predict, rw_sound, schema, wire  # noqa: E402
+from engine import club_ticket, gfx_tiers, predict, rw_sound, schema, wire  # noqa: E402
 
 import ai_pipeline  # noqa: E402
 import cpu_brains  # noqa: E402
@@ -72,6 +72,7 @@ SCHEMA = wire.Schema("kart", sim.SCHEMA_FIELDS)
 IDLE = (0.0, 0.0, 0)
 HERE = os.path.dirname(os.path.abspath(__file__))
 CARD_NOTE_FILE = os.path.join(DATA, "card_note_saved.json")  # the teacher's words on the AI card
+GFX_MAX_FILE = os.path.join(DATA, "gfx_max_saved.json")  # ...and the class's graphics maximum
 LIMITS_FILE = os.path.join(DATA, "limits_saved.json")        # the learners' ranges, kept between sessions
 MISSIONS_FILE = os.path.join(DATA, "mission_settings.json")  # the teacher's settings for each mission, kept by
 # Save settings and used whenever that mission is chosen: these keys
@@ -92,6 +93,7 @@ WEEK1_LESSON = {
     "designs_locked": False,       # stop design changes (e.g. during a tournament)
     "hazards": dict(km.NO_HAZARDS),
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
+    "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
     "limits": sim.default_limits(),  # the learners' ranges for every point (the teacher's Limits tab)
     "user_mods": {},               # features learners asked for (kart_sim.USER_MODS): the teacher switches them on
     "sound": dict(rw_sound.DEFAULT_SOUND),  # what everyone hears
@@ -219,6 +221,11 @@ class KartServer:
         try:
             with open(CARD_NOTE_FILE, encoding="utf-8") as f:
                 self.lesson["ai_card_note"] = str(json.load(f).get("note", ""))[:300]
+        except (OSError, ValueError, AttributeError):
+            pass
+        try:
+            with open(GFX_MAX_FILE, encoding="utf-8") as f:
+                self.lesson["gfx_max"] = gfx_tiers.class_max(json.load(f).get("gfx_max"))
         except (OSError, ValueError, AttributeError):
             pass
         self.players = {}        # websocket -> Player
@@ -860,6 +867,14 @@ class KartServer:
                     json.dump({"note": L["ai_card_note"]}, f)
             except OSError:
                 pass
+        if "gfx_max" in update:  # CHANGE 139: the best graphics a learner may draw, kept between sessions
+            L["gfx_max"] = gfx_tiers.class_max(update["gfx_max"])
+            try:
+                os.makedirs(DATA, exist_ok=True)
+                with open(GFX_MAX_FILE, "w", encoding="utf-8") as f:
+                    json.dump({"gfx_max": L["gfx_max"]}, f)
+            except OSError:
+                pass
         if isinstance(update.get("mods_in_vote"), dict):  # which mods learners see and vote on
             in_vote = {k: bool(v) for k, v in update["mods_in_vote"].items() if k in sim.USER_MODS}
             L["mods_in_vote"] = {**L.get("mods_in_vote", {}), **in_vote}
@@ -1110,6 +1125,15 @@ class KartServer:
             live = read_live()
             mine = live if live and live.get("game") == GAME_ID else None
             key = mine["id"] if mine else None
+            if key == seen and mine and sorted(mine.get("learners", [])) != self.group:
+                # the same session, but the teacher has added someone or taken someone out (the desk's This session, the
+                # live group's learners, or the Accounts tab): who was taken out goes back to the lobby (CHANGE 141)
+                self.group = sorted(mine.get("learners", []))
+                for ws, p in list(self.players.items()):
+                    if p.role == "learner" and p.name not in self.group:
+                        self.players.pop(ws, None)
+                        await ws.close(4009, "Your teacher took you out of this game: back to the lobby.")
+                        self.rebuild()
             if key != seen:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()

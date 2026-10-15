@@ -462,6 +462,7 @@ class Lab(hud.HudKit, ShowBase):
         self.started = True
         self.my_name = name
         self.lesson = self.fill_lesson(welcome.get("lesson") or {})
+        self.obey_gfx_max()
         self.rules = kh.default_rules() | dict(welcome.get("rules") or {})
         self.design = sim.fit_design(dict(welcome.get("design") or sim.default_design(name)))
         if args.stats:
@@ -653,6 +654,17 @@ class Lab(hud.HudKit, ShowBase):
         self.muted = not self.muted
         self.snd.on = not self.muted and not args.offscreen
         self.banner_note("Sound off on this computer (N)" if self.muted else "Sound on (N)", 2)
+
+    def obey_gfx_max(self):
+        """The teacher's class maximum for the graphics (CHANGE 139, engine.gfx_tiers): a learner's window only."""
+        cap = (self.lesson or {}).get("gfx_max")
+        if TEACHER or getattr(self, "gfx_max_seen", "?") == cap:
+            return
+        self.gfx_max_seen = cap
+        note = gfx_tiers.obey_class_max(SETTINGS_DIR, cap, getattr(self, "gfx_monitor", None),
+                                        getattr(self, "gfx_tier", None))
+        if note:
+            self.banner_note(note, 6)
 
     def banner_note(self, text, secs=3, big=False):
         """Words over the track for a few seconds. big: a restart warning's size."""
@@ -2287,6 +2299,7 @@ class Lab(hud.HudKit, ShowBase):
                 if self.check_code(m):
                     return
                 self.lesson = self.fill_lesson(m.get("lesson") or self.lesson)
+                self.obey_gfx_max()
                 self.rules = kh.default_rules() | dict(m.get("rules") or {})
                 self.design = sim.fit_design(dict(m.get("design") or self.design))
                 self.draft = copy.deepcopy(self.design)
@@ -2315,6 +2328,7 @@ class Lab(hud.HudKit, ShowBase):
                 self.show_missions_changed(self.lesson, new)  # (CHANGE 122)
                 self.lesson, self.class_list, self.tournament, self.mod_info = \
                     new, m.get("class", self.class_list), m.get("tournament"), mods
+                self.obey_gfx_max()
                 self.set_track(new.get("track", self.track_name), new.get("laps"))
             elif kind in ("slots", "history"):  # saved designs (CHANGE 83 to 86)
                 rebuild = self.took_slots(m) or rebuild

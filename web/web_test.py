@@ -488,13 +488,23 @@ def main():
             pupil["chrome"] = lc = Chrome(exe, os.path.join(work, "profile-amy"))
             lc.open(f"http://127.0.0.1:{http_port}/index.html?mode=learner&desk=ws://127.0.0.1:{desk_port}&auto=0&tier=blocks")
             lc.wait_for("!!window.__state && !document.getElementById('learnerform').hidden", 20, "the learner's login form")
+            # (CHANGE 141) on a phone-sized screen the login card scrolls, so LOG IN can be reached; no class codes
+            lc.call("Emulation.setDeviceMetricsOverride", width=360, height=420, deviceScaleFactor=1, mobile=True)
+            time.sleep(0.5)
+            assert lc.js("(() => { const l = document.getElementById('login'), b = document.getElementById('connect');"
+                         " b.scrollIntoView(); const r = b.getBoundingClientRect();"
+                         " return l.scrollHeight > l.clientHeight && r.top >= 0 && r.bottom <= innerHeight; })()"), \
+                "LOG IN can't be reached on a small screen"
+            assert not lc.js("!!document.getElementById('switchmode')"), "the class-code link is still there"
+            lc.call("Emulation.clearDeviceMetricsOverride")
             lc.js("document.getElementById('lname').value = 'amy'; document.getElementById('lpass').value = 'starter-amy';"
                   "document.getElementById('connect').click()")
             lc.wait_for("!document.getElementById('newpassform').hidden", 15, "the desk asking for her own password")
             lc.js("document.getElementById('npass').value = 'amys-own-1'; document.getElementById('npass2').value = 'amys-own-1';"
                   "document.getElementById('connect').click()")
-            lc.wait_for("!document.getElementById('waitbox').hidden && document.getElementById('waittext').textContent.includes('wait')",
-                        15, "waiting for the teacher (the learners' windows aren't launched yet)")
+            lc.wait_for("!document.getElementById('waitbox').hidden && document.getElementById('waittext').textContent.includes('lobby')",
+                        15, "the lobby (the learners' windows aren't launched yet)")
+            chrome.wait_for("(window.__state.desk.state.lobby || []).includes('amy')", 10, "amy in the desk's lobby list")
             assert lc.js("JSON.stringify(window.__errors)") == "[]"
         check("A learner logs in at the desk from the page: her own password first, then waiting for the teacher", learner_login)
 
@@ -520,6 +530,66 @@ def main():
                 "typing was lost when the desk redrew"
             chrome.screenshot(os.path.join(work, "desk.png"))
         check("The session: a note, LAUNCH LEARNERS' WINDOWS, and the learner's page opens the game", session)
+
+        def lobby():  # (CHANGE 141) the teacher takes a learner out (back to her lobby) and pulls her in again
+            if "chrome" not in pupil:
+                return
+            lc = pupil["chrome"]
+            chrome.js("document.querySelector('button[data-sout=\"amy\"]').click()")
+            chrome.wait_for("!window.__state.desk.state.live.learners.includes('amy')", 10, "amy out of the live game")
+            lc.wait_for("window.__state.connected === false && !document.getElementById('waitbox').hidden", 15, "amy's page back in her lobby")
+            assert "lobby" in lc.js("document.getElementById('waittext').textContent")
+            chrome.wait_for("!!document.querySelector('button[data-sin=\"amy\"]')", 10, "amy in the desk's lobby list")
+            chrome.js("document.querySelector('button[data-sin=\"amy\"]').click()")
+            chrome.wait_for("window.__state.desk.state.live.learners.includes('amy')", 10, "amy added to the live game")
+            lc.wait_for("window.__state.connected === true && window.__state.role === 'learner' && window.__state.game.id === 'kartlab'",
+                        30, "amy's game opening again by itself")
+            assert lc.js("JSON.stringify(window.__errors)") == "[]"
+        check("Back to lobby takes a learner out of the game (her page goes back to the lobby); adding her from the lobby "
+              "opens her game again", lobby)
+
+        def class_maximum():  # (CHANGE 139) the teacher's class maximum holds a learner's page; Auto's steps, simulated
+            if "chrome" not in pupil:
+                return
+            lc = pupil["chrome"]
+            lc.wait_for("window.__state.connected === true && window.__state.role === 'learner'", 30, "amy's page in the game")
+            errors_before = lc.js("window.__errors.length")
+            lc.js("window.__app.setTier('medium')")
+            lc.wait_for("window.__state.scene.tier === 'medium'", 10, "amy's page on medium")
+            chrome.js("document.getElementById('panel').classList.add('open'); document.querySelector('#panel header button[data-tab=\"graphics\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-gfxmax=\"low\"]')", 5, "the teacher's Class maximum row")
+            chrome.js("document.querySelector('button[data-gfxmax=\"low\"]').click()")
+            chrome.wait_for("window.__state.lesson.gfx_max === 'low'", 10, "the class server keeping the maximum")
+            lc.wait_for("window.__state.scene.tier === 'low'", 10, "amy's page dropping to the maximum at once")
+            lc.js("document.getElementById('panel').classList.add('open'); document.querySelector('#panelhead button[data-tab=\"graphics\"]').click()")
+            lc.wait_for("!!document.querySelector('button[data-tier=\"high\"]')", 5, "amy's Settings tab")
+            assert lc.js("document.querySelector('button[data-tier=\"high\"]').disabled && document.querySelector('button[data-part=\"shadow\"][data-val=\"2048\"]').disabled"), \
+                "high (and 2048 shadows) can be chosen above the class maximum"
+            lc.js("document.querySelector('button[data-tier=\"high\"]').click()")
+            time.sleep(0.5)
+            got = lc.js("[window.__state.scene.tier, window.__state.scene.settings.shadow]")
+            assert got == ["low", 0], f"amy's page above the class maximum: {got}"
+            assert chrome.js("!document.querySelector('button[data-tier=\"high\"]').disabled"), "the teacher's own view is held to the class maximum"
+            chrome.js("document.querySelector('button[data-gfxmax=\"\"]').click()")
+            lc.wait_for("window.__state.scene.tier === 'medium'", 10, "amy's page back on her own choice when the maximum is lifted")
+            with open(os.path.join(work, "data", "gfx_max_saved.json"), encoding="utf-8") as f:
+                saved = json.load(f)
+            assert saved == {"gfx_max": None}, saved
+            # Auto, fed seconds of frame rates (base3d.js's AutoTier): up after 25 s with headroom, down after 3 slow
+            # seconds, the tier stepped down from held off (twice as long the second time), never past the maximum
+            steps = lc.js("""(async () => { const {AutoTier} = await import('./base3d.js'); const out = [];
+                let a = new AutoTier({}), t = 'medium', now = 0, wall = 1e12;
+                const run = (secs, fps, missed, cap = null) => { for (let s = 0; s < secs; s++) { now += 1000; wall += 1000;
+                    const r = a.second({fps, missed, tier: t, cap, now, wall}); if (r) { t = r.tier; out.push((r.up ? 'up:' : 'down:') + t); } } };
+                run(30, 60, 0); run(4, 20, 30); run(60, 60, 0); wall += 660000; run(26, 60, 0); run(4, 20, 30); wall += 660000; run(30, 60, 0);
+                out.push('|'); a = new AutoTier({}); t = 'low'; run(60, 60, 0, 'low'); run(30, 60, 5, 'medium'); run(60, 60, 1, 'medium');
+                return out.join(','); })()""")
+            assert steps == "up:high,down:medium,up:high,down:medium,|,up:medium", steps
+            lc.js("window.__app.setTier('blocks')")  # (as she came: the rest of the test is cheap to draw)
+            errors = lc.js(f"JSON.stringify(window.__errors.slice({errors_before}))")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("The teacher's class maximum (Graphics tab) reaches a learner's page: she drops to it at once and can't choose "
+              "above it; lifted, her own choice again; Auto steps up and down (simulated) without flapping", class_maximum)
 
         def learner_garage():  # amy's Garage drawn from the schema; the code panel: APPLY CODE changes a value, BUILD
             if "chrome" not in pupil:
@@ -547,6 +617,22 @@ def main():
             lc.wait_for(f"window.__state.draft.speed === {speed - 1} && window.__state.codeChanged === true", 10, "the code applied")
             assert "Applied" in lc.js("document.getElementById('code-msg').textContent"), lc.js("document.getElementById('code-msg').textContent")
             lc.wait_for(f"document.getElementById('panelbody').textContent.includes('{speed - 1}')", 5, "the garage showing the new value")
+            # (the editor, CHANGE 138: typed keys are highlighted as typed, the layer's text the textarea's, in its font)
+            before = lc.js("document.getElementById('code-text').value")
+            lc.js("{ const t = document.getElementById('code-text'); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }")
+            lc.call("Input.dispatchKeyEvent", type="keyDown", key="Enter", code="Enter", windowsVirtualKeyCode=13, text="\r")
+            lc.call("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter", windowsVirtualKeyCode=13)
+            lc.call("Input.insertText", text="ok = len(f'{speed}') if True else None  # typed")
+            hl = lc.js("(() => { const t = document.getElementById('code-text'), h = document.getElementById('code-hl'), q = s => [...h.querySelectorAll(s)].map(e => e.textContent);"
+                       " return {same: h.textContent === t.value, end: t.value.endsWith(\"\\nok = len(f'{speed}') if True else None  # typed\"), k: q('.k'), f: q('.f'), s: q('.s'), n: q('.n').length,"
+                       " c: q('.c').pop(), mb: q('.mb').length, cur: document.querySelector('#code-gutter .cur') && document.querySelector('#code-gutter .cur').textContent,"
+                       " lines: t.value.split('\\n').length, font: getComputedStyle(h).font === getComputedStyle(t).font && getComputedStyle(t).fontFamily.includes('JetBrains Mono'),"
+                       " loaded: [...document.fonts].some(f => f.family.includes('JetBrains') && f.status === 'loaded'), file: document.getElementById('code-file').textContent}; })()")
+            assert hl["same"] and hl["end"], f"the highlighted text isn't the textarea's: {hl}"
+            assert {"if", "True", "else", "None"} <= set(hl["k"]) and "len" in hl["f"] and "f'{speed}'" in hl["s"] and hl["n"] > 0, hl
+            assert hl["c"] == "# typed" and hl["cur"] == str(hl["lines"]) and hl["font"] and hl["loaded"] and hl["file"] == "my_kart.py", hl
+            lc.screenshot(os.path.join(work, "learner_code_typed.png"))
+            lc.js(f"{{ const t = document.getElementById('code-text'); t.value = {json.dumps(before)}; t.dispatchEvent(new Event('input')); }}")
             lc.js("{ const t = document.getElementById('code-text'); t.value = t.value + '\\nx = [1, 2'; t.dispatchEvent(new Event('input'));"
                   " document.getElementById('code-apply').click(); }")
             lc.wait_for("document.getElementById('code-msg').textContent.includes('was never closed')", 5, "the mistake shown")
@@ -611,7 +697,7 @@ def main():
                       "document.getElementById('pw-change').click()")
             chrome.wait_for("document.getElementById('dk-msg').textContent.includes('is changed')", 10, "the password changed")
             chrome.js("document.getElementById('dk-logout').click()")
-            chrome.wait_for("document.getElementById('login').style.display === 'grid'", 5, "the login screen")
+            chrome.wait_for("document.getElementById('login').style.display === 'flex'", 5, "the login screen")
             chrome.js(f"document.getElementById('deskpass').value = {json.dumps(DESK_PASSWORD)}; document.getElementById('connect').click()")
             chrome.wait_for("document.getElementById('status').textContent.includes('teacher password')", 10, "the old password refused")
             chrome.js(f"document.getElementById('deskpass').value = {json.dumps(new)}; document.getElementById('connect').click()")
@@ -748,6 +834,30 @@ def main():
             no_errors()
         check("The shared teacher tabs: a tool and a hazard, an objective added and ticked, missions out and back in, "
               "the evidence CSV, an AI card sent back, a learner's mission and robot", shared_tabs)
+
+        def computer_robots():  # CHANGE 140: the teacher sets up computer robot 2 and puts it in arena 2 alone
+            if "amy" not in servers:
+                return
+            chrome.js("window.__app.send({type: 'lesson', lesson: {cpu_robots: 2, arenas: 2}})")
+            chrome.wait_for("window.__state.lesson.cpu_robots === 2 && window.__state.lesson.arenas === 2", 10, "2 computer robots, 2 arenas")
+            tab("learners")
+            chrome.wait_for("!!document.querySelector('button[data-pick=\"*cpu2\"]')", 10, "Computer 2 in the Learners tab")
+            chrome.js("document.querySelector('button[data-pick=\"*cpu2\"]').click()")
+            chrome.wait_for("!!document.getElementById('dz-name') && !!document.getElementById('cpu-arena')", 10, "computer robot 2's garage")
+            chrome.js("document.getElementById('dz-name').value = 'Crusher'; document.getElementById('dz-build').click()")
+            cpu2 = "window.__state.classList.find(p => p.role === 'computer' && p.n === 2)"
+            chrome.wait_for(f"{cpu2}.design.name === 'Crusher'", 10, "computer robot 2 renamed Crusher")
+            chrome.wait_for("!!document.getElementById('cpu-arena')", 10, "its arena")
+            chrome.js("const s = document.getElementById('cpu-arena'); s.value = '1'; s.dispatchEvent(new Event('change'))")
+            chrome.wait_for(f"{cpu2}.arena === 1 && {cpu2}.in === 1", 10, "computer robot 2 set to arena 2")
+            chrome.wait_for("(() => { const S = window.__state, mine = (S.roster.robots || []).filter(r => r.design.name === 'Crusher');"
+                            " const snap = S.snaps[S.snaps.length - 1], ids = i => (snap.arenas[i] || {robots: []}).robots.map(r => r.id);"
+                            " return mine.length === 1 && mine[0].arena === 1 && ids(1).includes(mine[0].id) && !ids(0).includes(mine[0].id)"
+                            " && ids(0).length > 0; })()", 15, "Crusher in arena 2 only, in the snapshot")
+            chrome.screenshot(os.path.join(work, "robotlab_computer_robot.png"))
+            chrome.js("window.__app.send({type: 'lesson', lesson: {cpu_robots: 1, arenas: 1}})")
+            no_errors()
+        check("Robot Lab's computer robots: computer robot 2 renamed and put in arena 2 from the Learners tab", computer_robots)
 
         def restart():
             if "robotlab" not in servers:

@@ -11,7 +11,8 @@
 // ?code=TEACH99 to prefill the code, ?tier=blocks|low|medium|high, ?version=1.9.1 (a class server wants the release's
 // number; on the VPS the page reads it from /live/version).
 
-import {TIERS, pageEngine, engineInfo, setSkyData} from "./base3d.js";
+import {TIERS, TIER_SETTINGS, PARTS, SCREEN, AutoTier, pageEngine, engineInfo, setSkyData, setGraphics, cappedTier, tierSettings,
+        cleanParts} from "./base3d.js";
 import {DeskLink, LearnerLink, renderDesk} from "./desk.js";
 import {KartGame} from "./kart.js";
 import {RobotGame} from "./robot.js";
@@ -254,7 +255,6 @@ function login() {
 
 function setCodeMode(on) {
     state.codeMode = on;
-    $("switchmode").textContent = on ? "Log in through the club's desk instead" : "Use a class server's code instead";
     showLoginPart("form");
     setStatus("");
 }
@@ -340,7 +340,7 @@ function reconnect() {
 }
 
 function showLogin() {
-    $("login").style.display = "grid";
+    $("login").style.display = "flex";
     $("toggle").hidden = true;
     $("panel").classList.remove("open");
 }
@@ -402,6 +402,7 @@ function onMessage(data) {
             if (m.role === "learner" && !LEARNER_TABS.some(([k]) => k === state.tab)) state.tab = "mission";
             state.snaps = [];
             state.offset = state.lastSeq = null;
+            classMaxHeard();  // (before the scene is made: it is made at the class maximum)
             const g = startGame(m);
             g.welcome(m);
             state.ctrl = g.controlKind ? new Controller(appApi, keys, g.controlKind) : null;
@@ -423,6 +424,7 @@ function onMessage(data) {
             state.classList = m.class || [];
             state.tournament = m.tournament || null;
             state.mods = m.mods || state.mods;
+            classMaxHeard();
             if (state.role === "teacher") claudeChanged(appApi, true);
             if (game) game.message(m);
             updatePills();
@@ -555,6 +557,7 @@ function loop() {
     const now = performance.now();
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
     if (now - lastFrame > 100) state.stalls++;
+    if (now - lastFrame > AutoTier.MISS_MS) state.missedFrames = (state.missedFrames || 0) + 1;
     lastFrame = now;
     state.frames++;
     const covered = $("login").style.display !== "none" || deskShown();  // (nothing to see behind them: don't draw)
@@ -563,15 +566,22 @@ function loop() {
         state.frames = 0;
         state.fpsAt = now;
         renderPerf();
-        // three slow seconds in a row (under 28 a second) while a game is drawn: one tier down, kept for next time
-        state.slow = state.game && !covered && state.fps && state.fps < 28 ? (state.slow || 0) + 1 : 0;
-        if (state.autoTier && state.scene && state.slow >= 3 && now - (state.tierAt || 0) > 8000) {
-            const i = TIERS.indexOf(state.scene.tier);
-            if (i > 0) { setTier(TIERS[i - 1]); state.tierAt = now; state.slow = 0; toast(`Graphics stepped down to ${TIERS[i - 1]} (the frame rate was ${state.fps})`); }
+        // Auto (base3d.js's AutoTier, CHANGE 139): one tier down after three seconds under 28 a second, one back up
+        // after a stretch with no frames missed, never past the class maximum; kept for next time. A tier tuned by
+        // hand part by part is only ever stepped down
+        let step = state.autoTier && state.scene ? state.auto.second({fps: state.fps, missed: state.missedFrames || 0,
+            tier: drawnTier(), cap: classCap(), active: !!state.game && !covered && !document.hidden, now}) : null;
+        state.missedFrames = 0;
+        if (state.auto.store.best !== state.bestKept) { state.bestKept = state.auto.store.best; keepGfx(); }  // (a tier run cleanly here)
+        if (step && step.up && Object.keys(state.gfx.parts).length) step = null;
+        if (step) {
+            setTier(step.tier, true);
+            toast(step.up ? `Graphics stepped up to ${step.tier} (no frames missed for ${AutoTier.UP_SECS} s)`
+                          : `Graphics stepped down to ${step.tier} (the frame rate was ${state.fps})`);
         }
         if (state.connected) {
             send({type: "ping", t: Date.now()});
-            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + state.tier, stalls: state.stalls, delay: DELAY_MS,
+            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier(), stalls: state.stalls, delay: DELAY_MS,
                   ...(state.ctrl && state.ctrl.ctrlMs !== null ? {ctrl: Math.round(state.ctrl.ctrlMs)} : {})});
             if (state.prefsDirty && now - (state.prefsAt || 0) > 3000) { state.prefsDirty = false; state.prefsAt = now; send({type: "prefs", prefs: state.prefs}); }
         }
@@ -584,18 +594,141 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-function setTier(tier) {
-    state.tier = tier;
-    try { localStorage.setItem("tier", tier); } catch (e) { /* storage blocked: chosen again next time */ }
-    if (state.scene) state.scene.setTier(tier);
+// ---------- the graphics (CHANGE 131, 139) ----------
+// state.tier is this computer's choice (kept as "tier"), the one Auto moves; a learner's page draws it at most at
+// the teacher's class maximum (the lesson's gfx_max: the windows' names, "basic" for blocks), and goes back to the
+// choice when the maximum is lifted. state.gfx (kept as "gfx"): auto, the parts changed by hand, the canvas's
+// multisampling (aa: read as the page opens), the frame rate box (fps) and Auto's memory (best, failed)
+function loadGfx() {
+    let kept = {};
+    try { kept = JSON.parse(localStorage.getItem("gfx") || "{}") || {}; } catch (e) { /* storage blocked */ }
+    state.gfx = {auto: kept.auto !== false, parts: cleanParts(kept.parts),
+                 aa: kept.aa !== false, fps: kept.fps !== false};
+    state.autoTier = params.get("auto") === "0" ? false : state.gfx.auto;
+    state.auto = new AutoTier(kept.autoStore || {});
+}
+
+function keepGfx() {
+    state.gfx.auto = state.autoTier;
+    try { localStorage.setItem("gfx", JSON.stringify({...state.gfx, autoStore: state.auto.store})); } catch (e) { /* storage blocked */ }
+}
+
+function classCap() {  // the teacher's class maximum, on a learner's page (the teacher's own page isn't held to it)
+    const v = state.lesson && state.lesson.gfx_max, t = v === "basic" ? "blocks" : v;
+    return state.role === "learner" && TIERS.includes(t) ? t : null;
+}
+
+function drawnTier() {
+    return cappedTier(state.tier, classCap());
+}
+
+// the scene drawn as chosen: the tier at most at the class maximum, the parts changed by hand (again: rebuilt
+// though the tier is the same)
+function applyGraphics(again = false) {
+    setGraphics(state.gfx.parts, classCap());
+    if (state.scene) state.scene.setTier(drawnTier(), again);
+    $("perf").style.display = state.gfx.fps ? "" : "none";
     if (state.tab === "graphics") renderPanel();
     renderPerf();
+}
+
+// a tier picked (by hand: Auto goes off, as the windows' Graphics: Low; by Auto: auto true). Its parts are the
+// tier's own again. A learner can't pick past the class maximum
+function setTier(tier, auto = false) {
+    if (!TIERS.includes(tier)) return;
+    if (!auto) state.autoTier = false;
+    state.tier = cappedTier(tier, classCap());
+    state.gfx.parts = {};
+    try { localStorage.setItem("tier", state.tier); } catch (e) { /* storage blocked: chosen again next time */ }
+    keepGfx();
+    applyGraphics(true);
+}
+
+function setPart(part, value) {
+    if (value === null) delete state.gfx.parts[part];
+    else state.gfx.parts[part] = value;
+    keepGfx();
+    applyGraphics(true);
+}
+
+// the lesson came: a class maximum new to this page is put in force at once (the scene comes down to it, or
+// back up to the choice when it is lifted)
+function classMaxHeard() {
+    const cap = classCap();
+    if (cap === state.capSeen) return;
+    const was = state.capSeen;
+    state.capSeen = cap;
+    if (was === undefined && !state.scene) { setGraphics(state.gfx.parts, cap); return; }  // (the first: before the scene)
+    applyGraphics(true);
+    if (cap && TIERS.indexOf(state.tier) > TIERS.indexOf(cap)) toast(`Your teacher set the graphics to at most ${cap}.`, false, 6000);
+    else if (!cap && was) toast(`Your teacher lifted the graphics limit: ${state.tier} again.`, false, 5000);
+}
+
+// the Graphics (a learner's Settings) tab's top: Auto and the tiers, every part of a tier, and for the teacher the
+// class maximum (sent in the lesson: every learner's page and window is held to it)
+const PART_ROWS = [  // [part, label, choices, what the tier part needs]
+    ["shadow", "Shadows", PARTS.shadow, "pbr"], ["normal", "Surface detail (normal maps)", [false, true], "pbr"],
+    ["occlusion", "Occlusion maps", [false, true], "pbr"], ["ibl", "The sky's reflections", [false, true], "pbr"],
+    ["aniso", "Textures at a slant (anisotropic filtering)", PARTS.aniso, "pbr"], ["pixels", "Pixels drawn", PARTS.pixels, ""]];
+const partText = (part, v) => v === true ? "on" : v === false ? "off" : part === "shadow" ? (v ? String(v) : "off")
+    : part === "aniso" ? `${v}x` : v >= SCREEN ? "as the screen" : `${(v / 1e6).toFixed(1)} million`;
+
+function graphicsHtml() {
+    const cap = classCap(), drawn = drawnTier(), now = tierSettings(drawn), top = cap ? TIER_SETTINGS[cap] : null;
+    const tuned = Object.keys(state.gfx.parts).length, aa = !!(engine && engine._gl && engine._gl.getContextAttributes().antialias);
+    const over = (part, v) => top && (typeof v === "boolean" ? v && !top[part] : v > top[part]);
+    let html = `<h2>Graphics</h2>
+      <div class="row"><button id="btn-auto" class="${state.autoTier ? "on" : ""}">Auto</button>${TIERS.map(t =>
+        `<button data-tier="${t}" class="${drawn === t ? "on" : ""}"${cap && TIERS.indexOf(t) > TIERS.indexOf(cap) ? " disabled" : ""}>${t}</button>`).join("")}</div>
+      <div class="note">Drawing ${drawn}${state.autoTier ? " (Auto: down a tier after three seconds under 28 frames a second, back up after " +
+        `${AutoTier.UP_SECS} seconds with no frames missed)` : ""}${tuned ? ", with parts changed below" : ""}.
+        ${cap ? `Your teacher's class maximum is <b>${cap}</b>: nothing above it can be chosen.` : ""}
+        blocks: flat colours, nothing lit, the floor every machine draws. low: the app's lighting and textures, no shadows or
+        reflections. medium: surface detail, the sky's reflections, shadows. high: sharper shadows and textures, and the most
+        pixels. A tier picked here turns Auto off; picking a tier sets every part below to that tier's. Kept on this computer.</div>
+      <h2>The parts</h2><table>`;
+    for (const [part, label, choices, needs] of PART_ROWS) {
+        const off = needs && !now[needs];  // (blocks: nothing lit, so no shadows, maps or reflections)
+        html += `<tr><th>${esc(label)}</th><td>${choices.map(v => `<button data-part="${part}" data-val="${v}" class="${now[part] === v ? "on" : ""}"${off || over(part, v) ? " disabled" : ""}>${partText(part, v)}</button>`).join("")}</td></tr>`;
+    }
+    html += `<tr><th>Smooth edges (multisampling)</th><td><button data-aa="1" class="${state.gfx.aa ? "on" : ""}">on</button><button data-aa="0" class="${state.gfx.aa ? "" : "on"}">off</button>
+        ${state.gfx.aa !== aa ? `<span class="note">from the next time the page opens</span>` : ""}</td></tr>
+      <tr><th>Frame rate box</th><td><button data-fpsbox="1" class="${state.gfx.fps ? "on" : ""}">shown</button><button data-fpsbox="0" class="${state.gfx.fps ? "" : "on"}">hidden</button></td></tr></table>
+      ${tuned ? `<div class="row"><button id="btn-parts-reset">Back to ${drawn}'s own</button></div>` : ""}
+      <div class="note">${drawn === "blocks" ? "On blocks nothing is lit, so only the pixels count. " : ""}Each tier draws at most so many pixels
+        however fine the screen (blocks 1.0 million, low 1.1, medium 1.6, high 2.4); more is sharper and slower.</div>`;
+    if (state.role !== "learner") {
+        const mx = (state.lesson || {}).gfx_max, mine = mx === "basic" ? "blocks" : mx;
+        html += `<h2>Class maximum</h2><div class="row">${TIERS.map(t => `<button data-gfxmax="${t}" class="${mine === t ? "on" : ""}">${t}</button>`).join("")}
+            <button data-gfxmax="" class="${TIERS.includes(mine) ? "" : "on"}">no limit</button></div>
+          <div class="note">The best graphics the class may choose. Learners' pages can't choose above it, Auto never steps past it,
+            and a page above it drops to it at once. The game windows open at most at it (one already open turns its shadows
+            and smoothing down now, the rest at its next start). Your own view isn't held to it. Kept for the next lesson.</div>`;
+    }
+    return html;
+}
+
+function wireGraphics(body) {
+    $("btn-auto").onclick = () => { state.autoTier = !state.autoTier; state.auto.slow = state.auto.good = 0; keepGfx(); renderPanel(); renderPerf(); };
+    body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => setTier(b.dataset.tier));
+    body.querySelectorAll("button[data-part]").forEach(b => b.onclick = () => {
+        const v = b.dataset.val, value = v === "true" ? true : v === "false" ? false : Number(v);
+        setPart(b.dataset.part, TIER_SETTINGS[drawnTier()][b.dataset.part] === value ? null : value);  // (the tier's own: not a change)
+    });
+    body.querySelectorAll("button[data-aa]").forEach(b => b.onclick = () => { state.gfx.aa = b.dataset.aa === "1"; keepGfx(); renderPanel(); });
+    body.querySelectorAll("button[data-fpsbox]").forEach(b => b.onclick = () => { state.gfx.fps = b.dataset.fpsbox === "1"; keepGfx(); applyGraphics(); });
+    if ($("btn-parts-reset")) $("btn-parts-reset").onclick = () => { state.gfx.parts = {}; keepGfx(); applyGraphics(true); };
+    body.querySelectorAll("button[data-gfxmax]").forEach(b => b.onclick = () => {
+        const t = b.dataset.gfxmax;
+        send({type: "lesson", lesson: {gfx_max: t === "blocks" ? "basic" : t || null}});
+        toast(t ? `Class maximum: ${t}` : "No class maximum");
+    });
 }
 
 function renderPerf() {
     const info = engineInfo(engine);
     $("perf").innerHTML = `${state.fps} fps · ping ${Math.round(state.pingMs)} ms · stalls ${state.stalls} · missed ${state.missed}<br>` +
-        `${state.tier} · ${info.width} x ${info.height} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
+        `${drawnTier()}${state.autoTier ? " (auto)" : ""} · ${info.width} x ${info.height} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
 }
 
 function updatePills() {
@@ -700,23 +833,14 @@ function drawPanel(body) {
     if (state.role !== "learner" && renderTeacherTab(appApi, state.tab, body)) return;
     if (state.tab === "graphics") {
         const sc = state.scene, info = engineInfo(engine);
-        body.innerHTML = `
-          <h2>Graphics tier</h2>
-          <div class="row">${TIERS.map(t => `<button data-tier="${t}" class="${state.tier === t ? "on" : ""}">${t}</button>`).join("")}
-            <button id="btn-auto" class="${state.autoTier ? "on" : ""}">auto step-down</button></div>
-          <div class="note">The app's tiers, lit by the app's own lighting. blocks: flat colours, nothing lit, the floor every
-            machine draws. low: the app's lighting and textures, no shadows or reflections. medium: surface detail, the sky's
-            reflections, shadows. high: sharper shadows and textures, and the most pixels. Each tier draws at most so many
-            pixels however fine the screen. Auto steps down one tier after three seconds under 28 frames a second, and the
-            page remembers the tier on this computer.</div>
+        body.innerHTML = graphicsHtml() + `
           <h2>This browser</h2>
           <table><tr><th>WebGL</th><td>${info.webgl}</td></tr><tr><th>WebGPU</th><td>${info.webgpu ? "available (not used yet)" : "no"}</td></tr>
             <tr><th>Renderer</th><td>${esc(info.renderer)}</td></tr><tr><th>Screen</th><td>${window.innerWidth} x ${window.innerHeight} at ${devicePixelRatio}x</td></tr>
             <tr><th>Drawing</th><td>${info.width} x ${info.height} pixels (${info.ratio.toFixed(2)} per screen point)${sc ? `, ${sc.drawCalls()} meshes` : ""}</td></tr>
             <tr><th>Frame rate</th><td>${state.fps} fps, ${state.stalls} stalls, ${state.missed} missed snapshots</td></tr></table>
           <div class="note">These numbers from a school laptop and a Chromebook are the measurement nobody has published: note them down.</div>`;
-        body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => setTier(b.dataset.tier));
-        $("btn-auto").onclick = () => { state.autoTier = !state.autoTier; renderPanel(); };
+        wireGraphics(body);
         // the window's own Settings: the text size and the look (kept on this computer)
         body.insertAdjacentHTML("beforeend", `<h2>Text and look</h2><div class="row">Text size ${[1, 2, 3, 4].map(k =>
             `<button data-tsize="${k}" class="${(state.textSize || 2) === k ? "on" : ""}">${["Small", "Normal", "Large", "Larger"][k - 1]}</button>`).join("")}</div>
@@ -766,7 +890,7 @@ function drawPanel(body) {
 
 // what the games and teacher.js reach the page through
 const appApi = {
-    get state() { return state; }, get game() { return state.game; }, get tier() { return state.tier; },
+    get state() { return state; }, get game() { return state.game; }, get tier() { return drawnTier(); }, setTier: t => setTier(t),
     get canvas() { return $("view"); }, get engine() { return engine; }, params,
     send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, esc,
     missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
@@ -829,7 +953,12 @@ function setupUi() {
     for (const id of ["lname", "lpass", "npass", "npass2"]) $(id).onkeydown = e => { if (e.key === "Enter") login(); };
     $("code").onkeydown = e => { if (e.key === "Enter") connect(); };
     $("deskpass").onkeydown = e => { if (e.key === "Enter") deskLogin(); };
-    $("switchmode").onclick = e => { e.preventDefault(); setCodeMode(!state.codeMode); };
+    $("lobby-logout").onclick = () => {  // (a learner leaves the lobby: logged out at the desk)
+        if (state.learnerLink) state.learnerLink.close();
+        state.learnerLink = null;
+        showLoginPart("form");
+        setStatus("Logged out.", true);
+    };
     $("toggle").onclick = () => { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); };
     $("btn-desk").onclick = () => showDesk();
     window.addEventListener("pointerup", () => { state.dragging = false; });
@@ -849,7 +978,7 @@ function setupUi() {
     // learner or teacher: ?mode=, else as last time on this computer ("desk" was the teacher's before CHANGE 134), else a learner
     state.mode = params.get("mode") || (mode === "desk" || mode === "teacher" ? "teacher" : "learner");
     $("modetabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.mode === state.mode));
-    setCodeMode(!!(params.get("host") || params.get("code")) || (mode === "code" && !params.get("desk")));
+    setCodeMode(!!(params.get("host") || params.get("code")));  // (no class codes on the page: CHANGE 141)
     if (params.get("name")) $("name").value = params.get("name");
 }
 
@@ -866,8 +995,11 @@ async function main() {
     let kept = null;
     try { kept = localStorage.getItem("tier"); } catch (e) { /* storage blocked */ }
     state.tier = TIERS.includes(params.get("tier")) ? params.get("tier") : TIERS.includes(kept) ? kept : "medium";
+    loadGfx();  // (CHANGE 139: Auto, the parts changed by hand, the multisampling, the frame rate box)
+    if (TIERS.includes(params.get("tier"))) state.gfx.parts = {};  // (a tier in the address: its own parts)
+    setGraphics(state.gfx.parts, null);
     try {
-        engine = state.engine = pageEngine($("view"));
+        engine = state.engine = pageEngine($("view"), state.gfx.aa);
         const info = engineInfo(engine);
         if (!params.get("tier") && !TIERS.includes(kept) && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
         if (info.webgl < 2 && state.tier !== "blocks") state.tier = "blocks";  // (the app's lighting needs WebGL 2)
@@ -890,6 +1022,7 @@ async function main() {
     const v = await pageVersion();
     $("pageversion").textContent = v || "(laptop test)";
     renderPerf();
+    $("perf").style.display = state.gfx.fps ? "" : "none";
     requestAnimationFrame(loop);
     if (params.get("autoconnect")) login();
 }

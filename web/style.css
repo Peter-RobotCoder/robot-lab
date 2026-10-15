@@ -23,8 +23,9 @@ input { background: #fff; color: #111; }
 a { color: var(--blue); }
 
 /* the login screen */
-#login { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at top, #182033, #0b0d14 70%); z-index: 10; }
-#login .card { width: min(520px, 92vw); background: var(--panel); border-radius: 10px; padding: 26px 30px; }
+/* (CHANGE 141) the card scrolls when the screen is shorter than it: a phone, or a small laptop zoomed in */
+#login { position: fixed; inset: 0; display: flex; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; background: radial-gradient(ellipse at top, #182033, #0b0d14 70%); z-index: 10; }
+#login .card { width: min(520px, 100%); margin: auto; background: var(--panel); border-radius: 10px; padding: 26px 30px; }
 #login h1 { margin: 0 0 4px; color: var(--yellow); font-weight: 600; letter-spacing: 0.04em; }
 #login p { margin: 6px 0 14px; color: var(--grey); }
 #login .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px 12px; align-items: center; margin: 8px 0; }
@@ -82,6 +83,7 @@ a { color: var(--blue); }
 /* the teacher desk (CHANGE 129) */
 #desk { position: fixed; inset: 0; z-index: 8; overflow: auto; background: radial-gradient(ellipse at top, #182033, #0b0d14 70%); }
 #desk[hidden] { display: none; }
+#desk td button { white-space: nowrap; }
 #desk .deskcard { max-width: 1200px; margin: 0 auto; padding: 18px 16px 40px; }
 #desk .deskhead { display: flex; gap: 10px; align-items: center; }
 #desk h1 { margin: 0; color: var(--yellow); font-weight: 600; letter-spacing: 0.04em; font-size: 26px; }
@@ -163,7 +165,13 @@ a { color: var(--blue); }
 #login #modetabs { grid-template-columns: 1fr 1fr; }
 #login #modetabs button.on { background: var(--yellow); color: #111; }
 #login .row > p { grid-column: 1 / -1; margin: 0; }
-#waitbox p.big { font-size: 18px; color: var(--yellow); }
+#waitbox p.big { font-size: 18px; color: var(--text); }
+#waitbox h2.lobby { margin: 10px 0 4px; color: var(--yellow); letter-spacing: 0.06em; font-size: 20px; }
+@media (max-width: 480px) {
+    #login .card { padding: 18px 16px; }
+    #login .row { grid-template-columns: 1fr; gap: 6px; }
+    #login h1 { font-size: 24px; }
+}
 .objhead { display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 6px 2px; cursor: pointer; font: inherit; }
 .objective.done .objhead { color: var(--green); }
 .objbody { padding: 4px 8px 10px 26px; }
@@ -280,21 +288,61 @@ body.light #panel, body.light #places, body.light #events div { color: var(--tex
 #panel label.sees { width: auto; font-size: 12px; color: var(--blue); margin-left: auto; }
 #panel label.sees input { width: auto; }
 
-/* the code panel (garage.js): the design as Python code, edited and applied */
-#codepanel { position: fixed; left: 12px; top: 52px; bottom: 12px; width: min(620px, calc(100vw - 24px)); z-index: 6; background: var(--panel);
-             border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+/* the code panel (garage.js): the design as Python code, edited and applied. CHANGE 138: as the promo videos' code
+   window (the title bar's dots and the file's name, JetBrains Mono, their colours), and an editor's: the Python
+   highlighted as it is typed (#code-hl, under the textarea's transparent text), the cursor's line, a bracket's partner */
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap; src: url(fonts/jetbrainsmono-latin.woff2) format("woff2"); }
+#codepanel { --c-bg: rgba(10, 14, 30, 0.95); --c-edge: rgba(62, 233, 255, 0.35); --c-shadow: 0 24px 60px rgba(0, 0, 0, 0.55); --c-text: #e6ebff;
+             --c-dim: #9aa6c8; --c-ln: #4c587c; --c-box: rgba(4, 7, 18, 0.7); --c-boxedge: rgba(62, 233, 255, 0.12); --c-gutedge: rgba(76, 88, 124, 0.35);
+             --c-k: #ff4fd8; --c-f: #3ee9ff; --c-s: #ffb02e; --c-n: #b6ff3b; --c-c: #7f8bb0; --c-t: #3ee9ff; --c-p: #c3cbe8; --c-caret: #b6ff3b;
+             --c-line: rgba(62, 233, 255, 0.07); --c-sel: rgba(62, 233, 255, 0.26); --c-err: rgba(255, 79, 90, 0.2); --c-errbar: #ff5f57;
+             --c-errnum: #e5484d; --c-mb: rgba(182, 255, 59, 0.2); --c-mbedge: rgba(182, 255, 59, 0.6); --c-bar: #2b3556;
+             position: fixed; left: 12px; top: 52px; bottom: 12px; width: min(640px, calc(100vw - 24px)); z-index: 6; color: var(--c-text);
+             background: var(--c-bg); border: 2px solid var(--c-edge); border-radius: 14px; box-shadow: var(--c-shadow);
+             padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; }
 #codepanel[hidden] { display: none; }
-#codepanel header { display: flex; align-items: center; gap: 8px; color: var(--yellow); letter-spacing: 0.03em; }
+#codepanel header { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; font-size: 14px; letter-spacing: 0.03em; }
+#codepanel header .dots { display: flex; gap: 7px; margin-right: 2px; }
+#codepanel header .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+#codepanel header .dots i:nth-child(2) { background: #febc2e; }
+#codepanel header .dots i:nth-child(3) { background: #28c840; }
 #codepanel header .spacer { flex: 1; }
-#codepanel header button { padding: 2px 9px; }
-#codepanel .note { font-size: 12.5px; color: var(--grey); }
-#codepanel .codebox { flex: 1; display: flex; min-height: 120px; background: #11131a; border-radius: 6px; overflow: hidden; }
-#codepanel pre, #codepanel textarea { margin: 0; font: 13px/18px Consolas, "Cascadia Mono", "Courier New", monospace; padding: 8px 6px; }
-#codepanel pre { color: #5f6779; text-align: right; overflow: hidden; min-width: 3.2em; user-select: none; background: #0d0f15; }
-#codepanel pre b { color: #fff; background: #b3261e; border-radius: 3px; padding: 0 2px; }
-#codepanel textarea { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: #e8eaf0; white-space: pre; overflow: auto; tab-size: 4; }
+#code-file { font: 500 12.5px "JetBrains Mono", Consolas, monospace; color: var(--c-dim); letter-spacing: 0; }
+#codepanel header button { padding: 2px 9px; background: transparent; color: var(--c-dim); }
+#codepanel header button:hover { color: var(--c-text); background: var(--c-line); }
+#codepanel .note { font-size: 12.5px; color: var(--c-dim); }
+#codepanel .codebox { flex: 1; display: flex; min-height: 120px; background: var(--c-box); border: 1px solid var(--c-boxedge); border-radius: 8px; overflow: hidden; }
+#codepanel .gut { flex: none; overflow: hidden; border-right: 1px solid var(--c-gutedge); }
+#codepanel .edit { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
+#codepanel pre, #codepanel textarea { margin: 0; padding: 8px 12px 8px 12px; border: 0; white-space: pre; tab-size: 4; letter-spacing: 0;
+    font: 400 13px/20px "JetBrains Mono", Consolas, "Cascadia Mono", "Courier New", monospace; font-variant-ligatures: none; font-feature-settings: "calt" 0, "liga" 0; }
+#codepanel #code-gutter { color: var(--c-ln); text-align: right; min-width: 3.6em; padding-right: 10px; user-select: none; }
+#code-gutter .cur { color: var(--c-dim); }
+#code-gutter b { color: #fff; background: var(--c-errnum); border-radius: 3px; padding: 0 3px; font-weight: 700; }
+#code-hl { position: absolute; left: 0; top: 0; min-width: 100%; min-height: 100%; z-index: 1; color: var(--c-text); pointer-events: none; }
+#code-hl .k { color: var(--c-k); }
+#code-hl .f { color: var(--c-f); }
+#code-hl .s { color: var(--c-s); }
+#code-hl .n { color: var(--c-n); }
+#code-hl .c { color: var(--c-c); }
+#code-hl .t { color: var(--c-t); }
+#code-hl .p { color: var(--c-p); }
+#code-hl .mb { background: var(--c-mb); outline: 1px solid var(--c-mbedge); border-radius: 2px; }
+#codepanel .line { position: absolute; left: 0; right: 0; top: 0; height: 20px; background: var(--c-line); pointer-events: none; }
+#codepanel .line.err { background: var(--c-err); box-shadow: inset 3px 0 var(--c-errbar); }
+#codepanel .line[hidden] { display: none; }
+#codepanel .edit:not(:focus-within) #code-curline { opacity: 0.5; }
+#codepanel textarea { position: relative; z-index: 2; flex: 1; resize: none; outline: none; background: transparent; color: transparent;
+    caret-color: var(--c-caret); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--c-bar) transparent; }
+#codepanel textarea::selection { background: var(--c-sel); color: transparent; }
+#codepanel textarea[readonly] { caret-color: transparent; }
 #codepanel .row { display: flex; gap: 8px; flex-wrap: wrap; }
 #code-msg { min-height: 1.3em; font-size: 14px; }
-body.light #codepanel .codebox { background: #fff; }
-body.light #codepanel pre { background: #eef0f4; color: #8a90a0; }
-body.light #codepanel textarea { color: #15171c; }
+/* the light look: VS Code's Light+ */
+body.light #codepanel { --c-bg: #ffffff; --c-edge: #c5ccd8; --c-shadow: 0 18px 44px rgba(20, 30, 60, 0.22); --c-text: #1f1f1f; --c-dim: #616161;
+    --c-ln: #6e7681; --c-box: #ffffff; --c-boxedge: #e1e4ea; --c-gutedge: #eceef2; --c-k: #0000ff; --c-f: #795e26; --c-s: #a31515; --c-n: #098658;
+    --c-c: #008000; --c-t: #267f99; --c-p: #1f1f1f; --c-caret: #000000; --c-line: rgba(0, 0, 0, 0.045); --c-sel: rgba(0, 120, 215, 0.24);
+    --c-err: rgba(229, 20, 0, 0.12); --c-errbar: #e51400; --c-errnum: #e51400; --c-mb: rgba(0, 100, 0, 0.1); --c-mbedge: #b9b9b9; --c-bar: #c5ccd8; }
+body.light #code-gutter .cur { color: #0b216f; }
+/* the AI cards' whole prompt and the Changes tab's lines in the same font */
+#panel pre.prompt, #panel pre.diff { font-family: "JetBrains Mono", Consolas, "Cascadia Mono", monospace; font-variant-ligatures: none; font-feature-settings: "calt" 0, "liga" 0; }

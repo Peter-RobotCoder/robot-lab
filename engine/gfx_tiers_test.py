@@ -227,11 +227,39 @@ def resolve():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def class_maximum():  # CHANGE 139: the teacher's gfx_max
+    tmp = tempfile.mkdtemp(prefix="gfx_tiers_test_")
+    try:
+        assert g.class_max("blocks") == "basic" and g.class_max("low") == "low" and g.class_max("silly") is None
+        assert g.class_max(None) is None and g.capped("high", "low") == "low" and g.capped("low", "high") == "low"
+        g.remember(tmp, gfx_tier="high", class_code="KEEP1")
+        clock = Clock()
+        light, pipe = FakeLight(2048), FakePipeline()
+        mon = g.Monitor(tmp, "high", pipeline=pipe, lights=[light], clock=clock)
+        note = g.obey_class_max(tmp, "low", mon, "high")
+        assert note and "Low" in note, note
+        assert light.size == 512 and pipe.msaa_samples == 0, (light.size, pipe.msaa_samples)
+        assert g.load_settings(tmp).get("gfx_class_max") == "low" and g.resolve(tmp) == "low" and g.resolve(tmp, "high") == "low"
+        assert g.obey_class_max(tmp, "low", mon, "high") is None, "the note comes once"
+        feed(mon, clock, 40, 0.008)  # (headroom: nothing climbs past the maximum)
+        assert light.size == 512 and pipe.msaa_samples == 0 and g.load_settings(tmp).get("gfx_tier") == "high"
+        g.obey_class_max(tmp, None, mon, "high")  # lifted: the run's own knobs come back, the next start is its own
+        assert light.size == 2048 and pipe.msaa_samples == 4 and g.resolve(tmp) == "high"
+        assert "gfx_class_max" not in g.load_settings(tmp) and g.load_settings(tmp).get("class_code") == "KEEP1"
+        g.remember(tmp, gfx_tier="low", gfx_class_max="medium", gfx_benchmarked="high", gfx_detect={"heuristic_tier": "high"})
+        mon = g.Monitor(tmp, "low", clock=clock)
+        feed(mon, clock, 60, 1 / 60)  # (two climbs at most a run: one, and never past medium)
+        assert g.load_settings(tmp).get("gfx_tier") == "medium", g.load_settings(tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     check("Heuristic puts real renderer strings in the right tier", heuristic)
     check("prc_for gives each tier its lines", prc)
     check("Monitor steps down and up on synthetic frame times", monitor)
     check("resolve follows --gfx, the saved tier, the detection, then medium", resolve)
+    check("The class maximum caps resolve, the knobs in a run and the monitor's climb", class_maximum)
     for name, ok, note in results:
         print(("PASS " if ok else "FAIL ") + name + ("" if ok else ":\n    " + note))
     sys.exit(0 if all(ok for _, ok, _ in results) else 1)

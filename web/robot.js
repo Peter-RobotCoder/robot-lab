@@ -1206,6 +1206,8 @@ export class RobotGame {
         const S = this.app.state, roster = S.roster || {};
         const id = roster.mine ? roster.mine[p.name] : null;
         const r = (roster.robots || []).find(x => x.id === id);
+        if (p.role === "computer")  // (CHANGE 140: the arena it is in, or every arena)
+            return [this.app.esc((p.design && p.design.name) || ""), !p.in_arena ? "" : p.in === null || p.in === undefined ? "every" : p.in + 1];
         return [this.app.esc((p.design && p.design.name) || ""), r ? r.arena + 1 : ""];
     }
 
@@ -1227,8 +1229,9 @@ export class RobotGame {
                 <button id="rb-pause" class="${this.last && this.last.paused ? "on" : ""}">${this.last && this.last.paused ? "RESUME" : "PAUSE"}</button></div>
               <div class="note">Practice: no damage, knocked-out robots come back. Battle: RESTART counts down 8 seconds, then ACTIVATE!</div>
               <div class="row"><label>Battle time</label><select id="rb-time">${[30, 60, 90, 120, 150, 180, 210, 240, 270, 300].map(t => `<option value="${t}" ${t === L.time_limit ? "selected" : ""}>${t} s</option>`).join("")}</select></div>
-              <div class="row"><label>Computer robots</label><select id="rb-cpu">${[0, 1, 2, 3].map(k => `<option ${k === L.cpu_robots ? "selected" : ""}>${k}</option>`).join("")}</select>
+              <div class="row"><label>Computer robots</label><select id="rb-cpu">${[0, 1, 2, 3, 4].map(k => `<option ${k === L.cpu_robots ? "selected" : ""}>${k}</option>`).join("")}</select>
                 <select id="rb-level">${LEVELS.map(([k, n]) => `<option value="${k}" ${k === L.cpu_level ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+              <div class="note">Each one is yours to set up in Learners (Computer 1 to ${(S.classList || []).filter(p => p.role === "computer").length || 4}): its robot, its brain and its arena.</div>
               ${L.cpu_level === "empty" ? `<div class="row"><label class="filebtn">Upload the demo brain (.py)<input id="rb-demo" type="file" accept=".py,text/plain" hidden></label></div>` : ""}
               <div class="row"><label>My robot</label><button id="rb-mine" class="${L.teacher_robot ? "on" : ""}">${L.teacher_robot ? "In the arena" : "Not in"}</button></div>
               <div class="row"><label>Designs</label><button id="rb-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>

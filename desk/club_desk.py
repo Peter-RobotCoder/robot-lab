@@ -298,6 +298,13 @@ class Store:
             del self.groups[rename_from]
         known = [n for n in self.learners if n in (learners or [])]
         self.groups[name] = {"game": game, "learners": known, "time": time}
+        live = self.live
+        if live and live.get("group") in (name, rename_from):  # (CHANGE 141) the live group: its game follows
+            before = set(old.get("learners", []))
+            added = [n for n in known if n not in before and n not in live["learners"]]
+            gone = before - set(known)
+            live["learners"] = [n for n in live["learners"] if n not in gone] + added
+            live["group"] = name
         self.save()
         return name
 
@@ -487,8 +494,12 @@ class Desk:
                        "code": running_code(info), "live_id": live.get("id"),
                        "ticket": club_ticket.make(self.store.key, name, "learner", live["game"])}}
 
+    def state(self):
+        """The store's state for the teacher's screens, and who is waiting in the lobby (logged in, not in a game)."""
+        return {**self.store.state(), "lobby": sorted(set(self.waiting.values()))}
+
     async def tell_teachers(self):
-        msg = json.dumps({"state": self.store.state()})
+        msg = json.dumps({"state": self.state()})
         for ws in list(self.teachers):
             try:
                 await ws.send(msg)
@@ -543,7 +554,7 @@ class Desk:
                             raise DeskError("That isn't the teacher password.")
                         role = "teacher"
                         self.teachers.add(ws)
-                        reply = {"ok": True, "state": self.store.state()}
+                        reply = {"ok": True, "state": self.state()}
                         if m.get("claude"):  # (a browser page: it shows Claude for the browser's cards)
                             self.claude_watchers.add(ws)
                             reply["claude"] = self.claude_info()
@@ -684,7 +695,7 @@ class Desk:
         else:
             self.waiting[ws] = name
             await ws.send(json.dumps({"ok": True, "waiting": True, "name": name,
-                                      "message": "Your group hasn't started yet: wait for your teacher."}))
+                                      "message": "You're in the lobby: your game opens by itself when your teacher adds you to it."}))
 
     def teacher_window(self):
         live, s = self.store.live, self.store
@@ -704,8 +715,13 @@ class Desk:
             name = s.remove_learner(m.get("name", ""))
             reply = {"ok": True, "done": f"{name} removed: the games are deleting their data"}
         elif kind == "set_group":
+            before = set((s.live or {}).get("learners", []))
             name = s.set_group(m.get("name", ""), m.get("game", ""), m.get("learners", []), m.get("rename_from"),
                                m.get("time"))
+            added = set((s.live or {}).get("learners", [])) - before  # (the live group's new learners: in from the lobby)
+            for conn, who in list(self.waiting.items()):
+                if who in added:
+                    self.done_with.pop(conn, None)
             reply = {"ok": True, "done": f"Group {name} saved"}
         elif kind == "delete_group":
             s.delete_group(m.get("name", ""))
@@ -745,6 +761,18 @@ class Desk:
                 raise DeskError(f"{GAMES.get(game, game)} isn't set up on this server.")
             await ws.send(json.dumps(reply))  # (no state broadcast: watching changes nothing)
             return
+        elif kind == "session_learner":  # (CHANGE 141) the desk's This session: in the game, or back to the lobby
+            if not s.live:
+                raise DeskError("Nothing is live: launch a group first.")
+            name, rec = s.find(m.get("name", ""))
+            if rec is None:
+                raise DeskError("No learner with that username.")
+            add = bool(m.get("in"))
+            if s.session_learner(name, add, s.live.get("id"), s.live.get("game")) and add:
+                for conn, who in list(self.waiting.items()):  # (from the lobby, even one who closed this game's window
+                    if who == name:                             #  themselves: the teacher wants them in)
+                        self.done_with.pop(conn, None)
+            reply = {"ok": True, "done": f"{name} " + ("is going into the game" if add else "is going back to the lobby")}
         elif kind == "note":
             name = s.note(m.get("name", ""), m.get("text", ""))
             reply = {"ok": True, "done": f"Note for {name} saved"}

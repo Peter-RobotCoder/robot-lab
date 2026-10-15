@@ -17,7 +17,8 @@ A game's window uses this file in four steps:
 
 Settings live in this computer's settings.json (the same file engine.hud keeps the class code and look in):
 gfx_tier (the player's or the monitor's choice), gfx_detect (what the driver said) and gfx_benchmarked (the
-highest tier that has run cleanly here: the monitor never steps up past it).
+highest tier that has run cleanly here: the monitor never steps up past it), and gfx_class_max (the teacher's
+class maximum, CHANGE 139: a learner's window opens at most at it and never steps up past it).
 """
 import ctypes
 import json
@@ -64,6 +65,41 @@ def below(tier):
 
 def above(tier):
     return TIERS[min(len(TIERS) - 1, _index(tier) + 1)]
+
+
+# ---------- the class maximum (CHANGE 139) ----------
+# The teacher's lesson key "gfx_max": the best tier a learner's window or page may draw (None: no limit). The
+# browser's "blocks" is the windows' "basic". A learner's window keeps it here (gfx_class_max) so the next start
+# opens at most at it: the shaders are made as the window opens, so mid-run only the knobs that change safely in
+# a run come down (the monitor's: the shadow map, MSAA, the LOD distance).
+def class_max(value):
+    """The lesson's gfx_max, checked: one of TIERS, or None."""
+    value = "basic" if value == "blocks" else value
+    return value if value in TIERS else None
+
+
+def capped(tier, cap):
+    """tier, or the class maximum when it is lower."""
+    cap = class_max(cap)
+    return cap if cap and tier in TIERS and _index(tier) > _index(cap) else tier
+
+
+def obey_class_max(settings_dir, cap, monitor=None, tier=None):
+    """A learner's window heard the lesson: keep the class maximum for the next start and tell the monitor. Returns
+    a note for the player when it has just come down below the tier in use, else None."""
+    cap = class_max(cap)
+    if settings_dir and load_settings(settings_dir).get("gfx_class_max") != cap:
+        if cap:
+            remember(settings_dir, gfx_class_max=cap)
+        else:
+            forget(settings_dir, "gfx_class_max")
+    was = monitor.class_max if monitor is not None else None
+    if monitor is not None:
+        monitor.set_class_max(cap)
+    if cap and tier in TIERS and _index(tier) > _index(cap) and was != cap:
+        return (f"Your teacher set the graphics to at most {cap.title()}: shadows and smoothing are turned down now, "
+                "the rest from the next start")
+    return None
 
 
 # ---------- this computer's settings (the same settings.json engine.hud keeps the class code in) ----------
@@ -119,14 +155,15 @@ def prc_for(tier):
 
 def resolve(settings_dir, override=None):
     """The tier this run uses: --gfx wins; then the tier saved here (the player's or the monitor's choice);
-    then the heuristic from a previous run's detection; then medium on a machine nobody has seen."""
-    if override in TIERS:
-        return override
+    then the heuristic from a previous run's detection; then medium on a machine nobody has seen. Never above the
+    class maximum a learner's window kept here (CHANGE 139)."""
     saved = load_settings(settings_dir)
+    if override in TIERS:
+        return capped(override, saved.get("gfx_class_max"))
     if saved.get("gfx_tier") in TIERS:
-        return saved["gfx_tier"]
+        return capped(saved["gfx_tier"], saved.get("gfx_class_max"))
     guess = (saved.get("gfx_detect") or {}).get("heuristic_tier")
-    return guess if guess in TIERS else DEFAULT
+    return capped(guess if guess in TIERS else DEFAULT, saved.get("gfx_class_max"))
 
 
 # ---------- after the window opens ----------
@@ -375,6 +412,8 @@ class Monitor:
         self.benchmarked = saved.get("gfx_benchmarked") if saved.get("gfx_benchmarked") in TIERS else None
         self.saved_tier = saved.get("gfx_tier") if saved.get("gfx_tier") in TIERS else None
         self.failed = [t for t in (saved.get("gfx_failed") or []) if t in TIERS]  # tiers stepped down from here
+        self.class_max = class_max(saved.get("gfx_class_max"))  # the teacher's (CHANGE 139): never stepped up past
+        self.capped_knobs = []           # the knobs the class maximum turned down in this run
         self.lights = [l for l in lights if self._shadow_size(l)]
         self.has_lod = bool(render is not None and not render.find("**/+LODNode").isEmpty())
         self.steps = self._plan_steps()  # the in-run step-downs still to take, in order
@@ -388,6 +427,8 @@ class Monitor:
         self.changed = False             # a step was taken this run (so it never counts as a clean run)
         self.stepped_tier = False        # a tier was saved this run (one a run: the next run judges again)
         self.task = None
+        if self.class_max:  # (heard before the monitor started: the knobs come down now)
+            self.set_class_max(self.class_max)
 
     # --- the knobs that are safe in a run ---
     @staticmethod
@@ -481,7 +522,7 @@ class Monitor:
             self.taken.append(step)
             self._changed(now)
             return
-        current = self.saved_tier or self.tier
+        current = capped(self.saved_tier or self.tier, self.class_max)
         floor = self.override or "low"
         if self.stepped_tier or _index(current) <= _index(floor):
             self.hold_until = now + self.WINDOW  # nothing left to turn down (a Python-bound client, or low)
@@ -495,17 +536,21 @@ class Monitor:
         self.on_note(f"Graphics set to {self.saved_tier.title()} for next time (frames were being missed)")
 
     def step_up(self, now):
+        if self.capped_knobs:  # (the class maximum holds the knobs down: nothing goes back up past it)
+            self.good_since = now
+            return
         if self.taken:
             self._undo(self.taken.pop())
             self._changed(now)
             return
-        current = self.saved_tier or self.tier
+        current = capped(self.saved_tier or self.tier, self.class_max)
         # the driver's own tier (the heuristic's, or medium) is always worth trying again, however a bad session
         # (a server and two windows on one laptop) left things; a clean run above it buys at most one tier more
         own = self.heuristic if self.heuristic in TIERS else DEFAULT
         ceiling = own
         if self.benchmarked and _index(self.benchmarked) > _index(own):
             ceiling = TIERS[min(_index(self.benchmarked), _index(own) + 1)]
+        ceiling = capped(ceiling, self.class_max)
         if self.override or _index(current) >= _index(ceiling) or above(current) in self.failed:
             self.good_since = now  # (wait another UP_SECS before looking again)
             return
@@ -518,6 +563,35 @@ class Monitor:
         if self.settings_dir:
             remember(self.settings_dir, gfx_tier=tier)
         self._changed(now)
+
+    def set_class_max(self, cap):
+        """The teacher's class maximum (CHANGE 139) heard mid-run. Below the tier in use: the knobs that change
+        safely in a run come down to the maximum's (the shadow map no smaller than 512: the shadows are compiled in);
+        lifted: they go back to this run's own."""
+        cap = class_max(cap)
+        self.class_max = cap
+        if cap and _index(self.tier) > _index(cap):
+            s = SETTINGS[cap]
+            knobs = []
+            if self.lights:
+                knobs.append(("shadow", max(512, s["shadow"])))
+            if self.pipeline is not None and (SETTINGS[self.tier]["msaa"] or "msaa" in self.capped_knobs):
+                knobs.append(("msaa", s["msaa"]))
+            if self.has_lod:
+                knobs.append(("lod", s["lod_scale"]))
+            for step in knobs:
+                kind, value = step
+                own = [v for k, v in self.taken if k == kind]  # (the monitor's own turn-downs stay if lower)
+                if not own or own[-1] > value:
+                    self._apply(step)
+            held = dict(knobs)  # (a step-down still to take only if it goes lower than the maximum's)
+            self.steps = [(k, v) for k, v in self.steps if k not in held or v < held[k]]
+            self.capped_knobs = list(held)
+        elif self.capped_knobs:
+            for kind in self.capped_knobs:
+                self._undo((kind, None))
+            self.capped_knobs = []
+            self.steps = self._plan_steps()
 
     def report(self):
         """For the status line and the teacher's grid."""

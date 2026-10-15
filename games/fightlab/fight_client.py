@@ -383,6 +383,7 @@ class Lab(hud.HudKit, ShowBase):
         self.gfx_monitor = getattr(self, "gfx_monitor", None) or fight_gfx.start_monitor(
             self, SETTINGS_DIR, args.gfx, self.banner_note, judge=not LOCAL)  # (a laptop test shares the GPU)
         self.lesson, self.rules = welcome["lesson"], welcome["rules"]
+        self.obey_gfx_max()
         self.design = welcome["design"]          # the last design the server accepted
         self.draft = copy.deepcopy(self.design)  # what is being edited in the garage
         self.class_list, self.missions, self.teaching, self.tournament = [], None, None, None
@@ -1235,6 +1236,17 @@ class Lab(hud.HudKit, ShowBase):
                 self.banner_note(f"Uploading {os.path.basename(path)}...")
                 return
         self.banner_note("No brain file: make brains/my_brain.py first")
+
+    def obey_gfx_max(self):
+        """The teacher's class maximum for the graphics (CHANGE 139, engine.gfx_tiers): a learner's window only."""
+        cap = (self.lesson or {}).get("gfx_max")
+        if TEACHER or getattr(self, "gfx_max_seen", "?") == cap:
+            return
+        self.gfx_max_seen = cap
+        note = gfx_tiers.obey_class_max(SETTINGS_DIR, cap, getattr(self, "gfx_monitor", None),
+                                        getattr(self, "gfx_tier", None))
+        if note:
+            self.banner_note(note, 6)
 
     def banner_note(self, text, secs=3, big=False):
         """Words over the ring for a few seconds. big: the size of a round's banner (a restart warning)."""
@@ -2564,6 +2576,7 @@ class Lab(hud.HudKit, ShowBase):
                 if self.check_code(m):
                     return
                 self.lesson, self.rules, self.design = m["lesson"], m["rules"], m["design"]
+                self.obey_gfx_max()
                 self.draft = copy.deepcopy(self.design)
                 self.banner_note("Reconnected: carry on!", 3)
                 self.code_shown = None
@@ -2586,6 +2599,7 @@ class Lab(hud.HudKit, ShowBase):
                             self.code_shown = None
                 self.show_missions_changed(self.lesson, m["lesson"])  # (CHANGE 122)
                 self.lesson, self.class_list, self.tournament, self.mod_info = m["lesson"], m["class"], m.get("tournament"), mods
+                self.obey_gfx_max()
             elif kind in ("slots", "history"):  # saved designs (CHANGE 83 to 86)
                 rebuild = self.took_slots(m) or rebuild
             elif kind == "warnings":  # teacher: a learner changed, in the code, something outside the lesson

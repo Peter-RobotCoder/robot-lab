@@ -30,7 +30,13 @@
       <label for="npass2">Again</label>
       <input id="npass2" type="password" autocomplete="new-password">
     </form>
-    <div id="waitbox" class="row" hidden><p id="waittext" class="big"></p></div>
+    <div id="waitbox" hidden>
+      <h2 class="lobby">THE LOBBY</h2>
+      <p id="waittext" class="big"></p>
+      <p class="note">Keep this page open. When your teacher adds you to a game it opens here by itself, and you come back
+        here when it ends.</p>
+      <button id="lobby-logout">Log out</button>
+    </div>
     <form id="deskform" class="row" autocomplete="on" onsubmit="return false" hidden>
       <input type="text" name="username" value="teacher" autocomplete="username" hidden>
       <label for="deskpass">Teacher password</label>
@@ -58,8 +64,6 @@
       <button id="connect" class="go">LOG IN</button>
       <span id="status"></span>
     </div>
-    <div class="note"><a href="#" id="switchmode">Use a class server's code instead</a> (a laptop test server, or a
-      class the desk doesn't know).</div>
     <div class="note" id="loginnote">This page is Club Coders <span id="pageversion">?</span>. Only one teacher window
       can be open on a class at a time: close the teacher window on your laptop first, or this page is turned
       away.</div>
