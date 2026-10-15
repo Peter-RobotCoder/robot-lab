@@ -183,7 +183,7 @@ function pickBody(app, box) {
               <button id="cpu-auto" class="${cpu.autopilot ? "on" : ""}">Autopilot ${cpu.autopilot ? "on" : "off"}</button>
               <label class="filebtn">Upload its brain (.py)<input id="cpu-brain" type="file" accept=".py,text/x-python,text/plain" hidden></label></div>
               <div class="note">${cpu.brain ? "It has its own brain." : "No brain of its own yet."} Autopilot uses the uploaded brain.</div>` : ""}`;
-        renderGarage(app, $("dzgarage"), {who, pre: "dz", codeButton: !who,
+        renderGarage(app, $("dzgarage"), {who, pre: "dz",
             after: S.pick === "*all" ? `<div class="note">Everyone connected gets exactly this, and so does anyone who joins this session.</div>` : "",
             build: d => {
                 if (!who) return buildMine(app);
@@ -243,7 +243,7 @@ function pickBody(app, box) {
     box.innerHTML = `<h2>${esc(p.name)}</h2><div class="row">${subs.map(([k, n]) => `<button data-sub="${k}" class="${S.sub === k ? "on" : ""}">${n}</button>`).join("")}</div>${inner}`;
     box.querySelectorAll("button[data-sub]").forEach(b => b.onclick = () => { S.sub = b.dataset.sub; S.formBase = null; app.renderPanel(); });
     if ($("dzgarage")) {
-        renderGarage(app, $("dzgarage"), {who: p.name, pre: "dz", codeButton: false, build: d => {
+        renderGarage(app, $("dzgarage"), {who: p.name, pre: "dz", build: d => {
             const name = $("dz-name");  // (the window's send_design_for: the name as it is in the box)
             if (name) d.name = Array.from(name.value).slice(0, game.id === "kartlab" ? 12 : 16).join("");
             send({type: "design_for", learner: p.name, design: d});

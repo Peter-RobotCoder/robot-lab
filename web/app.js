@@ -800,6 +800,13 @@ function renderPanelSoon() {  // (several messages in a burst: draw the panel on
 // the panel (another tab, learner or mission) starts clean
 function renderPanel() {
     if (state.dragging) { renderPanelSoon(); return; }  // (a garage slider is held: draw when it's let go)
+    // (CHANGE 142) a drop-down in use isn't redrawn under the teacher (the panel is drawn every second: a redraw closed
+    // an open list and lost its place for the cursor keys); it is drawn again once let alone for 8 s, or left
+    const used = document.activeElement;
+    if (used && used.tagName === "SELECT" && $("panelbody").contains(used) && Date.now() - (state.selectAt || 0) < 8000) {
+        renderPanelSoon();
+        return;
+    }
     const body = $("panelbody");
     const key = [state.tab, state.pick, state.sub, state.editLesson, state.formSeq].join("|");
     const same = key === state.panelKey;
@@ -962,6 +969,9 @@ function setupUi() {
     $("toggle").onclick = () => { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); };
     $("btn-desk").onclick = () => showDesk();
     window.addEventListener("pointerup", () => { state.dragging = false; });
+    for (const kind of ["pointerdown", "keydown", "focusin", "change"]) {  // (a drop-down in use: see renderPanel)
+        $("panelbody").addEventListener(kind, e => { if (e.target.tagName === "SELECT") state.selectAt = Date.now(); });
+    }
     window.addEventListener("pointercancel", () => { state.dragging = false; });
     document.addEventListener("keydown", e => {
         if (e.key === "Tab" && state.connected && !deskShown() && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); $("panel").classList.toggle("open"); }

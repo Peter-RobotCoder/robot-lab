@@ -104,7 +104,7 @@ export class KartHud {
     // me: our kart's state (interpolated or predicted), states: every kart, race: the race message, track
     update(me, states, race, track, myId, colours) {
         const el = box();
-        if (!me || !race) { el.innerHTML = ""; return; }
+        if (!me || !race) { el.innerHTML = ""; this.built = false; return; }  // (emptied: built again when there's a kart)
         el.className = "hud karthud";
         const laps = race.laps || 3, places = race.places || [];
         const place = places.indexOf(myId) + 1;
@@ -112,7 +112,7 @@ export class KartHud {
         const kmh = Math.round(Math.abs(me.v || 0) * 3.6);
         const charge = Math.max(0, Math.min(CHARGE_MAX, me.charge || 0));
         const wrong = (me.flags & 8) && race.phase === 1;
-        if (!this.built || this.mapKey !== track.name) this.build(el, track);
+        if (!this.built || this.mapKey !== track.name || !$("kh-lap")) this.build(el, track);  // (or the page emptied it)
         $("kh-lap").textContent = race.phase === 2 && (me.flags & 4) ? "FINISHED" : laps >= 99 ? `LAP ${lap}` : `LAP ${lap}/${laps}`;  // (practice: laps without end)
         $("kh-place").textContent = place ? `${ordinal(place)} of ${places.length}` : "";
         $("kh-speed").textContent = `${kmh} km/h`;

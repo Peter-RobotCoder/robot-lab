@@ -5,7 +5,7 @@
 1. every Python file compiles
 2. the mods load and a test fight runs
 3. the class server runs a Lesson 5 arena (every hazard and Resident Robot) for 10 seconds
-4. four computer robots in the arenas the teacher chose, kept over a restart (CHANGE 140)
+4. four computer robots in the arenas the teacher chose, kept over a restart (CHANGE 140), and who is where (142)
 5. pushing follows the robots' stats: one-on-one, two-on-one and two on a Resident Robot
 6. the showcase (robot_wars.py) draws a frame
 7. a real server with a learner window and a teacher window, logged in and drawing
@@ -109,10 +109,16 @@ def computer_robots():
                 (1, "Sparky 1", None, None), (2, "Sparky 2", 0, 0), (3, "Crusher", 1, 1), (4, "Sparky 4", 5, 1)]:
             raise RuntimeError(f"the class list's computer robots: {listed}")
         srv.players.clear()
-        srv.save_mission_settings()  # (Save settings: 4 computer robots, 2 arenas for mission 1)
+        places = {"Teacher": 1, "amy": 0}  # (CHANGE 142: who is where is saved too; amy isn't here: nothing happens)
+        srv.lesson["places"] = dict(places)
+        srv.save_mission_settings()  # (Save settings: 4 computer robots, 2 arenas, the places for mission 1)
         again = lab_server.LabServer()  # the server starts again
         if where(again) != want or again.cpus[2].design["name"] != "Crusher":
             raise RuntimeError(f"after a restart the computer robots should be {want}: {where(again)}")
+        away = [a.index for a in again.arena for r in a.robots if r.owner == "Teacher (away)"]
+        if again.lesson["places"] != places or away != [1]:
+            raise RuntimeError(f"after a restart the places should be {places}: {again.lesson['places']}, "
+                               f"the teacher's robot in arena 2: {away}")
         os.remove(lab_server.MISSIONS_FILE)  # (no saved mission: the arenas still come from computer_robot.json)
         if lab_server.LabServer().lesson["cpu_arenas"] != [None, 0, 1, 5]:
             raise RuntimeError("computer_robot.json didn't keep the computer robots' arenas")
@@ -222,7 +228,7 @@ if __name__ == "__main__":
     check("Every file compiles", compile_all)
     check("Mods load and a test fight runs", mods)
     check("Server runs a full arena", server_physics)
-    check("Four computer robots in their arenas, kept over a restart", computer_robots)
+    check("Four computer robots in their arenas and who is where, kept over a restart", computer_robots)
     check("Pushing follows the stats", pushing)
     check("Showcase draws", showcase)
     check("Learner and teacher windows log in and draw", windows)

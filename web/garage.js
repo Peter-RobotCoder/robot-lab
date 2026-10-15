@@ -352,7 +352,7 @@ function wireGarage(app, box, {who, pre, d, ctx, limits, tools, opts}) {
     const build = $(`${pre}-build`);
     if (build) build.onclick = () => (opts.build ? opts.build(d) : buildMine(app));
     const code = $(`${pre}-code`);
-    if (code) code.onclick = () => toggleCode(app);
+    if (code) code.onclick = () => toggleCode(app, who);
 }
 
 // BUILD MY ROBOT / FIGHTER / KART: the window's send_design
@@ -392,9 +392,23 @@ function codeAllowed(app) {
     return teacherRole(app) || (app.game.id === "kartlab" ? (t.code_view ?? true) : !!t.code_view);
 }
 
-export function toggleCode(app) {  // C, or the garage's Code button (the window's toggle_code)
+// (CHANGE 142) whose design the code panel is: the teacher's Learner view shows the code of the learner, the computer's
+// robot or "All learners" looked at (the window's viewing(): the Learners tab, on their design); otherwise your own
+function viewingWho(app) {
     const S = app.state;
-    if (!gameSchema(app) || !draftOf(app)) { app.toast("Your design hasn't arrived yet."); return; }
+    if (!teacherRole(app) || S.tab !== "learners" || !S.pick || S.pick === "*me") return null;
+    if (isCpu(S.pick) || S.pick === "*all") return S.pick;
+    return S.sub === "build" && (S.classList || []).some(p => p.name === S.pick) ? S.pick : null;
+}
+
+function whoName(app, who) {  // (the code panel's words for them)
+    return !who ? null : who === "*all" ? "every learner" : isCpu(who) ? ((cpuOf(app, who) || {}).name || "the computer") : who;
+}
+
+export function toggleCode(app, who = undefined) {  // C, or the garage's Code button (the window's toggle_code)
+    const S = app.state;
+    S.codeWho = who === undefined ? viewingWho(app) : who;
+    if (!gameSchema(app) || !draftOf(app, S.codeWho)) { app.toast("Your design hasn't arrived yet."); return; }
     S.showCode = !S.showCode;
     if (S.showCode && !teacherRole(app)) app.send({type: "code_viewed"});
     if (S.showCode && !codeAllowed(app)) app.toast("Your teacher hasn't switched the code view on this mission.");
@@ -405,19 +419,34 @@ export function toggleCode(app) {  // C, or the garage's Code button (the window
 export function renderCode(app) {
     const S = app.state, el = $("codepanel");
     if (!el) return;
-    const G = gameSchema(app), d = G && draftOf(app);
+    if (S.showCode && teacherRole(app)) {  // (another learner looked at, or back to your own: their code, fresh)
+        const now = viewingWho(app);
+        if (now !== (S.codeWho ?? null)) { S.codeWho = now; S.codeShown = null; S.codeMsg = null; }
+    }
+    const who = S.codeWho || null, G = gameSchema(app), d = G && draftOf(app, who);
     if (!S.showCode || !G || !d || !S.connected || !codeAllowed(app)) { el.hidden = true; return; }
     el.hidden = false;
-    const ctx = ctxOf(app, null, d), word = app.game.word.toUpperCase();
+    const ctx = ctxOf(app, who, d), word = app.game.word.toUpperCase(), name = whoName(app, who);
     const fresh = SC.codeLines(G, d, ctx).join("\n");
     if (S.codeShown === null || S.codeShown === undefined || S.codeText === S.codeShown) {  // (not edited: the design as it is)
         S.codeText = fresh;
         S.codeShown = fresh;
         S.codeErr = null;
     }
-    $("code-title").textContent = `YOUR ${word} AS PYTHON CODE`;
-    if ($("code-file")) $("code-file").textContent = `my_${app.game.word.toLowerCase()}.py`;
-    $("code-rebuild").textContent = app.game.id === "robotlab" ? "REBUILD MY ROBOT" : `BUILD MY ${word}`;
+    $("code-title").textContent = name ? `${name.toUpperCase()}'S ${word} AS PYTHON CODE` : `YOUR ${word} AS PYTHON CODE`;
+    if ($("code-file")) $("code-file").textContent = name ? `${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "their"}_${app.game.word.toLowerCase()}.py`
+                                                          : `my_${app.game.word.toLowerCase()}.py`;
+    $("code-rebuild").textContent = name ? `${app.game.id === "robotlab" ? "REBUILD" : "BUILD"} FOR ${name.toUpperCase()}`
+                                         : app.game.id === "robotlab" ? "REBUILD MY ROBOT" : `BUILD MY ${word}`;
+    // the teacher's own robot: the learners' starting robot for the mission, as code (Robot Lab's CHANGE 90 and 125)
+    const extra = $("code-teacher");
+    if (extra) {
+        const L = S.lesson || {}, show = teacherRole(app) && !who && app.game.id === "robotlab";
+        extra.hidden = !show;
+        if (show) extra.innerHTML = `<button id="code-load-start">LOAD LEARNERS' START</button><button id="code-save-start" class="go">SAVE CODE FOR LEARNERS</button>` +
+            (L.start_design ? `<button id="code-reset-learners">RESET LEARNERS TO IT</button><button id="code-standard">standard again</button>` : "");
+        if (show) wireTeacherCode(app);
+    }
     const ta = $("code-text");
     if (ta.value !== S.codeText) ta.value = S.codeText;
     paint();
@@ -514,12 +543,13 @@ function selectLine(lineno) {  // the cursor goes to the line with the mistake (
 
 // APPLY CODE: read the code (schema.js, never run), change the design to match. True if all of it was used.
 export function applyCodeNow(app) {
-    const S = app.state, G = gameSchema(app), d = draftOf(app);
+    const S = app.state, G = gameSchema(app), who = S.codeWho || null, d = draftOf(app, who);
     if (!G || !d) return false;
-    const ctx = ctxOf(app, null, d);
+    const ctx = ctxOf(app, who, d);
     let r;
     try {
-        r = SC.applyCode(G, d, S.codeText ?? "", {ctx, tools: toolsOf(app), limits: limitsOf(app), teacher: teacherRole(app), viewing: null});
+        r = SC.applyCode(G, d, S.codeText ?? "", {ctx, tools: toolsOf(app), limits: limitsOf(app, who), teacher: teacherRole(app),
+                                                   viewing: whoName(app, who)});
     } catch (e) {  // (the window would stop here with Python's error: the page says so and carries on)
         S.codeMsg = [`The code can't be read: ${e.message}`, "red"];
         renderCode(app);
@@ -546,25 +576,66 @@ export function applyCodeNow(app) {
 }
 
 function resetCode(app) {
-    const S = app.state, G = gameSchema(app), d = draftOf(app), id = app.game.id, word = app.game.word;
+    const S = app.state, G = gameSchema(app), who = S.codeWho || null, d = draftOf(app, who), id = app.game.id, word = app.game.word;
     if (id === "robotlab") {  // (lab_client.reset_code: back to the lesson's starting robot; only the code changes)
-        const L = S.lesson || {}, start = L.start_design, mine = S.myDefault || d;
+        const L = S.lesson || {}, start = L.start_design;
+        const theirs = who && !isCpu(who) && who !== "*all" ? ((S.classList || []).find(p => p.name === who) || {}).default : null;
+        const mine = who ? (theirs || d) : (S.myDefault || d);  // (default_design(who): the learner's own start)
         let base = mine;
-        if (start && typeof start === "object" && !Array.isArray(start) && !teacherRole(app)) {
+        if (start && typeof start === "object" && !Array.isArray(start) && (!teacherRole(app) || who)) {
             base = copy(start);
             base.name = mine.name ?? S.name;
             base.colour = mine.colour ?? base.colour;
         }
-        S.codeText = SC.codeLines(G, base, ctxOf(app, null, d)).join("\n");
+        S.codeText = SC.codeLines(G, base, ctxOf(app, who, d)).join("\n");
         S.codeMsg = ["The code is back to the starting robot. Press APPLY CODE or REBUILD to use it.", "grey"];
     } else {
-        S.codeText = SC.codeLines(G, d, ctxOf(app, null, d)).join("\n");
+        S.codeText = SC.codeLines(G, d, ctxOf(app, who, d)).join("\n");
         S.codeShown = S.codeText;
-        S.codeMsg = [`The code is back to your ${word} as it is. Press APPLY CODE or BUILD to use it.`, "grey"];
+        S.codeMsg = [`The code is back to ${who ? whoName(app, who) + "'s" : "your"} ${word} as it is. Press APPLY CODE or BUILD to use it.`, "grey"];
     }
     S.codeErr = null;
     $("code-text").value = S.codeText;
     renderCode(app);
+}
+
+// REBUILD FOR NAME from the code (the window's send_design_for): a learner's, the computer's robot or every learner
+function buildFor(app, who) {
+    const S = app.state, d = draftOf(app, who), cpu = cpuOf(app, who);
+    if (who === "*all") app.send({type: "design_for_all", design: d});
+    else if (isCpu(who)) app.send({type: "cpu_robot", ...(cpu && cpu.n ? {n: cpu.n} : {}), design: d});
+    else app.send({type: "design_for", learner: who, design: d});
+    S.codeMsg = [`Building for ${whoName(app, who)}...`, "grey"];
+    S.codeShown = null;
+}
+
+function wireTeacherCode(app) {  // (lab_client: load_learners_start, save_code_for_learners, reset_learners_to_start)
+    const S = app.state, L = S.lesson || {};
+    $("code-load-start").onclick = () => {
+        const learner = (S.classList || []).find(p => p.role === "learner" && p.default);
+        const start = L.start_design || (learner && learner.default) || S.myDefault;
+        const d = draftOf(app);
+        if (!start || !d) return;
+        const keep = {name: d.name, colour: d.colour};  // (your own name and colour stay; learners get theirs)
+        for (const k of Object.keys(d)) delete d[k];
+        Object.assign(d, copy(start), keep);
+        S.codeShown = null;
+        S.codeMsg = ["The learners' starting robot is in the code. Edit it, then SAVE CODE FOR LEARNERS.", "green"];
+        S.formSeq = (S.formSeq || 0) + 1;
+        app.renderPanel();
+        renderCode(app);
+    };
+    $("code-save-start").onclick = () => {
+        if (!applyCodeNow(app)) return;
+        app.send({type: "lesson", lesson: {start_design: draftOf(app)}});
+        S.codeMsg = ["Saved for learners: this is their starting robot for the mission.", "green"];
+        renderCode(app);
+    };
+    if ($("code-reset-learners")) $("code-reset-learners").onclick = () => {
+        app.send({type: "design_for_all", design: L.start_design, keep_own: true});
+        app.toast("Every learner's robot is being rebuilt from the starting robot.");
+    };
+    if ($("code-standard")) $("code-standard").onclick = () => app.send({type: "lesson", lesson: {start_design: null}});
 }
 
 export function setupCodePanel(app) {  // (once, at the start)
@@ -593,9 +664,16 @@ export function setupCodePanel(app) {  // (once, at the start)
     $("code-reset").onclick = () => resetCode(app);
     $("code-rebuild").onclick = () => {  // (APPLY CODE, then build: lab's rebuild_from_code, the others' build_from_code)
         if (!applyCodeNow(app)) return;
-        if (app.game.id === "robotlab") { app.state.codeMsg = ["Building...", "grey"]; buildMine(app, true); }
+        const S = app.state, who = S.codeWho || null;
+        if (who) buildFor(app, who);  // (REBUILD FOR NAME: the window's send_design_for)
+        else if (app.game.id === "robotlab") { S.codeMsg = ["Building...", "grey"]; buildMine(app, true); }
         else buildMine(app);
         renderCode(app);
     };
+    const row = document.createElement("div");  // (the teacher's own robot: the learners' starting robot, as code)
+    row.className = "row";
+    row.id = "code-teacher";
+    row.hidden = true;
+    $("code-apply").parentNode.after(row);
     $("code-close").onclick = () => toggleCode(app);
 }

@@ -822,14 +822,41 @@ def main():
             chrome.js("document.getElementById('dz-name').value = 'Zap'; document.getElementById('dz-build').click()")
             chrome.wait_for("window.__state.classList.some(p => p.name === 'amy' && p.design.name === 'Zap')", 10, "amy's robot rebuilt as Zap")
             chrome.screenshot(os.path.join(work, "robotlab_their_robot.png"))
+            # (CHANGE 142) the teacher's code panel for a learner: her robot as code, edited, REBUILD FOR AMY
+            chrome.wait_for("!!document.getElementById('dz-code')", 5, "the Code button in amy's garage")
+            chrome.js("document.getElementById('dz-code').click()")
+            chrome.wait_for("!document.getElementById('codepanel').hidden && document.getElementById('code-title').textContent === \"AMY'S ROBOT AS PYTHON CODE\"",
+                            5, "amy's robot as code")
+            assert chrome.js("document.getElementById('code-rebuild').textContent") == "REBUILD FOR AMY"
+            assert chrome.js("document.getElementById('code-teacher').hidden") is True, "the learners' start buttons on a learner's code"
+            chrome.js("{ const t = document.getElementById('code-text'); t.value = t.value.replace('robot_name: str = \"Zap\"', 'robot_name: str = \"Zip\"');"
+                      " t.dispatchEvent(new Event('input')); document.getElementById('code-rebuild').click(); }")
+            chrome.wait_for("window.__state.classList.some(p => p.name === 'amy' && p.design.name === 'Zip')", 10, "amy's robot rebuilt from the code as Zip")
+            chrome.screenshot(os.path.join(work, "robotlab_their_code.png"))
+            chrome.js("document.getElementById('code-close').click()")
             chrome.js("document.querySelector('button[data-pick=\"*me\"]').click()")
             chrome.wait_for("!!document.getElementById('dz-build') && document.getElementById('panelbody').textContent.includes('MY ROBOT')",
                             10, "the teacher's own garage")
             chrome.js("document.querySelector('button[data-choice=\"weapon\"][data-i=\"2\"]').click()")
             chrome.wait_for("window.__state.draft.weapon === 'drum'", 5, "a weapon chosen in the garage")
             chrome.screenshot(os.path.join(work, "robotlab_garage.png"))
+            # (the teacher's own code: the learners' starting robot for the mission, saved and back to standard)
+            chrome.js("document.getElementById('dz-code').click()")
+            chrome.wait_for("!document.getElementById('codepanel').hidden && !document.getElementById('code-teacher').hidden &&"
+                            " document.getElementById('code-title').textContent === 'YOUR ROBOT AS PYTHON CODE'", 5, "your own robot as code")
+            chrome.js("document.getElementById('code-save-start').click()")
+            chrome.wait_for("!!(window.__state.lesson || {}).start_design && !!document.getElementById('code-standard')", 10,
+                            "saved as the learners' starting robot")
+            chrome.js("document.getElementById('code-standard').click()")
+            chrome.wait_for("!(window.__state.lesson || {}).start_design", 10, "the standard starting robot again")
+            chrome.js("document.getElementById('code-close').click()")
             for t in ("warnings", "camera", "graphics", "about", "controls"):
                 tab(t)
+            # (CHANGE 142) a drop-down in use isn't redrawn under the teacher: the panel's redraw waits
+            assert chrome.js("(() => { const s = document.querySelector('#panelbody select'); s.focus();"
+                             " s.dispatchEvent(new Event('pointerdown', {bubbles: true})); window.__app.renderPanel();"
+                             " const kept = document.querySelector('#panelbody select') === s; s.blur(); return kept; })()"), \
+                "the panel was redrawn under a drop-down in use"
             chrome.screenshot(os.path.join(work, "robotlab_panel.png"))
             no_errors()
         check("The shared teacher tabs: a tool and a hazard, an objective added and ticked, missions out and back in, "
@@ -858,6 +885,55 @@ def main():
             chrome.js("window.__app.send({type: 'lesson', lesson: {cpu_robots: 1, arenas: 1}})")
             no_errors()
         check("Robot Lab's computer robots: computer robot 2 renamed and put in arena 2 from the Learners tab", computer_robots)
+
+        def arena_rows():  # CHANGE 142: every robot's name and arena on the Controls tab, kept by Save settings
+            if "amy" not in servers:
+                return
+            chrome.js("window.__app.send({type: 'lesson', lesson: {cpu_robots: 2, arenas: 2}})")
+            chrome.wait_for("window.__state.lesson.cpu_robots === 2 && window.__state.lesson.arenas === 2", 10, "2 computer robots, 2 arenas")
+            tab("controls")
+            chrome.wait_for("['me', 'l-amy', 'c1', 'c2'].every(k => document.getElementById('rb-nm-' + k) && document.getElementById('rb-at-' + k))",
+                            10, "a row for each robot: the teacher's, amy's, computer robots 1 and 2")
+            rename = ("((k, name) => { const el = document.getElementById('rb-nm-' + k); el.focus(); el.value = name;"
+                      " el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'})); })")
+            chrome.js(f"{rename}('c2', 'Basher'); {rename}('l-amy', 'Zorro!'); {rename}('me', 'Boss')")  # (the ! goes, as the server's)
+            named = "window.__state.classList.some(p => {})"
+            chrome.wait_for(" && ".join(named.format(t) for t in ("p.role === 'computer' && p.n === 2 && p.design.name === 'Basher'",
+                                                                  "p.name === 'amy' && p.design.name === 'Zorro'",
+                                                                  "p.role === 'teacher' && p.design.name === 'Boss'")),
+                            10, "computer robot 2, amy's robot and the teacher's renamed from their rows")
+            arena = "((k, v) => { const s = document.getElementById('rb-at-' + k); s.value = v; s.dispatchEvent(new Event('change')); })"
+            chrome.js(f"{arena}('c2', '0'); {arena}('l-amy', '1'); {arena}('me', '1')")
+            chrome.wait_for("(() => { const S = window.__state, L = S.lesson, c2 = S.classList.find(p => p.role === 'computer' && p.n === 2);"
+                            " return L.places.amy === 1 && L.places.Teacher === 1 && c2.arena === 0 && c2.in === 0; })()", 10,
+                            "amy and the teacher in arena 2, computer robot 2 in arena 1")
+            chrome.wait_for("(() => { const R = window.__state.roster, at = n => (R.robots.find(r => r.id === R.mine[n]) || {}).arena;"
+                            " return at('amy') === 1 && at(window.__state.name) === 1 && R.robots.filter(r => r.design.name === 'Basher').every(r => r.arena === 0); })()",
+                            15, "the robots where they were put")
+            servers["amy"].send({"type": "design", "design": {"name": "Blitz"}})  # (a name changed elsewhere shows in its row)
+            chrome.wait_for("document.getElementById('rb-nm-l-amy').value === 'Blitz' && document.getElementById('rb-at-l-amy').value === '1'",
+                            10, "amy's own new name in her row")
+            chrome.screenshot(os.path.join(work, "robotlab_arenas.png"))
+            chrome.js("document.getElementById('btn-save').click()")
+            path, n = os.path.join(work, "robotlab", "mission_settings.json"), str(chrome.js("window.__state.lesson.lesson_number"))
+            end, saved = time.time() + 10, {}
+            while time.time() < end and saved.get("places") != {"amy": 1, "Teacher": 1}:
+                time.sleep(0.25)
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        saved = json.load(f).get(n, {})
+                except (OSError, ValueError):
+                    pass
+            assert saved.get("places") == {"amy": 1, "Teacher": 1}, f"Save settings didn't keep who is where: {saved.get('places')}"
+            assert (saved.get("cpu_arenas") or [])[:2] == [None, 0], f"Save settings didn't keep the computer robots' arenas: {saved.get('cpu_arenas')}"
+            chrome.js("window.__app.send({type: 'cpu_robot', n: 2, arena: null});"
+                      "window.__app.send({type: 'lesson', lesson: {cpu_robots: 1, arenas: 1, places: {amy: null, Teacher: null}}})")
+            chrome.wait_for("!!document.getElementById('rb-nm-me') && !document.getElementById('rb-at-me') && !document.getElementById('rb-nm-c2')"
+                            " && document.getElementById('panelbody').textContent.includes('One arena: everyone is in arena 1')", 10,
+                            "one arena: the names, no arena lists")
+            os.remove(path)  # (the restart after this starts with the mission's own settings)
+            no_errors()
+        check("Robot Lab's Controls: every robot renamed and put in an arena from its row, kept by Save settings", arena_rows)
 
         def restart():
             if "robotlab" not in servers:

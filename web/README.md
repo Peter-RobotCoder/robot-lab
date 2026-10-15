@@ -36,7 +36,9 @@ What it does now:
     tiers (`fightmodels.js`: `fight_model.py`'s clips, frames, blending, cartwheel and dressing, ported), the
     primitive stand-in until a model is loaded and on blocks;
 - each game's own controls (Kart Lab: race, track, laps, grand prix; Robot Lab: practice or battle, restart, time,
-  computer robots (up to four, CHANGE 140: each the teacher's to set up in Learners, in every arena or one) and their brain, real damage, the drop zone, arenas and who is where, winner stays on or a
+  computer robots (up to four, CHANGE 140: each the teacher's to set up in Learners, in every arena or one) and their brain, real damage, the drop zone, arenas and who is where (CHANGE 142: a row
+  for every robot, the teacher's, each learner's and each computer robot's, its name renamed there and its arena;
+  Save settings keeps who is where for the mission), winner stays on or a
   knockout; Fight Lab: practice or battle, rounds, sparring partners and bosses, rings and who is where, matches,
   tournaments), the missions and their saved settings, and Restart server / Reopen learners' windows (the page
   reconnects by itself after a restart);
@@ -163,7 +165,9 @@ Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the ap
 scripted learner: the arena and robots on every tier; the shared tabs (a tool and a hazard, an objective added and
 ticked, missions out and back in, the evidence CSV, an AI card sent back, a learner's mission and robot rebuilt);
 the teacher's own garage (a weapon chosen); computer robot 2 renamed and put in arena 2 from the Learners tab (the
-snapshot has it there alone); Restart server and the page reconnecting. Fight Lab: the rings and posed
+snapshot has it there alone); the Controls tab's Arenas rows (computer robot 2, amy's robot and the teacher's renamed
+and put in an arena, a name amy changes showing in her row, Save settings keeping who is where); Restart server and
+the page reconnecting. Fight Lab: the rings and posed
 fighters, the detailed model, its controls, the teacher's own garage (the woman's look). lessons.json, schemas.json,
 tex/ and sfx/ up to date; `schema_test.py` passing. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
 or Edge.

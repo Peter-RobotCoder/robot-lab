@@ -1211,6 +1211,36 @@ export class RobotGame {
         return [this.app.esc((p.design && p.design.name) || ""), r ? r.arena + 1 : ""];
     }
 
+    // CHANGE 142: every robot in the class for the Controls tab's Arenas rows: the teacher's own (while it is in the
+    // arena; its place is "Teacher", as the window's), each learner's, each computer robot in use. k: the rows' ids
+    arenaRows() {
+        const S = this.app.state, L = S.lesson || {}, roster = S.roster || {}, cls = S.classList || [];
+        const now = name => { const id = roster.mine ? roster.mine[name] : null, r = (roster.robots || []).find(x => x.id === id); return r ? r.arena : null; };
+        const key = s => String(s).replace(/[^A-Za-z0-9]/g, ch => "_" + ch.charCodeAt(0).toString(16));
+        const me = cls.find(p => p.role === "teacher");
+        return [...(L.teacher_robot ? [{k: "me", who: "Teacher", place: "Teacher", design: (me && me.design) || S.myDesign || {}, now: now(S.name)}] : []),
+                ...cls.filter(p => p.role === "learner").map(p => ({k: "l-" + key(p.name), who: p.name, place: p.name, design: p.design || {}, now: now(p.name)})),
+                ...cls.filter(p => p.role === "computer" && p.n <= (L.cpu_robots || 0)).map(c => ({k: "c" + c.n, who: `Computer ${c.n}`, cpu: c, design: c.design || {},
+                                                                                              now: c.in_arena ? c.in : null}))];
+    }
+
+    // a name typed in an Arenas row (Enter or leaving the box): the teacher's own robot as their garage builds it,
+    // a learner's as the Learner view's REBUILD FOR, a computer robot's as its own garage; the rest of the design
+    // as it is. Held to what the server takes (letters, numbers and spaces, 16 at most)
+    rename(r, el) {
+        const app = this.app;
+        if (!r) return;
+        const name = Array.from(el.value.replace(/[^A-Za-z0-9 ]/g, "")).slice(0, 16).join("").trim();
+        if (name === (r.design.name || "")) { el.value = name; return; }
+        if (!name) { el.value = el.dataset.v; app.toast("A robot's name needs letters or numbers."); return; }
+        el.value = el.dataset.v = name;
+        this.renames = Object.assign({}, this.renames, {[r.k]: [name, Date.now() + 3000]});  // (shown until the server's answer)
+        const d = Object.assign({}, r.design, {name});
+        if (r.cpu) app.send({type: "cpu_robot", n: r.cpu.n, design: d});
+        else if (r.k === "me") app.send({type: "design", design: d, code: false});
+        else app.send({type: "design_for", learner: r.who, design: d});
+    }
+
     renderTab(tab, body) {
         const app = this.app, S = app.state, L = S.lesson, send = app.send, esc = app.esc;
         const lessonSend = patch => send({type: "lesson", lesson: patch});
@@ -1220,7 +1250,23 @@ export class RobotGame {
             const people = (S.classList || []).filter(p => p.role === "learner").map(p => p.name).concat(L.teacher_robot ? [S.name] : []);
             const arenas = L.arenas || 1;
             const rows = this.knockoutLineups(people);
-            body.innerHTML = `
+            // (CHANGE 142: each robot's row: its name, renamed here, and its arena; ids that stay the same, so the
+            // panel's redraw keeps a box being typed in)
+            const robots = this.arenaRows(), pend = this.renames || {};
+            const nameOf = r => {  // (a name just sent, until the server has it or has said no)
+                const p = pend[r.k], now = r.design.name || "";
+                if (p && (p[0] === now || p[1] < Date.now())) delete pend[r.k];
+                return pend[r.k] ? p[0] : now;
+            };
+            const arenaHtml = robots.map(r => {
+                const v = r.cpu ? r.cpu.arena : (L.places || {})[r.place], set = Number.isInteger(v) ? v : null;
+                const pick = arenas > 1 ? `<select id="rb-at-${r.k}" data-robot="${r.k}" data-v="${set ?? ""}"><option value="">${r.cpu ? "every arena" : "any"}</option>${
+                    Array.from({length: Math.max(arenas, (set ?? -1) + 1)}, (_, k) => `<option value="${k}" ${set === k ? "selected" : ""}>arena ${k + 1}</option>`).join("")}</select>` +
+                    (Number.isInteger(r.now) && r.now !== set ? `<small class="note">in arena ${r.now + 1}</small>` : "") : "";
+                return `<div class="row"><label>${esc(r.who)}</label><input id="rb-nm-${r.k}" data-robot="${r.k}" data-v="${esc(nameOf(r))}" value="${esc(nameOf(r))}"
+                          maxlength="16" style="width:9em" title="Its name: type a new one, then Enter">${pick}</div>`;
+            }).join("");
+            const html = `
               ${app.missionRow()}
               <h2>The match</h2>
               <div class="row"><button data-mode="practice" class="${L.mode !== "battle" ? "on" : ""}">Practice</button>
@@ -1231,7 +1277,7 @@ export class RobotGame {
               <div class="row"><label>Battle time</label><select id="rb-time">${[30, 60, 90, 120, 150, 180, 210, 240, 270, 300].map(t => `<option value="${t}" ${t === L.time_limit ? "selected" : ""}>${t} s</option>`).join("")}</select></div>
               <div class="row"><label>Computer robots</label><select id="rb-cpu">${[0, 1, 2, 3, 4].map(k => `<option ${k === L.cpu_robots ? "selected" : ""}>${k}</option>`).join("")}</select>
                 <select id="rb-level">${LEVELS.map(([k, n]) => `<option value="${k}" ${k === L.cpu_level ? "selected" : ""}>${n}</option>`).join("")}</select></div>
-              <div class="note">Each one is yours to set up in Learners (Computer 1 to ${(S.classList || []).filter(p => p.role === "computer").length || 4}): its robot, its brain and its arena.</div>
+              <div class="note">Each one is yours to set up in Learners (Computer 1 to ${(S.classList || []).filter(p => p.role === "computer").length || 4}): its robot, its brain and its arena (its name and arena are under Arenas too).</div>
               ${L.cpu_level === "empty" ? `<div class="row"><label class="filebtn">Upload the demo brain (.py)<input id="rb-demo" type="file" accept=".py,text/plain" hidden></label></div>` : ""}
               <div class="row"><label>My robot</label><button id="rb-mine" class="${L.teacher_robot ? "on" : ""}">${L.teacher_robot ? "In the arena" : "Not in"}</button></div>
               <div class="row"><label>Designs</label><button id="rb-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>
@@ -1241,8 +1287,9 @@ export class RobotGame {
               <h2>Arenas</h2>
               <div class="row"><label>How many</label><select id="rb-arenas">${[1, 2, 3, 4, 5, 6].map(k => `<option ${k === arenas ? "selected" : ""}>${k}</option>`).join("")}</select>
                 <button id="rb-turns">Take turns again</button></div>
-              ${arenas > 1 ? people.map((n, i) => `<div class="row"><label>${esc(n)}</label><select data-place="${i}"><option value="">any</option>${Array.from({length: arenas}, (_, k) =>
-                  `<option value="${k}" ${(L.places || {})[n] === k ? "selected" : ""}>arena ${k + 1}</option>`).join("")}</select></div>`).join("") : ""}
+              ${arenaHtml}
+              ${robots.length ? `<div class="note">${arenas > 1 ? "Any: the arenas take turns. A computer robot in every arena is the same opponent for everyone. Save settings keeps who is where for this mission."
+                  : "One arena: everyone is in arena 1."} A name: type it, then Enter.</div>` : ""}
               <h2>Tournament</h2>
               ${T ? `<div class="row"><button id="rb-tstop" class="stop">${T.kind === "knockout" ? "Stop: knockout" : "Stop: winner stays on"}</button></div>
                 ${T.kind === "knockout" ? `<p><b class="${T.champion ? "ok" : ""}">${esc(T.title || "")}</b></p>
@@ -1260,6 +1307,9 @@ export class RobotGame {
                         <div class="note">${(() => { const w = people.filter(n => !rows.some(r => r.includes(n))); return w.length ? `Waiting for round 2: ${w.map(esc).join(", ")}` : "Battle on, designs locked."; })()}</div>`
                      : `<div class="note">Needs at least 2 robots: learners, or your own robot.</div>`}`}
               ${app.restartRow()}`;
+            this.drawing = true;  // (a box taken away by the redraw isn't a box left: no rename)
+            body.innerHTML = html;
+            this.drawing = false;
             app.wireMissionRow(body);
             body.querySelectorAll("button[data-mode]").forEach(b => b.onclick = () => lessonSend({mode: b.dataset.mode}));
             $("rb-restart").onclick = () => send({type: "restart"});
@@ -1275,9 +1325,22 @@ export class RobotGame {
             $("rb-pit-close").onclick = () => send({type: "pit", open: false});
             if ($("rb-flame")) $("rb-flame").onchange = e => lessonSend({flame_pit_cm: Number(e.target.value)});
             $("rb-arenas").onchange = e => lessonSend({arenas: Number(e.target.value)});
-            $("rb-turns").onclick = () => lessonSend({places: Object.fromEntries(people.map(n => [n, null]))});
-            body.querySelectorAll("select[data-place]").forEach(sel => sel.onchange = () =>
-                lessonSend({places: {[people[Number(sel.dataset.place)]]: sel.value === "" ? null : Number(sel.value)}}));
+            $("rb-turns").onclick = () => lessonSend({places: Object.fromEntries(Object.keys(L.places || {}).map(n => [n, null]))});
+            const robotOf = el => robots.find(r => r.k === el.dataset.robot);
+            body.querySelectorAll("input[data-robot]").forEach(el => {
+                el.onkeydown = e => { if (e.key === "Enter") el.blur(); };
+                el.onblur = () => { if (!this.drawing) this.rename(robotOf(el), el); };
+            });
+            body.querySelectorAll("select[data-robot]").forEach(sel => sel.onchange = () => {
+                const r = robotOf(sel), v = sel.value === "" ? null : Number(sel.value);
+                if (!r) return;
+                sel.dataset.v = sel.value;
+                if (r.cpu) send({type: "cpu_robot", n: r.cpu.n, arena: v});  // (as its Learners tab sends it)
+                else lessonSend({places: {[r.place]: v}});
+            });
+            // the panel's redraw puts back what each box held; a box or list not in use shows the server's own
+            // (a name changed elsewhere, an arena set in Learners) once that is done
+            queueMicrotask(() => body.querySelectorAll("[data-robot]").forEach(el => { if (el.isConnected && el !== document.activeElement) el.value = el.dataset.v; }));
             if ($("rb-stays")) $("rb-stays").onclick = () => send({type: "tournament", start: true, kind: "stays", live: 2});
             if ($("rb-knock")) $("rb-knock").onclick = () => send({type: "tournament", start: true, kind: "knockout", lineups: rows});
             body.querySelectorAll("button[data-lineup]").forEach(b => b.onclick = () => {  // (the next robot not in a line-up)

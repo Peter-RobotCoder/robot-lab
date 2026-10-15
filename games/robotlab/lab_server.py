@@ -159,9 +159,10 @@ GFX_MAX_FILE = os.path.join(lab_teaching.DATA, "gfx_max_saved.json")  # ...and t
 CPU_FILE = os.path.join(lab_teaching.DATA, "computer_robot.json")  # ...and the computer robots, as the teacher set them up
 TEACHER_FILE = os.path.join(lab_teaching.DATA, "teacher_robot.json")  # ...and the teacher's own robot (kept over restarts)
 MISSIONS_FILE = os.path.join(lab_teaching.DATA, "mission_settings.json")  # ...and the teacher's settings for each
-# mission, kept by Save settings and used whenever that mission is chosen (CHANGE 58 and 59): these keys
-MISSION_KEYS = ("mode", "time_limit", "cpu_robots", "cpu_arenas", "teacher_robot", "arenas", "designs_locked", "real_damage",
-                "user_mods", "start_design",
+# mission, kept by Save settings and used whenever that mission is chosen (CHANGE 58 and 59): these keys (CHANGE
+# 142: and who is in which arena; a place kept for a learner who isn't here does nothing until they are)
+MISSION_KEYS = ("mode", "time_limit", "cpu_robots", "cpu_arenas", "teacher_robot", "arenas", "places", "designs_locked",
+                "real_damage", "user_mods", "start_design",
                 "mods_in_vote", "arena_in_vote", "flame_pit_cm", "hazards", "tools", "limits")
 CPU_NAME = "Computer robot"  # the first computer robot's name in the teacher's Learner view (its robot is Sparky 1)
 MAX_CPUS = 4  # CHANGE 140: computer robots 2 to 4 are named CPU_NAME 2 and so on (their robots Sparky 2 to 4)
@@ -174,6 +175,12 @@ def clean_cpu_arenas(v):
     v = v if isinstance(v, list) else []
     return [(a if isinstance(a, int) and not isinstance(a, bool) and 0 <= a < sim.MAX_ARENAS else None)
             for a in (v + [None] * MAX_CPUS)[:MAX_CPUS]]
+
+
+def renamed_only(old, new):
+    """CHANGE 142: only the name is new (the Controls tab's Arenas rows rename a robot): the rest stands as it was
+    built, so it isn't held to today's limits again (a learner's code may have gone past them, or they changed)."""
+    return {**new, "name": old.get("name")} == old
 
 
 def load_saved(path):
@@ -290,8 +297,10 @@ class LabServer:
         self.lesson["cpu_robots"] = max(0, min(MAX_CPUS, int(self.lesson.get("cpu_robots", 1))))
         self.lesson["cpu_arenas"] = clean_cpu_arenas(self.lesson.get("cpu_arenas"))
         self.lesson["arenas"] = max(1, min(sim.MAX_ARENAS, int(self.lesson.get("arenas", 1))))
-        self.lesson["places"] = {k: v for k, v in self.lesson.get("places", {}).items()
-                                 if isinstance(k, str) and isinstance(v, int) and 0 <= v < sim.MAX_ARENAS}
+        places = self.lesson.get("places")
+        self.lesson["places"] = {k: v for k, v in (places.items() if isinstance(places, dict) else ())
+                                 if isinstance(k, str) and len(k) <= 40 and isinstance(v, int) and not isinstance(v, bool)
+                                 and 0 <= v < sim.MAX_ARENAS}
         self.lesson["time_limit"] = max(30, min(300, int(self.lesson.get("time_limit", 120))))
         self.lesson["hazards"]["house_robots"] = sim.house_list(self.lesson["hazards"].get("house_robots"))
         self.lesson["user_mods"] = {k: bool(v) for k, v in self.lesson.get("user_mods", {}).items() if k in sim.USER_MODS}
@@ -625,7 +634,7 @@ class LabServer:
                 new["model"], new["weapon"] = d["model"], sim.HOUSE_BY_NAME[d["model"]][0]
             else:
                 new.pop("model", None)
-            problems = sim.check_design(new, self.lesson["limits"])
+            problems = sim.check_design(new, sim.full_limits() if renamed_only(c.design, new) else self.lesson["limits"])
             if not rw_mods.colour_ok(new.get("colour")):
                 problems.append("colour must be three whole numbers from 0 to 255")
             if problems:
@@ -911,7 +920,7 @@ class LabServer:
             new["model"], new["weapon"] = d["model"], sim.HOUSE_BY_NAME[d["model"]][0]
         else:
             new.pop("model", None)
-        problems = sim.check_design(new, self.lesson["limits"])
+        problems = sim.check_design(new, sim.full_limits() if renamed_only(p.design, new) else self.lesson["limits"])
         if not rw_mods.colour_ok(new.get("colour")):
             problems.append("colour must be three whole numbers from 0 to 255")
         if problems:
