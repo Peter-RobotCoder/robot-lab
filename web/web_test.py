@@ -7,6 +7,9 @@ Starts a club desk, a Kart Lab test server and a static server for this folder, 
 password is refused; the right one opens the Teacher screen (the desk): learners added, a group made and launched,
 which opens the class view with the desk's teacher ticket; the page draws the track and the karts from the server's
 snapshots with no JavaScript errors;
+the line tiers (mesh, lines: black, the edges as lines in the line colour) and ultra (its sky, after-effects and
+reflections, and the window's circuit from models/kart_scenery.json, fetched on ultra alone) draw with no errors
+(CHANGE 144);
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
 a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
@@ -53,11 +56,12 @@ results = []
 
 
 # (in the page) the scene drawn properly on a tier: on low and up the app's lighting (pbr.js) in use with every picture
-# loaded, no mesh left holding a material that was thrown away, and no more pixels drawn than the tier allows
+# loaded, no mesh left holding a material that was thrown away, and no more pixels drawn than the tier allows (the
+# line tiers' line shaders, CHANGE 144, have no base colour to check)
 DRAWN_RIGHT = """(() => {
     const g = window.__state.scene, sc = g.scene, eng = sc.getEngine();
-    const pbr = sc.materials.filter(m => m.getClassName() === 'ShaderMaterial' && m.name !== 'ccdepth');
-    if (g.tier !== 'blocks' && !pbr.length) return 'no pbr materials on ' + g.tier;
+    const pbr = sc.materials.filter(m => m.getClassName() === 'ShaderMaterial' && m.name !== 'ccdepth' && !m.name.startsWith('cclines'));
+    if (!['mesh', 'lines', 'blocks'].includes(g.tier) && !pbr.length) return 'no pbr materials on ' + g.tier;
     // (a headless picture ignores the canvas's alpha: a material whose alpha isn't a number draws nothing in a real
     // window, as 1.9.6 did, so the alpha is checked here and the canvas must be opaque)
     const noAlpha = pbr.filter(m => !(m._colors4 && m._colors4.baseColor && m._colors4.baseColor.a > 0)).map(m => m.name.split(':')[0]);
@@ -71,12 +75,15 @@ DRAWN_RIGHT = """(() => {
     if (broken.length) return 'shaders that did not compile: ' + broken.slice(0, 3).map(String).join(', ');
     const lost = sc.meshes.filter(x => x.material && !sc.materials.includes(x.material)).map(x => x.name);
     if (lost.length) return 'meshes with a thrown-away material: ' + lost.slice(0, 5).join(', ');
-    const budget = {blocks: 1.0e6, low: 1.1e6, medium: 1.6e6, high: 2.4e6}[g.tier];
+    const budget = {mesh: 1.0e6, lines: 1.0e6, blocks: 1.0e6, low: 1.1e6, medium: 1.6e6, high: 2.4e6, ultra: 3.7e6}[g.tier];
     const px = eng.getRenderWidth() * eng.getRenderHeight();
     const css = window.innerWidth * window.innerHeight * Math.min(1, devicePixelRatio);
     if (px > Math.max(budget, css) * 1.02) return 'drawing ' + px + ' pixels on ' + g.tier;
     return 'ok';
 })()"""
+
+# (in the page, CHANGE 144) whether it has asked for the ultra circuit (4.7 MB, ultra's alone)
+SCENERY_FETCHED = "performance.getEntriesByType('resource').some(e => e.name.includes('models/kart_scenery.json'))"
 
 
 class StaticServer:
@@ -431,8 +438,73 @@ def main():
                 chrome.screenshot(os.path.join(work, f"kartlab_{tier}.png"))
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
+            # (CHANGE 144) only ultra asks for the ultra circuit (4.7 MB): never a school laptop on low, nor on high
+            assert not chrome.js(SCENERY_FETCHED), "the ultra circuit (models/kart_scenery.json) was fetched below ultra"
         check("The graphics tiers (blocks, low, medium, high: the app's lighting and textures) keep the track and the karts, "
-              "load every picture and keep to their pixel budgets", tiers)
+              "load every picture and keep to their pixel budgets, and never fetch the ultra circuit", tiers)
+
+        def line_tiers():  # (CHANGE 144) mesh and lines: black, every mesh's edges as lines (lines: outlines and a grid)
+            for tier in ("mesh", "lines"):
+                chrome.js(f"window.__app.setTier('{tier}')")
+                time.sleep(1.0)
+                assert chrome.js("window.__state.scene.tier") == tier
+                assert chrome.js("window.__state.scene.karts.size") >= 3
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Kart Lab drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                got = chrome.js("""(() => { const sc = window.__state.scene, s = sc.scene, c = s.clearColor;
+                    const lines = s.meshes.filter(m => m.material && m.material.name.startsWith('cclines') && m.getTotalVertices() > 0);
+                    return {black: c.r + c.g + c.b === 0, track: lines.some(m => m.name === 'tracklines'),
+                            karts: lines.filter(m => m.name === 'kartlines').length, grid: lines.some(m => m.name === 'grid'),
+                            segments: sc.lineStats && sc.lineStats.segments, ms: sc.lineStats && sc.lineStats.ms, smoke: !!sc.smoke,
+                            lit: s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name.includes(':'))}; })()""")
+                print(f"    {tier}: {got['segments']} line segments for the track, built in {got['ms']} ms")
+                assert got["black"] and got["track"] and got["karts"] >= 3 and not got["smoke"] and not got["lit"], got
+                assert got["grid"] == (tier == "lines"), got
+                chrome.screenshot(os.path.join(work, f"kartlab_{tier}.png"))
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("The line tiers (mesh: every triangle's edges; lines: the outlines and a ground grid) draw black with the "
+              "lines, the karts' too", line_tiers)
+
+        def ultra():  # (CHANGE 144) ultra: the sky, the land and woods, SSAO and bloom, the reflection cube, skids, sparks
+            chrome.js("window.__app.setTier('ultra')")
+            time.sleep(1.5)
+            assert chrome.js("window.__state.scene.tier") == "ultra"
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, f"Kart Lab drawn properly on ultra (last: {chrome.js(DRAWN_RIGHT)})")
+            got = chrome.js("""(() => { const sc = window.__state.scene, L = sc.lighting;
+                return {sky: !!sc.sky && !sc.sky.isDisposed(), probe: !!sc.probe && sc.probe.renderList.length > 5,
+                        ssao: !!(sc.fx && sc.fx.ssao), bloom: !!(sc.fx && sc.fx.pipeline.bloomEnabled), skids: !!sc.skids,
+                        sparks: !!sc.sparks, forest: sc.forest.length, land: sc.trackMeshes.some(m => m.name.includes('land') || m.name.includes('mountains')),
+                        shadow: L.rtt.getRenderSize(), soft: [...L.materials].some(m => m.options.defines.includes('SOFTSHADOW')),
+                        coat: [...L.materials].some(m => m.options.defines.includes('CLEARCOAT') && m.options.defines.includes('PROBE'))}; })()""")
+            assert got["sky"] and got["probe"] and got["ssao"] and got["bloom"] and got["skids"] and got["sparks"], got
+            assert got["forest"] >= 2 and got["shadow"] == 4096 and got["soft"] and got["coat"], got
+            if os.path.exists(os.path.join(HERE, "models", "kart_ultra.json")):  # (the curved kart, make_models.py's)
+                chrome.wait_for("[...window.__state.scene.karts.values()].every(k => k.curved)", 20, "the curved karts")
+            if os.path.exists(os.path.join(HERE, "models", "kart_scenery.json")):  # (the window's ultra circuit, CHANGE 144)
+                chrome.wait_for("!!window.__state.scene.circuit", 30, "the ultra circuit (models/kart_scenery.json) drawn")
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, f"the circuit drawn properly (last: {chrome.js(DRAWN_RIGHT)})")
+                got = chrome.js("""(() => { const sc = window.__state.scene, c = sc.circuit, L = sc.lighting;
+                    const live = c.meshes.filter(m => !m.isDisposed() && sc.trackMeshes.includes(m));
+                    return {fetched: %s, parts: c.parts, instances: c.instances, triangles: c.triangles, meshes: live.length,
+                            thin: live.filter(m => m.thinInstanceCount > 1).length, tinted: live.filter(m => m.isVerticesDataPresent('instanceColor')).length,
+                            casters: c.casters.filter(m => L.rtt.renderList.includes(m)).length,
+                            flatCasting: c.meshes.filter(m => L.rtt.renderList.includes(m) && (m.ccFar || m.material.name.includes('asphalt') || m.material.name.includes('turf'))).length,
+                            old: sc.trackMeshes.some(m => ['road', 'grass', 'land', 'mountains', 'firtrunk'].some(n => m.name.startsWith(n))),
+                            pads: sc.trackMeshes.some(m => m.name === 'pads'), forest: sc.forest.length}; })()""" % SCENERY_FETCHED)
+                print(f"    ultra circuit: {got['parts']} parts, {got['instances']} placed shapes, {got['triangles']} triangles, "
+                      f"{got['meshes']} meshes ({got['thin']} as thin instances), {got['casters']} casting shadows")
+                assert got["fetched"] and got["parts"] >= 15 and got["instances"] > 1000 and got["thin"] >= 20 and got["tinted"] >= 5, got
+                assert got["casters"] >= 10 and got["flatCasting"] == 0 and not got["old"] and got["pads"] and got["forest"] >= 2, got
+            time.sleep(2.0)
+            print(f"    ultra: {chrome.js('window.__state.fps')} fps here")
+            chrome.screenshot(os.path.join(work, "kartlab_ultra.png"))
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+            chrome.js("window.__app.setTier('low')")
+        check("Ultra draws its sky, shading in the corners, glow, soft 4096 shadows, the world reflected in a clear coat, "
+              "skid marks and sparks, and the window's circuit (models/kart_scenery.json: its parts, its shapes as thin "
+              "instances, the flat and far casting no shadow) in place of the road, grass and woods (and the curved kart, "
+              "if models/ has it)", ultra)
 
         def learners_tab():
             chrome.js("document.querySelector('#panel header button[data-tab=\"learners\"]').click(); document.getElementById('panel').classList.add('open')")
@@ -595,6 +667,12 @@ def main():
             assert chrome.js("!document.querySelector('button[data-tier=\"high\"]').disabled"), "the teacher's own view is held to the class maximum"
             chrome.js("document.querySelector('button[data-gfxmax=\"\"]').click()")
             lc.wait_for("window.__state.scene.tier === 'medium'", 10, "amy's page back on her own choice when the maximum is lifted")
+            # (CHANGE 144) a class maximum of lines: her Kart Lab page draws lines (a game without them would draw blocks)
+            chrome.js("document.querySelector('button[data-gfxmax=\"lines\"]').click()")
+            chrome.wait_for("window.__state.lesson.gfx_max === 'lines'", 10, "the class server keeping lines as the maximum")
+            lc.wait_for("window.__state.scene.tier === 'lines'", 10, "amy's page at a class maximum of lines")
+            chrome.js("document.querySelector('button[data-gfxmax=\"\"]').click()")
+            lc.wait_for("window.__state.scene.tier === 'medium'", 10, "amy's page back on medium")
             with open(os.path.join(work, "data", "gfx_max_saved.json"), encoding="utf-8") as f:
                 saved = json.load(f)
             assert saved == {"gfx_max": None}, saved
@@ -608,6 +686,28 @@ def main():
                 out.push('|'); a = new AutoTier({}); t = 'low'; run(60, 60, 0, 'low'); run(30, 60, 5, 'medium'); run(60, 60, 1, 'medium');
                 return out.join(','); })()""")
             assert steps == "up:high,down:medium,up:high,down:medium,|,up:medium", steps
+            # (CHANGE 144) never down out of blocks or into the line tiers, never out of them; up into ultra after a clean
+            # high run, never past the game's best tier (Robot Lab's and Fight Lab's: high)
+            steps = lc.js("""(async () => { const {AutoTier} = await import('./base3d.js'); const out = [];
+                let a, t, now = 0, wall = 1e12;
+                const run = (secs, fps, missed, top = 'ultra') => { for (let s = 0; s < secs; s++) { now += 1000; wall += 1000;
+                    const r = a.second({fps, missed, tier: t, now, wall, top}); if (r) { t = r.tier; out.push((r.up ? 'up:' : 'down:') + t); } } };
+                a = new AutoTier({}); t = 'blocks'; run(10, 10, 30); out.push(t);
+                a = new AutoTier({}); t = 'lines'; run(10, 10, 30); run(60, 60, 0); out.push(t);
+                a = new AutoTier({}); t = 'mesh'; run(60, 60, 0); out.push(t);
+                a = new AutoTier({best: 'high'}); t = 'high'; run(30, 60, 0); out.push(t);
+                a = new AutoTier({best: 'high'}); t = 'high'; run(30, 60, 0, 'high'); out.push(t);
+                return out.join(','); })()""")
+            assert steps == "blocks,lines,mesh,up:ultra,ultra,high", steps
+            # (CHANGE 144) the line colour: at once on her lines, kept on this computer and in her profile (line_colour)
+            lc.js("window.__app.setTier('lines')")
+            lc.wait_for("window.__state.scene.tier === 'lines'", 10, "amy's page on lines")
+            lc.js("window.__app.lineColour('#ffb000')")
+            got = lc.js("[window.__state.scene.lineMats.map(m => m._colors4.color.r.toFixed(2) + ',' + m._colors4.color.g.toFixed(2)), "
+                        "window.__state.prefs.line_colour, localStorage.getItem('line_colour')]")
+            assert got[1] == "#ffb000" and got[2] == "#ffb000", got
+            assert got[0] and all(c in ("1.00,0.69", "0.42,0.29") for c in got[0]), got
+            lc.js("window.__app.lineColour('#33ff66')")
             lc.js("window.__app.setTier('blocks')")  # (as she came: the rest of the test is cheap to draw)
             errors = lc.js(f"JSON.stringify(window.__errors.slice({errors_before}))")
             assert errors == "[]", f"JavaScript errors: {errors}"
@@ -876,6 +976,18 @@ def main():
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.robots.size") >= 3, f"robots lost on {tier}"
                 chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Robot Lab drawn properly on {tier}")
+            # (CHANGE 144) Robot Lab draws blocks to high: the page's lines is drawn as blocks (and kept), ultra as high;
+            # its Graphics tab shows its own four
+            chrome.js("window.__app.setTier('lines')")
+            chrome.wait_for(f"window.__state.scene.tier === 'blocks' && window.__state.tier === 'lines' && {DRAWN_RIGHT} === 'ok'", 15,
+                            "Robot Lab drawing blocks for lines")
+            tab("graphics")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == "blocks,low,medium,high"
+            assert chrome.js("document.querySelector('button[data-tier=\"blocks\"]').classList.contains('on')")
+            chrome.js("window.__app.setTier('ultra')")
+            chrome.wait_for(f"window.__state.scene.tier === 'high' && {DRAWN_RIGHT} === 'ok'", 15, "Robot Lab drawing high for ultra")
+            chrome.js("window.__app.setTier('low')")
+            chrome.wait_for("window.__state.scene.tier === 'low'", 10, "Robot Lab back on low")
             chrome.js("window.__app.send({type: 'restart'})")  # (new robots: the old ones go, their materials stay)
             time.sleep(3.0)
             chrome.wait_for(f"window.__state.scene.robots.size >= 3 && {DRAWN_RIGHT} === 'ok'", 20, "Robot Lab drawn properly after a restart")
@@ -1218,6 +1330,12 @@ def main():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_textures.py"), "--check"], capture_output=True, text=True)
             assert r.returncode == 0, r.stdout + r.stderr
         check("tex/ (the app's textures and skies) is up to date with the games' texture generators", textures_current)
+
+        def models_current():  # (CHANGE 144) the curved ultra kart and circuit (kart_models.py, kart_scenery.py)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "make_models.py"), "--check"], capture_output=True, text=True)
+            assert r.returncode == 0, r.stdout + r.stderr
+        check("models/ (Kart Lab's curved ultra kart and ultra circuit) is up to date with kart/kart_models.py and "
+              "kart/kart_scenery.py", models_current)
 
         def schemas_current():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_schemas.py"), "--check"], capture_output=True, text=True)

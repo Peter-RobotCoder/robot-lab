@@ -1,9 +1,16 @@
 """Graphics quality tiers: what each game draws on an old school laptop and on a gaming PC, chosen by itself.
 
-The tiers are basic, low, medium and high (TIERS). "basic" has no simplepbr at all: Panda's own generated
+The core tiers are basic, low, medium and high (CORE). "basic" has no simplepbr at all: Panda's own generated
 shaders (setShaderAuto) and the paint texture only; it is the floor every machine can draw. The other three
 are simplepbr with fewer or more of the costly things: shadows, MSAA, the number of lights, normal and
 occlusion maps, the reflection map.
+
+CHANGE 144: the whole ladder (TIERS) is mesh < lines < basic < low < medium < high < ultra, and each game says
+which of them it draws (tiers=; CORE when it says nothing, as Robot Lab and Fight Lab do; Kart Lab draws all
+seven). "mesh" (every triangle's edges) and "lines" (the shapes' outlines and a ground grid) are a look in one
+colour on black, chosen by hand or by the teacher, never by the monitor (LOOKS). "ultra" is the best a gaming PC
+can draw, chosen by hand or stepped back up into once it has run cleanly here; the heuristic never picks it. A
+tier a game doesn't draw is drawn as its nearest (nearest(): mesh and lines as basic, ultra as high).
 
 A game's window uses this file in four steps:
 1. before the window opens: tier = resolve(settings_dir, --gfx) and loadPrcFileData("", prc_for(tier, ...))
@@ -28,13 +35,21 @@ import re
 import sys
 import time
 
-TIERS = ("basic", "low", "medium", "high")
+TIERS = ("mesh", "lines", "basic", "low", "medium", "high", "ultra")  # the whole ladder, lowest first (CHANGE 144)
+CORE = ("basic", "low", "medium", "high")  # what a game draws when it doesn't say (Robot Lab, Fight Lab)
+LOOKS = ("mesh", "lines")                  # a look, not a performance step: the monitor never goes into or out of them
 
 # Each tier's knobs. pbr: simplepbr's keyword arguments (enable_shadows is compiled in, so it can't change in a
 # run). shadow: the key light's shadow map size (0 = no shadows). aniso: texture anisotropic filtering degree.
 # texture_scale: textures are shrunk to this as they load (0.5 = a quarter of the memory and bandwidth).
 # lod_scale: Panda's LOD distance scale, when a scene has LOD nodes. env_map: the reflection map (IBL).
+# mesh and lines draw no textures, lights or shaders at all (the game draws its lines in Panda's fixed pipeline,
+# smoothed by the driver as lines: no MSAA buffer to pay for on a school laptop; CHANGE 144 in LATER.md).
 SETTINGS = {
+    "mesh": {"simplepbr": False, "pbr": {}, "shadow": 0, "aniso": 1, "texture_scale": 0.5, "lod_scale": 0.6,
+             "env_map": False, "msaa": 0},
+    "lines": {"simplepbr": False, "pbr": {}, "shadow": 0, "aniso": 1, "texture_scale": 0.5, "lod_scale": 0.6,
+              "env_map": False, "msaa": 0},
     "basic": {"simplepbr": False, "pbr": {}, "shadow": 0, "aniso": 1, "texture_scale": 0.5, "lod_scale": 0.6,
               "env_map": False, "msaa": 0},
     "low": {"simplepbr": True,
@@ -49,6 +64,10 @@ SETTINGS = {
              "pbr": {"msaa_samples": 4, "max_lights": 8, "use_normal_maps": True, "use_occlusion_maps": True,
                      "enable_shadows": True},
              "shadow": 2048, "aniso": 8, "texture_scale": 1.0, "lod_scale": 1.5, "env_map": True, "msaa": 4},
+    "ultra": {"simplepbr": True,
+              "pbr": {"msaa_samples": 8, "max_lights": 8, "use_normal_maps": True, "use_occlusion_maps": True,
+                      "enable_shadows": True},
+              "shadow": 4096, "aniso": 16, "texture_scale": 1.0, "lod_scale": 2.0, "env_map": True, "msaa": 8},
 }
 DEFAULT = "medium"  # the very first run on a machine nobody has seen: the monitor steps it down if it must
 DETECTED = None     # what detect() found this run (None until the window is open, or in a tool with no window)
@@ -58,20 +77,37 @@ def _index(tier):
     return TIERS.index(tier)
 
 
-def below(tier):
-    """The next tier down, or the tier itself at the floor."""
-    return TIERS[max(0, _index(tier) - 1)]
+def nearest(tier, tiers=CORE):
+    """The tier a game that draws only `tiers` draws for `tier`: the tier itself, or the nearest one it has (mesh and
+    lines are drawn as basic, ultra as high). Anything that isn't a tier is passed back as it is."""
+    if tier in tiers or tier not in TIERS:
+        return tier
+    return min(tiers, key=lambda t: (abs(_index(t) - _index(tier)), _index(t)))
 
 
-def above(tier):
-    return TIERS[min(len(TIERS) - 1, _index(tier) + 1)]
+def _steps(tiers):
+    """The tiers the monitor and the driver fallback step through: the game's, less the looks."""
+    return [t for t in tiers if t not in LOOKS]
+
+
+def below(tier, tiers=CORE):
+    """The next tier down (of the game's own, never into mesh or lines), or the tier itself at the floor."""
+    ladder = _steps(tiers)
+    return ladder[max(0, ladder.index(tier) - 1)] if tier in ladder else tier
+
+
+def above(tier, tiers=CORE):
+    ladder = _steps(tiers)
+    return ladder[min(len(ladder) - 1, ladder.index(tier) + 1)] if tier in ladder else tier
 
 
 # ---------- the class maximum (CHANGE 139) ----------
 # The teacher's lesson key "gfx_max": the best tier a learner's window or page may draw (None: no limit). The
 # browser's "blocks" is the windows' "basic". A learner's window keeps it here (gfx_class_max) so the next start
 # opens at most at it: the shaders are made as the window opens, so mid-run only the knobs that change safely in
-# a run come down (the monitor's: the shadow map, MSAA, the LOD distance).
+# a run come down (the monitor's: the shadow map, MSAA, the LOD distance). It is a place on the whole ladder
+# (CHANGE 144): "lines" is at most lines, so Kart Lab draws lines (or mesh, if that was chosen) and a game without
+# them draws basic.
 def class_max(value):
     """The lesson's gfx_max, checked: one of TIERS, or None."""
     value = "basic" if value == "blocks" else value
@@ -84,9 +120,9 @@ def capped(tier, cap):
     return cap if cap and tier in TIERS and _index(tier) > _index(cap) else tier
 
 
-def obey_class_max(settings_dir, cap, monitor=None, tier=None):
+def obey_class_max(settings_dir, cap, monitor=None, tier=None, tiers=CORE):
     """A learner's window heard the lesson: keep the class maximum for the next start and tell the monitor. Returns
-    a note for the player when it has just come down below the tier in use, else None."""
+    a note for the player when it has just come down below the tier in use, else None. tiers: the game's own."""
     cap = class_max(cap)
     if settings_dir and load_settings(settings_dir).get("gfx_class_max") != cap:
         if cap:
@@ -96,9 +132,9 @@ def obey_class_max(settings_dir, cap, monitor=None, tier=None):
     was = monitor.class_max if monitor is not None else None
     if monitor is not None:
         monitor.set_class_max(cap)
-    if cap and tier in TIERS and _index(tier) > _index(cap) and was != cap:
-        return (f"Your teacher set the graphics to at most {cap.title()}: shadows and smoothing are turned down now, "
-                "the rest from the next start")
+    if cap and tier in TIERS and nearest(capped(tier, cap), tiers) != tier and was != cap:
+        return (f"Your teacher set the graphics to at most {nearest(cap, tiers).title()}: shadows and smoothing are "
+                "turned down now, the rest from the next start")
     return None
 
 
@@ -153,17 +189,18 @@ def prc_for(tier):
     return "\n".join(lines) + "\n"
 
 
-def resolve(settings_dir, override=None):
+def resolve(settings_dir, override=None, tiers=CORE):
     """The tier this run uses: --gfx wins; then the tier saved here (the player's or the monitor's choice);
     then the heuristic from a previous run's detection; then medium on a machine nobody has seen. Never above the
-    class maximum a learner's window kept here (CHANGE 139)."""
+    class maximum a learner's window kept here (CHANGE 139), and always one of the game's own tiers (CHANGE 144)."""
     saved = load_settings(settings_dir)
+    cap = saved.get("gfx_class_max")
     if override in TIERS:
-        return capped(override, saved.get("gfx_class_max"))
+        return nearest(capped(override, cap), tiers)
     if saved.get("gfx_tier") in TIERS:
-        return capped(saved["gfx_tier"], saved.get("gfx_class_max"))
+        return nearest(capped(saved["gfx_tier"], cap), tiers)
     guess = (saved.get("gfx_detect") or {}).get("heuristic_tier")
-    return capped(guess if guess in TIERS else DEFAULT, saved.get("gfx_class_max"))
+    return nearest(capped(guess if guess in TIERS else DEFAULT, cap), tiers)
 
 
 # ---------- after the window opens ----------
@@ -265,29 +302,32 @@ def _undo_pipeline(base, pipeline):
         pass
 
 
-def init_pipeline(base, tier, env_loader=None, exposure=0.0):
+def init_pipeline(base, tier, env_loader=None, exposure=0.0, extra=None):
     """Make simplepbr for the tier (the shared part of the games' gfx.init). env_loader(simplepbr) returns the
     reflection map, asked for on the tiers that use one. Returns (pipeline or None, tier actually used): a tier
     whose shaders the driver won't compile is swapped for the next one down, ending at "basic" (Panda's own
-    shaders, no simplepbr)."""
+    shaders, no simplepbr). mesh and lines make no shaders at all: the game draws them. extra(tier): more
+    simplepbr keyword arguments for that tier (Kart Lab's fog on ultra)."""
     tier = tier if tier in TIERS else DEFAULT
+    if tier in LOOKS:
+        return None, tier
     while SETTINGS[tier]["simplepbr"]:
         pipeline = None
         try:
             import simplepbr
             env = env_loader(simplepbr) if env_loader and SETTINGS[tier]["env_map"] else None
-            kwargs = dict(SETTINGS[tier]["pbr"], exposure=exposure, env_map=env)
+            kwargs = dict(SETTINGS[tier]["pbr"], exposure=exposure, env_map=env, **((extra and extra(tier)) or {}))
             if _use_330() is not None:
                 kwargs["use_330"] = _use_330()
             pipeline = simplepbr.init(**kwargs)
             pipeline.verify_shaders()  # (compiles them now: a driver that can't say so here, not as a black screen)
             return pipeline, tier
         except Exception as e:
-            print(f"gfx: simplepbr {tier} didn't start here ({type(e).__name__}: {e}): trying {below(tier)}",
+            print(f"gfx: simplepbr {tier} didn't start here ({type(e).__name__}: {e}): trying {below(tier, TIERS)}",
                   file=sys.stderr, flush=True)
             if pipeline is not None:
                 _undo_pipeline(base, pipeline)
-            tier = below(tier)
+            tier = below(tier, TIERS)
     base.render.setShaderAuto()
     return None, "basic"
 
@@ -388,6 +428,10 @@ class Monitor:
     an offscreen buffer (the tests, screenshots) watch and turn the knobs, but remember nothing. It steps back up only after UP_SECS seconds under UP_RATIO of the budget, and never past the tier that
     has run cleanly here (gfx_benchmarked).
 
+    tiers: the game's own (CHANGE 144). It steps only through those, never into or out of mesh and lines (a look
+    chosen by hand or by the teacher: a run at one of them is watched and nothing more), and up into ultra only as
+    into any tier (a clean run there before, within the heuristic's tier and one more).
+
     frame(dt) is the whole of it, so tests can feed frame times with their own clock; start(base) runs it as a
     Panda task."""
     BUDGET = 1 / 60
@@ -400,8 +444,9 @@ class Monitor:
     MIN_FRAMES = 30    # a window with fewer frames than this says nothing (a stall, a panel rebuild)
 
     def __init__(self, settings_dir, tier, override=None, pipeline=None, lights=(), render=None, on_note=None,
-                 clock=None, heuristic=None, judge=True):
+                 clock=None, heuristic=None, judge=True, tiers=CORE):
         self.settings_dir, self.tier, self.pipeline, self.render = settings_dir, tier, pipeline, render
+        self.tiers = tuple(tiers)
         if not judge:
             self.settings_dir = None  # (reads what is saved, below; never writes)
         self.override = override if override in TIERS else None
@@ -426,6 +471,7 @@ class Monitor:
         self.clean = False               # this run has had a clean window at its tier (then benchmarked = tier)
         self.changed = False             # a step was taken this run (so it never counts as a clean run)
         self.stepped_tier = False        # a tier was saved this run (one a run: the next run judges again)
+        self.hand_chosen = False         # the player chose the next start's tier in this run: nothing saved over it
         self.task = None
         if self.class_max:  # (heard before the monitor started: the knobs come down now)
             self.set_class_max(self.class_max)
@@ -497,8 +543,8 @@ class Monitor:
             self.step_down(now)
             return
         if not self.clean and not self.changed:
-            self.clean = True  # a full clean window at this tier: the highest clean tier is remembered
-            if self.benchmarked is None or _index(self.tier) > _index(self.benchmarked):
+            self.clean = True  # a full clean window at this tier: the highest clean tier is remembered (a look's says nothing)
+            if self.tier not in LOOKS and (self.benchmarked is None or _index(self.tier) > _index(self.benchmarked)):
                 self.benchmarked = self.tier
                 if self.settings_dir:
                     remember(self.settings_dir, gfx_benchmarked=self.tier)
@@ -522,16 +568,16 @@ class Monitor:
             self.taken.append(step)
             self._changed(now)
             return
-        current = capped(self.saved_tier or self.tier, self.class_max)
+        current = self.current()
         floor = self.override or "low"
-        if self.stepped_tier or _index(current) <= _index(floor):
-            self.hold_until = now + self.WINDOW  # nothing left to turn down (a Python-bound client, or low)
+        if self.stepped_tier or current in LOOKS or self.tier in LOOKS or _index(current) <= _index(floor):
+            self.hold_until = now + self.WINDOW  # nothing left to turn down (a Python-bound client, low, or a look)
             return
         if current not in self.failed:
             self.failed = sorted(set(self.failed) | {current}, key=_index)
             if self.settings_dir:
                 remember(self.settings_dir, gfx_failed=self.failed)
-        self.save_tier(below(current), now)
+        self.save_tier(below(current, self.tiers), now)
         self.stepped_tier = True
         self.on_note(f"Graphics set to {self.saved_tier.title()} for next time (frames were being missed)")
 
@@ -543,19 +589,24 @@ class Monitor:
             self._undo(self.taken.pop())
             self._changed(now)
             return
-        current = capped(self.saved_tier or self.tier, self.class_max)
+        current = self.current()
         # the driver's own tier (the heuristic's, or medium) is always worth trying again, however a bad session
         # (a server and two windows on one laptop) left things; a clean run above it buys at most one tier more
         own = self.heuristic if self.heuristic in TIERS else DEFAULT
         ceiling = own
         if self.benchmarked and _index(self.benchmarked) > _index(own):
             ceiling = TIERS[min(_index(self.benchmarked), _index(own) + 1)]
-        ceiling = capped(ceiling, self.class_max)
-        if self.override or _index(current) >= _index(ceiling) or above(current) in self.failed:
+        ceiling = nearest(capped(ceiling, self.class_max), self.tiers)
+        if (self.override or current in LOOKS or self.tier in LOOKS or self.hand_chosen
+                or _index(current) >= _index(ceiling) or above(current, self.tiers) in self.failed):
             self.good_since = now  # (wait another UP_SECS before looking again)
             return
-        self.save_tier(above(current), now)
+        self.save_tier(above(current, self.tiers), now)
         self.on_note(f"Graphics set to {self.saved_tier.title()} for next time")
+
+    def current(self):
+        """The tier the next start opens at, as far as this run knows (the saved one, or this run's), capped."""
+        return nearest(capped(self.saved_tier or self.tier, self.class_max), self.tiers)
 
     def save_tier(self, tier, now):
         """Save the tier for next time."""
@@ -564,6 +615,12 @@ class Monitor:
             remember(self.settings_dir, gfx_tier=tier)
         self._changed(now)
 
+    def chosen(self, tier):
+        """The player chose a tier by hand (the window's Graphics row, CHANGE 144): it is the next start's, and this
+        run saves no other over it."""
+        self.saved_tier = tier if tier in TIERS else None
+        self.stepped_tier = self.hand_chosen = True
+
     def set_class_max(self, cap):
         """The teacher's class maximum (CHANGE 139) heard mid-run. Below the tier in use: the knobs that change
         safely in a run come down to the maximum's (the shadow map no smaller than 512: the shadows are compiled in);
@@ -571,7 +628,7 @@ class Monitor:
         cap = class_max(cap)
         self.class_max = cap
         if cap and _index(self.tier) > _index(cap):
-            s = SETTINGS[cap]
+            s = SETTINGS["basic" if cap in LOOKS else nearest(cap, self.tiers)]  # (a look's knobs mid-run: basic's)
             knobs = []
             if self.lights:
                 knobs.append(("shadow", max(512, s["shadow"])))

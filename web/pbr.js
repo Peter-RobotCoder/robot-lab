@@ -25,7 +25,7 @@ uniform mat4 viewProjection;
 varying vec3 vPos;
 varying vec3 vNormal;
 varying vec2 vUV;
-#ifdef VERTEXCOLOR
+#if defined(VERTEXCOLOR) || defined(INSTANCESCOLOR)
 varying vec4 vColor;
 #endif
 void main(void) {
@@ -35,8 +35,14 @@ void main(void) {
     vPos = wp.xyz;
     vNormal = mat3(finalWorld) * normal;
     vUV = uv;
+#if defined(VERTEXCOLOR) || defined(INSTANCESCOLOR)
+    vColor = vec4(1.0);
+#endif
 #ifdef VERTEXCOLOR
     vColor = color;
+#endif
+#ifdef INSTANCESCOLOR
+    vColor *= instanceColor;  // (a thin instance's own colour, linear: Kart Lab's ultra circuit, CHANGE 144)
 #endif
     gl_Position = viewProjection * wp;
 }`;
@@ -54,6 +60,7 @@ uniform vec3 camPos;
 uniform vec3 ambient;
 uniform float exposure;
 uniform float visibility;
+uniform vec3 fill;                   // the sky's light, its reflections, the ambient beside them: x 1 unless a game says
 uniform vec4 lightPos[NUM_LIGHTS];   // xyz: the position, or the direction to the light when w is 0
 uniform vec3 lightCol[NUM_LIGHTS];
 uniform vec3 lightAtt[NUM_LIGHTS];   // constant, linear, quadratic
@@ -77,10 +84,20 @@ uniform highp sampler2DShadow shadowMap;
 uniform mat4 shadowMatrix;
 uniform float shadowBias;
 #endif
+#ifdef PROBE
+uniform samplerCube probeTex;
+#endif
+#ifdef CLEARCOAT
+uniform float clearcoat;
+#endif
+#ifdef FOG
+uniform vec3 fogColor;
+uniform float fogDensity;
+#endif
 varying vec3 vPos;
 varying vec3 vNormal;
 varying vec2 vUV;
-#ifdef VERTEXCOLOR
+#if defined(VERTEXCOLOR) || defined(INSTANCESCOLOR)
 varying vec4 vColor;
 #endif
 const float PI = 3.141592653589793;
@@ -121,7 +138,23 @@ vec3 envLookup(vec3 d, float lod) {
     float l0 = floor(lod), l1 = min(l0 + 1.0, 3.0);
     vec3 a = texture2D(reflectTex, vec2(u, (l0 + v) / 4.0)).rgb;
     vec3 b = texture2D(reflectTex, vec2(u, (l1 + v) / 4.0)).rgb;
+#ifdef ENVSRGB
+    return pow(mix(a, b, lod - l0), vec3(2.2));  // (the sky picture's colours are a screen's: their light is linear)
+#else
     return mix(a, b, lod - l0);
+#endif
+}
+
+// the reflection along r (Babylon's axes): the blurred sky, and on ultra (PROBE) the world round the kart watched,
+// as a cube drawn every few frames, for the smoother surfaces (CHANGE 144)
+vec3 reflection(vec3 r, float rough) {
+    vec3 env = envLookup(vec3(r.x, r.z, r.y), rough * 4.0);
+#ifdef PROBE
+    vec3 pr = textureLod(probeTex, r, rough * 7.0).rgb;
+    pr = pow(pr, vec3(2.2)) / max(exposure, 0.1);  // (drawn through the tone curve: near enough back out of it)
+    env = mix(pr, env, smoothstep(0.3, 0.75, rough));
+#endif
+    return env;
 }
 #endif
 
@@ -131,7 +164,18 @@ float shadowAt(vec3 p) {
     vec3 c = s.xyz / s.w;
     vec2 uv = c.xy * 0.5 + 0.5;
     if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0 || c.z >= 1.0) return 1.0;
+#ifdef SOFTSHADOW
+    // (ultra, CHANGE 144) twelve taps round the point, each the hardware's own 2 x 2 comparison: a soft edge
+    vec2 texel = 1.6 / vec2(textureSize(shadowMap, 0));
+    float z = c.z * 0.5 + 0.5 - shadowBias, sum = 0.0;
+    const vec2 taps[12] = vec2[12](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621),
+        vec2(0.962, -0.195), vec2(0.473, -0.480), vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064),
+        vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
+    for (int i = 0; i < 12; i++) sum += texture(shadowMap, vec3(uv + taps[i] * texel, z));
+    return sum / 12.0;
+#else
     return texture(shadowMap, vec3(uv, c.z * 0.5 + 0.5 - shadowBias));
+#endif
 }
 #endif
 
@@ -149,7 +193,7 @@ void main(void) {
     float prough = clamp(roughness * mr.g, 0.0, 1.0);
     float arough = prough * prough;
     vec4 base = baseColor * albedo;
-#ifdef VERTEXCOLOR
+#if defined(VERTEXCOLOR) || defined(INSTANCESCOLOR)
     base *= vColor;  // (the app's vertex colours are linear: simplepbr multiplies them in as they are)
 #endif
     vec3 diffuseColor = base.rgb * (vec3(1.0) - F0) * (1.0 - metal);
@@ -170,6 +214,11 @@ void main(void) {
 #endif
     float ndotv = clamp(abs(dot(n, v)), 0.0, 1.0);
     vec3 color = vec3(0.0);
+#ifdef CLEARCOAT
+    vec3 nc = normalize(vNormal);  // (the coat is smooth over the paint's bumps)
+    if (dot(nc, ng) < 0.0) nc = -nc;
+    vec3 coat = vec3(0.0);
+#endif
     for (int i = 0; i < NUM_LIGHTS; ++i) {
         vec3 lc = lightCol[i];
         if (dot(lc, lc) < 0.001) continue;
@@ -195,6 +244,14 @@ void main(void) {
         float f = ndoth * ndoth * (r2 - 1.0) + 1.0;
         float D = r2 / (PI * f * f);
         color += ndotl * lc * (diffuseColor / PI + F * vis * D) * spot * caster * attenuation;
+#ifdef CLEARCOAT
+        float cl = clamp(dot(nc, l), 0.0, 1.0), ch = clamp(dot(nc, h), 0.0, 1.0), cvv = clamp(dot(nc, v), 0.0, 1.0);
+        const float cr2 = 0.0016;  // (the coat's roughness 0.2, squared twice as above)
+        float cg = cl * sqrt(cvv * cvv * (1.0 - cr2) + cr2) + cvv * sqrt(cl * cl * (1.0 - cr2) + cr2);
+        float cf = ch * ch * (cr2 - 1.0) + 1.0;
+        coat += cl * lc * (0.04 + 0.96 * pow(1.0 - vdoth, 5.0)) * clearcoat * (cg > 0.0 ? 0.5 / cg : 0.0)
+              * cr2 / (PI * cf * cf) * spot * caster * attenuation;
+#endif
     }
 #ifdef IBL
     vec3 gn = vec3(n.x, n.z, n.y);
@@ -203,11 +260,26 @@ void main(void) {
     vec3 iblDiff = base.rgb * max(irradianceFromSh(gn), 0.0) / PI;
     vec3 r = reflect(-v, n);
     vec2 envBrdf = texture2D(brdfTex, vec2(ndotv, prough)).rg;
-    vec3 iblSpec = envLookup(vec3(r.x, r.z, r.y), prough * 4.0) * (iblF * envBrdf.x + envBrdf.y);
-    color += (kd * iblDiff + iblSpec) * ao;
-#endif
+    vec3 iblSpec = reflection(r, prough) * (iblF * envBrdf.x + envBrdf.y);
+    color += (kd * iblDiff * fill.x + iblSpec * fill.y) * ao;
+    color += (diffuseColor + specColor) * ambient * ao * fill.z;
+#else
     color += (diffuseColor + specColor) * ambient * ao;
+#endif
+#if defined(CLEARCOAT) && defined(IBL)
+    // (ultra, CHANGE 144) a clear coat over the paint: its own sharp highlight from each light and its own
+    // reflection of the world, with the light it reflects taken from the layer under it
+    float cv = clamp(dot(nc, v), 0.0, 1.0);
+    float cF = (0.04 + 0.96 * pow(1.0 - cv, 5.0)) * clearcoat;
+    color = color * (1.0 - cF) + coat + reflection(reflect(-v, nc), 0.0) * cF * fill.y;
+#endif
     color += emission;
+#ifdef FOG
+    // (ultra, CHANGE 144) the haze far off, as the window's: Panda's exponential fog mixed into the light before the
+    // tone curve (so even near grass is a little hazy, as the window's is), to the light that the tone curve makes the
+    // sky's colour at the horizon (fogColor: Lighting.material undoes the curve for it)
+    color = mix(fogColor, color, exp(-length(vPos - camPos) * fogDensity));
+#endif
     color *= exposure;
     color = max(vec3(0.0), color - vec3(0.004));
     color = (color * (vec3(6.2) * color + vec3(0.5))) / (color * (vec3(6.2) * color + vec3(1.7)) + vec3(0.06));
@@ -251,22 +323,43 @@ export function toneMap(rgb, exposure) {
     });
 }
 
+// the light toneMap turns into a colour (each channel's curve solved backwards: a quadratic; CHANGE 144, the haze)
+export function untoneMap(rgb, exposure) {
+    return rgb.map(y => {
+        y = Math.min(0.99, Math.max(0, y));
+        const a = 6.2 * (1 - y), b = 0.5 - 1.7 * y, c = -0.06 * y;
+        return ((-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a) + 0.004) / exposure;
+    });
+}
+
 const lin = rgb => rgb.map(c => Math.pow(c, 2.2));  // screen colours (sRGB) to the linear ones lighting uses, as the app does
 const bab = p => new BABYLON.Vector3(p[0], p[2], p[1]);  // a game vector in Babylon's axes
 
-// One scene's lights, sky and shadow (made by BaseScene.build on the low, medium and high tiers).
-// look: {background, exposure, ambient, sky: "env"|"sky", sun: {colour, offset, film, near, far, bias, follow},
-//        spots: [{pos, at, colour, fov, att}]}, all in game coordinates; tier: base3d's TIER_SETTINGS entry
+// One scene's lights, sky and shadow (made by BaseScene.build on the low, medium, high and ultra tiers).
+// look: {background, exposure, ambient, sky: "env"|"sky", sun: {colour, offset, film, near, far, bias, follow,
+//        ultraFilm}, spots: [{pos, at, colour, fov, att}], fill, fog}, all in game coordinates; tier: base3d's
+// TIER_SETTINGS entry. (CHANGE 144) fill: [the sky's light, its reflections, the ambient light beside them] as shares
+// of simplepbr's (which adds the ambient on top of the whole sky's light), envSrgb: the sky picture's colours read as
+// a screen's, shScale: the spherical harmonics scaled to match (per colour): as simplepbr unless a game says (Kart Lab:
+// read raw and at full strength, its sky greyed every colour on medium and high).
+// fog: {colour (a screen colour), density (per metre: exponential, as Panda's)}, the haze on ultra. On ultra the
+// shadow is soft and reaches ultraFilm metres across (else film), and a material may have a clear coat and the world's
+// reflection (setProbe)
 export class Lighting {
     constructor(scene, look, tier, sh) {
         register();
         this.scene = scene;
         this.look = look;
         this.tier = tier;
-        this.sh = sh;
+        // (CHANGE 144) shScale: the sky's light from the picture read as a screen's colours, as a share of the raw
+        // numbers make_textures.py worked out (a game's look may say: Kart Lab's, as its window decodes its sky)
+        const k = look.shScale;
+        this.sh = sh && k ? sh.map(v => v.map((c, i) => c * k[i])) : sh;
         this.materials = new Set();
         this.textures = {};
         this.exposure = Math.pow(2, look.exposure || 0);
+        this.fill = look.fill || [1, 1, 1];
+        this.probe = null;
         this.target = [0, 0, 0];
         this.setLights(look.spots || []);
         this.reflect = tier.ibl ? this.texture(`tex/${look.sky}_reflect.png`, false, false) : null;
@@ -319,16 +412,33 @@ export class Lighting {
         m.setArray4("lightSpot", this.lights.spot);
     }
 
+    // (ultra) a cube of the world round the kart watched (a Babylon ReflectionProbe's): materials made after this
+    // with probe set reflect it
+    setProbe(cube) {
+        this.probe = cube;
+    }
+
     makeShadow(size) {
         const scene = this.scene, sun = this.look.sun;
+        // (ultra, CHANGE 144) further across, and as deep along the light as it is across; the bias near the same
+        // distance in metres (a half again: the soft shadow's taps reach further across a slope)
+        const film = this.tier.ultra && sun.ultraFilm ? sun.ultraFilm : sun.film;
+        const dist = Math.hypot(...sun.offset);
+        let near = sun.near, far = sun.far;
+        this.shadowBias = sun.bias ?? 0.005;
+        if (film !== sun.film) {
+            near = Math.max(1, dist - film / 2);
+            far = dist + film / 2;
+            this.shadowBias *= 1.5 * (sun.far - sun.near) / (far - near);
+        }
         const rtt = this.rtt = new BABYLON.RenderTargetTexture("shadow", {width: size, height: size}, scene,
             {generateMipMaps: false, generateDepthBuffer: true, noColorAttachment: true});
         rtt.createDepthStencilTexture(BABYLON.Constants.LEQUAL, true);
         const cam = this.sunCam = new BABYLON.FreeCamera("suncam", new BABYLON.Vector3(0, 50, 0), scene, false);
         cam.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
-        const f = sun.film / 2;
+        const f = film / 2;
         cam.orthoLeft = -f; cam.orthoRight = f; cam.orthoTop = f; cam.orthoBottom = -f;
-        cam.minZ = sun.near; cam.maxZ = sun.far;
+        cam.minZ = near; cam.maxZ = far;
         rtt.activeCamera = cam;
         rtt.renderList = [];
         rtt.refreshRate = 1;
@@ -366,12 +476,19 @@ export class Lighting {
         if (textured && tier.normal) defines.push("NORMALMAP");
         if ((textured || o.mrUrl) && tier.occlusion) defines.push("OCCLUSION");
         if (tier.ibl && this.reflect) defines.push("IBL");
+        if (tier.ibl && this.reflect && this.look.envSrgb) defines.push("ENVSRGB");
         if (this.rtt) defines.push("SHADOWS");
+        // (ultra, CHANGE 144)
+        if (tier.ultra && this.rtt) defines.push("SOFTSHADOW");
+        if (tier.ultra && this.look.fog) defines.push("FOG");
+        if (tier.ultra && tier.ibl && this.reflect && o.clearcoat) defines.push("CLEARCOAT");
+        if (tier.ultra && tier.ibl && this.reflect && o.probe && this.probe) defines.push("PROBE");
         const m = new BABYLON.ShaderMaterial(key, scene, {vertex: "ccpbr", fragment: "ccpbr"}, {
             attributes: ["position", "normal", "uv"],
             uniforms: ["world", "viewProjection", "baseColor", "emission", "roughness", "metallic", "camPos", "ambient",
-                       "exposure", "visibility", "lightPos", "lightCol", "lightAtt", "lightSpot", "sh", "shadowMatrix", "shadowBias"],
-            samplers: ["albedoTex", "mrTex", "normalTex", "reflectTex", "brdfTex", "shadowMap"],
+                       "exposure", "visibility", "lightPos", "lightCol", "lightAtt", "lightSpot", "sh", "shadowMatrix", "shadowBias",
+                       "fill", "clearcoat", "fogColor", "fogDensity"],
+            samplers: ["albedoTex", "mrTex", "normalTex", "reflectTex", "brdfTex", "shadowMap", "probeTex"],
             defines,
             needAlphaBlending: (o.alpha ?? 1) < 1 || !!o.blend,
         });
@@ -383,6 +500,14 @@ export class Lighting {
         m.setFloat("metallic", o.metal);
         m.setFloat("exposure", this.exposure);
         m.setFloat("visibility", 1);
+        m.setVector3("fill", new BABYLON.Vector3(this.fill[0], this.fill[1], this.fill[2]));
+        if (defines.includes("CLEARCOAT")) m.setFloat("clearcoat", o.clearcoat);
+        if (defines.includes("PROBE")) m.setTexture("probeTex", this.probe);
+        if (defines.includes("FOG")) {
+            const fc = untoneMap(this.look.fog.colour, this.exposure);  // (mixed in before the tone curve: CHANGE 144)
+            m.setVector3("fogColor", new BABYLON.Vector3(fc[0], fc[1], fc[2]));
+            m.setFloat("fogDensity", this.look.fog.density);
+        }
         const amb = this.look.ambient;
         m.setVector3("ambient", new BABYLON.Vector3(amb[0], amb[1], amb[2]));
         this.bindLights(m);
@@ -401,7 +526,7 @@ export class Lighting {
         }
         if (this.rtt) {
             m.setInternalTexture("shadowMap", this.rtt.depthStencilTexture);
-            m.setFloat("shadowBias", this.look.sun.bias ?? 0.005);
+            m.setFloat("shadowBias", this.shadowBias);
             m.setMatrix("shadowMatrix", this.shadowMatrix);
         }
         m.backFaceCulling = false;

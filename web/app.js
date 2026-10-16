@@ -8,11 +8,11 @@
 // shows it. The teacher desk (desk.js) is the app's Teacher screen.
 //
 // Query string: ?host=ws://127.0.0.1:8782 for a laptop test server (the class picker is then "another server"),
-// ?code=TEACH99 to prefill the code, ?tier=blocks|low|medium|high, ?version=1.9.1 (a class server wants the release's
+// ?code=TEACH99 to prefill the code, ?tier=mesh|lines|blocks|low|medium|high|ultra, ?version=1.9.1 (a class server wants the release's
 // number; on the VPS the page reads it from /live/version).
 
-import {TIERS, TIER_SETTINGS, PARTS, SCREEN, AutoTier, pageEngine, engineInfo, setSkyData, setGraphics, cappedTier, tierSettings,
-        cleanParts} from "./base3d.js";
+import {TIERS, GAME_TIERS, LINE_TIERS, TIER_SETTINGS, PARTS, SCREEN, AutoTier, pageEngine, engineInfo, setSkyData, setGraphics,
+        cappedTier, tierSettings, cleanParts, gameTier, LINE_COLOURS, getLineColour, setLineColour, cleanColour} from "./base3d.js";
 import {DeskLink, LearnerLink, renderDesk} from "./desk.js";
 import {KartGame} from "./kart.js";
 import {RobotGame} from "./robot.js";
@@ -578,8 +578,12 @@ function loop() {
         // Auto (base3d.js's AutoTier, CHANGE 139): one tier down after three seconds under 28 a second, one back up
         // after a stretch with no frames missed, never past the class maximum; kept for next time. A tier tuned by
         // hand part by part is only ever stepped down
+        // (CHANGE 144) the tier the game draws, but mesh and lines as chosen, so Auto leaves them alone even where a
+        // game draws blocks for them; never past the game's best tier
+        const tiers = gameTiers(), chosen = chosenTier();
         let step = state.autoTier && state.scene ? state.auto.second({fps: state.fps, missed: state.missedFrames || 0,
-            tier: drawnTier(), cap: classCap(), active: !!state.game && !covered && !document.hidden, now}) : null;
+            tier: LINE_TIERS.includes(chosen) ? chosen : drawnTier(), cap: classCap(), top: tiers[tiers.length - 1],
+            active: !!state.game && !covered && !document.hidden, now}) : null;
         state.missedFrames = 0;
         if (state.auto.store.best !== state.bestKept) { state.bestKept = state.auto.store.best; keepGfx(); }  // (a tier run cleanly here)
         if (step && step.up && Object.keys(state.gfx.parts).length) step = null;
@@ -631,15 +635,26 @@ function classCap() {  // the teacher's class maximum, on a learner's page (the 
     return state.role === "learner" && TIERS.includes(t) ? t : null;
 }
 
-function drawnTier() {
+// (CHANGE 144) the tiers the game in front draws (Kart Lab all seven, Robot Lab and Fight Lab blocks to high); the
+// page's choice under the class maximum (kept page-wide: "lines" stays chosen in Robot Lab); and the tier the game
+// draws for it (its nearest: lines as blocks there)
+function gameTiers() {
+    return (state.scene && state.scene.constructor.TIERS) || GAME_TIERS;
+}
+
+function chosenTier() {
     return cappedTier(state.tier, classCap());
+}
+
+function drawnTier() {
+    return gameTier(chosenTier(), gameTiers());
 }
 
 // the scene drawn as chosen: the tier at most at the class maximum, the parts changed by hand (again: rebuilt
 // though the tier is the same)
 function applyGraphics(again = false) {
     setGraphics(state.gfx.parts, classCap());
-    if (state.scene) state.scene.setTier(drawnTier(), again);
+    if (state.scene) state.scene.setTier(chosenTier(), again);
     if (state.tab === "graphics") renderPanel();
     renderPerf();
 }
@@ -654,6 +669,16 @@ function setTier(tier, auto = false) {
     try { localStorage.setItem("tier", state.tier); } catch (e) { /* storage blocked: chosen again next time */ }
     keepGfx();
     applyGraphics(true);
+}
+
+// (CHANGE 144) the line tiers' colour: recoloured at once, kept on this computer, and in a learner's profile as
+// line_colour ("#rrggbb", the window's key); keep false when it came from their profile
+function chooseLineColour(c, keep = true) {
+    const colour = cleanColour(c);
+    if (!colour) return;
+    setLineColour(colour, state.scene);
+    try { localStorage.setItem("line_colour", colour); } catch (e) { /* storage blocked */ }
+    if (keep && state.role === "learner" && (state.prefs || {}).line_colour !== colour) keepPrefs({line_colour: colour});
 }
 
 function setPart(part, value) {
@@ -672,7 +697,7 @@ function classMaxHeard() {
     state.capSeen = cap;
     if (was === undefined && !state.scene) { setGraphics(state.gfx.parts, cap); return; }  // (the first: before the scene)
     applyGraphics(true);
-    if (cap && TIERS.indexOf(state.tier) > TIERS.indexOf(cap)) toast(`Your teacher set the graphics to at most ${cap}.`, false, 6000);
+    if (cap && TIERS.indexOf(state.tier) > TIERS.indexOf(cap)) toast(`Your teacher set the graphics to at most ${gameTier(cap, gameTiers())}.`, false, 6000);
     else if (!cap && was) toast(`Your teacher lifted the graphics limit: ${state.tier} again.`, false, 5000);
 }
 
@@ -685,20 +710,37 @@ const PART_ROWS = [  // [part, label, choices, what the tier part needs]
 const partText = (part, v) => v === true ? "on" : v === false ? "off" : part === "shadow" ? (v ? String(v) : "off")
     : part === "aniso" ? `${v}x` : v >= SCREEN ? "as the screen" : `${(v / 1e6).toFixed(1)} million`;
 
+// what each tier draws, for the Graphics tab (only the game's own are shown: CHANGE 144)
+const TIER_TEXT = {
+    mesh: "mesh: black, and every triangle's edges in one colour (the basic mesh), the lines behind hidden.",
+    lines: "lines: black, the outlines in one colour and a grid on the ground (an old vector arcade game).",
+    blocks: "blocks: flat colours, nothing lit, the floor every machine draws.",
+    low: "low: the app's lighting and textures, no shadows or reflections.",
+    medium: "medium: surface detail, the sky's reflections, shadows.",
+    high: "high: sharper shadows and textures, and more pixels.",
+    ultra: "ultra: for a strong graphics card: soft shadows reaching far, shading in the corners, glow, the world reflected in the paint, a sky with clouds, hills, more trees, skid marks and sparks."};
+
 function graphicsHtml() {
     const cap = classCap(), drawn = drawnTier(), now = tierSettings(drawn), top = cap ? TIER_SETTINGS[cap] : null;
+    const tiers = gameTiers(), capShown = cap ? gameTier(cap, tiers) : null;
     const tuned = Object.keys(state.gfx.parts).length, aa = !!(engine && engine._gl && engine._gl.getContextAttributes().antialias);
     const over = (part, v) => top && (typeof v === "boolean" ? v && !top[part] : v > top[part]);
+    const chosen = chosenTier();
     let html = `<h2>Graphics</h2>
-      <div class="row"><button id="btn-auto" class="${state.autoTier ? "on" : ""}">Auto</button>${TIERS.map(t =>
-        `<button data-tier="${t}" class="${drawn === t ? "on" : ""}"${cap && TIERS.indexOf(t) > TIERS.indexOf(cap) ? " disabled" : ""}>${t}</button>`).join("")}</div>
-      <div class="note">Drawing ${drawn}${state.autoTier ? " (Auto: down a tier after three seconds under 28 frames a second, back up after " +
-        `${AutoTier.UP_SECS} seconds with no frames missed)` : ""}${tuned ? ", with parts changed below" : ""}.
-        ${cap ? `Your teacher's class maximum is <b>${cap}</b>: nothing above it can be chosen.` : ""}
-        blocks: flat colours, nothing lit, the floor every machine draws. low: the app's lighting and textures, no shadows or
-        reflections. medium: surface detail, the sky's reflections, shadows. high: sharper shadows and textures, and the most
-        pixels. A tier picked here turns Auto off; picking a tier sets every part below to that tier's. Kept on this computer.</div>
-      <h2>The parts</h2><table>`;
+      <div class="row"><button id="btn-auto" class="${state.autoTier ? "on" : ""}">Auto</button>${tiers.map(t =>
+        `<button data-tier="${t}" class="${drawn === t ? "on" : ""}"${capShown && TIERS.indexOf(t) > TIERS.indexOf(capShown) ? " disabled" : ""}>${t}</button>`).join("")}</div>
+      <div class="note">Drawing ${drawn}${chosen !== drawn ? ` (${chosen} chosen: this game draws ${drawn} for it)` : ""}${state.autoTier ? " (Auto: down a tier after three seconds under 28 frames a second, back up after " +
+        `${AutoTier.UP_SECS} seconds with no frames missed${tiers.includes("lines") ? "; it never picks mesh or lines, or leaves them" : ""})` : ""}${tuned ? ", with parts changed below" : ""}.
+        ${cap ? `Your teacher's class maximum is <b>${capShown}</b>: nothing above it can be chosen.` : ""}
+        ${tiers.map(t => TIER_TEXT[t]).join(" ")} A tier picked here turns Auto off; picking a tier sets every part below to that tier's. Kept on this computer.</div>`;
+    if (tiers.includes("lines")) {  // (the line tiers' colour: at once, kept on this computer and in a learner's profile)
+        const lc = getLineColour();
+        html += `<div class="row"><label>Line colour</label>${LINE_COLOURS.map(([n, c]) =>
+            `<button data-linecol="${c}" class="${lc === c ? "on" : ""}" title="${n}"><span class="sw" style="background:${c}"></span> ${n}</button>`).join("")}
+            <input type="color" data-linecolpick value="${lc}" title="any colour"></div>
+          <div class="note">The colour of the lines on mesh and lines${state.role === "learner" ? " (yours: kept with your profile, as in the game window)" : " (kept on this computer)"}.</div>`;
+    }
+    html += `<h2>The parts</h2><table>`;
     for (const [part, label, choices, needs] of PART_ROWS) {
         const off = needs && !now[needs];  // (blocks: nothing lit, so no shadows, maps or reflections)
         html += `<tr><th>${esc(label)}</th><td>${choices.map(v => `<button data-part="${part}" data-val="${v}" class="${now[part] === v ? "on" : ""}"${off || over(part, v) ? " disabled" : ""}>${partText(part, v)}</button>`).join("")}</td></tr>`;
@@ -707,12 +749,13 @@ function graphicsHtml() {
         ${state.gfx.aa !== aa ? `<span class="note">from the next time the page opens</span>` : ""}</td></tr>
       <tr><th>Frame rate box</th><td><button data-fpsbox="1" class="${state.gfx.fps ? "on" : ""}">shown</button><button data-fpsbox="0" class="${state.gfx.fps ? "" : "on"}">hidden</button></td></tr></table>
       ${tuned ? `<div class="row"><button id="btn-parts-reset">Back to ${drawn}'s own</button></div>` : ""}
-      <div class="note">${drawn === "blocks" ? "On blocks nothing is lit, so only the pixels count. " : ""}Each tier draws at most so many pixels
-        however fine the screen (blocks 1.0 million, low 1.1, medium 1.6, high 2.4); more is sharper and slower.</div>`;
+      <div class="note">${["mesh", "lines", "blocks"].includes(drawn) ? `On ${drawn} nothing is lit, so only the pixels count. ` : ""}Each tier draws at most so many pixels
+        however fine the screen (${tiers.map(t => `${t} ${(TIER_SETTINGS[t].pixels / 1e6).toFixed(1)}`).join(", ")} million); more is sharper and slower.</div>`;
     if (state.role !== "learner") {
         const mx = (state.lesson || {}).gfx_max, mine = mx === "basic" ? "blocks" : mx;
-        html += `<h2>Class maximum</h2><div class="row">${TIERS.map(t => `<button data-gfxmax="${t}" class="${mine === t ? "on" : ""}">${t}</button>`).join("")}
+        html += `<h2>Class maximum</h2><div class="row">${tiers.map(t => `<button data-gfxmax="${t}" class="${mine === t ? "on" : ""}">${t}</button>`).join("")}
             <button data-gfxmax="" class="${TIERS.includes(mine) ? "" : "on"}">no limit</button></div>
+          ${TIERS.includes(mine) && !tiers.includes(mine) ? `<div class="note">The class maximum is ${mine} (another game's): this game draws ${gameTier(mine, tiers)} for it.</div>` : ""}
           <div class="note">The best graphics the class may choose. Learners' pages can't choose above it, Auto never steps past it,
             and a page above it drops to it at once. The game windows open at most at it (one already open turns its shadows
             and smoothing down now, the rest at its next start). Your own view isn't held to it. Kept for the next lesson.</div>`;
@@ -723,6 +766,12 @@ function graphicsHtml() {
 function wireGraphics(body) {
     $("btn-auto").onclick = () => { state.autoTier = !state.autoTier; state.auto.slow = state.auto.good = 0; keepGfx(); renderPanel(); renderPerf(); };
     body.querySelectorAll("button[data-tier]").forEach(b => b.onclick = () => setTier(b.dataset.tier));
+    body.querySelectorAll("button[data-linecol]").forEach(b => b.onclick = () => { chooseLineColour(b.dataset.linecol); renderPanel(); });
+    const pick = body.querySelector("input[data-linecolpick]");  // (no id: the panel's redraw keeps typed values by id)
+    if (pick) {
+        pick.oninput = e => chooseLineColour(e.target.value);  // (as it is dragged: at once)
+        pick.onchange = () => renderPanel();
+    }
     body.querySelectorAll("button[data-part]").forEach(b => b.onclick = () => {
         const v = b.dataset.val, value = v === "true" ? true : v === "false" ? false : Number(v);
         setPart(b.dataset.part, TIER_SETTINGS[drawnTier()][b.dataset.part] === value ? null : value);  // (the tier's own: not a change)
@@ -971,7 +1020,9 @@ function toggleKeyHelp() {  // H (the windows' toggle_help: the key list at the 
 
 // what the games and teacher.js reach the page through
 const appApi = {
-    get state() { return state; }, get game() { return state.game; }, get tier() { return drawnTier(); }, setTier: t => setTier(t),
+    // (tier: the page's choice under the class maximum; each game's scene draws its nearest: CHANGE 144)
+    get state() { return state; }, get game() { return state.game; }, get tier() { return chosenTier(); }, setTier: t => setTier(t),
+    lineColour: c => chooseLineColour(c),
     get canvas() { return $("view"); }, get engine() { return engine; }, params,
     send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, esc,
     missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
@@ -1027,6 +1078,7 @@ function restoreProfileSettings(p) {
     if ("invert_zoom" in p) state.invertZoom = !!p.invert_zoom;
     setLook();
     if (p.sound && typeof p.sound === "object") sound.useOwn(p.sound);
+    if (cleanColour(p.line_colour)) chooseLineColour(p.line_colour, false);  // (CHANGE 144)
 }
 
 // (CHANGE 143) the teacher's Show learners (hud.show_missions_changed): ticked, a learner's Mission tab opens, every
@@ -1231,11 +1283,13 @@ async function main() {
     loadGfx();  // (CHANGE 139: Auto, the parts changed by hand, the multisampling, the frame rate box)
     if (TIERS.includes(params.get("tier"))) state.gfx.parts = {};  // (a tier in the address: its own parts)
     setGraphics(state.gfx.parts, null);
+    try { setLineColour(localStorage.getItem("line_colour")); } catch (e) { /* storage blocked: the green */ }
     try {
         engine = state.engine = pageEngine($("view"), state.gfx.aa);
         const info = engineInfo(engine);
         if (!params.get("tier") && !TIERS.includes(kept) && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
-        if (info.webgl < 2 && state.tier !== "blocks") state.tier = "blocks";  // (the app's lighting needs WebGL 2)
+        // (the app's lighting needs WebGL 2; blocks and the line tiers don't)
+        if (info.webgl < 2 && !["mesh", "lines", "blocks"].includes(state.tier)) state.tier = "blocks";
     } catch (e) {
         setStatus(`This browser can't draw the game (WebGL): ${e.message}`);
     }

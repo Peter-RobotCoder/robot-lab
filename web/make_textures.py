@@ -2,8 +2,10 @@
 (CHANGE 131).
 
 - the texture sets the games paint their parts with (engine/rw_textures.py: paint, steel, tyre, diamond, hazard,
-  concrete; Kart Lab's kart_gfx.py: tarmac, grass): albedo, metal-rough and normal maps, at 512 x 512 as JPEGs
-  (the app's high tier loads them at 1024: the page draws fewer pixels, and a school laptop has less memory);
+  concrete; Kart Lab's kart_gfx.py: tarmac, grass, and for its ultra circuit (CHANGE 144, kart_scenery.MATERIALS)
+  asphalt, kerb, gravel, turf, render, bark, foliage, needles, signs): albedo, metal-rough and normal maps, at
+  512 x 512 as JPEGs (the app's high tier loads them at 1024: the page draws fewer pixels, and a school laptop has
+  less memory);
 - each sky's reflections as simplepbr makes them (its own functions, so the numbers are the app's): the nine
   spherical-harmonic numbers for the light from everywhere, and the sky blurred four ways for shiny to rough
   surfaces, unwrapped into one latitude-longitude picture per sky (the page reads it without cube-map rules);
@@ -24,7 +26,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "tex")
-SETS = {"engine": ["paint", "steel", "tyre", "diamond", "hazard", "concrete"], "kart": ["tarmac", "grass"]}
+SETS = {"engine": ["paint", "steel", "tyre", "diamond", "hazard", "concrete"],
+        "kart": ["tarmac", "grass", "asphalt", "kerb", "gravel", "turf", "render", "bark", "foliage", "needles", "signs"]}
 SKIES = {"env": ("engine", "env_#.png", 64, 16), "sky": ("kart", "sky_#.png", 32, 8)}  # name: (folder, files, size, samples)
 SIZE = 512
 

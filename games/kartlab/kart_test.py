@@ -189,6 +189,56 @@ def prediction_no_network():
     assert worst_after < 0.05, f"after the bump the window kept disagreeing: {worst_after:.3f}"
 
 
+def ultra_scenery():
+    """(CHANGE 144) The ultra circuit (kart_scenery) on every track: nothing solid within the barrier's line but what
+    is flat (kerbs, the pit lane) or overhead (the gantry), nothing taller than a barrier in front of a TV camera, and
+    the file's packed arrays read back to the window's numbers."""
+    import base64
+    from array import array
+    import kart_scenery as ks
+    low = {"tuft", "tuft_long", "flowers"}  # (grass: not solid)
+    flat = {"asphalt", "patch", "rubber", "tar", "line_paint", "gravel", "turf", "land", "water"}
+    shapes = ks.shapes_once()
+    for name in kart_track.TRACKS:
+        t = kart_track.load(name)
+        c = ks.circuit(t)
+        inner = t.half + ks.BARRIER - 0.05
+        for shape, rows in c.inst.items():
+            if shape in low:
+                continue
+            for x, y, z, *_ in rows:
+                assert c.dist(x, y, inner + 1) >= inner, (name, shape, x, y, c.dist(x, y, inner + 1) - t.half)
+        for p in c.near.all():
+            if p.material in flat:
+                continue
+            for x, y, z in p.p:
+                if c.dist(x, y, inner + 1) < inner:
+                    _, s, _ = t.locate(x, y)
+                    above = z - t.height(s)
+                    assert above < 0.1 or above > 4.5, (name, p.material, x, y, above)  # (kerbs, the pit lane; the gantry)
+        for cx, cy, cz, side, s in c.cams:
+            out = c.out_of(s, side)
+            for shape, rows in c.inst.items():
+                tall = max(q[2] for part in shapes[shape] for q in part.p)
+                for x, y, z, h, k, *_ in rows:
+                    if tall * k > 1.3 and math.hypot(x - cx, y - cy) < ks.CAMERA_CLEAR:
+                        raise AssertionError((name, "camera", shape, x, y))
+            for p in c.near.all():
+                for x, y, z in p.p:  # (the camera's own tower stands behind it)
+                    if (math.hypot(x - cx, y - cy) < ks.CAMERA_CLEAR and (x - cx) * out[0] + (y - cy) * out[1] < 0.2
+                            and z - c.ground_z(x, y) > 1.3 and z > cz - 4.0 and p.material not in flat):
+                        raise AssertionError((name, "camera", p.material, x, y, z))
+    part = ks.circuit(kart_track.load("club")).near.get("asphalt")
+    packed = part.packed()
+    q = array("H")
+    q.frombytes(base64.b64decode(packed["positions"]))
+    box = packed["box"]
+    for i in range(0, len(part.p), 97):
+        got = [box[k] + q[i * 3 + k] / 65535 * (box[k + 3] - box[k]) for k in range(3)]
+        assert all(abs(a - b) < 0.005 for a, b in zip(got, part.p[i])), (got, part.p[i])
+    assert len(json.dumps(packed)) < 0.4 * len(json.dumps({"p": part.p, "n": part.n, "uv": part.uv, "c": part.c, "i": part.idx}))
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -420,6 +470,7 @@ check("The kart is deterministic, held by barriers, drifts and slides", kart_phy
 check("Prediction agrees with the server through 83 ms of delay and absorbs a bump", prediction_no_network)
 check("Designs are checked as variables, inside the teacher's limits", designs_and_limits)
 check("Accounts and missions: what a learner does completes the right objectives", profiles_and_missions)
+check("The ultra circuit keeps clear of the karts and the TV cameras, and its file reads back", ultra_scenery)
 if not QUICK:
     check("The server runs a race for two windows at 30 snapshots a second", server_end_to_end)
 if not QUICK and "server" not in sys.argv:  # ("server": everything but the windows)

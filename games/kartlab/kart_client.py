@@ -48,8 +48,9 @@ ap.add_argument("--host", default=None,
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
 ap.add_argument("--window", help="the window: 1280x720, 1600x900 ... 3840x2160 or full "
                                  "(else this computer's last choice; CHANGE 126)")
-ap.add_argument("--gfx", choices=["auto", "basic", "low", "medium", "high"], default="auto",
-                help="graphics: auto picks for this computer (and remembers); low or basic on old laptops")
+ap.add_argument("--gfx", choices=["auto", "mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="auto",
+                help="graphics: auto picks for this computer (and remembers); low or basic on old laptops; "
+                     "mesh and lines are a look in one colour; ultra for a gaming PC")
 ap.add_argument("--offline", action="store_true", help="a race on this laptop, no server")
 ap.add_argument("--track", default="club")
 ap.add_argument("--cpu", type=int, default=3, help="computer karts (offline)")
@@ -127,7 +128,8 @@ if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 from engine import gfx_tiers  # noqa: E402
-GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx)  # (auto: this computer's saved tier, else what its driver suggested)
+GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx, gfx_tiers.TIERS)  # (auto: this computer's saved tier, else what its
+# driver suggested; Kart Lab draws all seven tiers: CHANGE 144)
 loadPrcFileData("", hud.window_arg(args.window, x) + f"window-title {title}\n"  # (the size: CHANGE 126)
                     + gfx_tiers.prc_for(GFX))  # (texture size, mipmaps, multisamples: read as the window opens)
 if args.offscreen:
@@ -195,6 +197,8 @@ class Lab(hud.HudKit, ShowBase):
     reflections = REFLECTIONS
     user_mods = getattr(sim, "USER_MODS", {})
     STAGE_WORD = "TRACK"
+    GFX_TIERS = gfx_tiers.TIERS          # (CHANGE 144: the Settings tab's Graphics row and the class maximum's)
+    LINE_COLOURS = kart_gfx.LINE_COLOURS
     LIMITS_TITLE = "KART LIMITS"
     LIMITS_NOTE = "The points: each stat from 10 to 60, 100 points in all (the standard design sheet)."
     gp_races = 3  # the teacher's grand prix: how many races the next one has (2 to 5: CHANGE 143)
@@ -212,7 +216,7 @@ class Lab(hud.HudKit, ShowBase):
         self.code_changed = False  # the design holds a value changed in the code (Mission 1: hack the code)
         self.code_hack = False     # the design holds a value changed in the code that this mission's garage hides
         gfx_tiers.detect(self, SETTINGS_DIR)  # (the window is open: what the driver says, for the next run's tier)
-        self.pipeline = kart_gfx.init(self, GFX)
+        self.pipeline = kart_gfx.init(self, GFX, line_colour=self.line_colour)
         self.gfx_tier = kart_gfx.tier()  # (the tier in use: lower than GFX when the driver couldn't run that one)
         try:
             self.snd = kart_sound.KartSounds(self, on=not args.mute and not args.offscreen)
@@ -535,7 +539,7 @@ class Lab(hud.HudKit, ShowBase):
             self.gfx_monitor = gfx_tiers.Monitor(SETTINGS_DIR, self.gfx_tier, override=None if args.gfx == "auto" else args.gfx,
                                                  pipeline=self.pipeline, lights=[sun] if sun is not None else [],
                                                  render=self.render, on_note=self.banner_note,
-                                                 judge=OFFLINE or not LOCAL).start(self)
+                                                 judge=OFFLINE or not LOCAL, tiers=gfx_tiers.TIERS).start(self)
         except Exception as e:
             print(f"No graphics monitor: {e!r}", flush=True)
 
@@ -669,9 +673,13 @@ class Lab(hud.HudKit, ShowBase):
             return
         self.gfx_max_seen = cap
         note = gfx_tiers.obey_class_max(SETTINGS_DIR, cap, getattr(self, "gfx_monitor", None),
-                                        getattr(self, "gfx_tier", None))
+                                        getattr(self, "gfx_tier", None), gfx_tiers.TIERS)
         if note:
             self.banner_note(note, 6)
+
+    def on_line_colour(self, colour):
+        """Mesh and lines: the learner's line colour, at once (CHANGE 144)."""
+        kart_gfx.set_line_colour(colour)
 
     def banner_note(self, text, secs=3, big=False):
         """Words over the track for a few seconds. big: a restart warning's size."""

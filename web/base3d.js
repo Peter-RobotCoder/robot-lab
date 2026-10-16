@@ -7,25 +7,61 @@
 // (-x, -z, -y, w).
 //
 // Tiers (the ladder every game shares, CHANGE 131: the app's own, engine/gfx_tiers.py, with "blocks" for its "basic"):
+//   mesh    (CHANGE 144) black, and every triangle's edges in one line colour, the lines behind hidden
+//   lines   (CHANGE 144) black, only the outlines and sharp creases in the line colour, a ground grid every 10 m
 //   blocks  unlit flat colours, no shadows: the floor every machine can draw
 //   low     the app's lighting (pbr.js: simplepbr's sums), the textures' colours, no shadows, no reflections
 //   medium  + normal maps, the sky's reflections, a 1024 shadow map
 //   high    + the occlusion maps, a 2048 shadow map, sharper textures at a slant
+//   ultra   (CHANGE 144) + a 4096 soft shadow reaching further, and what each game adds for a strong graphics card
 // Each tier also has a budget of pixels: the page draws at most that many, however fine the screen (a 4K laptop
 // at 300% has 7.7 million at full sharpness; the app's 1280 x 720 window draws 0.9 million). The canvas's own
 // multisampling smooths the edges on every tier.
+// Each game says which tiers it draws (its scene's TIERS: Kart Lab all seven, Robot Lab and Fight Lab blocks to
+// high); a tier it doesn't have is drawn as its nearest (gameTier: mesh and lines as blocks, ultra as high), so the
+// page's choice can stay "lines" while Robot Lab draws blocks. mesh and lines are a look chosen by hand (or by the
+// teacher), not a fallback: they need no WebGL 2 and Auto never steps into them or out of them.
 
 /* global BABYLON */
 
 import {Lighting} from "./pbr.js";
 
-export const TIERS = ["blocks", "low", "medium", "high"];
+export const TIERS = ["mesh", "lines", "blocks", "low", "medium", "high", "ultra"];
+export const GAME_TIERS = ["blocks", "low", "medium", "high"];  // (a game that doesn't say: Robot Lab, Fight Lab)
+export const LINE_TIERS = ["mesh", "lines"];
 export const TIER_SETTINGS = {
+    mesh: {pbr: false, shadow: 0, normal: false, ibl: false, occlusion: false, aniso: 1, pixels: 1.0e6, wire: "all"},
+    lines: {pbr: false, shadow: 0, normal: false, ibl: false, occlusion: false, aniso: 1, pixels: 1.0e6, wire: "outline"},
     blocks: {pbr: false, shadow: 0, normal: false, ibl: false, occlusion: false, aniso: 1, pixels: 1.0e6},
     low: {pbr: true, shadow: 0, normal: false, ibl: false, occlusion: false, aniso: 1, pixels: 1.1e6},
     medium: {pbr: true, shadow: 1024, normal: true, ibl: true, occlusion: false, aniso: 4, pixels: 1.6e6},
     high: {pbr: true, shadow: 2048, normal: true, ibl: true, occlusion: true, aniso: 8, pixels: 2.4e6},
+    ultra: {pbr: true, shadow: 4096, normal: true, ibl: true, occlusion: true, aniso: 16, pixels: 3.7e6, ultra: true},
 };
+
+// the tier a game draws for the page's choice: the choice if the game has it, else the nearest it has below it
+// (above the game's best: its best; below its floor: its floor)
+export function gameTier(tier, tiers = GAME_TIERS) {
+    if (tiers.includes(tier)) return tier;
+    const i = TIERS.indexOf(tier);
+    let best = tiers[0];
+    for (const t of tiers) if (TIERS.indexOf(t) <= i) best = t;
+    return best;
+}
+
+// the line tiers' colour (CHANGE 144): "#rrggbb", the phosphor green unless chosen (app.js keeps it on this computer
+// and in a learner's profile as line_colour, the window's key). Changed while drawn: the lines recoloured at once
+export const LINE_COLOURS = [["green", "#33ff66"], ["amber", "#ffb000"], ["cyan", "#33e0ff"], ["white", "#f0f0f0"], ["magenta", "#ff4dd2"]];
+let lineColour = "#33ff66";
+export function cleanColour(c) {
+    return typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c) ? c.toLowerCase() : null;
+}
+export function getLineColour() { return lineColour; }
+export function setLineColour(c, scene = null) {
+    lineColour = cleanColour(c) || lineColour;
+    if (scene && scene.recolourLines) scene.recolourLines();
+    return lineColour;
+}
 
 // the sky's numbers (tex/manifest.json: the spherical harmonics make_textures.py worked out); app.js loads it
 let skyData = null;
@@ -34,11 +70,11 @@ export function setSkyData(manifest) {
 }
 
 // The parts of a tier the Graphics tab changes one by one (CHANGE 139), over the tier's own: shadow (0, 512, 1024,
-// 2048), normal, occlusion, ibl (the sky's reflections), aniso (1, 2, 4, 8, 16) and pixels (a budget; SCREEN: as
-// fine as the screen). Picking a tier clears them. A class maximum (the teacher's gfx_max, on a learner's page)
+// 2048, 4096), normal, occlusion, ibl (the sky's reflections), aniso (1, 2, 4, 8, 16) and pixels (a budget; SCREEN:
+// as fine as the screen). Picking a tier clears them. A class maximum (the teacher's gfx_max, on a learner's page)
 // caps every part at that tier's own, whatever was chosen.
 export const SCREEN = 1e9;  // (a number, not Infinity: the parts are kept as JSON)
-export const PARTS = {shadow: [0, 512, 1024, 2048], aniso: [1, 2, 4, 8, 16], pixels: [0.6e6, 1.0e6, 1.1e6, 1.6e6, 2.4e6, 3.7e6, SCREEN]};
+export const PARTS = {shadow: [0, 512, 1024, 2048, 4096], aniso: [1, 2, 4, 8, 16], pixels: [0.6e6, 1.0e6, 1.1e6, 1.6e6, 2.4e6, 3.7e6, SCREEN]};
 export function cleanParts(parts) {  // (what was kept on this computer: only the parts there are, of the right kind)
     const out = {};
     for (const [k, v] of Object.entries(parts && typeof parts === "object" ? parts : {})) {
@@ -63,6 +99,7 @@ export function tierSettings(tier) {
         const c = TIER_SETTINGS[classMax];
         for (const k of ["shadow", "aniso", "pixels"]) s[k] = Math.min(s[k], c[k]);
         for (const k of ["pbr", "normal", "ibl", "occlusion"]) s[k] = s[k] && c[k];
+        s.ultra = !!(s.ultra && c.ultra);
     }
     return s;
 }
@@ -81,6 +118,8 @@ export function resolutionFor(tier, cssW = window.innerWidth, cssH = window.inne
 // sits at the screen's rate, so headroom is: no more than one frame missed a second, at 45 a second or more): one
 // tier up, never past the class maximum, a tier held off, or one above the best this computer has run cleanly
 // (CLEAN_SECS of headroom at it). store is what is kept on this computer: {best, failed: {tier: [until, times]}}.
+// (CHANGE 144) Never down past blocks, and never into or out of mesh and lines (chosen by hand, not a fallback); up
+// into ultra by the same rules, but never past the best tier the game draws (top).
 export class AutoTier {
     static SLOW_FPS = 28; static SLOW_SECS = 3; static MISS_MS = 25; static UP_FPS = 45; static UP_SECS = 25;
     static CLEAN_SECS = 10; static GAP_MS = 8000; static HOLD_MS = 600000; static HOLD_MAX = 86400000;
@@ -92,23 +131,24 @@ export class AutoTier {
     }
 
     // fps, missed: this second's; tier: the one drawn; cap: the class maximum; active: a game is drawn and seen;
-    // now: performance.now(), wall: Date.now() (the holds are kept on this computer, so in the clock's time).
-    // Returns {tier, up} when the tier should change, else null
-    second({fps, missed = 0, tier, cap = null, active = true, now = performance.now(), wall = Date.now()}) {
-        if (!active || !fps) { this.slow = this.good = 0; return null; }
+    // now: performance.now(), wall: Date.now() (the holds are kept on this computer, so in the clock's time); top:
+    // the best tier the game draws. Returns {tier, up} when the tier should change, else null
+    second({fps, missed = 0, tier, cap = null, active = true, now = performance.now(), wall = Date.now(), top = "ultra"}) {
+        if (!active || !fps || LINE_TIERS.includes(tier)) { this.slow = this.good = 0; return null; }
         const C = AutoTier, i = TIERS.indexOf(tier);
         this.slow = fps < C.SLOW_FPS ? this.slow + 1 : 0;
         this.good = fps >= C.UP_FPS && missed <= 1 ? this.good + 1 : 0;
         if (this.good >= C.CLEAN_SECS && TIERS.indexOf(this.store.best) < i) this.store.best = tier;
         if (now - this.at < C.GAP_MS) return null;
-        if (this.slow >= C.SLOW_SECS && i > 0) {
+        if (this.slow >= C.SLOW_SECS && i > TIERS.indexOf("blocks")) {
             const [, times] = this.store.failed[tier] || [0, 0];
             this.store.failed[tier] = [wall + Math.min(C.HOLD_MAX, C.HOLD_MS * 2 ** times), times + 1];
             return this.change(TIERS[i - 1], false, now);
         }
-        if (this.good >= C.UP_SECS && i < TIERS.length - 1) {
+        const last = TIERS.includes(top) ? TIERS.indexOf(top) : TIERS.length - 1;
+        if (this.good >= C.UP_SECS && i < last) {
             const up = TIERS[i + 1], held = this.store.failed[up];
-            const ceiling = Math.min(cap ? TIERS.indexOf(cap) : TIERS.length - 1, TIERS.indexOf(this.store.best) + 1);
+            const ceiling = Math.min(cap ? TIERS.indexOf(cap) : last, last, TIERS.indexOf(this.store.best) + 1);
             if (i + 1 <= ceiling && !(held && held[0] > wall)) return this.change(up, true, now);
             this.good = 0;  // (not now: look again in another UP_SECS)
         }
@@ -223,12 +263,38 @@ export function engineInfo(engine) {
 const PBR_LOOK = {background: [0.3, 0.5, 0.9], exposure: 0.55, ambient: [0.22, 0.25, 0.32], sky: "sky",
                   sun: {colour: [2.6, 2.45, 2.2], offset: [30, -45, 45], film: 40, near: 50, far: 90, bias: 0.0015}, spots: []};
 
+// the line tiers' shader (CHANGE 144): one colour, faded to the black behind between two distances (as the window's
+// black fog: mesh from 15 m to 140 m, lines and the grid from 60 m to 380 m), as on an old vector screen
+const LINES_VERT = `
+precision highp float;
+attribute vec3 position;
+uniform mat4 world;
+uniform mat4 viewProjection;
+uniform vec3 cameraPosition;
+varying float vDist;
+void main(void) {
+    vec4 wp = world * vec4(position, 1.0);
+    vDist = distance(wp.xyz, cameraPosition);
+    gl_Position = viewProjection * wp;
+}`;
+const LINES_FRAG = `
+precision highp float;
+uniform vec4 color;
+uniform vec2 fade;
+varying float vDist;
+void main(void) {
+    gl_FragColor = vec4(color.rgb * (1.0 - smoothstep(fade.x, fade.y, vDist)), 1.0);
+}`;
+const COS_CREASE = Math.cos(30 * Math.PI / 180);  // (lines: a crease is drawn where two faces meet at more than 30 degrees)
+
 // A game's scene. Subclasses set this.look in their constructor before calling build(), and implement populate()
 // (put the world and the players in: called again after a tier change rebuilds everything).
 export class BaseScene {
+    static TIERS = GAME_TIERS;  // (the tiers this game draws: CHANGE 144)
+
     constructor(canvas, tier = "low", engine = null, look = {}) {
         this.canvas = canvas;
-        this.tier = TIERS.includes(tier) ? tier : "low";
+        this.tier = gameTier(TIERS.includes(tier) ? tier : "low", this.constructor.TIERS);
         this.engine = engine || pageEngine(canvas);
         this.look = Object.assign({sky: [0.53, 0.72, 0.95], fog: [0.7, 0.8, 0.95], fogDensity: 0.0018,
                                    sunDir: [-0.45, -0.65, 0.6], shadowSize: 90, ground: [0.35, 0.4, 0.3],
@@ -249,7 +315,11 @@ export class BaseScene {
         scene.ambientColor = new BABYLON.Color3(0.3, 0.3, 0.3);
         scene.skipPointerMovePicking = true;
         this.materials = {};
-        this.lit = this.tier !== "blocks";
+        // (CHANGE 144) the line tiers: black behind, every mesh filled black (wireFill) and its edges drawn as lines
+        this.wire = settings.wire || null;
+        this.lineMats = [];
+        if (this.wire) scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+        this.lit = !this.wire && this.tier !== "blocks";
         this.pbr = settings.pbr;
         // the labels and floor writing (Babylon's own materials): one even light from everywhere on blocks, so every
         // face is its flat colour; a sky and a sun on the others. Everything else on low and up is pbr.js's.
@@ -302,7 +372,7 @@ export class BaseScene {
         this.needUV = [];
         for (const m of list) {
             if (m.isDisposed() || m.getClassName() === "InstancedMesh" || !m.getTotalVertices || !m.getTotalVertices()) continue;
-            if (!m.material || m.material.ccTile === undefined) continue;  // (labels and writing keep their own)
+            if (!m.material || m.material.ccTile === undefined || m.ccOwnUV) continue;  // (labels, writing and a model with its own keep theirs)
             const pos = m.getVerticesData(BABYLON.VertexBuffer.PositionKind), nor = m.getVerticesData(BABYLON.VertexBuffer.NormalKind);
             if (!pos || !nor) continue;
             const tile = (m.material && m.material.ccTile) || 1, uv = new Array(pos.length / 3 * 2);
@@ -316,12 +386,13 @@ export class BaseScene {
         }
     }
 
-    // parts that never move, drawn together: one mesh per material (a few draws instead of hundreds)
+    // parts that never move, drawn together: one mesh per material (a few draws instead of hundreds; meshes with and
+    // without texture coordinates apart, as Babylon only merges alike: on the line tiers every mesh has one material)
     mergeStatic(meshes) {
         const groups = new Map();
         for (const m of meshes) {
             if (!m || m.isDisposed() || m.parent || !m.material || m.getClassName() !== "Mesh" || m.hasInstances) continue;
-            const key = `${m.material.uniqueId}:${m.isVerticesDataPresent(BABYLON.VertexBuffer.ColorKind)}`;
+            const key = `${m.material.uniqueId}:${m.isVerticesDataPresent(BABYLON.VertexBuffer.ColorKind)}:${m.isVerticesDataPresent(BABYLON.VertexBuffer.UVKind)}`;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(m);
         }
@@ -341,7 +412,7 @@ export class BaseScene {
         const groups = new Map();
         for (const m of parts) {
             if (!m || m.getClassName() !== "Mesh" || !m.material) continue;
-            const key = `${m.material.uniqueId}:${m.isVerticesDataPresent(BABYLON.VertexBuffer.ColorKind)}`;
+            const key = `${m.material.uniqueId}:${m.isVerticesDataPresent(BABYLON.VertexBuffer.ColorKind)}:${m.isVerticesDataPresent(BABYLON.VertexBuffer.UVKind)}`;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(m);
         }
@@ -349,6 +420,7 @@ export class BaseScene {
         for (const group of groups.values()) {
             for (const m of group) m.computeWorldMatrix(true);
             const merged = group.length > 1 ? BABYLON.Mesh.MergeMeshes(group, true, true) : group[0];
+            if (merged && group.length > 1 && group.every(g => g.ccOwnUV)) merged.ccOwnUV = true;
             if (!merged) continue;
             if (group.length > 1) {
                 merged.bakeTransformIntoVertices(toLocal);
@@ -362,22 +434,164 @@ export class BaseScene {
     populate() { /* the subclass's world */ }
 
     setTier(tier, again = false) {  // (again: the same tier with other parts, built afresh)
-        if (!TIERS.includes(tier) || (tier === this.tier && !again)) return;
+        if (!TIERS.includes(tier)) return;
+        tier = gameTier(tier, this.constructor.TIERS);  // (one this game doesn't draw: its nearest, CHANGE 144)
+        if (tier === this.tier && !again) return;
         this.tier = tier;
         this.build();
+    }
+
+    // ---------- the line tiers (CHANGE 144) ----------
+    // every mesh's faces in black, a little behind where they are (the polygon offset), so they hide the lines behind
+    // them while the lines on their own edges still win the depth test
+    wireFill() {
+        if (this.materials.wirefill) return this.materials.wirefill;
+        const m = new BABYLON.StandardMaterial("wirefill", this.scene);
+        m.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        m.specularColor = new BABYLON.Color3(0, 0, 0);
+        m.emissiveColor = new BABYLON.Color3(0, 0, 0);
+        m.disableLighting = true;
+        m.backFaceCulling = false;
+        m.zOffset = 1;
+        m.zOffsetUnits = 2;
+        m.ccTile = 1;
+        this.materials.wirefill = m;
+        return m;
+    }
+
+    // a line material: the line colour times dim (the grid is dimmer), fading out from near to far (metres)
+    lineMaterial(name, dim = 1, near = 60, far = 380) {
+        if (this.materials["lines:" + name]) return this.materials["lines:" + name];
+        const m = this.materials["lines:" + name] = new BABYLON.ShaderMaterial("cclines" + name, this.scene, {vertexSource: LINES_VERT, fragmentSource: LINES_FRAG}, {
+            attributes: ["position"], uniforms: ["world", "viewProjection", "cameraPosition", "color", "fade"]});
+        m.fillMode = BABYLON.Material.LineListDrawMode;
+        m.backFaceCulling = false;
+        m.setVector2("fade", new BABYLON.Vector2(near, far));
+        m.ccFar = far;
+        m.ccDim = dim;
+        this.lineMats.push(m);
+        this.paintLine(m);
+        return m;
+    }
+
+    paintLine(m) {
+        const c = BABYLON.Color3.FromHexString(lineColour);
+        m.setColor4("color", new BABYLON.Color4(c.r * m.ccDim, c.g * m.ccDim, c.b * m.ccDim, 1));
+    }
+
+    recolourLines() {  // (the line colour changed: at once, nothing rebuilt)
+        for (const m of this.lineMats || []) this.paintLine(m);
+    }
+
+    // The edges of some meshes as one list of line pairs, in the frame of `frame` (a node the lines will be parented
+    // to) or the world's. mode "all": every triangle's edges; "outline": the edges on one face only (a boundary),
+    // where two faces meet at more than 30 degrees, or where the colour changes (a kerb's blocks). Vertices in the
+    // same place (to the millimetre) are one, so a box's or a ribbon's separate corners join up. O(n): a Map of edges
+    edgeLines(meshes, mode, frame = null) {
+        const pos = [], weld = new Map(), edges = new Map(), out = [];
+        const toFrame = frame ? (frame.computeWorldMatrix(true), frame.getWorldMatrix().clone().invert()) : null;
+        const v = new BABYLON.Vector3();
+        for (const m of meshes) {
+            if (!m || m.isDisposed() || !m.getTotalVertices || !m.getTotalVertices()) continue;
+            const p = m.getVerticesData(BABYLON.VertexBuffer.PositionKind), ix = m.getIndices();
+            if (!p || !ix) continue;
+            const cols = mode === "outline" ? m.getVerticesData(BABYLON.VertexBuffer.ColorKind) : null;
+            m.computeWorldMatrix(true);
+            const M = toFrame ? m.getWorldMatrix().multiply(toFrame) : m.getWorldMatrix();
+            const ids = new Int32Array(p.length / 3);
+            for (let i = 0, j = 0; i < p.length; i += 3, j++) {
+                BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(p[i], p[i + 1], p[i + 2], M, v);
+                const key = `${Math.round(v.x * 1000)},${Math.round(v.y * 1000)},${Math.round(v.z * 1000)}`;
+                let id = weld.get(key);
+                if (id === undefined) { id = pos.length / 3; weld.set(key, id); pos.push(v.x, v.y, v.z); }
+                ids[j] = id;
+            }
+            for (let t = 0; t < ix.length; t += 3) {
+                const a = ids[ix[t]], b = ids[ix[t + 1]], c = ids[ix[t + 2]];
+                if (a === b || b === c || a === c) continue;
+                let nx = 0, ny = 0, nz = 0, colour = 0;
+                if (mode === "outline") {
+                    const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
+                    const wx = pos[c * 3] - pos[a * 3], wy = pos[c * 3 + 1] - pos[a * 3 + 1], wz = pos[c * 3 + 2] - pos[a * 3 + 2];
+                    nx = uy * wz - uz * wy; ny = uz * wx - ux * wz; nz = ux * wy - uy * wx;
+                    const l = Math.hypot(nx, ny, nz) || 1;
+                    nx /= l; ny /= l; nz /= l;
+                    if (cols) { const k = ix[t] * 4; colour = Math.round(cols[k] * 50) * 2601 + Math.round(cols[k + 1] * 50) * 51 + Math.round(cols[k + 2] * 50); }
+                }
+                for (const [e0, e1] of [[a, b], [b, c], [c, a]]) {
+                    const key = e0 < e1 ? e0 * 4194304 + e1 : e1 * 4194304 + e0;
+                    const e = edges.get(key);
+                    if (!e) { edges.set(key, mode === "outline" ? {nx, ny, nz, colour, n: 1, sharp: false} : 1); continue; }
+                    if (mode !== "outline") continue;
+                    e.n++;
+                    // (the same face seen from the other side, as a double-sided sheet: not a crease)
+                    const d = Math.abs(e.nx * nx + e.ny * ny + e.nz * nz);
+                    if (d < COS_CREASE || e.colour !== colour) e.sharp = true;
+                }
+            }
+        }
+        for (const [key, e] of edges) {
+            if (mode === "outline" && !(e.n === 1 || e.sharp)) continue;
+            out.push(Math.floor(key / 4194304), key % 4194304);
+        }
+        return {pos, idx: out};
+    }
+
+    // a lines mesh from edgeLines' lists (or any pairs), under parent, in material mat
+    linesMesh(name, lists, mat, parent = null) {
+        if (!lists.idx.length) return null;
+        const m = new BABYLON.Mesh(name, this.scene);
+        const vd = new BABYLON.VertexData();
+        vd.positions = lists.pos;
+        vd.indices = lists.idx;
+        vd.applyToMesh(m);
+        m.material = mat;
+        m.isPickable = false;
+        if (parent) m.parent = parent;
+        else m.freezeWorldMatrix();
+        this.lineCount = (this.lineCount || 0) + lists.idx.length / 2;
+        return m;
+    }
+
+    // lines that never move (the track's, the grid) as tiles 40 m across, so those off the screen aren't drawn
+    // (Babylon's own culling) nor those past where the material fades them out (a level of detail of nothing)
+    staticLines(name, lists, mat) {
+        const T = 40, tiles = new Map(), P = lists.pos, out = [];
+        for (let i = 0; i < lists.idx.length; i += 2) {
+            const a = lists.idx[i] * 3, b = lists.idx[i + 1] * 3;
+            const key = Math.floor((P[a] + P[b]) / 2 / T) + "," + Math.floor((P[a + 2] + P[b + 2]) / 2 / T);
+            if (!tiles.has(key)) tiles.set(key, {pos: [], idx: [], at: new Map()});
+            const t = tiles.get(key);
+            for (const v of [a, b]) {
+                let j = t.at.get(v);
+                if (j === undefined) { j = t.pos.length / 3; t.at.set(v, j); t.pos.push(P[v], P[v + 1], P[v + 2]); }
+                t.idx.push(j);
+            }
+        }
+        for (const t of tiles.values()) {
+            const m = this.linesMesh(name, t, mat);
+            if (!m) continue;
+            m.addLODLevel(mat.ccFar + T, null);
+            out.push(m);
+        }
+        return out;
     }
 
     // one material per look, cached: flat and unlit on blocks, the app's lighting (pbr.js) on the others.
     // rgb is the screen colour, rough and metal as the app's parts give them; opts.tex names the app's texture set
     // (paint, steel, tyre, diamond, hazard, concrete, tarmac, grass), opts.tile its repeats per metre and
-    // opts.emission a glow given as the app gives it (linear, may be over 1)
+    // opts.emission a glow given as the app gives it (linear, may be over 1). On the line tiers: black (wireFill).
+    // opts.clearcoat (0 to 1) and opts.probe (CHANGE 144, ultra): a glossy coat over the paint, and the world's
+    // reflection (the scene's probe) in it
     material(name, rgb, rough = 0.9, metal = 0.0, glow = 0, opts = {}) {
+        if (this.wire) return this.wireFill();
         const tex = opts.tex || "", tile = opts.tile || 1, emission = opts.emission || null;
-        const key = `${name}:${rgb.join(",")}:${rough}:${metal}:${glow}:${tex}:${tile}:${emission}`;
+        const coat = this.lighting && this.lighting.tier.ultra ? `${opts.clearcoat || 0}:${!!opts.probe}` : "";
+        const key = `${name}:${rgb.join(",")}:${rough}:${metal}:${glow}:${tex}:${tile}:${emission}${coat}`;
         let m = this.materials[key];
         if (m) return m;
         if (this.lighting) {
-            m = this.lighting.material(key, {rgb, rough, metal, glow, tex, emission});
+            m = this.lighting.material(key, {rgb, rough, metal, glow, tex, emission, clearcoat: opts.clearcoat || 0, probe: !!opts.probe});
         } else {
             m = new BABYLON.StandardMaterial(key, this.scene);
             m.diffuseColor = col(rgb);
@@ -399,6 +613,7 @@ export class BaseScene {
     }
 
     glass(name, rgb, alpha, glow = 0) {
+        if (this.wire) return this.wireFill();
         const key = `glass:${name}`;
         if (this.materials[key]) return this.materials[key];
         let m;

@@ -66,7 +66,8 @@ GAMES = {
                 "local": "ws://127.0.0.1:8782", "dev": "kart"},
 }
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx", "--window")
-GFX_CHOICES = ("auto", "low", "medium", "high")  # the Graphics button on the first screen (auto: the game picks)
+GFX_CHOICES = ("auto", "mesh", "lines", "low", "medium", "high", "ultra")  # the Graphics button on the first screen
+# (auto: the game picks; mesh, lines and ultra are Kart Lab's, CHANGE 144: the other games draw them as basic and high)
 # the Window button (CHANGE 126): auto is the game's own remembered size (its Settings tab); the rest are passed
 # as --window, and the game remembers them too
 WINDOW_CHOICES = ("auto", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160", "full")
@@ -873,7 +874,8 @@ def launcher(args, passed_on):
 
         # ---------- learners ----------
         def cycle_gfx(self):
-            """Auto / Low / Medium / High: the games get it as --gfx (Auto passes nothing: the game picks)."""
+            """Auto / Mesh / Lines / Low / Medium / High / Ultra: the games get it as --gfx (Auto passes nothing: the
+            game picks)."""
             self.gfx = GFX_CHOICES[(GFX_CHOICES.index(self.gfx) + 1) % len(GFX_CHOICES)]
             remember("gfx", self.gfx)
             self.draw()

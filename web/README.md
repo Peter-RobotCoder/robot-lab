@@ -67,12 +67,33 @@ What it does now:
 - cameras per game, and the app's graphics tiers (CHANGE 131, `base3d.js` and `pbr.js`), lit the way the app lights
   them: simplepbr's shader (the one every game's window draws with) ported to the browser, with each game's own
   lights, exposure and sky from its gfx module, and the app's own texture sets and skies (`tex/`):
+  - mesh (CHANGE 144, Kart Lab): black, every triangle's edges in one line colour, the lines behind hidden;
+  - lines (CHANGE 144, Kart Lab): black, the outlines, folds and colour changes in the line colour, a 10 m ground grid;
   - blocks: flat colours, nothing lit (the floor every machine can draw, and the fallback without WebGL 2);
   - low: the app's lighting and the textures' colours, no shadows or reflections;
   - medium: + the normal maps, the sky's reflections, a 1024 shadow map;
-  - high: + the occlusion maps, a 2048 shadow map, sharper textures at a slant.
+  - high: + the occlusion maps, a 2048 shadow map, sharper textures at a slant;
+  - ultra (CHANGE 144, Kart Lab, `kartfx.js`): + a soft 4096 shadow over 64 m, SSAO, bloom, 8x MSAA, the window's
+    haze (exponential, mixed in before the tone curve), a sky dome with clouds, the world reflected in the paint under
+    a clear coat, skid marks, sparks, the curved kart (`models/kart_ultra.json`) and the window's ultra circuit
+    (`models/kart_scenery.json`, 4.7 MB, both from make_models.py): asphalt with a rubbered racing line, patches,
+    edge lines, the chequered start and grid boxes, profiled kerbs, gravel traps, tyre walls, armco, the pit wall,
+    striped grass with tufts, flowers, bushes, rocks and a pond, pines and broadleaf trees, the grandstand and its
+    crowd, the pits and race control, the start gantry, marshals' posts, advertising boards, TV towers, and fields,
+    hedges, farms and hills to the horizon. Each built-in track's parts are one mesh per material and its shapes
+    (about 4,500 trees, tufts, tyre stacks, seats and fans) thin instances, one per shape part: about 60 meshes for
+    350,000 triangles; the flat and the far cast no shadow (as the window's), and the reflection cube watches only
+    the parts. Fetched only on ultra; until it has loaded (or for a track it hasn't) ultra draws the road, grass,
+    hills and woods it drew before. On this laptop's Iris Xe at 1364 x 745 (headless Chrome, frame time with a forced
+    finish, four karts on the grid) ultra takes 17 to 22 ms a frame with the circuit against 15 to 17 with the old
+    land and woods (high: 5.6 and 6.7 ms, as before): about 2 ms of that is the 350,000 triangles drawn three times
+    (the picture, the shadow map, the shading in corners), the rest pixels.
 
-  Each tier draws at most so many pixels (1.0, 1.1, 1.6 and 2.4 million), however fine the screen: a 4K laptop
+  Each game draws its own tiers (Robot Lab and Fight Lab blocks to high); a tier it doesn't have is drawn as its
+  nearest (mesh and lines as blocks, ultra as high). Auto never steps into or out of mesh and lines. The line colour
+  (green, amber, cyan, white, magenta or any) is kept on the computer and in a learner's profile (`line_colour`).
+
+  Each tier draws at most so many pixels (1.0 for mesh, lines and blocks, 1.1, 1.6, 2.4 and 3.7 million), however fine the screen: a 4K laptop
   at 300% would otherwise draw 7.7 million a frame where the app's window draws 0.9 million. The canvas's own
   multisampling smooths the edges; the tone curve is applied as each pixel is drawn, so there is no pass after the
   scene. Scenery that never moves is drawn as one mesh per material. Auto (CHANGE 139, `base3d.js`'s `AutoTier`) steps
@@ -125,6 +146,7 @@ escapes; code nested more than about 1,500 deep).
 | `schemas.json`, `make_schemas.py` | each game's design schema, limits and the constants its rules, garage and stats readout use, made from the games' own files (run `make_schemas.py` with the games' Python after a game's schema changes; the test checks it, and fails when a schema function's source changes until `schema.js` has been looked at) |
 | `schema_test.py` | `schema.js` against the windows' own Python (their code_ctx, outside_limits, apply_code and update_stats_text, run without a window): thousands of designs and code texts, broken in every way; needs Node, says so and passes without it |
 | `kart.js`, `scene.js`, `track.js`, `wire.js` | Kart Lab: its messages and controls, the track and karts, the track maths, the binary snapshots |
+| `kartfx.js`, `models/`, `make_models.py` | Kart Lab's ultra tier (CHANGE 144): the sky, the after-effects, skid marks, sparks, and the curved kart and the circuit the window draws (`kart/kart_models.py` and `kart/kart_scenery.py`, pure Python, written to `models/` by `make_models.py`: run it after either changes; the test checks it) |
 | `robot.js` | Robot Lab: the arena, the robots, its controls |
 | `fight.js` | Fight Lab: the rings, the fighters and their poses, its controls |
 | `fightmodels.js` | Fight Lab's detailed fighters (woman, man, Robin): the app's glTF models, fetched once per body and shape when one appears (from `models/fightlab/`: Caddy serves the release's `games/fightlab/models` there), posed and dressed as `fight_model.py` does it |
@@ -145,7 +167,7 @@ Start a game's laptop server (`1 Kart Lab server.bat`, or `python lab_server.py`
     http://127.0.0.1:8090/index.html?host=ws://127.0.0.1:8782&code=TEACH99
 
 (Robot Lab 8780, Fight Lab 8781, Kart Lab 8782.) Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`
-(watch it straight after logging in), `autoconnect=1`, `tier=blocks|low|medium|high`, `auto=0` (no Auto),
+(watch it straight after logging in), `autoconnect=1`, `tier=mesh|lines|blocks|low|medium|high|ultra`, `auto=0` (no Auto),
 `cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.7` (a class server wants the release's
 number; on the VPS the page reads `/live/version`), `models=<url>` (where Fight Lab's models are: by default
 `models/fightlab/` beside the page, then `../games/fightlab/models/` or `../../BeatEmUp/models/` when the page is
@@ -161,7 +183,7 @@ Launch opening the class view with the desk's ticket; a learner's own page (her 
 opening by itself; her Garage drawn from the schema, her code panel: APPLY CODE changing a value, a mistake shown
 on its line, BUILD reaching the server sent as code); a note, LAUNCH LEARNERS' WINDOWS, Stop and the printed
 record (kept as `records.pdf` in the test folder); a reset, a removal, login slips; the teacher password changed.
-Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the app's lighting, every picture loaded, no mesh left holding a thrown-away material, the pixel budget kept), the teacher's class maximum holding the learner's page (and Auto's steps, fed simulated frame rates), the Learners tab, the class-code login. Robot Lab, with a
+Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the app's lighting, every picture loaded, no mesh left holding a thrown-away material, the pixel budget kept, the ultra circuit never fetched), the line tiers, ultra (its effects and the window's circuit: parts, thin instances, no shadow from the flat or far), the teacher's class maximum holding the learner's page (and Auto's steps, fed simulated frame rates), the Learners tab, the class-code login. Robot Lab, with a
 scripted learner: the arena and robots on every tier; the shared tabs (a tool and a hazard, an objective added and
 ticked, missions out and back in, the evidence CSV, an AI card sent back, a learner's mission and robot rebuilt);
 the teacher's own garage (a weapon chosen); computer robot 2 renamed and put in arena 2 from the Learners tab (the

@@ -243,6 +243,9 @@ class HudKit:
     CODE_ROWS = 19                           # lines of code it shows at once (longer code scrolls)
     reflections = ()                         # the objectives answered in writing (a box in the Mission tab)
     user_mods = {}                           # the game's user mods: key -> (title, what it does)
+    GFX_TIERS = None                         # the graphics tiers the game draws, when its Settings tab has a Graphics
+    #                                          row (CHANGE 144: Kart Lab's seven); None: the core four, no row
+    LINE_COLOURS = ()                        # (name, "#rrggbb") for the mesh and lines looks, when the game has them
     STAGE_WORD = "ARENA"                     # the Mods tab's heading for the game's own items (hazards and so on)
     MODS_PER_PAGE = 7                        # user mods on one page of the Mods tab (under those items)
     LIMITS_TITLE = "LIMITS"                  # the Limits tab's heading, and its note on the size setting
@@ -277,6 +280,7 @@ class HudKit:
         self.panel_scroll = 0.0  # how far a side panel taller than the screen has been slid up (CHANGE 40)
         self.invert_scroll = bool(SETTINGS.get("invert_scroll"))  # the mouse wheel the other way up (Settings)
         self.invert_zoom = bool(SETTINGS.get("invert_zoom"))      # ...and for the camera's zoom, its own switch
+        self.line_colour = SETTINGS.get("line_colour") if self.good_line_colour(SETTINGS.get("line_colour")) else None
         self.entries, self.entry_text, self.typing = {}, {}, None  # text boxes on screen, what they held, which has the keyboard
         self.code_editor = None
         self.custom_colour = None  # the garage's custom colour block: the colour the code last set (CHANGE 48)
@@ -516,9 +520,12 @@ class HudKit:
 
     def hud_prefs(self):
         """What a learner's profile keeps of these settings (so they follow them to any computer)."""
-        return {"code_at": [round(v, 3) for v in self.code_at], "code_size": [round(v, 3) for v in self.code_size],
-                "text_size": self.text_size, "theme": THEME, "invert_scroll": self.invert_scroll,
-                "invert_zoom": self.invert_zoom, "last_tab": self.tab or getattr(self, "last_tab", None)}
+        prefs = {"code_at": [round(v, 3) for v in self.code_at], "code_size": [round(v, 3) for v in self.code_size],
+                 "text_size": self.text_size, "theme": THEME, "invert_scroll": self.invert_scroll,
+                 "invert_zoom": self.invert_zoom, "last_tab": self.tab or getattr(self, "last_tab", None)}
+        if self.LINE_COLOURS and self.line_colour:  # (CHANGE 144: the page reads it too)
+            prefs["line_colour"] = self.line_colour
+        return prefs
 
     def restore_hud_prefs(self, prefs):
         try:  # where they left the code panel
@@ -542,6 +549,10 @@ class HudKit:
             if "invert_zoom" in prefs:
                 self.invert_zoom = bool(prefs["invert_zoom"])
                 remember("invert_zoom", self.invert_zoom)
+            if self.LINE_COLOURS and self.good_line_colour(prefs.get("line_colour")):
+                self.line_colour = prefs["line_colour"].lower()
+                remember("line_colour", self.line_colour)
+                self.on_line_colour(self.line_colour)
         if isinstance(prefs.get("last_tab"), str):  # (CHANGE 103: I opens the HUD on the tab last used)
             self.last_tab = prefs["last_tab"]
 
@@ -762,6 +773,8 @@ class HudKit:
         label(f, "A bigger window is sharper, and asks more of the graphics (the Graphics button).\n"
                  "Full screen fills the screen at its own size. Both kept on this computer.", 0.82, y, 0.02, GREY)
         y -= 0.09
+        if self.GFX_TIERS:
+            y = self.graphics_rows(f, y)
         if self.teacher:
             y = self.class_max_row(f, y)
         label(f, "Version", 0.82, y, 0.03)
@@ -832,19 +845,77 @@ class HudKit:
     def class_max_row(self, f, y):
         """CHANGE 143 (the page's Graphics tab, CHANGE 139): the teacher's class maximum, the lesson's gfx_max: the
         best graphics the learners' windows and pages may draw (None: no limit). The server keeps it for the next
-        lesson. Returns the y under the row."""
+        lesson. The game's own tiers, four to a line (CHANGE 144: Kart Lab's seven). Returns the y under the row."""
         from engine import gfx_tiers
         now = gfx_tiers.class_max((getattr(self, "lesson", None) or {}).get("gfx_max"))
         label(f, "Class graphics", 0.82, y, 0.03)
-        for i, tier in enumerate(gfx_tiers.TIERS + (None,)):
-            button(f, tier.title() if tier else "No limit", 1.1 + i * 0.13, y + 0.008, self.set_class_max, [tier], 0.024,
-                   ON if tier == now else OFF)
-        y -= 0.045
+        choices = tuple(self.GFX_TIERS or gfx_tiers.CORE) + (None,)
+        for i, tier in enumerate(choices):
+            button(f, tier.title() if tier else "No limit", 1.1 + (i % 4) * 0.15, y + 0.008 - (i // 4) * 0.045,
+                   self.set_class_max, [tier], 0.024, ON if tier == now else OFF)
+        y -= 0.045 * ((len(choices) + 3) // 4)
+        looks = ("\nMesh and Lines are a look in one colour, not a step down: a maximum of Lines is Lines (or Mesh)."
+                 if "lines" in choices else "")
         label(f, "The best graphics the class may draw. Learners' windows open at most at it (one already open turns\n"
                  "its shadows and smoothing down now, the rest at its next start); their pages drop to it at once\n"
-                 "(Basic is the pages' Blocks). Your own view isn't held to it. Kept for the next lesson.",
+                 "(Basic is the pages' Blocks). Your own view isn't held to it. Kept for the next lesson." + looks,
               0.82, y, 0.02, GREY)
-        return y - 0.11
+        return y - (0.135 if looks else 0.11)
+
+    # ---------- the window's own graphics (CHANGE 144: Kart Lab, the game's GFX_TIERS) ----------
+    @staticmethod
+    def good_line_colour(text):
+        return (isinstance(text, str) and len(text) == 7 and text[0] == "#"
+                and all(c in "0123456789abcdefABCDEF" for c in text[1:]))
+
+    def graphics_rows(self, f, y):
+        """Graphics: the tier this computer opens the game at (Auto: the game picks, and steps it down if frames
+        are missed), and the line colour for mesh and lines. Returns the y under them."""
+        from engine import gfx_tiers
+        saved = gfx_tiers.load_settings(SETTINGS_DIR).get("gfx_tier") if SETTINGS_DIR else None
+        label(f, "Graphics", 0.82, y, 0.03)
+        choices = (None,) + tuple(self.GFX_TIERS)
+        for i, tier in enumerate(choices):
+            button(f, tier.title() if tier else "Auto", 1.1 + (i % 4) * 0.15, y + 0.008 - (i // 4) * 0.045,
+                   self.set_gfx_choice, [tier], 0.024, ON if tier == saved else OFF)
+        y -= 0.045 * ((len(choices) + 3) // 4)
+        now = getattr(self, "gfx_tier", None)
+        label(f, (f"Drawing {now.title()} now. " if now else "") + "A choice here is for the next start (the shaders are\n"
+                 "made as the window opens). Mesh: every triangle's edges. Lines: outlines and a grid, in one\n"
+                 "colour. Ultra: for a gaming PC. The launcher's Graphics button, when it isn't Auto, comes first.",
+              0.82, y, 0.02, GREY)
+        y -= 0.11
+        if self.LINE_COLOURS:
+            label(f, "Line colour", 0.82, y, 0.03)
+            for i, (name, colour) in enumerate(self.LINE_COLOURS):
+                button(f, name, 1.1 + (i % 4) * 0.15, y + 0.008 - (i // 4) * 0.045, self.set_line_colour, [colour],
+                       0.024, ON if colour == (self.line_colour or self.LINE_COLOURS[0][1]) else OFF)
+            y -= 0.045 * ((len(self.LINE_COLOURS) + 3) // 4)
+            label(f, "For Mesh and Lines: it changes at once. Kept " + ("on this computer." if self.teacher else
+                                                                        "with your profile, for next time."),
+                  0.82, y, 0.02, GREY)
+            y -= 0.07
+        return y
+
+    def set_gfx_choice(self, tier):
+        from engine import gfx_tiers
+        if tier:
+            gfx_tiers.remember(SETTINGS_DIR, gfx_tier=tier)
+        else:
+            gfx_tiers.forget(SETTINGS_DIR, "gfx_tier")
+        monitor = getattr(self, "gfx_monitor", None)
+        if monitor is not None:
+            monitor.chosen(tier)  # (the monitor saves nothing over a choice made by hand)
+        self.rebuild_panels()
+
+    def set_line_colour(self, colour):
+        self.line_colour = colour
+        remember("line_colour", colour)
+        self.on_line_colour(colour)
+        self.rebuild_panels()
+
+    def on_line_colour(self, colour):
+        """The game recolours its lines at once (Kart Lab: kart_gfx.set_line_colour)."""
 
     def set_class_max(self, tier):
         SEND({"type": "lesson", "lesson": {"gfx_max": tier}})

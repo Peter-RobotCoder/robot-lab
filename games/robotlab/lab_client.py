@@ -55,7 +55,7 @@ ap.add_argument("--host", default=None,
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
 ap.add_argument("--window", help="the window: 1280x720, 1600x900 ... 3840x2160 or full "
                                  "(else this computer's last choice; CHANGE 126)")
-ap.add_argument("--gfx", choices=["auto", "basic", "low", "medium", "high"], default="auto",
+ap.add_argument("--gfx", choices=["auto", "mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="auto",
                 help="graphics: auto picks for this computer (and remembers); low or basic on old laptops")
 ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=6)
@@ -126,6 +126,7 @@ if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 from engine import gfx_tiers  # noqa: E402
+args.gfx = gfx_tiers.nearest(args.gfx)  # (Kart Lab's mesh, lines and ultra, from the app's Graphics button: drawn as basic and high here)
 GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx)  # (auto: this computer's saved tier, else what its driver suggested)
 loadPrcFileData("", hud.window_arg(args.window, x) + f"window-title {title}\n"  # (the size: CHANGE 126)
                     + gfx_tiers.prc_for(GFX))  # (texture size, mipmaps, multisamples: read as the window opens)

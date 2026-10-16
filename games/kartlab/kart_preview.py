@@ -4,6 +4,10 @@
     python kart_preview.py --gfx low --track oval
     python kart_preview.py --offscreen --screenshot shot.png --after 8 --camera tv
     python kart_preview.py --offscreen --run 10    ten seconds, then the frame rate
+    python kart_preview.py --gfx lines --lines "#ffb000"   the vector look in amber (CHANGE 144)
+    python kart_preview.py --offscreen --screenshot s.png --closeup   the followed kart close up
+
+An offscreen screenshot steps the race one tick a frame (not by the clock), so every tier shows the same moment.
 
 Keys:  C next camera   1-4 follow that kart   R restart the race   Esc quit
 """
@@ -16,7 +20,9 @@ import time
 from panda3d.core import loadPrcFileData
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--gfx", choices=["basic", "low", "medium", "high"], default="medium")
+ap.add_argument("--gfx", choices=["mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="medium")
+ap.add_argument("--lines", default=None, help="mesh and lines: their colour, #rrggbb")
+ap.add_argument("--closeup", action="store_true", help="the camera close to the followed kart, from the front")
 ap.add_argument("--track", choices=["club", "oval", "straight"], default="club")
 ap.add_argument("--camera", choices=["chase", "hood", "tv"], default="chase")
 ap.add_argument("--laps", type=int, default=None)
@@ -71,8 +77,15 @@ class Preview(ShowBase):
         super().__init__()
         self.disableMouse()
         self.track = kart_track.load(args.track)
-        self.pipeline = kart_gfx.init(self, args.gfx)
+        self.pipeline = kart_gfx.init(self, args.gfx, line_colour=args.lines)
+        started = time.perf_counter()
         self.track_vis = kart_gfx.TrackVisual(self.render, self.track)
+        extra = [f"{k} {getattr(self.track_vis, a):.2f} s" for k, a in (("lines", "lines_secs"), ("circuit", "circuit_secs"))
+                 if hasattr(self.track_vis, a)]
+        print(f"track built in {time.perf_counter() - started:.2f} s at {kart_gfx.tier()}"
+              + (f" ({', '.join(extra)})" if extra else ""), flush=True)
+        self.fixed = bool(args.offscreen and args.screenshot)  # (one tick a frame: the same moment on every tier)
+        self.sim_time = 0.0
         self.schema = wire.Schema("kart", sim.SCHEMA_FIELDS)
         self.cam = kart_gfx.ChaseCamera(self, args.camera)
         self.hud = kart_gfx.Hud(self, self.track)
@@ -110,6 +123,10 @@ class Preview(ShowBase):
         now = time.perf_counter()
         dt = min(now - self.last, 0.1)
         self.last = now
+        if self.fixed:
+            dt = sim.STEP
+            self.sim_time += dt
+            now = self.start + self.sim_time
         self.accum += dt
         steps = 0
         while self.accum >= sim.STEP and steps < 5:  # (a stall never makes the race run away)
@@ -157,6 +174,13 @@ class Preview(ShowBase):
                                  bool(k["flags"] & sim.FLAG_BOOSTING), dt)
         me = states[self.follow]
         self.cam.update(dt, me["x"], me["y"], self.track.height(me["s"]), me["yaw"], me["v"], self.track)
+        if args.closeup:  # three quarters from the front, a little above
+            yaw = math.radians(me["yaw"])
+            fwd, left = (math.cos(yaw), math.sin(yaw)), (-math.sin(yaw), math.cos(yaw))
+            z = self.track.height(me["s"])
+            self.camera.setPos(me["x"] + fwd[0] * 1.9 + left[0] * 1.3, me["y"] + fwd[1] * 1.9 + left[1] * 1.3, z + 0.95)
+            self.camera.lookAt(me["x"] - fwd[0] * 0.1, me["y"] - fwd[1] * 0.1, z + 0.38)
+            self.camLens.setFov(48)
         places = self.race.places()
         mine = self.race.karts[self.follow]
         results = self.race.results() if self.race.phase == sim.FLAGS_OVER else None

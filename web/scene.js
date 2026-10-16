@@ -4,11 +4,17 @@
 // rolls away from it, trees, the grandstand and its roof, the start gantry, and the karts (a tub, a cowl, pods,
 // bumpers, a driver in a helmet holding the wheel, a wing, an engine, tyres with hubs).
 // The engine, tiers, materials and coordinate rules are base3d.js's (shared with Robot Lab and Fight Lab).
+// (CHANGE 144) Every tier: mesh and lines draw the same meshes black with their edges as lines (base3d.js), and
+// ultra adds kartfx.js's sky, land, after-effects, reflections, skid marks, sparks and the curved kart, and once
+// models/kart_scenery.json has loaded draws the window's ultra circuit in place of the road, kerbs, grass and land.
 
 /* global BABYLON */
 
 import {BaseScene, TIERS, v3, mulberry, upwardNormals} from "./base3d.js";
 import "./robotfx.js";  // (CHANGE 143: its particle shader, "ccfx", with the app's tone curve, for the drift smoke)
+import {makeSky, makeLand, makeForest, AfterFx, Skids, Sparks, HAZE, loadUltraKart, ultraKartData, partMesh,
+        loadScenery, sceneryData, makeCircuit} from "./kartfx.js";
+import {TRACKS} from "./track.js";
 
 export {TIERS};
 
@@ -20,10 +26,18 @@ const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_BOOSTING = 16;
 const PUFFS = 8, PUFF_LIFE = 0.7;  // (kart_gfx.KartVisual.PUFFS: a kart's drift smoke; the scene's pool holds 12 karts' worth)
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-// kart_gfx.init: the sky, the sun 40 degrees up behind the kart, a blue fill, the daytime sky's reflections
+// kart_gfx.init: the sky, the sun 40 degrees up behind the kart, a blue fill, the daytime sky's reflections.
+// (CHANGE 144) The sky's light, as the window has it since CHANGE 144 (kart_gfx.ENV_STRENGTH and ENV_FILL): the sky
+// picture's colours read as a screen's (envSrgb; shScale: what that makes of the spherical harmonics make_textures.py
+// worked out from the raw picture, measured from sky_reflect.png), the sky's light and reflections at 0.4 of that,
+// and the ambient fill at 0.4 beside them (fill). Read raw and at full strength on top of the whole ambient, the sky
+// gave about as much light again as the sun from every direction, and its grey-blue reflection over every surface
+// turned the red kerbs pink and the karts pastel on medium and high. fog: ultra's haze, to the horizon's colour, as
+// thick as the window's (kart_gfx.HAZE_DENSITY); ultraFilm: ultra's shadow, 64 m across (the window's)
 const LOOK = {sky: [0.3, 0.5, 0.9], radius: 60, target: [30, 40, 0],
               pbr: {background: [0.3, 0.5, 0.9], exposure: 0.55, ambient: [0.22, 0.25, 0.32], sky: "sky",
-                    sun: {colour: [2.6, 2.45, 2.2], offset: [30, -45, 45], film: 40, near: 50.4, far: 90.4, bias: 0.0015}}};
+                    envSrgb: true, shScale: [0.55, 0.65, 0.86], fill: [0.4, 0.4, 0.4], fog: {colour: HAZE, density: 0.0007},
+                    sun: {colour: [2.6, 2.45, 2.2], offset: [30, -45, 45], film: 40, near: 50.4, far: 90.4, bias: 0.0015, ultraFilm: 64}}};
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -74,6 +88,8 @@ class Geo {
 }
 
 export class KartScene extends BaseScene {
+    static TIERS = TIERS;  // (every tier, the line tiers and ultra too: CHANGE 144)
+
     constructor(canvas, tier = "low", engine = null) {
         super(canvas, tier, engine, LOOK);
         this.karts = new Map();     // id -> visual
@@ -93,11 +109,41 @@ export class KartScene extends BaseScene {
         this.build();
     }
 
+    build() {  // (ultra's after-effects let go before the scene they were made for: CHANGE 144)
+        if (this.fx) { this.fx.dispose(); this.fx = null; }
+        super.build();
+    }
+
     // after build() (and again after a tier change): the track and the karts back in
     populate(rebuild) {
-        // (the arrows drive: the camera doesn't turn with them; the drift smoke's pool, none on blocks)
+        // (the arrows drive: the camera doesn't turn with them; the drift smoke's pool, none on blocks or the line tiers)
         this.camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
-        this.smoke = this.tier !== "blocks" ? new Smoke(this, PUFFS * 12) : null;
+        this.smoke = this.lit ? new Smoke(this, PUFFS * 12) : null;
+        this.lineCount = 0;
+        // (ultra, CHANGE 144) the sky, the world round the kart watched as a cube for the paint to reflect (made before
+        // any material, so theirs can reflect it), skid marks, sparks, the after-effects; the curved kart asked for
+        this.ultra = !!(this.settings.ultra && this.lighting);
+        this.sky = this.probe = this.skids = this.sparks = this.fx = this.circuit = null;
+        this.forest = [];
+        this.probeKart = undefined;
+        if (this.ultra) {
+            this.sky = makeSky(this);
+            this.probe = new BABYLON.ReflectionProbe("kartprobe", 256, this.scene, true);
+            this.probe.refreshRate = 2;
+            this.lighting.setProbe(this.probe.cubeTexture);
+            this.skids = new Skids(this);
+            this.sparks = new Sparks(this);
+            this.fx = new AfterFx(this);
+            this.camera.maxZ = 3000;  // (the mountains, 1.6 km off)
+            const scene = this.scene;
+            loadUltraKart().then(d => {  // (it came after the karts were made: made again, curved)
+                if (d && this.scene === scene && [...this.karts.values()].some(k => !k.curved)) this.rebuildKarts();
+            });
+            loadScenery().then(d => {  // (the circuit came after the track was drawn: drawn again with it)
+                if (d && this.scene === scene && this.trackData && !this.circuit && this.circuitKey(this.trackData)) this.setTrack(this.trackData);
+            });
+        }
+        this.refreshLists();
         if (!rebuild) return;
         const track = this.trackData, karts = [...this.karts.values()].map(k => k.design);
         this.karts.clear();
@@ -112,9 +158,73 @@ export class KartScene extends BaseScene {
         this.trackMeshes = [];
         this.trackData = data;
         const track = this.track = data;  // (a Track instance from track.js)
-        const half = track.half, L = track.length, scene = this.scene;
-        const blocks = this.tier === "blocks";
+        const scene = this.scene;
         const statics = [];
+        // (ultra, CHANGE 144) the window's ultra circuit (kartfx.js) once models/kart_scenery.json has loaded, in place
+        // of the road, kerbs, barrier, start, cones, grass, scenery, land and woods; until then (or for a track the file
+        // hasn't) those
+        const file = this.ultra ? sceneryData() : null, key = this.circuitKey(track);
+        this.circuit = file && key ? makeCircuit(this, file, key) : null;
+        if (!this.circuit) this.road(statics);
+        // dash pads: three glowing chevrons each (their glow pulses in frame())
+        const pads = new Geo();
+        for (const [ps, plat] of track.boosts) {
+            for (let k = 0; k < 3; k++) {
+                const a = ps - 1.6 + k * 1.3;
+                for (const side of [1, -1]) {
+                    const li = plat + side * 0.15, lo = plat + side * 1.3;
+                    const p = [track.point(a + 0.9, li), track.point(a + 0.4, li), track.point(a - 0.9, lo), track.point(a - 0.4, lo)];
+                    pads.quad(p.map(q => [q[0], q[1], q[2] + 0.02]));
+                }
+            }
+        }
+        this.padMat = null;
+        if (pads.pos.length) {
+            this.padMat = this.material("pads", [0.1, 0.06, 0.0], 0.4, 0, 0, {emission: [3.0, 1.6, 0.2]});
+            const m = pads.mesh("pads", scene);
+            m.material = this.padMat;
+            this.trackMeshes.push(m);
+        }
+        // oil: dark shiny patches
+        const oil = new Geo();
+        for (const [os, olat] of track.oil) {
+            const pts = [];
+            for (let k = 0; k < 14; k++) {
+                const a = 2 * Math.PI * k / 14, p = track.point(os + Math.cos(a) * 2.6, olat + Math.sin(a) * 1.9);
+                pts.push([p[0], p[1], p[2] + 0.018]);
+            }
+            oil.poly(pts, [0, 0, 1]);
+        }
+        if (oil.pos.length) {
+            const m = oil.mesh("oil", scene);
+            m.material = this.material("oil", [0.16, 0.15, 0.2], 0.3, 0.4);
+            statics.push(m);
+        }
+        if (this.circuit) {
+            this.trackMeshes.push(...this.circuit.meshes);
+            this.shadowCast(this.circuit.casters);
+            this.forest = this.circuit.trees;
+        } else {
+            this.grass(statics);
+            this.scenery(statics);
+            if (this.ultra) this.land(statics);
+        }
+        this.trackMeshes.push(...this.mergeStatic(statics));
+        if (this.wire) this.trackLines();
+        this.refreshLists();
+        this.setMode(this.mode, this.follow);
+    }
+
+    // (ultra, CHANGE 144) which of the file's circuits a track is (club, oval or straight: a track mod picks one of
+    // them, so the name is enough), or null
+    circuitKey(track) {
+        return Object.keys(TRACKS).find(k => TRACKS[k].name === track.name) || null;
+    }
+
+    // the road, the centre line's dashes, the kerbs, the barrier, the chequered start and the cones at the sharp bends
+    road(statics) {
+        const track = this.track, half = track.half, L = track.length, scene = this.scene;
+        const blocks = this.tier === "blocks";
         const put = (mesh, mat, cast = false) => {
             mesh.material = mat;
             statics.push(mesh);
@@ -178,40 +288,91 @@ export class KartScene extends BaseScene {
         }
         statics.push(...cones);
         this.shadowCast(cones);
-        // dash pads: three glowing chevrons each (their glow pulses in frame())
-        const pads = new Geo();
-        for (const [ps, plat] of track.boosts) {
-            for (let k = 0; k < 3; k++) {
-                const a = ps - 1.6 + k * 1.3;
-                for (const side of [1, -1]) {
-                    const li = plat + side * 0.15, lo = plat + side * 1.3;
-                    const p = [track.point(a + 0.9, li), track.point(a + 0.4, li), track.point(a - 0.9, lo), track.point(a - 0.4, lo)];
-                    pads.quad(p.map(q => [q[0], q[1], q[2] + 0.02]));
+    }
+
+    // (ultra, CHANGE 144) hills all round in the haze with the country out to them, and woods: firs in the grass,
+    // clear of the track and the grandstand, and in clumps out on the country (kartfx.js)
+    land(statics) {
+        const t = this.track, half = t.half, L = t.length;
+        const base = Math.min(...t.pts.map(p => p[2])) - 0.8;  // (the grass's level away from the track: grass()'s)
+        const {land, mountains, centre, inner, flat} = makeLand(this, t, base);
+        statics.push(land, mountains);
+        const g = this.ground, gx0 = g.xs[0], gx1 = g.xs[g.xs.length - 1], gy0 = g.ys[0], gy1 = g.ys[g.ys.length - 1];
+        const onGrass = (x, y) => x > gx0 + 2 && x < gx1 - 2 && y > gy0 + 2 && y < gy1 - 2;
+        const rnd = mulberry(37), spots = [];
+        const free = (x, y, gap) => !spots.some(q => Math.abs(q[0] - x) < gap && Math.abs(q[1] - y) < gap);
+        for (let tries = 0; spots.length < 70 && tries < 1500; tries++) {
+            const x = gx0 + rnd() * (gx1 - gx0), y = gy0 + rnd() * (gy1 - gy0);
+            if (!this.clearOfTrack(x, y, 8) || !free(x, y, 4)) continue;
+            const at = t.locate(x, y, null);
+            if (at.dist < half + 24 && (at.s < 34 || at.s > L - 20)) continue;  // (the grandstand's spot)
+            spots.push([x, y, this.groundAt(x, y), 4 + rnd() * 3, rnd() < 0.3]);
+        }
+        for (let clump = 0; clump < 30; clump++) {
+            const a = rnd() * 2 * Math.PI, r = inner + 40 + rnd() * (flat - inner - 60);
+            const cx = centre[0] + Math.cos(a) * r, cy = centre[1] + Math.sin(a) * r, round = rnd() < 0.35;
+            for (let k = 0, n = 6 + Math.floor(rnd() * 10); k < n; k++) {
+                const x = cx + (rnd() - 0.5) * 30, y = cy + (rnd() - 0.5) * 30;
+                if (!this.clearOfTrack(x, y, 10) || !free(x, y, 3.5)) continue;
+                spots.push([x, y, onGrass(x, y) ? this.groundAt(x, y) : base - 1.0, (round ? 4 : 5) + rnd() * 4, round]);
+            }
+        }
+        this.forest = makeForest(this, spots);
+        this.trackMeshes.push(...this.forest);
+        this.shadowCast(this.forest);
+    }
+
+    // (ultra) what the geometry buffer (the shading in corners) and the reflection cube draw: the world and the karts,
+    // not the labels, the smoke or the sky; the cube not the kart it sits on (the one watched). The circuit's meshes
+    // say (CHANGE 144): the shading in corners leaves out the far country and the grass's blades (ccAO), the cube
+    // the shapes placed by the thousand (ccProbe: the trees, the crowd, the tyres, every tuft; six views every other
+    // frame of those would cost more than the whole picture)
+    refreshLists() {
+        if (!this.ultra) return;
+        const world = this.trackMeshes.filter(m => m.name !== "sign" && !m.isDisposed());
+        const karts = [];
+        for (const [id, k] of this.karts) karts.push(...k.root.getChildMeshes(false).filter(m => m !== k.label && m !== k.flame).map(m => [id, m]));
+        if (this.fx && this.fx.gbuffer) this.fx.gbuffer.renderList = [...world.filter(m => m.ccAO !== false), ...karts.map(([, m]) => m)];
+        if (this.probe) this.probe.renderList.splice(0, this.probe.renderList.length, this.sky, ...world.filter(m => m.ccProbe !== false),
+                                                     ...karts.filter(([id]) => id !== this.probeKart).map(([, m]) => m));
+    }
+
+    // (the line tiers, CHANGE 144) the track's, the ground's and the scenery's edges as one lines mesh; on lines a
+    // grid on the ground every 10 m, dimmer, following its hills (the road and the scenery hide it where they stand)
+    trackLines() {
+        const t0 = performance.now(), fill = this.wireFill(), before = this.lineCount || 0;
+        const solid = this.trackMeshes.filter(m => m.material === fill);
+        this.trackMeshes.push(...this.staticLines("tracklines", this.edgeLines(solid, this.wire), this.lineMaterial("track", 1, ...this.lineFade())));
+        if (this.wire === "outline") {
+            const g = this.ground, pos = [], idx = [], step = 1.5;
+            const x0 = g.xs[0], x1 = g.xs[g.xs.length - 1], y0 = g.ys[0], y1 = g.ys[g.ys.length - 1];
+            const run = (ax, ay, bx, by) => {  // (a straight line on the ground, a point every 1.5 m)
+                const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step)), b = pos.length / 3;
+                for (let i = 0; i <= n; i++) {
+                    const x = ax + (bx - ax) * i / n, y = ay + (by - ay) * i / n;
+                    pos.push(x, this.groundAt(x, y) + 0.05, y);
+                    if (i) idx.push(b + i - 1, b + i);
                 }
-            }
+            };
+            for (let x = Math.ceil(x0 / 10) * 10; x <= x1; x += 10) run(x, y0, x, y1);
+            for (let y = Math.ceil(y0 / 10) * 10; y <= y1; y += 10) run(x0, y, x1, y);
+            this.trackMeshes.push(...this.staticLines("grid", {pos, idx}, this.lineMaterial("grid", 0.42, 60, 380)));
         }
-        this.padMat = null;
-        if (pads.pos.length) {
-            this.padMat = this.material("pads", [0.1, 0.06, 0.0], 0.4, 0, 0, {emission: [3.0, 1.6, 0.2]});
-            const m = pads.mesh("pads", scene);
-            m.material = this.padMat;
-            this.trackMeshes.push(m);
-        }
-        // oil: dark shiny patches
-        const oil = new Geo();
-        for (const [os, olat] of track.oil) {
-            const pts = [];
-            for (let k = 0; k < 14; k++) {
-                const a = 2 * Math.PI * k / 14, p = track.point(os + Math.cos(a) * 2.6, olat + Math.sin(a) * 1.9);
-                pts.push([p[0], p[1], p[2] + 0.018]);
-            }
-            oil.poly(pts, [0, 0, 1]);
-        }
-        if (oil.pos.length) put(oil.mesh("oil", scene), this.material("oil", [0.16, 0.15, 0.2], 0.3, 0.4));
-        this.grass(statics);
-        this.scenery(statics);
-        this.trackMeshes.push(...this.mergeStatic(statics));
-        this.setMode(this.mode, this.follow);
+        this.lineStats = {segments: (this.lineCount || 0) - before, ms: Math.round(performance.now() - t0)};
+    }
+
+    lineFade() {  // (where the lines fade out, as the window's black fog: mesh's many lines sooner)
+        return this.wire === "all" ? [15, 140] : [60, 380];
+    }
+
+    // the ground's height at (x, y) on its own triangles (each 3 m cell cut corner to corner as grass() cuts it)
+    groundAt(x, y) {
+        const g = this.ground, cols = g.xs.length;
+        const fx0 = (x - g.xs[0]) / g.cell, fy0 = (y - g.ys[0]) / g.cell;
+        const i = Math.min(cols - 2, Math.max(0, Math.floor(fx0))), j = Math.min(g.ys.length - 2, Math.max(0, Math.floor(fy0)));
+        const fx = Math.min(1, Math.max(0, fx0 - i)), fy = Math.min(1, Math.max(0, fy0 - j));
+        const h00 = g.z[j * cols + i], h10 = g.z[j * cols + i + 1], h01 = g.z[(j + 1) * cols + i], h11 = g.z[(j + 1) * cols + i + 1];
+        return fx >= fy ? h00 + fx * (h10 - h00) + fy * (h11 - h10) : h00 + fy * (h01 - h00) + fx * (h11 - h01);
     }
 
     // quads along the track from s0 to s1 between two lateral offsets, lifted off the road
@@ -393,11 +554,13 @@ export class KartScene extends BaseScene {
         const root = new BABYLON.TransformNode("kart" + id, scene);
         const body = new BABYLON.TransformNode("body" + id, scene);
         body.parent = root;
-        const paint = this.material("kpaint", colour, 0.5, 0.2, 0, {tex: "paint", tile: 1.5});
+        if (this.ultra && ultraKartData()) return this.addCurvedKart(design, root, body, colour);
+        // (on ultra the paint and the helmet have a clear coat, and they and the metal reflect the world: CHANGE 144)
+        const paint = this.material("kpaint", colour, 0.5, 0.2, 0, {tex: "paint", tile: 1.5, clearcoat: 1, probe: true});
         const dark = this.material("kdark", [0.08, 0.08, 0.09], 0.8);
         const seatM = this.material("kseat", [0.1, 0.1, 0.12], 0.9);
         const suit = this.material("ksuit", colour.map(c => Math.min(1, 0.4 + 0.6 * c)), 0.8);
-        const steel = this.material("ksteel", STEEL, 0.5, 1.0, 0, {tex: "steel"});
+        const steel = this.material("ksteel", STEEL, 0.5, 1.0, 0, {tex: "steel", probe: true});
         const z0 = 0.16;
         const parts = [];
         const box = (hx, hy, hz, mat, x, y, z, roll = 0) => {
@@ -416,7 +579,7 @@ export class KartScene extends BaseScene {
         box(0.04, 0.2, 0.2, seatM, -0.46, 0, z0 + 0.36);
         box(0.13, 0.15, 0.17, suit, -0.28, 0, z0 + 0.36);                                // torso
         for (const side of [1, -1]) parts.push(this.cyl(body, 0.035, 0.2, "x", suit, -0.08, side * 0.14, z0 + 0.42, null, 8));
-        parts.push(this.sphere(body, 0.14, this.material("khelmet", [0.95, 0.95, 0.95], 0.25, 0, 0, {tex: "paint", tile: 1.5}), -0.28, 0, z0 + 0.66, 1, 1, 1, 14));
+        parts.push(this.sphere(body, 0.14, this.material("khelmet", [0.95, 0.95, 0.95], 0.25, 0, 0, {tex: "paint", tile: 1.5, clearcoat: 0.8, probe: true}), -0.28, 0, z0 + 0.66, 1, 1, 1, 14));
         box(0.03, 0.1, 0.045, this.material("kvisor", [0.05, 0.05, 0.08], 0.1), -0.16, 0, z0 + 0.67);
         parts.push(this.cyl(body, 0.12, 0.012, "x", seatM, 0.1, 0, z0 + 0.45, null, 16));  // the steering wheel
         parts.push(this.cyl(body, 0.02, 0.14, "x", steel, 0.22, 0, z0 + 0.4, null, 8));
@@ -424,14 +587,13 @@ export class KartScene extends BaseScene {
         const wing = this.box(body, 0.1, 0.42, 0.015, paint, -0.66, 0, z0 + 0.4);
         wing.rotation.z = -8 * Math.PI / 180;  // (tilted: its front edge down)
         parts.push(wing);
-        box(0.12, 0.1, 0.09, this.material("kengine", [0.35, 0.35, 0.38], 0.6, 1.0, 0, {tex: "steel"}), -0.42, 0.28, z0 + 0.22);
-        parts.push(this.cyl(body, 0.035, 0.12, "x", this.material("kexhaust", [0.3, 0.3, 0.32], 0.5, 1.0, 0, {tex: "steel"}), -0.7, 0.28, z0 + 0.22, null, 8));
-        const flame = this.box(root, 0.25, 0.08, 0.06, this.material("flame", [1.0, 0.6, 0.15], 0.3, 0, 0, {emission: [3.0, 1.4, 0.3]}), -1.0, 0, z0 + 0.12);
-        flame.isVisible = false;
+        box(0.12, 0.1, 0.09, this.material("kengine", [0.35, 0.35, 0.38], 0.6, 1.0, 0, {tex: "steel", probe: true}), -0.42, 0.28, z0 + 0.22);
+        parts.push(this.cyl(body, 0.035, 0.12, "x", this.material("kexhaust", [0.3, 0.3, 0.32], 0.5, 1.0, 0, {tex: "steel", probe: true}), -0.7, 0.28, z0 + 0.22, null, 8));
+        const flame = this.kartFlame(root);
         // wheels: a pivot (steering) holding a spinner (rolling) holding the tyre and hub
         const wheels = [];
         const tyreM = this.material("ktyre", [1, 1, 1], 1.0, 0, 0, {tex: "tyre", tile: 2.5});
-        const hubM = this.material("khub", [0.75, 0.75, 0.78], 0.5, 1.0, 0, {tex: "steel"});
+        const hubM = this.material("khub", [0.75, 0.75, 0.78], 0.5, 1.0, 0, {tex: "steel", probe: true});
         const wheelParts = [];
         WHEELS.forEach(([x, y], i) => {
             const pivot = new BABYLON.TransformNode("pivot", scene);
@@ -445,11 +607,112 @@ export class KartScene extends BaseScene {
         });
         const merged = this.mergeParts(parts, body);
         this.shadowCast([...merged, ...wheelParts]);
+        let flameLines = null;
+        if (this.wire) {  // (the line tiers: the body's edges with the body, each wheel's turning with its wheel)
+            const mat = this.lineMaterial("kart", 1, ...this.lineFade());
+            this.linesMesh("kartlines", this.edgeLines(merged, this.wire, body), mat, body);
+            flameLines = this.linesMesh("flamelines", this.edgeLines([flame], this.wire, flame), mat, flame);
+            if (flameLines) flameLines.isVisible = false;
+            wheels.forEach((w, i) => this.linesMesh("wheellines", this.edgeLines(wheelParts.slice(i * 2, i * 2 + 2), this.wire, w.spin), mat, w.spin));
+        }
+        this.finishKart(id, design, root, body, wheels, flame, flameLines, WHEEL_R, false);
+    }
+
+    kartFlame(root) {  // the boost's glow behind the kart (shown while boosting)
+        const flame = this.box(root, 0.25, 0.08, 0.06, this.material("flame", [1.0, 0.6, 0.15], 0.3, 0, 0, {emission: [3.0, 1.4, 0.3]}), -1.0, 0, 0.28);
+        flame.isVisible = false;
+        return flame;
+    }
+
+    finishKart(id, design, root, body, wheels, flame, flameLines, wheelR, curved) {
         const label = this.makeLabel(design.name || "", "#ffffff", 1.3);  // (about the app's size: a kart's width)
         label.parent = root;
         label.position = v3(0, 0, 1.15);
-        this.karts.set(id, {root, body, wheels, flame, label, design, lastYaw: 0, spin: 0,
-                            lastV: null, pitch: 0, roll: 0, glowT: 0, puffTimer: 0, nextPuff: 0});
+        this.karts.set(id, {root, body, wheels, flame, flameLines, label, design, lastYaw: 0, spin: 0, wheelR, curved,
+                            lastV: null, pitch: 0, roll: 0, glowT: 0, puffTimer: 0, nextPuff: 0, skid: null});
+        this.refreshLists();
+    }
+
+    // (ultra, CHANGE 144) the curved kart from models/kart_ultra.json (kartfx.js reads it): each part in the
+    // material its role names (the file's notes.roles give each role's colour, roughness and metal: the design's
+    // colour where it has none), smooth paint under a clear coat, the wheels on the same steering pivots and
+    // rolling spinners as the box kart's (a right-hand wheel is the left's turned half round, as the file says),
+    // and the steering wheel turning with the front wheels about the file's axis (notes.steering)
+    addCurvedKart(design, root, body, colour) {
+        const d = ultraKartData(), scale = Number(d.scale) || 1, notes = d.notes && typeof d.notes === "object" ? d.notes : {};
+        const roles = notes.roles && typeof notes.roles === "object" ? notes.roles : {};
+        const second = Array.isArray(design.colour2) ? design.colour2.map(v => v / 255) : colour;
+        const COAT = {paint: 1, paint2: 1, helmet: 0.8}, SHINY = ["paint", "paint2", "helmet", "metal", "chrome", "rim", "glass"];
+        const BASE = {paint: [colour, 0.32, 0.15], paint2: [second, 0.32, 0.15], dark: [[0.07, 0.07, 0.08], 0.55, 0],
+                      metal: [[0.62, 0.63, 0.66], 0.35, 1], chrome: [[0.92, 0.92, 0.94], 0.08, 1], glass: [[0.03, 0.035, 0.05], 0.04, 0],
+                      tyre: [[0.11, 0.11, 0.12], 0.8, 0], rim: [[0.78, 0.79, 0.82], 0.28, 1], seat: [[0.09, 0.09, 0.11], 0.4, 0],
+                      skin: [[0.86, 0.66, 0.53], 0.6, 0], helmet: [[0.95, 0.95, 0.95], 0.18, 0.05]};
+        const mats = {};
+        const mat = role => {
+            if (mats[role]) return mats[role];
+            const [rgb0, rough0, metal0] = BASE[role] || BASE.paint, r = roles[role] || {};
+            const rgb = Array.isArray(r.colour) && r.colour.length >= 3 ? r.colour.slice(0, 3)
+                : r.colour === null && role !== "paint2" ? colour : rgb0;  // (null: the design's colour, the helmet's too)
+            const rough = Number.isFinite(r.rough) ? r.rough : rough0, metal = Number.isFinite(r.metal) ? r.metal : metal0;
+            const opts = {clearcoat: COAT[role] || 0, probe: SHINY.includes(role)};
+            if (role === "tyre") Object.assign(opts, {tex: "tyre", tile: 2.5});
+            return (mats[role] = role === "glass" ? this.glass("kvisor", rgb, 0.75) : this.material("kc" + role, rgb, rough, metal, 0, opts));
+        };
+        const parts = [];
+        for (const part of d.body) {
+            const mesh = partMesh(this, part, scale);
+            if (!mesh) continue;
+            mesh.material = mat(BASE[part.role] ? part.role : "paint");
+            mesh.parent = body;
+            parts.push(mesh);
+        }
+        let steerWheel = null;
+        const S = notes.steering || {};
+        if ((d.steering || []).length) {
+            const pivot = Array.isArray(S.pivot) ? S.pivot.map(v => v * scale) : [0.1, 0, 0.47];
+            const axis = Array.isArray(S.axis) ? S.axis : [-0.848, 0, 0.53];
+            const node = new BABYLON.TransformNode("steering", this.scene);
+            node.parent = body;
+            node.position = v3(...pivot);
+            node.rotationQuaternion = BABYLON.Quaternion.Identity();
+            for (const part of d.steering) {
+                const mesh = partMesh(this, part, scale);
+                if (!mesh) continue;
+                mesh.material = mat(BASE[part.role] ? part.role : "dark");
+                mesh.parent = node;
+                mesh.position = v3(...pivot).scale(-1);  // (its vertices are the kart's: about the pivot)
+                this.shadowCast([mesh]);
+            }
+            steerWheel = {node, axis: v3(...axis).normalize(), ratio: Number(S.ratio) || 3};
+        }
+        const wheels = [], wheelParts = [];
+        for (const w of d.wheels) {
+            const pivot = new BABYLON.TransformNode("pivot", this.scene);
+            pivot.parent = root;
+            pivot.position = v3(w.x * scale, w.y * scale, w.z * scale);
+            const spin = new BABYLON.TransformNode("spin", this.scene);
+            spin.parent = pivot;
+            const side = new BABYLON.TransformNode("side", this.scene);
+            side.parent = spin;
+            if (w.side < 0) side.rotation.y = Math.PI;  // (half round about the upright: its outer face to the right)
+            for (const part of d.wheel) {
+                const mesh = partMesh(this, part, scale);
+                if (!mesh) continue;
+                mesh.material = mat(BASE[part.role] ? part.role : "tyre");
+                mesh.parent = side;
+                wheelParts.push(mesh);
+            }
+            wheels.push({pivot, spin, front: !!w.front});
+        }
+        const merged = this.mergeParts(parts, body);
+        this.shadowCast([...merged, ...wheelParts]);
+        const wheelR = Math.max(0.1, Number(d.wheels[0].z) * scale || WHEEL_R);
+        this.finishKart(design.id, design, root, body, wheels, this.kartFlame(root), null, wheelR, true);
+        this.karts.get(design.id).steerWheel = steerWheel;
+    }
+
+    rebuildKarts() {  // (every kart made again, as it is now: the curved kart arrived)
+        for (const d of [...this.karts.values()].map(k => k.design)) this.addKart(d);
     }
 
     removeKart(id) {
@@ -459,6 +722,7 @@ export class KartScene extends BaseScene {
         k.root.dispose();  // (the materials are shared: kept)
         this.karts.delete(id);
         if (this.follow === id) this.follow = null;
+        this.refreshLists();
     }
 
     setKarts(designs) {  // the roster's karts: add new ones, drop gone ones, recolour changed ones
@@ -500,9 +764,17 @@ export class KartScene extends BaseScene {
             k.body.rotation.z = -k.pitch * DEG;
             const boosting = !!(st.flags & FLAG_BOOSTING);
             k.flame.isVisible = boosting;
+            if (k.flameLines) k.flameLines.isVisible = boosting;
             if (boosting) {  // (the glow flickers: 0.9 to 1.15 times its size)
                 k.glowT += dt;
                 k.flame.scaling.setAll(0.9 + 0.25 * Math.sin(k.glowT * 31));
+            }
+            // (ultra, CHANGE 144) skid marks from both rear tyres while drifting above 3 m/s, sparks from the exhaust
+            // while boosting
+            if (this.skids) this.skidFrom(k, st, z, drift && Math.abs(v) > 3);
+            if (this.sparks && boosting) {
+                const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
+                this.sparks.emit([st.x - 0.75 * c - 0.28 * s, st.y - 0.75 * s + 0.28 * c, z + 0.38], st.yaw, v, dt > 0.02 ? 3 : 2);
             }
             // drift smoke from each rear tyre in turn, every 0.07 s while drifting above 3 m/s
             if (this.smoke && drift && Math.abs(v) > 3) {
@@ -514,11 +786,15 @@ export class KartScene extends BaseScene {
                     this.smoke.emit([st.x - 0.55 * c - side * s, st.y - 0.55 * s + side * c, z + 0.15]);
                 }
             }
-            k.spin += v * dt / WHEEL_R;
+            k.spin += v * dt / (k.wheelR || WHEEL_R);
             const steer = Math.max(-0.45, Math.min(0.45, (st.u || 0) * 0.08 + drift * 0.3));
             for (const w of k.wheels) {
                 w.spin.rotation.z = -k.spin;
                 if (w.front) w.pivot.rotation.y = -steer;
+            }
+            if (k.steerWheel) {  // (the curved kart's steering wheel, turned as the front wheels times its ratio)
+                const sw = k.steerWheel;
+                BABYLON.Quaternion.RotationAxisToRef(sw.axis, -steer * sw.ratio, sw.node.rotationQuaternion);
             }
         }
         if (this.padMat && this.lighting) {  // the dash pads pulse (kart_gfx.TrackVisual.update)
@@ -527,7 +803,34 @@ export class KartScene extends BaseScene {
         }
         this.updateCamera(states, dt);
         if (this.smoke) this.smoke.update(dt, this.camera);
+        if (this.ultra) this.ultraFrame(dt);
         this.followSun();
+    }
+
+    // (ultra) the skid marks and sparks moved on; the reflection cube with the kart the camera watches (inside it,
+    // so left out of what it draws)
+    ultraFrame(dt) {
+        this.skids.update(dt);
+        this.sparks.update(dt, this.camera);
+        const id = this.camKart !== undefined && this.karts.has(this.camKart) ? this.camKart
+            : this.follow !== null && this.karts.has(this.follow) ? this.follow : this.leader;
+        const k = this.karts.get(id);
+        if (id !== this.probeKart) { this.probeKart = id; this.refreshLists(); }
+        if (k) this.probe.position.set(k.root.position.x, k.root.position.y + 0.55, k.root.position.z);
+        else this.probe.position.copyFrom(this.camera.target);
+    }
+
+    // a kart's two rear tyres leave a strip on the road each 0.3 m while it drifts (on: drifting fast enough)
+    skidFrom(k, st, z, on) {
+        if (!on) { k.skid = null; return; }
+        const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
+        const at = side => [st.x - 0.52 * c - side * 0.62 * s, st.y - 0.52 * s + side * 0.62 * c, z + 0.035];
+        const now = [at(1), at(-1)];
+        if (k.skid && Math.hypot(now[0][0] - k.skid[0][0], now[0][1] - k.skid[0][1]) > 2.5) k.skid = null;  // (a respawn)
+        if (!k.skid) { k.skid = now; return; }
+        if (Math.hypot(now[0][0] - k.skid[0][0], now[0][1] - k.skid[0][1]) < 0.3) return;
+        for (let i = 0; i < 2; i++) this.skids.add(k.skid[i], now[i]);
+        k.skid = now;
     }
 
     // ---------- the cameras (kart_gfx.ChaseCamera, CHANGE 143) ----------

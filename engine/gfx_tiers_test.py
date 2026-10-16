@@ -6,6 +6,8 @@
 2. prc_for gives each tier its texture, multisample and gl-version lines
 3. the Monitor steps down (knobs first, then the saved tier) and up on synthetic frame times, with its own clock
 4. resolve() follows --gfx, then the saved tier, then the saved detection, then medium
+5. the whole ladder (CHANGE 144): each game draws its own tiers, the monitor never steps into or out of mesh and
+   lines, and climbs into ultra only once it has run cleanly here
 Exit code 0 = all fine.
 """
 import os
@@ -254,12 +256,97 @@ def class_maximum():  # CHANGE 139: the teacher's gfx_max
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def ladder():  # CHANGE 144: mesh < lines < basic < low < medium < high < ultra, each game its own
+    kart = g.TIERS
+    assert g.TIERS == ("mesh", "lines", "basic", "low", "medium", "high", "ultra") and g.CORE == ("basic", "low", "medium", "high")
+    # a tier a game doesn't draw is drawn as its nearest
+    assert [g.nearest(t) for t in g.TIERS] == ["basic", "basic", "basic", "low", "medium", "high", "high"]
+    assert [g.nearest(t, kart) for t in g.TIERS] == list(g.TIERS) and g.nearest("silly") == "silly"
+    # the steps never go into or out of the looks; ultra is a step for a game that draws it
+    assert g.below("low", kart) == "basic" and g.below("basic", kart) == "basic" and g.below("lines", kart) == "lines"
+    assert g.above("high", kart) == "ultra" and g.above("high") == "high" and g.below("ultra", kart) == "high"
+    assert g.above("lines", kart) == "lines"
+    # the heuristic never picks ultra, however strong the card
+    assert g.classify("NVIDIA GeForce RTX 4090", gl=(4, 6), ram_gb=64) == "high"
+    # every tier has its knobs and prc; the looks draw without simplepbr or textures worth the name
+    for t in g.TIERS:
+        assert set(g.SETTINGS[t]) == set(g.SETTINGS["basic"]), t
+    assert not g.SETTINGS["mesh"]["simplepbr"] and not g.SETTINGS["lines"]["simplepbr"]
+    assert g.SETTINGS["ultra"]["shadow"] > g.SETTINGS["high"]["shadow"] and g.SETTINGS["ultra"]["msaa"] >= 4
+    tmp = tempfile.mkdtemp(prefix="gfx_tiers_test_")
+    try:
+        # resolve gives each game its own tier: Robot Lab and Fight Lab draw lines as basic, ultra as high
+        assert g.resolve(tmp, "lines") == "basic" and g.resolve(tmp, "lines", kart) == "lines"
+        assert g.resolve(tmp, "ultra") == "high" and g.resolve(tmp, "ultra", kart) == "ultra"
+        g.remember(tmp, gfx_tier="mesh")
+        assert g.resolve(tmp, None, kart) == "mesh" and g.resolve(tmp) == "basic"
+        # the class maximum is a place on the whole ladder: "lines" is lines (or mesh) in Kart Lab, basic elsewhere
+        assert g.class_max("lines") == "lines" and g.class_max("ultra") == "ultra" and g.class_max("mesh") == "mesh"
+        g.remember(tmp, gfx_tier="high", gfx_class_max="lines")
+        assert g.resolve(tmp, None, kart) == "lines" and g.resolve(tmp) == "basic"
+        g.remember(tmp, gfx_tier="mesh")
+        assert g.resolve(tmp, None, kart) == "mesh", "mesh is under a maximum of lines"
+        g.remember(tmp, gfx_tier="ultra", gfx_class_max="high")
+        assert g.resolve(tmp, None, kart) == "high"
+        g.forget(tmp, "gfx_class_max", "gfx_tier")
+        # a class maximum of lines, heard by a Robot Lab learner already at basic, says nothing; at high it says Basic
+        assert g.obey_class_max(tmp, "lines", None, "basic") is None
+        note = g.obey_class_max(tmp, "lines", None, "high")
+        assert note and "Basic" in note, note
+        note = g.obey_class_max(tmp, "lines", None, "high", kart)
+        assert note and "Lines" in note, note
+        g.forget(tmp, "gfx_class_max")
+        clock = Clock()
+        # a run at lines is watched, never stepped down out of (nor into, from low) and never benchmarked
+        g.remember(tmp, gfx_tier="lines", gfx_detect={"heuristic_tier": "high"})
+        mon = g.Monitor(tmp, "lines", clock=clock, tiers=kart)
+        feed(mon, clock, 30, 1 / 60, every_nth_slow=3)
+        feed(mon, clock, 40, 0.008)
+        s = g.load_settings(tmp)
+        assert s.get("gfx_tier") == "lines" and "gfx_benchmarked" not in s and "gfx_failed" not in s, s
+        g.remember(tmp, gfx_tier="low")
+        mon = g.Monitor(tmp, "low", clock=clock, tiers=kart)
+        feed(mon, clock, 30, 1 / 60, every_nth_slow=3)
+        assert g.load_settings(tmp).get("gfx_tier") == "low", "the floor is still low, never lines or mesh"
+        # ultra: never climbed into on the heuristic alone (high), only once it has run cleanly here
+        g.remember(tmp, gfx_tier="high", gfx_failed=[], gfx_benchmarked="high")
+        mon = g.Monitor(tmp, "high", clock=clock, tiers=kart)
+        feed(mon, clock, 40, 0.008)
+        assert g.load_settings(tmp).get("gfx_tier") == "high", g.load_settings(tmp)
+        g.remember(tmp, gfx_benchmarked="ultra")
+        mon = g.Monitor(tmp, "high", clock=clock, tiers=kart)
+        feed(mon, clock, 40, 0.008)
+        assert g.load_settings(tmp).get("gfx_tier") == "ultra", g.load_settings(tmp)
+        # ...and stepped down out of like any tier (the knobs first: the 4096 shadow map halves to 512)
+        light, pipe = FakeLight(4096), FakePipeline()
+        pipe.msaa_samples = 8
+        mon = g.Monitor(tmp, "ultra", pipeline=pipe, lights=[light], clock=clock, tiers=kart)
+        feed(mon, clock, 60, 1 / 60, every_nth_slow=4)
+        s = g.load_settings(tmp)
+        assert light.size == 512 and pipe.msaa_samples == 0 and s.get("gfx_tier") == "high", (light.size, s)
+        # a Robot Lab monitor never steps up past high, whatever the settings say
+        g.remember(tmp, gfx_tier="high", gfx_failed=[], gfx_benchmarked="ultra")
+        mon = g.Monitor(tmp, "high", clock=clock)
+        feed(mon, clock, 40, 0.008)
+        assert g.load_settings(tmp).get("gfx_tier") == "high"
+        # a tier chosen by hand in the window is kept: the monitor saves nothing over it
+        g.remember(tmp, gfx_tier="medium", gfx_benchmarked="high")
+        mon = g.Monitor(tmp, "medium", clock=clock, tiers=kart)
+        g.remember(tmp, gfx_tier="lines")
+        mon.chosen("lines")
+        feed(mon, clock, 40, 0.008)
+        assert g.load_settings(tmp).get("gfx_tier") == "lines"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     check("Heuristic puts real renderer strings in the right tier", heuristic)
     check("prc_for gives each tier its lines", prc)
     check("Monitor steps down and up on synthetic frame times", monitor)
     check("resolve follows --gfx, the saved tier, the detection, then medium", resolve)
     check("The class maximum caps resolve, the knobs in a run and the monitor's climb", class_maximum)
+    check("The whole ladder: each game's own tiers, the looks and ultra", ladder)
     for name, ok, note in results:
         print(("PASS " if ok else "FAIL ") + name + ("" if ok else ":\n    " + note))
     sys.exit(0 if all(ok for _, ok, _ in results) else 1)
