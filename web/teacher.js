@@ -63,6 +63,83 @@ function armed(app, key) {
     return app.state.confirm === key && Date.now() - app.state.confirmAt < 5000;
 }
 
+// ---------- the Mods tab's items and the vote (CHANGE 143: as engine/hud.py build_mods and each window's stage_items) ----------
+const STAGE_WORDS = {robotlab: {pit: "Drop zone open", floor_flipper: "Floor flipper", saws: "Floor saws", spikes: "Wall spikes"},
+                     fightlab: {ring_out: "Ring-outs (no ropes)", electric_ropes: "Electric ropes", fire_jets: "Fire jets",
+                                slippery: "Slippery ice", spikes: "Spikes"}};
+
+export function houseOn(app) {  // (lab_sim.house_list: True is all four, a list is those named)
+    const all = Object.keys((app.state.rules || {}).house || {}), v = ((app.state.lesson || {}).hazards || {}).house_robots;
+    return v === true ? all : Array.isArray(v) ? all.filter(n => v.includes(n)) : [];
+}
+
+// the game's own items: its hazards, and in Robot Lab each Resident Robot on its own (the server's ARENA_ITEMS has
+// them by name, so each is its own vote): [{key, text, on, patch(on) -> the lesson change that switches it}]
+export function stageItems(app) {
+    const S = app.state, L = S.lesson || {}, R = S.rules || {}, hz = L.hazards || {}, game = app.game ? app.game.id : "";
+    const words = STAGE_WORDS[game] || {};
+    const keys = Object.keys(words).length ? Object.keys(words) : Object.keys(hz);
+    const items = keys.filter(k => k !== "house_robots").map(k => {
+        const v = hz[k];
+        return {key: k, text: words[k] || pretty(k), on: v && typeof v === "object" ? Object.values(v).some(Boolean) : !!v,
+                patch: on => ({hazards: {[k]: on}})};
+    });
+    if (R.house && "house_robots" in hz) {
+        const on = houseOn(app);
+        for (const n of Object.keys(R.house)) {
+            items.push({key: n, text: `Resident Robot ${n}`, on: on.includes(n), house: true,
+                        patch: v => ({hazards: {house_robots: [...on.filter(x => x !== n), ...(v ? [n] : [])]}})});
+        }
+    }
+    return items;
+}
+
+// every user mod (the game's list, and what the server says is on or off) as {key: on}
+export function allUserMods(app) {
+    const S = app.state, game = app.game ? app.game.id : "";
+    const known = Object.keys((((S.lessons || {})[game]) || {}).user_mods || {});
+    return {...Object.fromEntries(known.map(k => [k, false])), ...((S.roster && S.roster.user_mods) || {}), ...((S.lesson || {}).user_mods || {})};
+}
+
+// the user mods as [key, made by a learner in this group], this group's own first (the window's mod_order)
+export function modOrder(app) {
+    const info = app.state.mods || {}, makers = info.makers || {};
+    const here = new Set((info.here || []).map(n => String(n).toLowerCase()));
+    const mods = Object.keys(allUserMods(app)).map(k => [k, !!makers[k] && here.has(String(makers[k]).toLowerCase())]);
+    return mods.filter(m => m[1]).concat(mods.filter(m => !m[1]));
+}
+
+const votesText = n => n ? `${n} vote${n === 1 ? "" : "s"}` : "";
+
+// the learner's Mods tab (the window's build_mods for a learner): an item out of the vote is hidden unless it is on,
+// and then it is shown ON with no tick to vote with. preview: the teacher's look at it (the ticks do nothing)
+export function learnerModsHtml(app, preview = false) {
+    const S = app.state, L = S.lesson || {}, info = S.mods || {}, me = preview ? null : S.name;
+    const arenaIn = L.arena_in_vote || {}, modsIn = L.mods_in_vote || {}, asked = info.arena_votes || {}, votes = info.votes || {};
+    const game = app.game ? app.game.id : "", on = allUserMods(app);
+    const off = preview ? "disabled" : "";
+    const items = stageItems(app).filter(it => arenaIn[it.key] !== false || it.on);
+    let html = `<h3>The ${game === "kartlab" ? "track" : game === "fightlab" ? "stage" : "arena"}</h3>
+      <p class="note">Tick what you'd like in the game: your teacher sees the votes.</p>`;
+    html += items.length ? `<table>${items.map(it => {
+        const voters = asked[it.key] || [];
+        if (arenaIn[it.key] === false) return `<tr><td class="ok">${esc(it.text)}</td><td class="ok">ON</td></tr>`;
+        return `<tr><td><label class="${it.on ? "ok" : ""}"><input type="checkbox" data-avote="${esc(it.key)}" ${me && voters.includes(me) ? "checked" : ""} ${off}>
+            ${esc(it.text)}${voters.length ? ` (${votesText(voters.length)})` : ""}</label></td><td class="${it.on ? "ok" : "note"}">${it.on ? "ON" : "off"}</td></tr>`;
+    }).join("")}</table>` : `<p class="note">Nothing here is in the vote at the moment.</p>`;
+    html += `<h3>User mods</h3><p class="note">Learners' ideas, built into the game. Tick the ones you'd like in the game: your teacher
+      sees the votes and switches mods on.</p>`;
+    const order = modOrder(app).filter(([k]) => modsIn[k] !== false || on[k]);
+    html += order.length ? `<table>${order.map(([k]) => {
+        const maker = (info.makers || {})[k], m = modInfo(app, k), voters = votes[k] || [], title = esc(maker ? `${maker}'s ` : "") + esc(m.title);
+        const what = m.text ? `<div class="note">${esc(m.text)}</div>` : "";
+        if (modsIn[k] === false) return `<tr><td><span class="ok">${title}</span>${what}</td><td class="ok">ON</td></tr>`;
+        return `<tr><td><label><input type="checkbox" data-mvote="${esc(k)}" ${me && voters.includes(me) ? "checked" : ""} ${off}> ${title}</label>${what}</td>
+            <td class="${on[k] ? "ok" : "note"}">${voters.length ? votesText(voters.length) + " " : ""}${on[k] ? "ON" : "off"}</td></tr>`;
+    }).join("")}</table>` : `<p class="note">No user mods yet.</p>`;
+    return html;
+}
+
 // ---------- rows the games' Controls tabs use ----------
 export function missionRow(app) {
     const L = app.state.lesson || {};
@@ -133,7 +210,7 @@ function learnersTab(app, body) {
         const key = p.role === "computer" ? cpuPick(p) : p.name;
         return `<tr data-learner="${esc(key)}" class="${S.pick === key ? "picked" : ""}"><td>${esc(p.name)}</td><td>${esc(p.role)}</td>` +
                extra.map(c => `<td>${c}</td>`).join("") +
-               `<td class="num">${pf.fps ?? ""}</td><td class="num">${pf.ping ?? ""}</td>` +
+               `<td class="num">${pf.fps ?? ""}</td><td class="num">${pf.ping ?? ""}</td><td class="num">${pf.ctrl ?? ""}</td>` +
                `<td class="num ${Number(stalls) > 5 ? "bad" : ""}">${stalls}</td><td>${esc(pf.tier ?? "")}</td></tr>`;
     }).join("");
     const picks = [...learners(app).map(p => [p.name, p.name]), ["*all", "All learners"],
@@ -142,8 +219,8 @@ function learnersTab(app, body) {
         S.pick = learners(app)[0] ? learners(app)[0].name : "*all";
     body.innerHTML = `
       <h2>Who is here</h2>
-      <table><tr><th>Name</th><th>Role</th>${extraHead.map(h => `<th>${esc(h)}</th>`).join("")}<th>fps</th><th>ping</th><th>stalls</th><th>graphics</th></tr>${rows}</table>
-      <div class="note">fps, ping and stalls come from each window every few seconds. Stalls are frames over 100 ms apart: a few a
+      <table><tr><th>Name</th><th>Role</th>${extraHead.map(h => `<th>${esc(h)}</th>`).join("")}<th>fps</th><th>ping</th><th title="how long a key press takes to show, in ms (the window's key delay)">key delay</th><th>stalls</th><th>graphics</th></tr>${rows}</table>
+      <div class="note">fps, ping, key delay and stalls come from each window every few seconds. Stalls are frames over 100 ms apart: a few a
         minute is the Wi-Fi; dozens means that laptop or the room's network needs looking at. Click a name to look at them.</div>
       <h2>Look at</h2>
       <div class="row">${picks.map(([k, n]) => `<button data-pick="${esc(k)}" class="${S.pick === k ? "on" : ""}">${esc(n)}</button>`).join("")}</div>
@@ -159,13 +236,26 @@ function pickBody(app, box) {
     const S = app.state, send = app.send, game = app.game, L = S.lesson || {};
     const people = S.classList || [];
     const cpu = cpuOf(app, S.pick);
+    const subRow = list => `<div class="row">${list.map(([k, n]) => `<button data-sub="${k}" class="${S.sub === k ? "on" : ""}">${esc(n)}</button>`).join("")}</div>`;
+    const wireSubs = () => box.querySelectorAll("button[data-sub]").forEach(b => b.onclick = () => {
+        S.sub = b.dataset.sub; S.formBase = null; S.viewAsked = null; app.renderPanel();
+    });
+    // (CHANGE 143) a computer's robot or fighter has the window's Mission and Mods (as a learner sees them) too
+    if (cpu) S.sub = ["garage", "mission", "mods"].includes(S.sub) ? S.sub : "garage";
+    const cpuSubs = cpu ? subRow([["garage", "Garage"], ["mission", "Mission"], ["mods", "Mods"]]) : "";
+    if (cpu && S.sub !== "garage") {
+        box.innerHTML = cpuSubs + (S.sub === "mission" ? missionPreview(app, cpu.name, false)
+            : `<p class="note">The Mods tab as a learner sees it (the computer's ${esc(game.word)} doesn't vote).</p>` + learnerModsHtml(app, true));
+        wireSubs();
+        if ($("v-refresh")) $("v-refresh").onclick = () => send({type: "view_learner", name: cpu.name});
+        return;
+    }
     if (S.pick === "*all" || S.pick === "*me" || cpu) {
         const who = S.pick === "*me" ? null : S.pick;
         const which = cpu && cpu.n ? {n: cpu.n} : {};  // (which computer robot: Robot Lab's, CHANGE 140)
         const arenas = L.arenas || 1, all = people.filter(p => p.role === "computer").length;
-        box.innerHTML = `<div id="dzgarage"></div>
-          <div class="row"><button id="dz-history">Load a saved design</button></div>
-          ${S.history ? `<div class="row"><select id="dz-hist">${S.history.slice(0, 80).map((h, i) => `<option value="${i}">${esc(h.when)} ${esc(h.who)}: ${esc(h.name)}</option>`).join("")}</select><button id="dz-load">Load it</button></div>` : ""}
+        box.innerHTML = `${cpuSubs}<div id="dzgarage"></div>
+          ${loadFromHtml(app, S.pick, {mine: S.pick !== "*me"})}
           ${S.pick === "*all" && L.start_design ? `<div class="row"><button id="dz-reset">Reset every learner to the mission's starting design</button></div>` : ""}
           ${S.pick === "*me" && L.start_design !== undefined ? `<div class="row"><button id="dz-start">Save as the learners' starting design</button>
               ${L.start_design ? `<button id="dz-standard">Standard again</button>` : ""}</div>
@@ -192,11 +282,8 @@ function pickBody(app, box) {
                 if (S.pick === "*all") send({type: "design_for_all", design: d});
                 else send({type: "cpu_robot", ...which, design: d});
             }});
-        $("dz-history").onclick = () => send({type: "history"});
-        if ($("dz-load")) $("dz-load").onclick = () => {
-            const h = S.history[Number($("dz-hist").value)];
-            if (h && h.design) { takeDesign(app, h.design, who); S.formSeq = (S.formSeq || 0) + 1; app.renderPanel(); }
-        };
+        wireSubs();
+        wireLoadFrom(app, box, S.pick, {who});
         if ($("dz-reset")) $("dz-reset").onclick = () => send({type: "design_for_all", design: L.start_design, keep_own: true});
         if ($("dz-start")) $("dz-start").onclick = () => { send({type: "lesson", lesson: {start_design: draftOf(app)}}); app.toast("Saved as the learners' starting design."); };
         if ($("dz-standard")) $("dz-standard").onclick = () => send({type: "lesson", lesson: {start_design: null}});
@@ -217,31 +304,26 @@ function pickBody(app, box) {
     const subs = [["mission", "Mission"], ["build", `Their ${game.word}`], ["cards", "AI cards"], ["login", "Password"]];
     let inner = "";
     if (S.sub === "mission") {
-        const v = S.viewing && S.viewing.for === p.name ? S.viewing : null;
-        if (S.viewAsked !== p.name) { S.viewAsked = p.name; send({type: "view_learner", name: p.name}); }
-        inner = v ? `<h3>Mission ${esc(v.lesson)}: ${esc(v.title || "")}</h3>
-            <table>${(v.missions || []).map(m => `<tr><td class="${m.done ? "ok" : ""}">${m.done ? "✓" : "·"}</td><td>${esc(m.id)}</td><td>${esc(m.title)}<div class="note">${esc(m.detail || "")}</div></td>
-              <td>${!m.done && m.check === "teacher" ? `<button data-tick="${esc(m.id)}">Tick</button>` : ""}</td></tr>`).join("")}</table>
-            <div class="row"><button id="v-refresh">Refresh</button></div>` : `<p class="note">Asking the server…</p>`;
+        inner = missionPreview(app, p.name, true);
     } else if (S.sub === "build") {
-        const theirs = S.theirSlots && S.theirSlots.who === p.name ? S.theirSlots.slots || {} : null;
         inner = `<div id="dzgarage"></div>
-          <div class="row"><button id="dz-theirs">Their saved ${esc(game.word)}s</button></div>
-          ${theirs ? `<div class="row">${Object.keys(theirs).length ? Object.entries(theirs).map(([n, x]) =>
-              `<button data-their="${esc(n)}">${Number(n) + 1}: ${esc(x.name)}</button>`).join("") : `<span class="note">Nothing saved.</span>`}</div>` : ""}
+          ${loadFromHtml(app, p.name, {mine: true, theirs: p.name})}
           <div class="note">Built with the widest limits, as the teacher window does; ${esc(p.name)} gets it straight away.</div>`;
-    } else if (S.sub === "cards") {
+    } else if (S.sub === "cards") {  // (the card's words are under card: teaching.submit_card)
         const cards = ((S.teaching || {}).cards || []).filter(c => c.learner === p.name);
-        inner = cards.length ? cards.map(c => `<div class="objective"><b>${esc(c.goal || "")}</b> <span class="note">${esc(c.status || "")}${c.note ? ": " + esc(c.note) : ""}</span>
-            <div class="note">Variables: ${esc(c.variables || "")}<br>Test: ${esc(c.test || "")}<br>Predict: ${esc(c.predict || "")}</div></div>`).join("")
-            : `<p class="note">${esc(p.name)} hasn't sent an AI card yet. The AI cards tab handles them.</p>`;
+        inner = cards.length ? cards.map(c => {
+            const k = c.card || {};
+            return `<div class="objective"><b>#${esc(c.id)} ${esc(k.goal || "")}</b> <span class="note">${esc(STATUS_WORDS[c.status] || c.status || "")}${c.note ? ": " + esc(c.note) : ""}</span>
+              <div class="note">Variables: ${esc(k.variables || "")}<br>Test: ${esc(k.test || "")}<br>Predict: ${esc(k.predict || "")}</div>
+              ${c.review ? `<div class="note">Their review: ${Object.entries(c.review).map(([q, a]) => `<b>${esc(q)}</b> ${esc(a)}`).join(" · ")}</div>` : ""}</div>`;
+        }).join("") : `<p class="note">${esc(p.name)} hasn't sent an AI card yet. The AI cards tab handles them.</p>`;
     } else {
         inner = `<div class="formgrid"><label>New password</label><input id="pw-learner" type="text" autocomplete="off" placeholder="at least 6 characters"></div>
           <div class="row"><button id="pw-set" class="go">Set it</button></div>
           <div class="note">The game's own login (laptop and class-code servers). On the club's server, learners' passwords are on the TEACHER DESK.</div>`;
     }
-    box.innerHTML = `<h2>${esc(p.name)}</h2><div class="row">${subs.map(([k, n]) => `<button data-sub="${k}" class="${S.sub === k ? "on" : ""}">${n}</button>`).join("")}</div>${inner}`;
-    box.querySelectorAll("button[data-sub]").forEach(b => b.onclick = () => { S.sub = b.dataset.sub; S.formBase = null; app.renderPanel(); });
+    box.innerHTML = `<h2>${esc(p.name)}</h2>${subRow(subs)}${inner}`;
+    wireSubs();
     if ($("dzgarage")) {
         renderGarage(app, $("dzgarage"), {who: p.name, pre: "dz", build: d => {
             const name = $("dz-name");  // (the window's send_design_for: the name as it is in the box)
@@ -251,14 +333,7 @@ function pickBody(app, box) {
     }
     box.querySelectorAll("button[data-tick]").forEach(b => b.onclick = () => { send({type: "tick", learner: p.name, mission: b.dataset.tick}); setTimeout(() => send({type: "view_learner", name: p.name}), 400); });
     if ($("v-refresh")) $("v-refresh").onclick = () => send({type: "view_learner", name: p.name});
-    if ($("dz-theirs")) $("dz-theirs").onclick = () => send({type: "slots_of", name: p.name});
-    box.querySelectorAll("button[data-their]").forEach(b => b.onclick = () => {
-        const x = (S.theirSlots.slots || {})[b.dataset.their];
-        takeDesign(app, Object.assign({}, p.design || {}, x.design || {}), p.name);
-        S.formSeq = (S.formSeq || 0) + 1;
-        app.renderPanel();
-        app.toast(`Loaded ${x.name}: press BUILD FOR ${p.name.toUpperCase()} to give it them.`);
-    });
+    wireLoadFrom(app, box, p.name, {who: p.name, theirs: p.name, base: p.design});
     if ($("pw-set")) $("pw-set").onclick = () => {
         const pw = $("pw-learner").value;
         if (pw.length < 6) return app.toast("Passwords need at least 6 characters.");
@@ -267,14 +342,92 @@ function pickBody(app, box) {
     };
 }
 
-function accountsHtml(app) {
+// a learner's (or a computer's) Mission tab as the teacher's Learner view shows it (engine/hud.py build_missions with
+// preview, CHANGE 143): each objective's state, outcome codes and guidance, what was done, what they have typed in a
+// box not yet done, and the brain with its error. tick: the teacher-checked ones get a Tick button
+function missionPreview(app, name, tick) {
+    const S = app.state, v = S.viewing && S.viewing.for === name ? S.viewing : null;
+    if (S.viewAsked !== name) { S.viewAsked = name; app.send({type: "view_learner", name}); }
+    if (!v) return `<p class="note">Asking the server…</p>`;
+    const typed = v.text || {};
+    let html = `<h3>Mission ${esc(v.lesson)}: ${esc(v.title || "")}</h3>`;
+    (v.missions || []).forEach((m, i) => {
+        const state = m.done ? "DONE" : m.check === "teacher" ? "TEACHER" : "TO DO";
+        html += `<div class="objective preview ${m.done ? "done" : ""}">
+          <div class="row"><b class="${m.done ? "ok" : ""}">[${state}]  ${i < 8 ? "abcdefgh"[i] + ". " : ""}${esc(m.title)}${m.done ? " ✓" : ""}</b>
+            <span class="codes">${esc((m.outcomes || []).join(" "))}</span>
+            ${tick && !m.done && m.check === "teacher" ? `<button data-tick="${esc(m.id)}">Tick</button>` : ""}</div>
+          ${m.done && m.detail ? `<div class="note ok">${esc(m.detail)}</div>` : ""}
+          <div class="note">${esc(m.text || "").replace(/\n/g, "<br>")}</div>
+          ${typed[m.id] && !m.done ? `<div class="wrote">They wrote: ${esc(typed[m.id])}</div>` : ""}</div>`;
+    });
+    if (v.lesson >= 3) {
+        const status = v.brain ? (v.autopilot ? "autopilot ON" : "uploaded (press P for autopilot)") : "not uploaded yet (edit brains/my_brain.py, then press U)";
+        html += `<p class="${v.brain ? "ok" : "note"}">Brain: ${status}</p>${v.brain_error ? `<p class="bad">Brain stopped: ${esc(v.brain_error)}</p>` : ""}`;
+    }
+    return html + `<div class="row"><button id="v-refresh">Refresh</button></div>`;
+}
+
+// Load from (engine/hud.py build_load_from, CHANGE 143): a saved design into the garage being looked at, from the
+// teacher's own five (My saved), this learner's (their saved) or the history of every save. view: whose garage
+function loadFromHtml(app, view, {mine = true, theirs = null} = {}) {
+    const S = app.state, lf = S.loadFrom && S.loadFrom.view === view ? S.loadFrom.key : null;
+    const choices = [...(mine ? [["mine", "My saved"]] : []), ...(theirs ? [["theirs", `${theirs}'s saved`]] : []), ["history", "History"]];
+    let html = `<div class="row"><b>Load from</b>${choices.map(([k, n]) => `<button data-lfrom="${k}" class="${lf === k ? "on" : ""}">${esc(n)}</button>`).join("")}
+      ${lf && S.lfNote ? `<span class="ok">${esc(S.lfNote)}</span>` : ""}</div>`;
+    if (!lf) return html;
+    const slotRows = slots => Object.keys(slots).sort().map(n => [`slot ${n}:  ${slots[n].name}`, n]);
+    const rows = lf === "history" ? (S.history ? S.history.slice(0, 40).map((it, i) => [`${it.when}  ${it.who}  slot ${it.slot}:  ${it.name}`, i]) : null)
+        : lf === "mine" ? (S.slots ? slotRows(S.slots) : null)
+        : (S.theirSlots && S.theirSlots.who === theirs ? slotRows(S.theirSlots.slots || {}) : null);
+    if (rows === null) return html + `<p class="note">Loading…</p>`;
+    if (!rows.length) return html + `<p class="note">${lf === "history" ? "Nothing saved yet." : `No saved ${esc(app.game.word)}s.`}</p>`;
+    return html + `<div class="loadlist">${rows.map(([t, i]) => `<div class="row"><span>${esc(t)}</span><button data-lfload="${esc(i)}">LOAD</button></div>`).join("")}</div>`;
+}
+
+function wireLoadFrom(app, box, view, {who = null, theirs = null, base = null} = {}) {
+    const S = app.state, send = app.send;
+    box.querySelectorAll("button[data-lfrom]").forEach(b => b.onclick = () => {
+        const key = b.dataset.lfrom;
+        S.loadFrom = {view, key};
+        S.lfNote = null;
+        if (key === "history") { S.history = null; send({type: "history"}); }
+        else if (key === "theirs") send({type: "slots_of", name: theirs});
+        else if (!S.slots) send({type: "slot", do: "list"});
+        app.renderPanel();
+    });
+    box.querySelectorAll("button[data-lfload]").forEach(b => b.onclick = () => {
+        const key = (S.loadFrom || {}).key, i = b.dataset.lfload;
+        const held = key === "history" ? (S.history || [])[Number(i)] : key === "mine" ? (S.slots || {})[i] : ((S.theirSlots || {}).slots || {})[i];
+        if (!held || !held.design) return;
+        takeDesign(app, base ? Object.assign({}, base, held.design) : held.design, who);
+        S.lfNote = `Loaded ${held.name}: press BUILD to use it.`;
+        S.formSeq = (S.formSeq || 0) + 1;
+        app.renderPanel();
+    });
+}
+
+// the accounts as the window lists them (CHANGE 143): with the club desk, this session's names first (green), then
+// the next session's (orange: the group whose proposed time comes next), then everyone else
+function accountNames(app) {
     const S = app.state, T = S.teaching || {}, ses = S.session || {};
-    const names = [...new Set([...(T.accounts || []), ...(ses.all || [])])].sort((a, b) => a.localeCompare(b));
-    const inSession = new Set(ses.learners || []);
+    const here = new Set(ses.learners || []), coming = new Set(ses.next || []);
+    const rank = n => here.has(n) ? 0 : coming.has(n) ? 1 : 2;
+    return [...new Set([...(T.accounts || []), ...(ses.all || [])])]
+        .sort((a, b) => rank(a) - rank(b) || a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+
+function accountsHtml(app) {
+    const S = app.state, ses = S.session || {};
+    const names = accountNames(app);
+    const inSession = new Set(ses.learners || []), coming = new Set(ses.next || []);
+    const colours = ses.desk ? (ses.live ? `Green: in this session (${esc(ses.group)}).` : "No session is live.") +
+        (ses.next_group ? ` <span class="orange">Orange: next, ${esc(ses.next_group)}${ses.next_time ? ` (${esc(ses.next_time)})` : ""}.</span>` : "") : "";
     return `<h2>Accounts on this game server (${names.length})</h2>
       <div class="note">The game's own records of each learner (their ${esc(app.game.word)}, evidence, AI cards). Deleting one removes all of
         it. ${ses.desk && ses.live ? "The tick lets a learner into this desk session, or takes them out." : ""}</div>
-      <table>${names.slice(0, 200).map((n, i) => `<tr><td>${esc(n)}</td>
+      ${colours ? `<div class="note">${colours}</div>` : ""}
+      <table>${names.slice(0, 200).map((n, i) => `<tr><td class="${inSession.has(n) ? "ok" : coming.has(n) ? "orange" : ""}">${esc(n)}</td>
         ${ses.desk && ses.live ? `<td><label><input type="checkbox" data-sesn="${i}" ${inSession.has(n) ? "checked" : ""}> in this session</label></td>` : ""}
         <td><input id="acpw-${i}" placeholder="new password" autocomplete="off" size="12"></td>
         <td><button data-acpw="${i}">Set password</button> <button data-acdel="${i}" class="stop">${armed(app, "del:" + n) ? "Press again" : "Delete"}</button></td></tr>`).join("")
@@ -285,8 +438,7 @@ function accountsHtml(app) {
 }
 
 function wireAccounts(app, body) {
-    const S = app.state, T = S.teaching || {}, ses = S.session || {}, send = app.send;
-    const names = [...new Set([...(T.accounts || []), ...(ses.all || [])])].sort((a, b) => a.localeCompare(b));
+    const send = app.send, names = accountNames(app);
     body.querySelectorAll("button[data-acpw]").forEach(b => b.onclick = () => {
         const i = Number(b.dataset.acpw), pw = $("acpw-" + i).value;
         if (pw.length < 6) return app.toast("Passwords need at least 6 characters.");
@@ -306,6 +458,52 @@ function wireAccounts(app, body) {
     };
 }
 
+// ---------- the lesson guide (CHANGE 143): Robot Lab's window reads it from its lesson file (lab_missions GUIDE,
+// LESSON_TASKS, OUTCOMES' curriculum references); the page asks the club's desk, which reads the same file (its
+// "scheme" command, as Print scheme of work). lessons.json carrying it as scheme is used first, if it ever does.
+// {lessons: {n: {title, task}}, outcomes: {code: [name, can do, curriculum]}, missions: {id: [lesson, title, text,
+// outcomes, check]}, guide: {n: {code: {task, do, teach, success}}}}
+const GUIDE_GAMES = new Set(["robotlab"]);  // (the windows that show it: Fight Lab's and Kart Lab's don't)
+
+export function guideOf(app) {
+    const S = app.state, game = app.game.id, own = ((S.lessons || {})[game] || {}).scheme;
+    if (own) return own;
+    const desk = S.desk;
+    if (!desk) return null;
+    if (desk.scheme) return desk.scheme[game] || null;
+    if (desk.ready && !desk.schemeAsked) {
+        desk.schemeAsked = true;
+        const got = scheme => { desk.scheme = scheme; app.renderPanel(); };  // (asked once: an older desk says no)
+        desk.ask({type: "scheme"}, "scheme").then(m => got(m.scheme || {}), () => got({}));
+    }
+    return null;
+}
+
+function outcomePiece(app, G, code) {  // (the window's build_outcome_piece)
+    const S = app.state, T = S.teaching || {}, grid = T.grid || {}, learners = Object.keys(grid);
+    const [name, can, refs] = G.outcomes[code];
+    const taughtIn = Object.keys(G.guide || {}).filter(k => code in G.guide[k]).map(Number).sort((a, b) => a - b);
+    let gn = S.guideLesson || T.lesson || 1;
+    if (!taughtIn.includes(gn) && taughtIn.length) gn = taughtIn[0];
+    const piece = ((G.guide || {})[String(gn)] || {})[code] || {}, lesson = G.lessons[String(gn)] || {};
+    const evidence = Object.entries(G.missions || {}).filter(([, v]) => v[0] === gn && (v[3] || []).includes(code));
+    const shown = learners.filter(nm => (grid[nm].outcomes || {})[code]);
+    return `<div class="row"><button id="op-back">&lt; All outcomes</button><span class="codes">${esc(code)}</span></div>
+      <h2>${esc(String(name).toUpperCase())}</h2>
+      <p><b>Learners can:</b> ${esc(can)}</p>
+      <div class="row"><b>Taught in mission</b>${taughtIn.map(k => `<button data-oplesson="${k}" class="${k === gn ? "on" : ""}">${k}</button>`).join("")}</div>
+      <h3>Mission ${esc(gn)}: ${esc(lesson.title || "")}</h3>
+      ${lesson.task ? `<p class="blue">Overall task: ${esc(lesson.task)}</p>` : ""}
+      ${piece.task ? `<p><b>Task: ${esc(piece.task)}</b></p>` : ""}
+      <h3>What learners do</h3><ol>${(piece.do || []).map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+      <h3>What to explain or show</h3><p>${esc(piece.teach || "")}</p>
+      <h3>Success looks like</h3><p class="ok">${esc(piece.success || "")}</p>
+      <h3>Objectives that give evidence</h3>
+      ${evidence.map(([mid, v]) => `<p>${esc(mid)}  ${esc(v[1])}  <span class="note">(${v[4] === "teacher" ? "the teacher ticks it" : "ticked by the game"})</span></p>`).join("") || "<p class='note'>None.</p>"}
+      ${learners.length ? `<p class="note">Shown so far by ${shown.length} of ${learners.length}: ${esc(shown.join(", ") || "nobody yet")}</p>` : ""}
+      <p class="note">Curriculum: ${esc(refs || "")}</p>`;
+}
+
 function outcomesTab(app, body) {
     const S = app.state, T = S.teaching, send = app.send, L = S.lesson || {};
     if (!T) { body.innerHTML = "<p class='note'>Waiting for the server…</p>"; return; }
@@ -321,12 +519,34 @@ function outcomesTab(app, body) {
     const E = S.editLesson || n;
     const objs = Object.entries(edited[String(E)] || {});
     const hidden = new Set(((T.edits || {}).hidden) || []);
+    // (CHANGE 143) Robot Lab's window has a lesson guide here: any mission's outcomes, each with its lesson piece
+    const guided = GUIDE_GAMES.has(app.game.id), G = guided ? guideOf(app) : null;
+    if (G && S.outcomeView && G.outcomes[S.outcomeView]) {
+        body.innerHTML = outcomePiece(app, G, S.outcomeView);
+        $("op-back").onclick = () => { S.outcomeView = null; app.renderPanel(); };
+        body.querySelectorAll("button[data-oplesson]").forEach(b => b.onclick = () => { S.guideLesson = Number(b.dataset.oplesson); app.renderPanel(); });
+        return;
+    }
+    const gn = guided ? (S.guideLesson || n) : n, gObjs = Object.entries(edited[String(gn)] || {});
+    const gTaught = G ? new Set(Object.keys(G.guide[String(gn)] || {})) : new Set(gObjs.flatMap(([, o]) => o[3] || []));
+    const lessonG = G ? G.lessons[String(gn)] || {} : {};
+    // each outcome this mission teaches, with its objectives (click one for what it asks), as the windows list them
+    const teaches = codes.filter(c => gTaught.has(c)).map(c => `<div class="outcome">
+        ${G ? `<button data-opiece="${esc(c)}" class="go" title="its lesson piece">${esc(outs[c][0])}</button>` : `<b>${esc(outs[c][0])}</b>`} <span class="codes">${esc(c)}</span>
+        ${gObjs.map(([mid, o], i) => (o[3] || []).includes(c) ? `<div><button class="link ${S.openOutcomeObj === mid ? "on" : ""}" data-oobj="${esc(mid)}">${i < 8 ? "abcdefgh"[i] : "+"}. ${esc(o[1])}</button>
+            ${S.openOutcomeObj === mid ? `<div class="note">${esc(o[2]).replace(/\n/g, "<br>")}</div>` : ""}</div>` : "").join("")}</div>`).join("");
     body.innerHTML = `
-      <h2>Outcomes shown (mission ${esc(n)})</h2>
-      <div class="scrollx"><table><tr><th>Learner</th>${codes.map(c => `<th title="${esc(outs[c][0])}: ${esc(outs[c][1])}" class="${taught.has(c) ? "taught" : ""}">${esc(c)}</th>`).join("")}</tr>
+      <h2>Outcomes shown (mission ${esc(guided ? gn : n)})</h2>
+      ${guided ? `<div class="row"><b>Mission</b>${[1, 2, 3, 4, 5].map(k => `<button data-glesson="${k}" class="${k === gn ? "on" : ""}">${k}</button>`).join("")}
+          <span class="note">(the class is on mission ${esc(n)})</span></div>
+        ${G ? `<p><b>${esc(lessonG.title || "")}</b></p>${lessonG.task ? `<p class="blue">Overall task: ${esc(lessonG.task)}</p>` : ""}`
+            : `<p class="note">${!S.desk ? "The lesson guide (each outcome's lesson piece) comes from the club's desk: log in through the desk to see it here."
+                : S.desk.scheme ? "The club's desk didn't send the lesson guide (its server may need the latest release)." : "Asking the desk for the lesson guide…"}</p>`}` : ""}
+      <div class="scrollx"><table><tr><th>Learner</th>${codes.map(c => `<th title="${esc(outs[c][0])}: ${esc(outs[c][1])}" class="${gTaught.has(c) ? "taught" : ""}">${esc(c)}</th>`).join("")}</tr>
         ${names.map(nm => `<tr><td>${esc(nm)}</td>${codes.map(c => { const k = (grid[nm].outcomes || {})[c] || 0; return `<td class="num ${k ? "ok" : ""}">${k || ""}</td>`; }).join("")}</tr>`).join("")
           || `<tr><td class="note" colspan="${codes.length + 1}">Nobody yet.</td></tr>`}</table></div>
-      <div class="note">Highlighted codes are what this mission teaches. Hover a code for its name.</div>
+      <div class="note">Highlighted codes are what this mission teaches. Hover a code for its name.${G ? " Click an outcome for its lesson piece." : ""}</div>
+      ${teaches ? `<h3>What mission ${esc(gn)} teaches</h3>${teaches}` : ""}
       <h2>Teacher-checked objectives (mission ${esc(n)})</h2>
       ${teacherChecked.map(([id, o]) => `<div class="objective"><b>${esc(id)}</b> ${esc(o[1])}<div class="row">${names.map(nm => {
             const done = (grid[nm].missions || []).includes(id);
@@ -343,7 +563,10 @@ function outcomesTab(app, body) {
             <label><input type="checkbox" data-see="${esc(id)}" ${hidden.has(id) ? "" : "checked"}> learners see it</label></div>
           <input id="ot-${esc(id)}" class="wide" value="${esc(o[1])}">
           <textarea id="ox-${esc(id)}" rows="3" class="wide">${esc(o[2])}</textarea>
-          <div class="row"><button data-osave="${esc(id)}">Save</button><button data-oauto="${esc(id)}" title="An AI card asking Claude to write this objective's automatic check: send it to Claude from the AI cards tab">Automate</button><button data-oremove="${esc(id)}" class="stop">${armed(app, "orm:" + id) ? "Press again" : "Remove"}</button></div></div>`).join("")}
+          <div class="row"><button data-osave="${esc(id)}">Save</button><button data-oauto="${esc(id)}" title="An AI card asking Claude to write this objective's automatic check: send it to Claude from the AI cards tab">Automate</button><button data-oremove="${esc(id)}" class="stop">${armed(app, "orm:" + id) ? "Press again" : "Remove"}</button></div>
+          ${names.length ? `<div class="row whodone">${names.filter(nm => nm !== S.name).map(nm =>
+              `<span class="${(grid[nm].missions || []).includes(id) ? "ok" : "bad"}">${esc(nm)}</span>`).join("")}</div>` : ""}</div>`).join("")}
+      ${names.length ? `<div class="note">Under each objective: green has done it, red not yet.</div>` : ""}
       <h3>Add an objective to mission ${esc(E)}</h3>
       <input id="oa-title" class="wide" placeholder="title"><textarea id="oa-text" rows="3" class="wide" placeholder="what to do"></textarea>
       <div class="row"><button id="oa-add">Add</button></div>
@@ -351,6 +574,12 @@ function outcomesTab(app, body) {
       <div class="row"><button id="btn-missions-export">Download the missions file</button>
         <label class="filebtn">Load an edited missions file<input id="missions-import" type="file" accept=".json,application/json" hidden></label></div>`;
     body.querySelectorAll("button[data-tick]").forEach(b => b.onclick = () => send({type: "tick", learner: b.dataset.who, mission: b.dataset.tick}));
+    body.querySelectorAll("button[data-glesson]").forEach(b => b.onclick = () => { S.guideLesson = Number(b.dataset.glesson); S.openOutcomeObj = null; app.renderPanel(); });
+    body.querySelectorAll("button[data-opiece]").forEach(b => b.onclick = () => { S.outcomeView = b.dataset.opiece; app.renderPanel(); });
+    body.querySelectorAll("button[data-oobj]").forEach(b => b.onclick = () => {
+        S.openOutcomeObj = S.openOutcomeObj === b.dataset.oobj ? null : b.dataset.oobj;
+        app.renderPanel();
+    });
     $("btn-export-csv").onclick = () => send({type: "export"});
     body.querySelectorAll("button[data-elesson]").forEach(b => b.onclick = () => { S.editLesson = Number(b.dataset.elesson); app.renderPanel(); });
     $("btn-show-missions").onclick = () => send({type: "lesson", lesson: {show_missions: !L.show_missions}});
@@ -715,8 +944,9 @@ function rulesTab(app, body) {
     const tools = L.tools || {};
     const flags = Object.entries(tools).filter(([, v]) => typeof v === "boolean");
     const lists = Object.entries(tools).filter(([, v]) => Array.isArray(v));
-    const haz = L.hazards || {};
-    const userMods = {...((S.roster && S.roster.user_mods) || {}), ...(L.user_mods || {})};
+    // (CHANGE 143) the window's stage items: the hazards, and each Resident Robot as its own item with its own vote
+    const items = stageItems(app);
+    const userMods = allUserMods(app);
     const inVote = (which, k) => (L[which] || {})[k] !== false;
     const voters = (which, k) => (mods[which] || {})[k] || [];
     const votes = (which, k) => voters(which, k).length;
@@ -729,17 +959,15 @@ function rulesTab(app, body) {
       ${lists.map(([k, v]) => `<div class="row"><label>${esc(pretty(k))} allowed</label>${Object.keys(R[k] || {}).map(o =>
           `<button data-list="${esc(k)}" data-item="${esc(o)}" class="${v.includes(o) ? "on" : ""}">${esc(pretty(o))}</button>`).join("")}</div>`).join("")}
       <h2>Hazards</h2>
-      <div class="ticks">${Object.entries(haz).filter(([, v]) => typeof v === "boolean").map(([k, v]) =>
-          `<label><input type="checkbox" data-haz="${esc(k)}" ${v ? "checked" : ""}> ${esc(pretty(k))}
-             <small><input type="checkbox" data-avote="${esc(k)}" ${inVote("arena_in_vote", k) ? "checked" : ""}> in the vote${whoVoted("arena_votes", k)}</small></label>`).join("") || "<span class='note'>None in this game.</span>"}</div>
-      <div class="row"><button data-voteall="arena_in_vote" data-on="1">All in the vote</button><button data-voteall="arena_in_vote" data-on="0">None in the vote</button></div>
-      ${R.house ? `<div class="row"><label>Resident Robots</label>${Object.keys(R.house).map(n => {
-          const on = haz.house_robots === true || (Array.isArray(haz.house_robots) && haz.house_robots.includes(n));
-          return `<button data-house="${esc(n)}" class="${on ? "on" : ""}">${esc(n)}</button>`; }).join("")}</div>` : ""}
+      <div class="ticks">${items.map(it =>
+          `<label><input type="checkbox" ${it.house ? "data-house" : "data-haz"}="${esc(it.key)}" ${it.on ? "checked" : ""}> ${esc(it.text)}
+             <small><input type="checkbox" data-avote="${esc(it.key)}" ${inVote("arena_in_vote", it.key) ? "checked" : ""}> in the vote${whoVoted("arena_votes", it.key)}</small></label>`).join("") || "<span class='note'>None in this game.</span>"}</div>
+      ${items.length ? `<div class="row"><button data-voteall="arena_in_vote" data-on="1">All in the vote</button><button data-voteall="arena_in_vote" data-on="0">None in the vote</button></div>` : ""}
       <h2>User mods</h2>
-      <div class="ticks">${Object.entries(userMods).map(([k, v]) => {
-          const maker = (mods.makers || {})[k], info = modInfo(app, k);
-          return `<label title="${esc(info.text)}"><input type="checkbox" data-umod="${esc(k)}" ${v ? "checked" : ""}> ${esc(maker ? `${maker}'s ` : "")}${esc(info.title)}
+      <div class="note">Green: made by a learner in this group.</div>
+      <div class="ticks">${modOrder(app).map(([k, lit]) => {
+          const v = userMods[k], maker = (mods.makers || {})[k], info = modInfo(app, k);
+          return `<label title="${esc(info.text)}" class="${lit ? "ok" : ""}"><input type="checkbox" data-umod="${esc(k)}" ${v ? "checked" : ""}> ${esc(maker ? `${maker}'s ` : "")}${esc(info.title)}
             <small><input type="checkbox" data-mvote="${esc(k)}" ${inVote("mods_in_vote", k) ? "checked" : ""}> in the vote${whoVoted("votes", k)}</small>
             ${info.text ? `<div class="note">${esc(info.text)}</div>` : ""}</label>`;
       }).join("") || "<span class='note'>No user mods in this game yet.</span>"}</div>
@@ -761,17 +989,15 @@ function rulesTab(app, body) {
     body.querySelectorAll("input[data-haz]").forEach(c => c.onchange = () => lessonSend({hazards: {[c.dataset.haz]: c.checked}}));
     body.querySelectorAll("button[data-voteall]").forEach(b => b.onclick = () => {  // (CHANGE 101: every item in or out at once)
         const which = b.dataset.voteall, on = b.dataset.on === "1";
-        const keys = which === "mods_in_vote" ? Object.keys(userMods) : Object.keys(haz).filter(k => typeof haz[k] === "boolean");
+        const keys = which === "mods_in_vote" ? Object.keys(userMods) : items.map(it => it.key);
         lessonSend({[which]: Object.fromEntries(keys.map(k => [k, on]))});
     });
     body.querySelectorAll("input[data-avote]").forEach(c => c.onchange = () => lessonSend({arena_in_vote: {[c.dataset.avote]: c.checked}}));
     body.querySelectorAll("input[data-umod]").forEach(c => c.onchange = () => lessonSend({user_mods: {[c.dataset.umod]: c.checked}}));
     body.querySelectorAll("input[data-mvote]").forEach(c => c.onchange = () => lessonSend({mods_in_vote: {[c.dataset.mvote]: c.checked}}));
-    body.querySelectorAll("button[data-house]").forEach(b => b.onclick = () => {
-        const all = Object.keys(R.house);
-        const cur = new Set(haz.house_robots === true ? all : Array.isArray(haz.house_robots) ? haz.house_robots : []);
-        if (cur.has(b.dataset.house)) cur.delete(b.dataset.house); else cur.add(b.dataset.house);
-        lessonSend({hazards: {house_robots: [...cur]}});
+    body.querySelectorAll("input[data-house]").forEach(c => c.onchange = () => {  // (the window's toggle_house)
+        const it = items.find(x => x.house && x.key === c.dataset.house);
+        if (it) lessonSend(it.patch(c.checked));
     });
     $("lim-save").onclick = () => {
         const out = {settings: {}, points: {}, points_total: Number($("lim-total").value)};

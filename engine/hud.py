@@ -762,8 +762,92 @@ class HudKit:
         label(f, "A bigger window is sharper, and asks more of the graphics (the Graphics button).\n"
                  "Full screen fills the screen at its own size. Both kept on this computer.", 0.82, y, 0.02, GREY)
         y -= 0.09
+        if self.teacher:
+            y = self.class_max_row(f, y)
         label(f, "Version", 0.82, y, 0.03)
         label(f, self.version_text(), 1.12, y, 0.024, GREY)  # (CHANGE 106)
+
+    # ---------- the AI cards tab's filter (CHANGE 143, as the page's) ----------
+    all_cards = False  # every card, or only the open ones (not reviewed, not sent back)
+
+    def cards_filter(self, f, x, y, cards):
+        """The button that switches the AI cards tab between the open cards and every card, at x, y. Returns the
+        cards to show: the open ones (the last four, as the tab always showed), or every card, newest first."""
+        button(f, "Showing every card" if self.all_cards else "Showing open cards", x, y, self.toggle_all_cards, None,
+               0.022, ON if self.all_cards else OFF)
+        if self.all_cards:
+            return list(reversed(cards))[:20]
+        return [c for c in cards if c.get("status") not in ("reviewed", "rejected")][-4:]
+
+    def toggle_all_cards(self):
+        self.all_cards = not self.all_cards
+        self.panel_scroll = 0.0
+        self.rebuild_panels()
+
+    # ---------- the Learner view's "Who is here" (CHANGE 143, as the page's Learners tab) ----------
+    PERF_COLUMNS = (("fps", "fps", 1.2), ("ping", "ping", 1.3), ("ctrl", "key delay", 1.43), ("stalls", "stalls", 1.53),
+                    ("tier", "graphics", 1.57))  # (the report's key, the heading, where its right edge is: tier's left)
+
+    def perf_table(self, f, y, people, perf):
+        """One row for every window in the class (people: [(name, role)]): its frame rate, ping, key delay, network
+        stalls and graphics tier, from the reports the roster carries (perf), kept fresh by perf_table_update. A
+        learner's name is a button: they are looked at below. Returns the y under the table."""
+        label(f, "WHO IS HERE", 0.82, y, 0.024, YELLOW)
+        for key, text, x in self.PERF_COLUMNS:
+            label(f, text, x, y, 0.018, GREY, TextNode.ALeft if key == "tier" else TextNode.ARight)
+        y -= 0.034
+        self.perf_cells, self.perf_cells_frame = {}, f
+        for who, role in people:
+            if role == "learner":
+                text_button(f, who[:18], 0.84, y, self.set_view, [who], 0.021, YELLOW if who == self.view_name else WHITE)
+            else:
+                label(f, f"{who[:14]} (you)", 0.84, y, 0.021, GREY)
+            self.perf_cells[who] = [label(f, "", x, y, 0.021, WHITE, TextNode.ALeft if key == "tier" else TextNode.ARight)
+                                    for key, _, x in self.PERF_COLUMNS]
+            y -= 0.03
+        if not people:
+            label(f, "Nobody is here yet.", 0.84, y, 0.021, GREY)
+            y -= 0.03
+        label(f, "From each window every few seconds. Stalls are frames over 100 ms apart: a few a minute is the\n"
+                 "Wi-Fi; dozens means that laptop or the room's network needs looking at.", 0.82, y, 0.017, GREY)
+        self.perf_table_update(perf)
+        return y - 0.06
+
+    def perf_table_update(self, perf):
+        """The table's numbers, from the roster's reports (the game's show_perf calls this every second)."""
+        cells = getattr(self, "perf_cells", None)
+        if not cells:
+            return
+        if self.perf_cells_frame.isEmpty():  # (the panel has been redrawn: the table went with it)
+            self.perf_cells = None
+            return
+        for who, labels in cells.items():
+            r = (perf or {}).get(who) or {}
+            for (key, _, _), lab in zip(self.PERF_COLUMNS, labels):
+                v = r.get(key)
+                lab.setText("" if v is None else str(v).capitalize() if key == "tier" else str(v))
+                if key == "stalls":
+                    lab.setFg(RED if isinstance(v, (int, float)) and v > 5 else WHITE)
+
+    def class_max_row(self, f, y):
+        """CHANGE 143 (the page's Graphics tab, CHANGE 139): the teacher's class maximum, the lesson's gfx_max: the
+        best graphics the learners' windows and pages may draw (None: no limit). The server keeps it for the next
+        lesson. Returns the y under the row."""
+        from engine import gfx_tiers
+        now = gfx_tiers.class_max((getattr(self, "lesson", None) or {}).get("gfx_max"))
+        label(f, "Class graphics", 0.82, y, 0.03)
+        for i, tier in enumerate(gfx_tiers.TIERS + (None,)):
+            button(f, tier.title() if tier else "No limit", 1.1 + i * 0.13, y + 0.008, self.set_class_max, [tier], 0.024,
+                   ON if tier == now else OFF)
+        y -= 0.045
+        label(f, "The best graphics the class may draw. Learners' windows open at most at it (one already open turns\n"
+                 "its shadows and smoothing down now, the rest at its next start); their pages drop to it at once\n"
+                 "(Basic is the pages' Blocks). Your own view isn't held to it. Kept for the next lesson.",
+              0.82, y, 0.02, GREY)
+        return y - 0.11
+
+    def set_class_max(self, tier):
+        SEND({"type": "lesson", "lesson": {"gfx_max": tier}})
 
     VERSION = ""    # the game sets these: its release number...
     LIVE_ID = None  # ...and the live update's id when it is running one (lab_version.live_id())
@@ -903,6 +987,23 @@ class HudKit:
         wide = self.getAspectRatio()
         left, right, bottom, top = self.code_rect()
         return [max(-wide - left, min(wide - right, x)), max(-1 - bottom, min(1 - top, y))]
+
+    def code_panel_top(self, word, who=None):
+        """CHANGE 143: the code panel's frame and title bar, as the browser's (the promo videos' code window): navy
+        with a cyan edge, the three dots and the file's name (my_robot.py; sam_robot.py when the teacher looks at
+        Sam's), the title under them. The top is a handle: drag it to move the panel. Returns the frame and its rect."""
+        left, right, bottom, top = rect = self.code_rect()
+        f = self.code_panel = editor.code_window(rect, (self.code_at[0], 0, self.code_at[1]))
+        handle = DirectFrame(parent=f, frameColor=editor.TITLE_BACK, state=DGG.NORMAL, frameSize=(left, right, 0.285, top))
+        handle.bind(DGG.B1PRESS, self.code_drag_start)  # (a drag in the code places the cursor instead)
+        editor.title_bar(self, f, -0.83, 0.343, editor.file_name(word, who), 0.019)
+        label(f, f"{who.upper()}'S {word.upper()} AS PYTHON CODE" if who else f"YOUR {word.upper()} AS PYTHON CODE",
+              -0.83, 0.297, 0.03, editor.PANEL_TEXT)
+        label(f, "drag here to move", right - 0.02, 0.337, 0.017, editor.DIM, TextNode.ARight)
+        label(f, "Click in the code to type there (drag to select; Ctrl+C, X, V and A work). Change a value,\n"
+                 "then press APPLY CODE: the garage changes to match. Return makes a new line.", -0.83, 0.264, 0.021,
+              editor.DIM)
+        return f, rect
 
     def mouse_at(self):
         """The mouse's place on the screen, in the panels' units (or None if it is outside the window)."""

@@ -113,6 +113,16 @@ try:
         assert state["games"]["robotlab"]["title"] == "Robot Lab"
     check("teacher: logs in and gets the desk's state", teacher_login)
 
+    def scheme_of_work():  # (CHANGE 143) the app's Print scheme of work and lesson guide, for the page: teachers only
+        m = ask(teacher, {"type": "scheme"}, want="scheme")
+        sc = m.get("scheme", {})
+        assert {"robotlab", "fightlab", "kartlab"} <= set(sc), sorted(sc)
+        assert sc["robotlab"].get("guide", {}).get("1"), "Robot Lab's lesson guide is missing"
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            m = ask(ws, {"type": "scheme"}, want="scheme")
+            assert "scheme" not in m and "error" in m, m
+    check("teacher: the scheme of work and lesson guide (a learner's connection is refused it)", scheme_of_work)
+
     def add_learners():
         for name, starter in (("Sam", "sam-starter"), ("Alex", ""), ("Jo", "jo-starter")):
             m = ask(teacher, {"type": "add_learner", "name": name, "starter": starter})

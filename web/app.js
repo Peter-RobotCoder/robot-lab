@@ -23,6 +23,8 @@ import {setupCodePanel, toggleCode, renderCode, designResult} from "./garage.js"
 import {Keys, Controller} from "./play.js";
 import {Sound, SETTINGS_ROWS, MUSIC, HAS_MUSIC} from "./sound.js";
 import {hideHud} from "./hud.js";
+import {makeDraggable} from "./drag.js";
+import {openBrainEditor, closeBrainEditor, brainEditorChanged, uploadMyBrain, brainsOn} from "./brain.js";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -293,6 +295,7 @@ function connect(address = null, how = null) {
         state.ws = null;
         state.leaving = false;
         renderCode(appApi);
+        renderKeyHelp();  // (CHANGE 143: the key list goes with the class)
         if (!left && was && !(ev.code >= 4000 && ev.code < 4100) && state.reconnects < 30) {  // (a restart or the Wi-Fi)
             state.reconnects++;
             toast(state.expectRestart && Date.now() - state.expectRestart < 60000 ? "The class server is restarting: reconnecting…"
@@ -384,6 +387,7 @@ function onMessage(data) {
     const game = state.game;
     switch (m.type) {
         case "welcome": {
+            const again = state.reconnects > 0;  // (a reconnect to the same class: CHANGE 143's Show learners)
             state.connected = true;
             state.reconnects = 0;
             state.role = m.role;
@@ -415,12 +419,24 @@ function onMessage(data) {
             send({type: "ping", t: Date.now()});
             send({type: "slot", do: "list"});  // (my saved designs, as the windows ask: CHANGE 83)
             if (params.get("panel")) { $("panel").classList.add("open"); state.tab = params.get("panel"); buildTabs(); }
+            // (CHANGE 143) the learner's own settings from their profile (the windows' keys), the Show learners tick as
+            // it stands, the windows' banners, Back to the lobby, the key list and the brain editor for this game
+            if (m.role === "learner") restoreProfileSettings(state.prefs);
+            else setLook();  // (the teacher's are this computer's: put where the game files read them)
+            showMissionsChanged(again ? state.showMissionsSeen : false, (m.lesson || {}).show_missions);
+            if (m.new_profile) toast(`Welcome, ${m.name || state.name}! Your profile is made: next time log in with the same username and password.`, false, 7000);
+            else if (m.role !== "learner" && g.id === "kartlab") toast("Teacher: Enter starts the race, G puts everyone on the grid, T changes the track", false, 8000);
+            $("btn-lobby").hidden = !(state.learnerLink && m.role === "learner");
+            $("btn-lobby").textContent = "BACK TO THE LOBBY";
+            renderKeyHelp();
+            brainEditorChanged(appApi);
             updatePills();
             renderPanel();
             return;
         }
         case "lesson":
             state.lesson = m.lesson || state.lesson;
+            showMissionsChanged(state.showMissionsSeen, (state.lesson || {}).show_missions);
             state.classList = m.class || [];
             state.tournament = m.tournament || null;
             state.mods = m.mods || state.mods;
@@ -452,14 +468,7 @@ function onMessage(data) {
                 state.myMissions = m;
                 if (["mission", "aicard", "mycard"].includes(state.tab)) renderPanelSoon();
             }
-            if (state.lesson && state.lesson.show_missions && state.role === "learner" && !state.shownMissions) {
-                state.shownMissions = true;  // (the teacher's Show learners: the Mission tab opens by itself)
-                state.tab = "mission";
-                $("panel").classList.add("open");
-                buildTabs();
-                renderPanel();
-            }
-            return;
+            return;  // (the teacher's Show learners opens the Mission tab: showMissionsChanged, CHANGE 143)
         case "slots":
             if (!m.who || m.who === state.name) { state.slots = m.slots || {}; if (state.tab === "garage") renderPanelSoon(); }
             else { state.theirSlots = m; if (state.tab === "learners") renderPanelSoon(); }
@@ -581,8 +590,12 @@ function loop() {
         }
         if (state.connected) {
             send({type: "ping", t: Date.now()});
+            // (CHANGE 143) as the windows send it: the key delay (ctrl, null until measured: the teacher's table shows
+            // it as "key delay") and Kart Lab's prediction corrections (corr)
+            const pred = state.game && state.game.predictor;
             send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier(), stalls: state.stalls, delay: DELAY_MS,
-                  ...(state.ctrl && state.ctrl.ctrlMs !== null ? {ctrl: Math.round(state.ctrl.ctrlMs)} : {})});
+                  ctrl: state.ctrl && state.ctrl.ctrlMs !== null ? Math.round(state.ctrl.ctrlMs) : null,
+                  ...(state.game && state.game.id === "kartlab" ? {corr: pred ? pred.corrections : null} : {})});
             if (state.prefsDirty && now - (state.prefsAt || 0) > 3000) { state.prefsDirty = false; state.prefsAt = now; send({type: "prefs", prefs: state.prefs}); }
         }
     }
@@ -627,7 +640,6 @@ function drawnTier() {
 function applyGraphics(again = false) {
     setGraphics(state.gfx.parts, classCap());
     if (state.scene) state.scene.setTier(drawnTier(), again);
-    $("perf").style.display = state.gfx.fps ? "" : "none";
     if (state.tab === "graphics") renderPanel();
     renderPerf();
 }
@@ -725,9 +737,22 @@ function wireGraphics(body) {
     });
 }
 
+// (CHANGE 143) the windows' status line: the key delay (keys), Kart Lab's corrections, and AUTOPILOT (P) while your
+// brain drives (shown even with the frame rate box hidden, as the window's status line always is)
+function autopilotOn() {
+    const g = state.game, b = g && g.race && g.race.brains ? g.race.brains[state.name] : null;
+    return !!(state.connected && ((state.myMissions || {}).autopilot || (b && b.on)));
+}
+
 function renderPerf() {
-    const info = engineInfo(engine);
-    $("perf").innerHTML = `${state.fps} fps · ping ${Math.round(state.pingMs)} ms · stalls ${state.stalls} · missed ${state.missed}<br>` +
+    const box = $("perf"), shown = !state.gfx || state.gfx.fps, auto = autopilotOn();
+    box.style.display = shown || auto ? "" : "none";
+    const autoText = auto ? `<b class="autopilot">AUTOPILOT (P)</b>` : "";
+    if (!shown) { box.innerHTML = autoText; return; }
+    const info = engineInfo(engine), ctrl = state.ctrl && state.ctrl.ctrlMs !== null ? Math.round(state.ctrl.ctrlMs) : null;
+    const pred = state.game && state.game.predictor;
+    box.innerHTML = `${autoText ? autoText + " · " : ""}${state.fps} fps · ping ${Math.round(state.pingMs)} ms${ctrl !== null ? ` · keys ${ctrl} ms` : ""}` +
+        ` · stalls ${state.stalls} · missed ${state.missed}${pred ? ` · corrections ${pred.corrections}` : ""}<br>` +
         `${drawnTier()}${state.autoTier ? " (auto)" : ""} · ${info.width} x ${info.height} · WebGL${info.webgl || "?"}${info.webgpu ? " · WebGPU available" : ""} · ${esc(String(info.renderer || "").slice(0, 60))}`;
 }
 
@@ -771,7 +796,11 @@ function allTabs() {
 function buildTabs() {
     const tabs = allTabs();
     if (!tabs.some(([k]) => k === state.tab)) state.tab = tabs[0][0];
-    $("panelhead").innerHTML = tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === state.tab ? "on" : ""}">${n}</button>`).join("");
+    // (CHANGE 143) the learner's panel says what it is, each word explaining itself (hud.draw_header: "HUD / GUI";
+    // garage.js's hookTips shows a [data-tip]'s words)
+    const words = state.role === "learner" ? `<div class="hudgui"><span class="tipword" data-tip="HUD">HUD</span> / <span class="tipword" data-tip="GUI">GUI</span>
+        <small>hover over a word in capitals to see what it means</small></div>` : "";
+    $("panelhead").innerHTML = words + tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === state.tab ? "on" : ""}">${n}</button>`).join("");
     $("panelhead").querySelectorAll("button").forEach(b => b.onclick = () => {
         state.tab = b.dataset.tab;
         $("panelhead").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
@@ -851,9 +880,15 @@ function drawPanel(body) {
         // the window's own Settings: the text size and the look (kept on this computer)
         body.insertAdjacentHTML("beforeend", `<h2>Text and look</h2><div class="row">Text size ${[1, 2, 3, 4].map(k =>
             `<button data-tsize="${k}" class="${(state.textSize || 2) === k ? "on" : ""}">${["Small", "Normal", "Large", "Larger"][k - 1]}</button>`).join("")}</div>
-          <div class="row">Look <button data-look="dark" class="${state.look !== "light" ? "on" : ""}">Dark</button><button data-look="light" class="${state.look === "light" ? "on" : ""}">Light</button></div>`);
+          <div class="row">Look <button data-look="dark" class="${state.look !== "light" ? "on" : ""}">Dark</button><button data-look="light" class="${state.look === "light" ? "on" : ""}">Light</button></div>
+          <div class="row">Mouse wheel <button data-iscroll="0" class="${state.invertScroll ? "" : "on"}">Normal</button><button data-iscroll="1" class="${state.invertScroll ? "on" : ""}">Inverted</button></div>
+          <div class="note">Inverted: the wheel slides the panel and scrolls the code the other way up (old school).</div>
+          <div class="row">Wheel zoom <button data-izoom="0" class="${state.invertZoom ? "" : "on"}">Normal</button><button data-izoom="1" class="${state.invertZoom ? "on" : ""}">Inverted</button></div>
+          <div class="note">Normal: wheel up zooms in. Inverted: wheel up zooms out. ${state.role === "learner" ? "Yours: kept with your profile, as in the game windows." : "Kept on this computer."}</div>`);
         body.querySelectorAll("button[data-tsize]").forEach(b => b.onclick = () => { setLook({textSize: Number(b.dataset.tsize)}); renderPanel(); });
         body.querySelectorAll("button[data-look]").forEach(b => b.onclick = () => { setLook({look: b.dataset.look}); renderPanel(); });
+        body.querySelectorAll("button[data-iscroll]").forEach(b => b.onclick = () => { setLook({invertScroll: b.dataset.iscroll === "1"}); renderPanel(); });
+        body.querySelectorAll("button[data-izoom]").forEach(b => b.onclick = () => { setLook({invertZoom: b.dataset.izoom === "1"}); renderPanel(); });
         // the sound (the windows' Settings rows: each sound with its switch and volume; N mutes)
         const gid = g.id, S2 = sound.settings, rows = SETTINGS_ROWS[gid] || [];
         let snd = `<h2>Sound</h2><div class="row"><button id="snd-mute" class="${sound.muted ? "" : "on"}">${sound.muted ? "Sound is off (N)" : "Sound is on (N)"}</button></div>`;
@@ -870,17 +905,11 @@ function drawPanel(body) {
         body.querySelectorAll("input[data-vol]").forEach(el => el.onchange = () => sound.set({[el.dataset.vol]: Number(el.value)}));
         return;
     }
-    if (state.role === "learner") {  // (the learner's key list, as the windows show it)
-        const KEYS = {
-            robotlab: [["Arrows", "drive"], ["Space", "weapon"], ["V", "camera"], ["B", "the health bars: small or full"], ["P", "autopilot"], ["U", "upload a brain"]],
-            fightlab: [["Arrows", "move"], ["A", "punch (again for a combo)"], ["S", "kick (forward + S: high kick)"], ["D", "special"],
-                       ["W", "throw"], ["Space", "jump"], ["F", "cartwheel (when it's on)"], ["Shift", "block"], ["X", "crouch (X + Shift: low block)"],
-                       ["V", "camera"], ["P", "autopilot"], ["U", "upload a brain"]],
-            kartlab: [["Arrows or WASD", "drive"], ["Shift or Space", "drift"], ["R", "respawn"], ["V", "camera"], ["P", "autopilot"], ["U", "upload a brain"]],
-        }[g.id] || [];
-        body.innerHTML = `<h2>Keys</h2><table>${[...KEYS, ["I or Tab", "this panel"], ["C", "your code"]].map(([k, w]) =>
-            `<tr><td><b>${esc(k)}</b></td><td>${esc(w)}</td></tr>`).join("")}</table>
-          <p class="note">Click the game first so the keys go to it. While you type in the panel, the keys type instead.</p>`;
+    const keyTable = () => `<table>${keyList().map(([k, w]) => `<tr><td><b>${esc(k)}</b></td><td>${esc(w)}</td></tr>`).join("")}</table>`;
+    if (state.role === "learner") {  // (the learner's key list, as the windows show it: the game's keyList, CHANGE 143)
+        body.innerHTML = `<h2>Keys</h2>${keyTable()}
+          <p class="note">Click the game first so the keys go to it. While you type in the panel, the keys type instead.
+            H shows or hides this list over the game.</p>`;
         return;
     }
     body.innerHTML = `
@@ -892,7 +921,52 @@ function drawPanel(body) {
         session's notes and the printed records.</p>
       <p class="note">Sending AI cards to Claude (Send, Keep, Undo) and the Changes tab need Claude for the browser running on a
         computer of yours with Claude Code (it uses that computer's own Claude login). Still only in the app: Try it on this laptop.</p>
-      <p class="note">Keys: <b>Tab</b> opens and closes this panel.${g.id === "robotlab" ? " <b>B</b> makes the health bars small or full." : ""}</p>`;
+      <p class="note">Keys: <b>Tab</b> opens and closes this panel.${g.id === "robotlab" ? " <b>B</b> makes the health bars small or full."
+        : g.id === "fightlab" ? " <b>B</b> makes the rings box small or full." : ""} <b>H</b> shows or hides the key list over the game.</p>
+      <h2>Keys</h2>${keyTable()}`;
+}
+
+// ---------- the keys' list (CHANGE 143): the Keys tab, and H's list over the game as the windows show theirs ----------
+// The game's own (its keyList: [[key, what]]), else the windows' key lists here, then the keys every game shares
+const KEYS = {
+    robotlab: [["Arrows", "drive"], ["Space", "weapon"], ["V", "camera view"], ["O", "the full arena"], ["[ and ]", "watch another arena"],
+               ["Wheel, + and -", "zoom"], ["Q and E", "swing the view round"], ["Home", "the view back as it was"],
+               ["B", "the health bars: small or full"], ["N", "sound on or off"]],
+    fightlab: [["Arrows", "move"], ["A", "punch (again for a combo)"], ["S", "kick (forward + S: high kick)"], ["D", "special"],
+               ["W", "throw"], ["Space", "jump"], ["F", "cartwheel (when it's on)"], ["Shift", "block"], ["X", "crouch (X + Shift: low block)"],
+               ["V", "camera view"], ["Q and E", "swing the view round"], ["Wheel, + and -", "zoom"], ["Home", "the view back as it was"],
+               ["O", "every ring"], ["[ and ]", "watch another ring"], ["B", "the rings box: small or full"], ["N", "sound on or off"]],
+    kartlab: [["Arrows or WASD", "drive"], ["Shift or Space", "drift"], ["R", "respawn"], ["V", "camera view"], ["Wheel, + and -", "zoom"],
+              ["N", "sound on or off"]],
+};
+
+function keyList() {
+    const g = state.game;
+    if (!g) return [];
+    const list = [...(g.keyList ? g.keyList() : KEYS[g.id] || [])];
+    // (a key already in the game's rows, alone or as "Tab/I", "I or Tab"..., isn't listed twice)
+    const has = k => list.some(([x]) => String(x).split(/\s*(?:\/|,| or | and )\s*/).includes(k));
+    if (state.role !== "learner" && g.id === "kartlab" && !has("Enter")) list.push(["Enter", "start the race"], ["G", "everyone to the grid"], ["T", "the next track"]);
+    for (const [k, what] of [["U", "upload your brain"], ["P", "autopilot on or off (your brain drives)"], ["N", "sound on or off"],
+                             ["I", "the panel (or Tab)"], ["C", "your code"], ["H", "the key list over the game: shown or hidden"]]) {
+        if (!has(k)) list.push([k, what]);
+    }
+    return list;
+}
+
+function renderKeyHelp() {
+    let hidden = false;
+    try { hidden = localStorage.getItem("keys_hidden") === "1"; } catch (e) { /* private window */ }
+    const el = $("keyhelp");
+    el.hidden = hidden || !state.connected || !state.game;
+    if (!el.hidden) el.innerHTML = keyList().map(([k, w]) => `<span><b>${esc(k)}</b> ${esc(w)}</span>`).join("");
+}
+
+function toggleKeyHelp() {  // H (the windows' toggle_help: the key list at the bottom hidden or shown, kept)
+    const hide = !$("keyhelp").hidden;
+    try { localStorage.setItem("keys_hidden", hide ? "1" : "0"); } catch (e) { /* private window */ }
+    renderKeyHelp();
+    if (hide) toast("Keys hidden (H shows them)", false, 2000);
 }
 
 // what the games and teacher.js reach the page through
@@ -906,18 +980,74 @@ const appApi = {
     sendBinary: buf => { if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.send(buf); },
     get keys() { return keys; }, get ctrl() { return state.ctrl; }, get role() { return state.role; }, get sound() { return sound; },
     openCode: () => toggleCode(appApi),
+    // (CHANGE 143) the brain editor (learner.js's Brain button), a panel dragged and kept (Robot Lab's health bars), and
+    // the Settings' Wheel zoom: wheelZoom(e) is the factor a wheel turn zooms by (under 1: in), turned round when inverted
+    openBrainEditor: () => openBrainEditor(appApi), uploadMyBrain: () => uploadMyBrain(appApi, pickBrain),
+    makeDraggable: (el, key, opts) => makeDraggable(el, key, opts),
+    get invertZoom() { return !!state.invertZoom; }, get invertScroll() { return !!state.invertScroll; },
+    wheelZoom: e => { const f = e.deltaY > 0 ? 1 / 0.88 : 0.88; return state.invertZoom ? 1 / f : f; },
 };
 
-// the window's text size (four) and dark or light look: on this computer, and in a learner's profile as the windows keep them
+// the window's text size (four) and dark or light look, and the mouse wheel's two switches: on this computer, and in a
+// learner's profile in the windows' own keys (CHANGE 143: text_size small to xlarge, theme, invert_scroll, invert_zoom;
+// hud.py's hud_prefs), so they follow them between the game windows and the page
+const TEXT_KEYS = ["small", "medium", "large", "xlarge"];  // (the page's sizes 1 to 4)
 function setLook(change = {}) {
     Object.assign(state, change);
     for (const k of [1, 2, 3, 4]) document.body.classList.toggle("text-" + k, (state.textSize || 2) === k && k !== 2);
     document.body.classList.toggle("light", state.look === "light");
-    try { localStorage.setItem("look", JSON.stringify({textSize: state.textSize || 2, look: state.look || "dark"})); } catch (e) { /* private window */ }
-    if (Object.keys(change).length && state.role === "learner") keepPrefs({hud: {text_size: state.textSize || 2, light: state.look === "light"}});
+    try {
+        localStorage.setItem("look", JSON.stringify({textSize: state.textSize || 2, look: state.look || "dark",
+                                                     invertScroll: !!state.invertScroll, invertZoom: !!state.invertZoom}));
+    } catch (e) { /* private window */ }
+    // the wheel's switches where the game files read them (kart.js and robot.js: state.prefs's invert_zoom, or
+    // zoom_invert and wheel_invert; state.zoomInvert), the teacher's too (not sent: a teacher's are this computer's)
+    state.zoomInvert = !!state.invertZoom;
+    const wheel = {invert_scroll: !!state.invertScroll, invert_zoom: !!state.invertZoom, wheel_invert: !!state.invertScroll, zoom_invert: !!state.invertZoom};
+    if (Object.keys(change).length && state.role === "learner") {
+        keepPrefs({text_size: TEXT_KEYS[(state.textSize || 2) - 1], theme: state.look === "light" ? "light" : "dark", ...wheel});
+    } else state.prefs = Object.assign(state.prefs || {}, wheel);
 }
-try { const saved = JSON.parse(localStorage.getItem("look") || "{}"); state.textSize = saved.textSize; state.look = saved.look; } catch (e) { /* none */ }
+try {
+    const saved = JSON.parse(localStorage.getItem("look") || "{}");
+    state.textSize = saved.textSize; state.look = saved.look; state.invertScroll = !!saved.invertScroll; state.invertZoom = !!saved.invertZoom;
+} catch (e) { /* none */ }
 setLook();
+
+// a learner's own settings as their profile keeps them (the windows' keys; the page's older "hud" as a fallback) and
+// their sound (prefs.sound, the windows' my_sound): put in force without being sent back
+function restoreProfileSettings(p) {
+    p = p || {};
+    const old = p.hud && typeof p.hud === "object" ? p.hud : {};
+    const size = TEXT_KEYS.indexOf(p.text_size) + 1 || ([1, 2, 3, 4].includes(old.text_size) ? old.text_size : 0);
+    if (size) state.textSize = size;
+    if (p.theme === "dark" || p.theme === "light") state.look = p.theme;
+    else if ("light" in old) state.look = old.light ? "light" : "dark";
+    if ("invert_scroll" in p) state.invertScroll = !!p.invert_scroll;
+    if ("invert_zoom" in p) state.invertZoom = !!p.invert_zoom;
+    setLook();
+    if (p.sound && typeof p.sound === "object") sound.useOwn(p.sound);
+}
+
+// (CHANGE 143) the teacher's Show learners (hud.show_missions_changed): ticked, a learner's Mission tab opens, every
+// time it is ticked; unticked, it closes again (I opens the tab they had before)
+function showMissionsChanged(was, now) {
+    now = !!now;
+    state.showMissionsSeen = now;
+    if (state.role !== "learner" || !!was === now) return;
+    const panel = $("panel"), open = panel.classList.contains("open");
+    if (now) {
+        if (!(open && state.tab === "mission")) state.tabBeforeMissions = state.tab !== "mission" ? state.tab : null;
+        state.tab = "mission";
+        panel.classList.add("open");
+    } else if (state.tab === "mission") {
+        panel.classList.remove("open");
+        if (state.tabBeforeMissions) state.tab = state.tabBeforeMissions;
+        state.tabBeforeMissions = null;
+    }
+    buildTabs();
+    renderPanel();
+}
 
 // a learner's preferences (the camera, the half-typed AI card...) kept in their profile, as the windows do
 function keepPrefs(p) {
@@ -927,19 +1057,68 @@ function keepPrefs(p) {
 
 // the games' sounds (sound.js): nothing plays until the first click or key, as browsers insist
 const sound = new Sound({base: "sfx/"});
+sound.onChange = s => { if (state.role === "learner") keepPrefs({sound: s}); };  // (their profile's, as the windows': CHANGE 143)
 
 // the keyboard: playing (play.js), and the windows' keys for the panel and the rest
 const keys = new Keys();
+// (CHANGE 143) as each window binds them: U and P for the teacher's own robot, kart or fighter too; the camera's keys
+// (O, [ and ], Home, + and -, Q and E) call the game's own (Fight Lab's camera keys are fight.js's own listener, so
+// FightGame has none of these names); the teacher's Kart Lab keys (Enter, G, T); H the key list
 keys.onKey = (k, e) => {
     if (!state.connected || deskShown()) return;
+    const g = state.game, teacher = state.role !== "learner";
+    const onPage = !(e.target && e.target.closest && e.target.closest("button, a, #panel, #codepanel, #brainpanel"));  // (Enter on a button presses it)
     if (k === "i") { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); }
-    else if (k === "c" && state.game) toggleCode(appApi);
-    else if (k === "p" && state.role === "learner") send({type: "autopilot"});
-    else if (k === "u" && state.role === "learner") pickBrain();
-    else if (k === "v" && state.game && state.game.cycleCamera) { state.game.cycleCamera(); updatePills(); }
-    else if (k === "b" && state.game && state.game.toggleBoard) state.game.toggleBoard();  // (Robot Lab's health bars)
+    else if (k === "c" && g) toggleCode(appApi);
+    else if (k === "p") { if (brainsOn(appApi)) send({type: "autopilot"}); }
+    else if (k === "u" && g) uploadMyBrain(appApi, pickBrain);
+    else if (k === "h") toggleKeyHelp();
+    else if (k === "v" && g && g.cycleCamera) { g.cycleCamera(); updatePills(); }
+    else if (k === "b" && g && g.toggleBoard) g.toggleBoard();  // (Robot Lab's health bars, Fight Lab's rings box)
     else if (k === "n") { sound.toggleMute(); toast(sound.muted ? "Sound off (N)" : "Sound on (N)"); if (state.tab === "graphics") renderPanel(); }
+    else if (!g) return;
+    else if (k === "o" && g.fullArena) { g.fullArena(); updatePills(); }
+    else if ((k === "[" || k === "]") && g.watchArena) { g.watchArena(k === "[" ? -1 : 1); updatePills(); }
+    else if (k === "Home" && g.resetCamera) g.resetCamera();
+    else if ((k === "+" || k === "=" || k === "-") && g.zoom) zoomKey(g, k === "-" ? -1 : 1, e.repeat ? "repeat" : "key");
+    else if ((k === "q" || k === "e") && g.turnCamera) g.turnCamera(k === "q" ? (e.repeat ? 6 : 20) : (e.repeat ? -6 : -20));
+    else if (teacher && onPage && ["Enter", "g", "t"].includes(k)) teacherKey(g, k);
+    else if (k === " " && !teacher) weaponLocked(g);
 };
+
+// + and -: game.zoom(dir, how), dir 1 closer and -1 wider, how "key" (a press: the window's 0.8 and 1.25) or "repeat"
+// (held: 0.9 and 1.11), raw (the game turns the wheel round itself for the inverted Wheel zoom; keys never are).
+// (Robot Lab's zoom took (dir -1 closer, repeat) when this was written: it is called that way until robot.js takes
+// the shared form and says so with zoomHow = true)
+function zoomKey(g, dir, how) {
+    if (g.id === "robotlab" && !g.zoomHow) g.zoom(-dir, how === "repeat");
+    else g.zoom(dir, how);
+}
+
+// the teacher's own keys in a game (Kart Lab's Enter starts the race, G puts everyone on the grid, T the next track:
+// kart_client); the game's teacherKey(key) when it has one (true: it was the game's)
+function teacherKey(g, k) {
+    if (g.teacherKey) { g.teacherKey(k); return; }
+    if (g.id !== "kartlab") return;
+    if (k === "Enter") send({type: "start"});
+    else if (k === "g") send({type: "grid"});
+    else if (k === "t") {
+        const names = Object.keys((state.rules || {}).tracks || {}), cur = (state.lesson || {}).track;
+        if (!names.length) return;
+        const next = names.includes(cur) ? names[(names.indexOf(cur) + 1) % names.length] : names[0];
+        send({type: "lesson", lesson: {track: next}});
+        toast(`Track: ${state.rules.tracks[next]}`, false, 2500);
+    }
+}
+
+// Space with the teacher's Weapon on/off switch locked (lab_client.space_pressed): a spinner, drum or vertical disc
+// is switched with Space, so the learner is told why nothing happens
+const TOGGLE_WEAPONS = ["spinner", "drum", "vdisc"];
+function weaponLocked(g) {
+    if (g.id !== "robotlab" || ((state.lesson || {}).tools || {}).weapon_toggle !== false) return;
+    const id = g.myId ? g.myId() : null, r = id !== null ? ((state.roster || {}).robots || []).find(x => x.id === id) : null;
+    if (r && TOGGLE_WEAPONS.includes((r.design || {}).weapon || "wedge")) toast("Weapon on/off is switched off for this mission: ask your teacher", false, 3000);
+}
 
 function pickBrain() {
     const input = document.createElement("input");
@@ -947,6 +1126,48 @@ function pickBrain() {
     input.accept = ".py,.txt";
     input.onchange = () => uploadBrain(appApi, input.files[0]);
     input.click();
+}
+
+// (CHANGE 143) a learner leaves the game for the lobby, as closing the game window does in the app (club_coders.py's
+// watch_game): the desk is told {type: "wait", after: <this live session>}, so this game opens again only when the
+// teacher adds them again (This session, or the live group edited: club_desk's done_with); the lobby waits as ever.
+// Pressed twice (the first press asks), as a window isn't closed by a stray click
+function leaveToLobby() {
+    const b = $("btn-lobby");
+    if (!state.learnerLink) return;
+    if (!state.lobbySure || Date.now() - state.lobbySure > 4000) {
+        state.lobbySure = Date.now();
+        b.textContent = "SURE? PRESS AGAIN";
+        setTimeout(() => { if (Date.now() - state.lobbySure >= 3900) b.textContent = "BACK TO THE LOBBY"; }, 4000);
+        return;
+    }
+    state.lobbySure = 0;
+    b.textContent = "BACK TO THE LOBBY";
+    b.hidden = true;
+    const after = state.liveId;
+    dropView();
+    state.ticket = null;
+    state.showCode = false;
+    renderCode(appApi);
+    closeBrainEditor();
+    sound.stopAll();
+    renderKeyHelp();
+    showLogin();
+    showLoginPart("wait");
+    $("waittext").textContent = "You've left the game. You're in the lobby: it opens again when your teacher adds you to it.";
+    setStatus("");
+    state.learnerLink.wait(after);
+}
+
+// (CHANGE 143) the Settings' Mouse wheel: Inverted slides the panel and scrolls the code the other way up, as the window's
+function invertedWheel(e) {
+    if (!state.invertScroll || e.ctrlKey) return;
+    const el = e.target.closest && e.target.closest("#panelbody, #code-text, #brain-text");
+    if (!el) return;
+    e.preventDefault();
+    const k = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? el.clientHeight : 1;
+    el.scrollTop -= e.deltaY * k;
+    el.scrollLeft -= e.deltaX * k;
 }
 
 // ---------- start ----------
@@ -968,6 +1189,8 @@ function setupUi() {
     };
     $("toggle").onclick = () => { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); };
     $("btn-desk").onclick = () => showDesk();
+    $("btn-lobby").onclick = () => leaveToLobby();  // (CHANGE 143)
+    document.addEventListener("wheel", invertedWheel, {passive: false, capture: true});
     window.addEventListener("pointerup", () => { state.dragging = false; });
     for (const kind of ["pointerdown", "keydown", "focusin", "change"]) {  // (a drop-down in use: see renderPanel)
         $("panelbody").addEventListener(kind, e => { if (e.target.tagName === "SELECT") state.selectAt = Date.now(); });
@@ -1025,14 +1248,16 @@ async function main() {
         if (r.ok) state.schemas = await r.json();
     } catch (e) { /* no garage or code panel until it loads */ }
     setupCodePanel(appApi);
+    // (CHANGE 143) the code panel dragged by its title bar and resized by its corner, as the window's (hud.py's
+    // code_at and code_size), its place kept on this computer
+    makeDraggable($("codepanel"), "codepanel", {handle: "header", resize: true, minW: 340, minH: 240});
     try {  // (the lessons' names, for the printed records)
         const r = await fetch("lessons.json");
         if (r.ok) state.lessons = await r.json();
     } catch (e) { /* the records print the codes instead */ }
     const v = await pageVersion();
     $("pageversion").textContent = v || "(laptop test)";
-    renderPerf();
-    $("perf").style.display = state.gfx.fps ? "" : "none";
+    renderPerf();  // (shown or hidden as the frame rate box is set: CHANGE 143)
     requestAnimationFrame(loop);
     if (params.get("autoconnect")) login();
 }

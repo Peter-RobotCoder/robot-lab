@@ -31,6 +31,7 @@ import json
 import math
 import os
 import queue
+import re
 import subprocess
 import sys
 import textwrap
@@ -1142,17 +1143,7 @@ class Lab(hud.HudKit, ShowBase):
         d = self.cur()
         self.code_size = self.code_fit(*self.code_size)
         self.code_at = self.code_place(*self.code_at)
-        left, right, bottom, top = rect = self.code_rect()
-        f = self.code_panel = DirectFrame(frameColor=PANEL, frameSize=rect, pos=(self.code_at[0], 0, self.code_at[1]))
-        # its top is a handle: drag it to move the panel anywhere on the screen (a drag in the code places the cursor)
-        handle = DirectFrame(parent=f, frameColor=HANDLE, state=DGG.NORMAL,
-                             frameSize=(left, right, 0.285, top))
-        handle.bind(DGG.B1PRESS, self.code_drag_start)
-        label(f, f"{who.upper()}'S ROBOT AS PYTHON CODE" if who else "YOUR ROBOT AS PYTHON CODE", -0.83, 0.3, 0.032,
-              YELLOW)
-        label(f, "drag here to move", right - 0.02, 0.337, 0.017, GREY, TextNode.ARight)
-        label(f, "Click in the code to type there (drag to select; Ctrl+C, X, V and A work). Change a value,\n"
-                 "then press APPLY CODE: the garage changes to match. Return makes a new line.", -0.83, 0.264, 0.021, GREY)
+        f, (left, right, bottom, top) = self.code_panel_top("robot", who)  # (CHANGE 143: as the browser's)
         st, fresh = self.code_state, self.code_lines(d)
         if self.code_shown is None or st["lines"] == self.code_shown:  # not edited: the robot as it is now
             st["lines"][:] = fresh
@@ -1160,7 +1151,7 @@ class Lab(hud.HudKit, ShowBase):
         self.code_editor = lab_editor.CodeEditor(self, f, st, -0.845, 0.21, right - left - 0.03, self.code_rows(),
                                                  0.024 * self.text_scale(), on_enter=self.apply_code,
                                                  on_focus=self.type_code)
-        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, GREY, TextNode.ARight)  # (beside the second line above)
+        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, lab_editor.DIM, TextNode.ARight)  # (beside the second line above)
         self.code_editor.on_scroll = self.show_code_more
         self.show_code_more()
         button(f, "APPLY CODE", -0.64, bottom + 0.178, self.apply_code, None, 0.03, (0.15, 0.55, 0.25, 1))  # (always here)
@@ -1564,6 +1555,14 @@ class Lab(hud.HudKit, ShowBase):
               0.028)
         check(f, "Lock designs", 1.24, y, L["designs_locked"], lambda v: self.set_lesson({"designs_locked": bool(v)}), 0.028)
         check(f, "Real damage", 1.5, y, L.get("real_damage"), lambda v: self.set_lesson({"real_damage": bool(v)}), 0.028)
+        y -= 0.06
+        # CHANGE 143 (as the page's Controls): the drop zone opened or closed straight away, with no restart (the
+        # server's pit message); the lit button is how it is now (the Arena section's "Drop zone open" tick)
+        label(f, "Drop zone", 0.84, y, 0.026)
+        pit_open = bool(L.get("hazards", {}).get("pit"))
+        button(f, "Open it now", 1.11, y + 0.008, send, [{"type": "pit", "open": True}], 0.024, ON if pit_open else OFF)
+        button(f, "Close it now", 1.33, y + 0.008, send, [{"type": "pit", "open": False}], 0.024,
+               OFF if pit_open else ON)
         y -= 0.07
         y = self.arenas_section(f, y)
         y = self.tournament_section(f, y)
@@ -1830,22 +1829,39 @@ class Lab(hud.HudKit, ShowBase):
                    ON if n == i else OFF)
         label(f, "the same hazards and\ncomputer robots in each", 1.47, y + 0.012, 0.017, GREY)
         y -= 0.055
-        if n > 1:
-            where = {r["owner"]: r.get("arena", 0) for r in (self.full_roster or {}).get("robots", [])}
-            places = L.get("places", {})
-            people = [c["name"] for c in self.class_list if c["role"] == "learner"]
-            if L.get("teacher_robot"):
-                people.append("Teacher")
-            label(f, "Who is where  (the arenas take turns unless you choose)", 0.84, y, 0.024, GREY)
+        # CHANGE 143 (as the page's Controls, CHANGE 142): a row for every robot (the teacher's while it is in the
+        # arena, each learner's, each computer robot in use): its name, renamed here (type it, then Enter), and,
+        # with more than one arena, its arena. Save settings keeps who is where (places) for the mission.
+        where = {r["owner"]: r.get("arena", 0) for r in (self.full_roster or {}).get("robots", [])}
+        places = L.get("places", {})
+        rows = [("Teacher", "My robot", None)] if L.get("teacher_robot") else []
+        rows += [(c["name"], c["name"], None) for c in self.class_list if c["role"] == "learner"]
+        rows += [(c["name"], f"Computer {c.get('n', 1)}", c) for c in self.class_list
+                 if c["role"] == "computer" and c.get("n", 1) <= int(L.get("cpu_robots", 0) or 0)]
+        if rows:
+            label(f, "Who is where  (the arenas take turns unless you choose)" if n > 1 else
+                  "The robots  (a name: type it, then Enter)", 0.84, y, 0.024, GREY)
             y -= 0.045
-            for who in people:
-                shown = "My robot" if who == "Teacher" else who
-                label(f, shown, 0.84, y, 0.024)
-                at = places.get(who, where.get(name if who == "Teacher" else who))
+        for who, shown, cpu in rows:
+            label(f, shown, 0.84, y, 0.022)
+            self.entry(f, "arena_name_" + who, 1.0, y, 7, initial=self.robot_name(who, cpu),
+                       command=lambda text, who=who, cpu=cpu: self.rename_robot(who, cpu, text), scale=0.024)
+            if n > 1 and cpu is not None:
+                at = cpu.get("arena")
+                button(f, "Every", 1.26, y + 0.008, send, [{"type": "cpu_robot", "n": cpu.get("n", 1), "arena": None}],
+                       0.02, ON if at is None else OFF)
                 for i in range(n):
-                    button(f, str(i + 1), 1.2 + i * 0.075, y + 0.008, self.set_lesson, [{"places": {who: i}}], 0.024,
+                    button(f, str(i + 1), 1.36 + i * 0.065, y + 0.008, send,
+                           [{"type": "cpu_robot", "n": cpu.get("n", 1), "arena": i}], 0.022, ON if at == i else OFF)
+            elif n > 1:
+                at = places.get(who, where.get(name if who == "Teacher" else who))
+                button(f, "Any", 1.26, y + 0.008, self.set_lesson, [{"places": {who: None}}], 0.02,
+                       OFF if who in places else ON)
+                for i in range(n):
+                    button(f, str(i + 1), 1.36 + i * 0.065, y + 0.008, self.set_lesson, [{"places": {who: i}}], 0.022,
                            ON if at == i and who in places else (0.35, 0.35, 0.3, 1) if at == i else OFF)
-                y -= 0.045
+            y -= 0.045
+        if n > 1:
             if places:
                 button(f, "Take turns again", 0.96, y + 0.008, self.set_lesson,
                        [{"places": {k: None for k in places}}], 0.022)
@@ -1857,6 +1873,42 @@ class Lab(hud.HudKit, ShowBase):
             label(f, "([ and ] in the arena)", 1.2 + n * 0.075 + 0.02, y, 0.018, GREY)
             y -= 0.06
         return y
+
+    def robot_design(self, who, cpu=None):
+        if cpu is not None:
+            return cpu.get("design") or {}
+        if who == "Teacher":
+            mine = next((c for c in self.class_list if c["role"] == "teacher"), None)
+            return (mine or {}).get("design") or self.design or {}
+        return next((c.get("design") or {} for c in self.class_list if c["name"] == who), {})
+
+    def robot_name(self, who, cpu=None):
+        return str(self.robot_design(who, cpu).get("name", ""))
+
+    def rename_robot(self, who, cpu, text):
+        """A name typed in an Arenas row: the teacher's own robot as their garage builds it, a learner's as the
+        Learner view's REBUILD FOR, a computer robot's as its garage; the rest of the design as it is (held to what
+        the server takes: letters, numbers and spaces, 16 at most)."""
+        new = re.sub(r"[^A-Za-z0-9 ]", "", text)[:16].strip()
+        key = "arena_name_" + who
+        if not new or new == self.robot_name(who, cpu):
+            self.entry_text.pop(key, None)
+            if not new:
+                self.banner_note("A robot's name needs letters or numbers.")
+            self.rebuild_panels()
+            return
+        d = copy.deepcopy(self.robot_design(who, cpu))
+        d["name"] = new
+        self.entry_text.pop(key, None)
+        if cpu is not None:
+            send({"type": "cpu_robot", "n": cpu.get("n", 1), "design": d})
+        elif who == "Teacher":
+            self.draft["name"] = new
+            self.entry_text.pop("name_me", None)
+            send({"type": "design", "design": d, "code": False})
+        else:
+            send({"type": "design_for", "learner": who, "design": d})
+        self.banner_note(f"Renaming it {new}...")
 
     def tournament_entrants(self):
         """Who can be in a tournament: the learners connected, and the teacher's robot when it's in the arena."""
@@ -1956,13 +2008,17 @@ class Lab(hud.HudKit, ShowBase):
         return y - 0.03
 
     def build_learner_view(self, f, y):
-        # the learners who are connected, then the first computer robot: the teacher sets it up as a learner
-        # sets up theirs (so the game can be tried as a learner without a second login)
-        computer = next((c for c in self.class_list if c["role"] == "computer"), None)
+        # the learners who are connected, then the computer robots in use (always the first): the teacher sets each
+        # up as a learner sets up theirs (so the game can be tried as a learner without a second login; CHANGE 143:
+        # all four, as the page's Learners tab)
+        computers = self.computers()
         learners = [c["name"] for c in self.class_list if c["role"] == "learner"] + \
-            ([computer["name"]] if computer else []) + [self.ALL_LEARNERS]  # (CHANGE 85)
+            [c["name"] for c in computers] + [self.ALL_LEARNERS]  # (CHANGE 85)
         label(f, "LEARNER VIEW  -  see and change what a learner sees", 0.82, y, 0.03, YELLOW)
         y -= 0.06
+        # every window's frame rate, ping, key delay, stalls and graphics, one table (CHANGE 143: the page's "Who is here")
+        people = [(c["name"], c["role"]) for c in self.class_list if c.get("role") in ("teacher", "learner")]
+        y = self.perf_table(f, y, people, (self.full_roster or {}).get("perf", {}))
         if not learners:
             label(f, "No learners are connected yet.", 0.82, y, 0.028, GREY)
             return
@@ -1978,7 +2034,8 @@ class Lab(hud.HudKit, ShowBase):
         self.perf_label, self.perf_frame = label(f, "", 0.82, y + 0.022, 0.021, GREY), f
         y -= 0.034
         who = self.view_name
-        is_computer = computer is not None and who == computer["name"]
+        computer = next((c for c in computers if c["name"] == who), None)
+        is_computer = computer is not None
         tabs = (("garage", "Garage"), ("missions", "Mission"), ("ai", "AI card"), ("mods", "Mods"), ("brain", "Brain")) \
             if is_computer else (("garage", "Garage"),) if who == self.ALL_LEARNERS else \
             (("garage", "Garage"), ("missions", "Mission"), ("ai", "AI card"), ("login", "Login"))
@@ -1995,10 +2052,14 @@ class Lab(hud.HudKit, ShowBase):
         elif self.view_tab == "garage":
             self.build_garage(f, y, view=who)
             if is_computer:
+                n = computer.get("n", 1)
                 if not computer.get("in_arena"):
-                    label(f, "It isn't in the arena: Computer robots is 0 in Controls.", 0.82, self.garage_bottom + 0.05, 0.022, ORANGE)
+                    label(f, f"It isn't in the arena: Computer robots is {self.lesson.get('cpu_robots', 0)} in Controls.",
+                          0.82, self.garage_bottom + 0.05, 0.022, ORANGE)
+                elif "arena" in computer:  # (CHANGE 140/143: every arena, or one, as the page's "Its arena")
+                    self.cpu_arena_buttons(f, 0.82, self.garage_bottom + 0.05, computer)
                 button(f, "RESET: THE COMPUTER'S ROBOT AS IT COMES", 1.27, self.garage_bottom, send,
-                       [{"type": "cpu_robot", "reset": True}], 0.026, (0.6, 0.2, 0.15, 1))
+                       [{"type": "cpu_robot", "n": n, "reset": True}], 0.026, (0.6, 0.2, 0.15, 1))
         elif self.view_tab == "missions":
             self.build_missions(f, y, m=self.view_missions.get(who), preview=True)
         elif self.view_tab == "ai":
@@ -2016,9 +2077,29 @@ class Lab(hud.HudKit, ShowBase):
             self.entry(f, "new_password", 0.84, y, 12, scale=0.03)
             button(f, "Set", 1.3, y + 0.008, self.set_password, [who], 0.03)
 
+    def computers(self):
+        """The computer robots in use (those past Controls' Computer robots left out, but never the first), each
+        with its n, as the server lists them (CHANGE 140)."""
+        use = max(1, int(self.lesson.get("cpu_robots", 1) or 0))
+        return [c for c in self.class_list if c["role"] == "computer" and c.get("n", 1) <= use]
+
+    def cpu_arena_buttons(self, f, x, y, c):
+        """A computer robot's arena: Every, or one (sent as its Learners tab and the page send it)."""
+        n = max(1, int(self.lesson.get("arenas", 1)))
+        at = c.get("arena")
+        label(f, "Its arena", x, y, 0.022)
+        button(f, "Every", x + 0.16, y + 0.006, send, [{"type": "cpu_robot", "n": c.get("n", 1), "arena": None}],
+               0.02, ON if at is None else OFF)
+        for i in range(max(n, (at if at is not None else -1) + 1)):
+            button(f, str(i + 1), x + 0.27 + i * 0.06, y + 0.006, send,
+                   [{"type": "cpu_robot", "n": c.get("n", 1), "arena": i}], 0.02, ON if at == i else OFF)
+        if at is not None and c.get("in") not in (None, at):
+            label(f, f"(in arena {c['in'] + 1}: there are {n})", x + 0.3 + max(n, at + 1) * 0.06, y, 0.018, GREY)
+
     def build_computer_brain(self, f, y, computer):
-        """Teacher: the first computer robot's own brain, uploaded and switched on as a learner does theirs."""
-        label(f, "THE COMPUTER ROBOT'S BRAIN", 0.82, y, 0.03, YELLOW)
+        """Teacher: a computer robot's own brain, uploaded and switched on as a learner does theirs."""
+        n = computer.get("n", 1)
+        label(f, "THE COMPUTER ROBOT'S BRAIN" if n == 1 else f"COMPUTER ROBOT {n}'S BRAIN", 0.82, y, 0.03, YELLOW)
         y -= 0.055
         label(f, "A learner writes brains/my_brain.py, uploads it (U) and switches autopilot on (P).\n"
                  "Do the same for the computer's robot here. With its autopilot off it follows\n"
@@ -2028,21 +2109,21 @@ class Lab(hud.HudKit, ShowBase):
         label(f, "Its brain: " + (("autopilot ON" if on else "uploaded, autopilot off") if has else "not uploaded yet"),
               0.82, y, 0.028, GREEN if has else GREY)
         y -= 0.075
-        button(f, "Upload brains/my_brain.py for it", 1.08, y, self.upload_computer_brain, None, 0.028)
+        button(f, "Upload brains/my_brain.py for it", 1.08, y, self.upload_computer_brain, [n], 0.028)
         if has:
             button(f, "Autopilot off" if on else "Autopilot on", 1.5, y, send,
-                   [{"type": "cpu_robot", "autopilot": not on}], 0.028, ON if on else OFF)
+                   [{"type": "cpu_robot", "n": n, "autopilot": not on}], 0.028, ON if on else OFF)
         y -= 0.07
         label(f, "The brain is kept for next time. Its autopilot starts off at every session, so the\n"
                  "robot is still until you switch it on. Reset (in its Garage) takes the brain away.", 0.82, y, 0.022, GREY)
 
-    def upload_computer_brain(self):
+    def upload_computer_brain(self, n=1):
         path = os.path.join(BRAINS, "my_brain.py")
         if not os.path.exists(path):
             self.banner_note("No brain file: make brains/my_brain.py first")
             return
         with open(path, encoding="utf-8") as fh:
-            send({"type": "cpu_robot", "brain": fh.read()})
+            send({"type": "cpu_robot", "n": n, "brain": fh.read()})
         self.banner_note("Uploading my_brain.py for the computer's robot...")
 
     def set_view(self, learner, redraw=True):
@@ -2537,9 +2618,10 @@ class Lab(hud.HudKit, ShowBase):
                  "anything (new weapons, hazards, rules, graphics). Every change is tested before you Keep it,\n"
                  "and kept changes can be rolled back later in the Changes tab.", 0.82, y, 0.02, GREY)
         y -= 0.1
-        cards = [c for c in (self.teaching or {}).get("cards", []) if c["status"] not in ("reviewed", "rejected")][-4:]
+        # every card or only the open ones (CHANGE 143: the page's "Showing open cards" button)
+        cards = self.cards_filter(f, 1.33, y + 0.158, (self.teaching or {}).get("cards", []))
         if not cards:
-            label(f, "No requests waiting.", 0.82, y, 0.028, GREY)
+            label(f, "No cards." if self.all_cards else "No requests waiting.", 0.82, y, 0.028, GREY)
         for c in cards:
             job = self.ai_jobs.get(c["id"], {})
             target = self.card_targets.get(c["id"], c["card"].get("target", "robot"))
@@ -2598,7 +2680,7 @@ class Lab(hud.HudKit, ShowBase):
                 button(f, "Reject", 1.42, y, self.card_status, [c["id"], "rejected"], 0.026)
                 y -= 0.07
             y -= 0.02
-            if y < -0.8:
+            if y < -0.8 and not self.all_cards:  # (every card: the panel slides to show them all)
                 break
 
     def card_prompt(self, c):
@@ -2848,7 +2930,9 @@ class Lab(hud.HudKit, ShowBase):
                 if m["lesson"] != self.lesson or m.get("tournament") != self.tournament or \
                         (TEACHER and m["class"] != self.class_list):
                     rebuild = rebuild or self.tab in ("garage", "teacher", "learners", "mods", "ai") or \
-                        (self.tab == "limits" and not self.limits_moved)  # (not while a limit's slider is held)
+                        (self.tab == "limits" and not self.limits_moved) or \
+                        (self.tab == "settings" and m["lesson"].get("gfx_max") != self.lesson.get("gfx_max"))
+                    # (not while a limit's slider is held; Settings: its class maximum row, CHANGE 143)
                     if m["lesson"].get("limits") != self.lesson.get("limits"):
                         self.code_shown = None  # (the code says how many points there are to share)
                         rebuild = rebuild or self.show_code
@@ -2856,10 +2940,10 @@ class Lab(hud.HudKit, ShowBase):
                     rebuild = rebuild or self.tab in ("teacher", "mods")
                     if TEACHER:
                         self.forget_mod_makers(mods)
-                if TEACHER:  # the computer's robot was rebuilt or reset: the Learner view shows it as it is now
-                    was = next((c["design"] for c in self.class_list if c["role"] == "computer"), None)
+                if TEACHER:  # a computer robot was rebuilt or reset: the Learner view shows it as it is now
+                    was = {c["name"]: c["design"] for c in self.class_list if c["role"] == "computer"}
                     for c in m["class"]:
-                        if c["role"] == "computer" and was is not None and c["design"] != was:
+                        if c["role"] == "computer" and c["name"] in was and c["design"] != was[c["name"]]:
                             self.view_drafts.pop(c["name"], None)
                             self.entry_text.pop("name_" + c["name"], None)
                             self.code_shown = None
@@ -3092,6 +3176,7 @@ class Lab(hud.HudKit, ShowBase):
         lab = getattr(self, "perf_label", None)
         if lab is None or now - getattr(self, "perf_shown", 0.0) < 1:
             return
+        self.perf_table_update((self.full_roster or {}).get("perf", {}))  # (the Who is here table: CHANGE 143)
         if self.perf_frame.isEmpty():  # (the panel has been redrawn: the label went with it)
             self.perf_label = None
             return

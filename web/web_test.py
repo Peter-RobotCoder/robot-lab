@@ -397,6 +397,29 @@ def main():
             assert errors == "[]", f"JavaScript errors: {errors}"
         check("START A RACE, TO THE GRID, the mission buttons and the track picker reach the server", controls)
 
+        def kart_parity():  # (CHANGE 143) Kart Lab's window: the TV stands, the zoom, Home, the teacher's T key
+            g, sc = "window.__state.game", "window.__state.scene"
+            assert chrome.js(f"{sc}.tvCameras().length") == 6, "not six TV camera stands"
+            chrome.js(f"{sc}.setMode('tv')")
+            time.sleep(1.5)  # (the camera cut to the nearest stand)
+            assert chrome.js(f"(() => {{ const p = {sc}.camera.position; return {sc}.tvCameras().some(q => Math.hypot(q[0] - p.x, q[1] - p.z, q[2] - p.y) < 0.5); }})()"), \
+                "the TV camera isn't on one of its stands"
+            assert chrome.js(f"{g}.zoom(1, 'key')") is True
+            assert chrome.js(f"{sc}.zoom") < 0.95, chrome.js(f"{sc}.zoom")
+            chrome.js(f"{g}.resetCamera()")
+            assert chrome.js(f"{sc}.zoom") == 1
+            before = chrome.js("window.__state.lesson.track")
+            assert chrome.js(f"{g}.teacherKey('t')") is True
+            chrome.wait_for(f"window.__state.lesson.track !== {json.dumps(before)}", 10, "T: the next track")
+            assert chrome.js(f"{g}.teacherKey('x')") is False
+            assert chrome.js(f"{g}.keyList().some(([k, w]) => k === 'Enter')"), "Enter isn't in the teacher's key list"
+            chrome.js(f"window.__app.send({{type: 'lesson', lesson: {{track: {json.dumps(before)}}}}})")
+            chrome.wait_for(f"window.__state.lesson.track === {json.dumps(before)}", 10, "the track back")
+            chrome.wait_for("window.__state.scene.track && window.__state.scene.track.name === 'Test Oval'", 10, "the oval drawn again")
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("Kart Lab as its window: six TV stands, the zoom and Home, the teacher's T key", kart_parity)
+
         def tiers():
             for tier in ("blocks", "high", "medium", "low"):
                 chrome.js(f"window.__state.scene.setTier('{tier}')")
@@ -591,6 +614,79 @@ def main():
         check("The teacher's class maximum (Graphics tab) reaches a learner's page: she drops to it at once and can't choose "
               "above it; lifted, her own choice again; Auto steps up and down (simulated) without flapping", class_maximum)
 
+        def learner_parity():  # (CHANGE 143) what a learner's window does that her page didn't
+            if "chrome" not in pupil:
+                return
+            lc = pupil["chrome"]
+            errors_before = lc.js("window.__errors.length")
+            # (what the page itself sends: app.js's own send goes straight to the socket, not through window.__app)
+            lc.js("{ const s = WebSocket.prototype.send; window.__wsSent = []; window.__wsSend = s;"
+                  " WebSocket.prototype.send = function (d) { try { window.__wsSent.push(JSON.parse(d)); } catch (e) {} return s.call(this, d); }; }")
+            # H: the key list on screen and off again; it lists U and P (her brain) as the window's does
+            hidden = lc.js("document.getElementById('keyhelp').hidden")
+            press_h = ("window.dispatchEvent(new KeyboardEvent('keydown', {key: 'h'}));"
+                       "window.dispatchEvent(new KeyboardEvent('keyup', {key: 'h'}))")
+            lc.js(press_h)
+            lc.wait_for(f"document.getElementById('keyhelp').hidden === {json.dumps(not hidden)}", 5, "H showing or hiding the key list")
+            lc.js(press_h)
+            text = lc.js("document.getElementById('keyhelp').textContent")
+            assert "U" in text and "brain" in text.lower(), text[:300]
+            # the game's starter brain (brains/my_brain.py), served beside the page, byte for byte
+            with open(os.path.join(KART, "brains", "my_brain.py"), encoding="utf-8", newline="") as f:
+                starter = f.read()
+            served = lc.js("fetch('brains/kartlab/my_brain.py').then(r => r.ok ? r.text() : 'HTTP ' + r.status)")
+            assert served.replace("\r\n", "\n") == starter.replace("\r\n", "\n"), \
+                "web/brains/kartlab/my_brain.py isn't the game's brains/my_brain.py (copy it again)"
+            # her perf report carries the windows' key delay (ctrl), for the teacher's table
+            lc.wait_for("window.__wsSent.some(m => m.type === 'perf' && 'ctrl' in m)", 20, "a perf report with the key delay")
+            lc.js("WebSocket.prototype.send = window.__wsSend; window.__wsSent = [];")
+            # an AI card: My last requests shows its goal; kept by the teacher, her review goes back and is taken
+            goal = "Make the boost last longer on the straight"
+            lc.js("window.__app.send({type: 'ai_card', card: {goal: " + json.dumps(goal) + ", variables: 'boost_time = 2',"
+                  " test: 'Race two laps and time the boost on the long straight', predict: 'The boost lasts longer',"
+                  " privacy: true, review: true, credit: true}})")
+            cid = lc.wait_for("((window.__state.myMissions.cards || []).find(k => (k.card || {}).goal === " + json.dumps(goal) + ") || {}).id",
+                              10, "her card in her missions")
+            chrome.js(f"window.__app.send({{type: 'card_status', id: {cid}, status: 'ready', note: 'Kept'}})")
+            lc.js("document.getElementById('panel').classList.add('open'); document.querySelector('#panelhead button[data-tab=\"aicard\"]').click()")
+            lc.wait_for(f"!!document.querySelector('button[data-review=\"{cid}\"]')", 10, "the review questions under her kept card")
+            assert goal in lc.js("document.getElementById('panelbody').textContent"), "My last requests doesn't show the card's goal"
+            lc.js(f"document.querySelectorAll('textarea[id^=\"rv-{cid}-\"]').forEach(t => t.value = 'The boost lasted longer and my laps were faster on the straight');"
+                  f"document.querySelector('button[data-review=\"{cid}\"]').click()")
+            lc.wait_for(f"(window.__state.myMissions.cards || []).some(k => k.id === {cid} && k.status === 'reviewed')", 10,
+                        "her review taken by the server")
+            # the teacher's Learners tab: her AI cards, with their words
+            chrome.js("document.getElementById('panel').classList.add('open');"
+                      "document.querySelector('#panelhead button[data-tab=\"learners\"]').click()")
+            time.sleep(0.3)
+            chrome.js("document.querySelector('button[data-pick=\"amy\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-sub=\"cards\"]')", 10, "amy's AI cards button")
+            chrome.js("document.querySelector('button[data-sub=\"cards\"]').click()")
+            chrome.wait_for(f"document.getElementById('panelbody').textContent.includes({json.dumps(goal)})", 10, "amy's card's goal in the teacher's view")
+            assert "key delay" in chrome.js("document.getElementById('panelbody').textContent"), "no key delay column"
+            # BACK TO THE LOBBY (pressed twice), as closing the game in the app; added again, her game opens again
+            lc.js("document.getElementById('btn-lobby').click()")
+            assert lc.js("window.__state.connected") is True, "one press left the game"
+            lc.js("document.getElementById('btn-lobby').click()")
+            lc.wait_for("window.__state.connected === false && !document.getElementById('waitbox').hidden", 15, "amy back in her lobby")
+            # (as when her window closes, CHANGE 54: she stays in the session's list and the desk doesn't send her back
+            # in by itself; the teacher's This session: Back to lobby, then her name from the lobby)
+            time.sleep(1.0)
+            assert lc.js("window.__state.connected") is False, "she was sent straight back into the game she left"
+            chrome.js("document.getElementById('btn-desk').click()")
+            chrome.wait_for("!!document.querySelector('button[data-sout=\"amy\"]')", 10, "amy in This session on the desk")
+            chrome.js("document.querySelector('button[data-sout=\"amy\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-sin=\"amy\"]')", 15, "amy in the desk's lobby list")
+            chrome.js("document.querySelector('button[data-sin=\"amy\"]').click()")
+            lc.wait_for("window.__state.connected === true && window.__state.role === 'learner' && window.__state.game.id === 'kartlab'",
+                        30, "amy's game opening again")
+            chrome.js("document.getElementById('dk-back').click()")
+            errors = lc.js(f"JSON.stringify(window.__errors.slice({errors_before}))")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+            assert chrome.js("JSON.stringify(window.__errors)") == "[]", chrome.js("JSON.stringify(window.__errors)")
+        check("A learner's page as her window: H's key list, the starter brain, the key delay, an AI card reviewed (and its "
+              "words in the teacher's view), BACK TO THE LOBBY and in again", learner_parity)
+
         def learner_garage():  # amy's Garage drawn from the schema; the code panel: APPLY CODE changes a value, BUILD
             if "chrome" not in pupil:
                 return
@@ -623,6 +719,8 @@ def main():
             lc.call("Input.dispatchKeyEvent", type="keyDown", key="Enter", code="Enter", windowsVirtualKeyCode=13, text="\r")
             lc.call("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter", windowsVirtualKeyCode=13)
             lc.call("Input.insertText", text="ok = len(f'{speed}') if True else None  # typed")
+            # (the font comes in the background, font-display: swap: not asked for here, only waited for)
+            lc.wait_for("[...document.fonts].some(f => f.family.includes('JetBrains') && f.status === 'loaded')", 10, "JetBrains Mono loaded")
             hl = lc.js("(() => { const t = document.getElementById('code-text'), h = document.getElementById('code-hl'), q = s => [...h.querySelectorAll(s)].map(e => e.textContent);"
                        " return {same: h.textContent === t.value, end: t.value.endsWith(\"\\nok = len(f'{speed}') if True else None  # typed\"), k: q('.k'), f: q('.f'), s: q('.s'), n: q('.n').length,"
                        " c: q('.c').pop(), mb: q('.mb').length, cur: document.querySelector('#code-gutter .cur') && document.querySelector('#code-gutter .cur').textContent,"
@@ -670,6 +768,23 @@ def main():
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
         check("STOP (pressed twice) ends the session; its printed record", session_stop)
+
+        def records_apart():  # (CHANGE 143) the app's Records files a summary, a learner's cards and the scheme of work apart
+            chrome.js("document.querySelector('button[data-printsum]').click()")
+            chrome.wait_for("window.__printed === 2", 5, "the summary's print box")
+            text = chrome.js("document.getElementById('printout').textContent")
+            assert "Session summary" in text and "Learner card" not in text, text[:300]
+            chrome.js("document.getElementById('dk-recname').value = 'amy'; document.getElementById('dk-printlearner').click()")
+            chrome.wait_for("window.__printed === 3", 5, "amy's cards' print box")
+            text = chrome.js("document.getElementById('printout').textContent")
+            assert "Learner card: amy" in text and "Session summary" not in text, text[:300]
+            chrome.js("document.querySelector('button[data-scheme=\"kartlab\"]').click()")
+            chrome.wait_for("window.__printed === 4", 10, "the scheme of work's print box (from the desk)")
+            text = chrome.js("document.getElementById('printout').textContent")
+            assert "Scheme of work" in text and "Kart Lab" in text and "Success looks like" in text, text[:400]
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("Records: a session's summary on its own, one learner's cards, a game's scheme of work (from the desk)", records_apart)
 
         def reset_remove():
             chrome.js("document.querySelector('button[data-dtab=\"people\"]').click()")
@@ -935,6 +1050,62 @@ def main():
             no_errors()
         check("Robot Lab's Controls: every robot renamed and put in an arena from its row, kept by Save settings", arena_rows)
 
+        def robot_parity():  # (CHANGE 143) what the Robot Lab window does that the page didn't
+            if "amy" not in servers:
+                return
+            chrome.js("window.__app.send({type: 'lesson', lesson: {cpu_robots: 2, arenas: 2}})")
+            chrome.wait_for("window.__state.lesson.cpu_robots === 2 && (window.__state.roster || {}).arenas === 2", 15, "2 computer robots, 2 arenas")
+            g = "window.__state.game"
+            # the camera as rw_camera's: O, Q, + and a sideways scroll on the full arena view, kept in the window's format; Home
+            chrome.js(f"{g}.fullArena()")
+            assert chrome.js(f"{g}.scene.mode") == "arena"
+            before = chrome.js(f"{g}.scene.cam.settings()")
+            chrome.js(f"{g}.turnCamera(20); {g}.zoom(-1); {g}.panCamera(1)")
+            s = chrome.js(f"{g}.scene.cam.settings()")
+            assert s["mode"] == "arena" and round((s["angles"]["arena"][0] - before["angles"]["arena"][0]) % 360) == 20, s
+            assert s["arena"] < before["arena"] and s["pans"]["arena"] == 1, s
+            assert set(s) >= {"dist", "fpv", "zoom", "arena", "centre", "orbit", "tilt", "angles", "pans"}, s
+            chrome.js(f"{g}.resetCamera()")
+            s = chrome.js(f"{g}.scene.cam.settings()")
+            assert s["angles"]["arena"] == before["angles"]["arena"] and s["pans"]["arena"] == 0, s
+            chrome.js(f"{g}.watchArena(1)")
+            assert chrome.js(f"{g}.watched()") == 1, "] didn't watch arena 2"
+            chrome.js(f"{g}.watchArena(1)")
+            # PAUSED, big, as the window shows it
+            chrome.js("window.__app.send({type: 'pause'})")
+            chrome.wait_for("document.getElementById('countdown').textContent.includes('PAUSED')", 10, "PAUSED on the screen")
+            chrome.js("window.__app.send({type: 'pause'})")
+            chrome.wait_for("!document.getElementById('countdown').textContent.includes('PAUSED')", 10, "PAUSED gone again")
+            # the teacher's look at amy: her mission as the window's preview, Load from's three places
+            tab("learners")
+            chrome.js("document.querySelector('button[data-pick=\"amy\"]').click()")
+            chrome.wait_for("/\\[(TO DO|DONE|TEACHER)\\]/.test(document.getElementById('panelbody').textContent)", 10, "amy's mission as the window shows it")
+            chrome.js("document.querySelector('button[data-sub=\"build\"]').click()")
+            chrome.wait_for("document.querySelectorAll('button[data-lfrom]').length === 3", 10, "Load from: My saved, amy's saved, History")
+            # computer robot 2: its Mission and Mods as a learner sees them
+            chrome.js("document.querySelector('button[data-pick=\"*cpu2\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-sub=\"mods\"]')", 10, "computer robot 2's sub-tabs")
+            chrome.js("document.querySelector('button[data-sub=\"mods\"]').click()")
+            chrome.wait_for("document.getElementById('panelbody').textContent.includes('as a learner sees it')", 10, "its Mods as a learner sees them")
+            chrome.js("document.querySelector('button[data-sub=\"garage\"]').click()")
+            # the teacher's own garage: the robot turning on its pedestal, the window's word tips
+            chrome.js("document.querySelector('button[data-pick=\"*me\"]').click()")
+            chrome.wait_for("(() => { const c = document.querySelector('#panelbody canvas.gpreview'); return !!c && c.width > 0; })()", 10,
+                            "the robot preview in the garage")
+            assert chrome.js("!!document.querySelector('[data-tip=\"NAME\"]') && !!document.querySelector('[data-tip=\"RGB\"]')"), "no word tips"
+            chrome.js("document.querySelector('[data-tip=\"NAME\"]').dispatchEvent(new Event('pointerover', {bubbles: true}))")
+            chrome.wait_for("(() => { const t = document.getElementById('cc-tip'); return !!t && !t.hidden && t.textContent.length > 20; })()", 5,
+                            "NAME's tip")
+            # Rules: each Resident Robot in the vote on its own, as the window's
+            tab("rules")
+            chrome.wait_for("!!document.querySelector('input[data-house]')", 10, "the Resident Robots, one by one")
+            chrome.js("window.__app.send({type: 'lesson', lesson: {cpu_robots: 1, arenas: 1}})")
+            tab("controls")
+            no_errors()
+        check("Robot Lab as its window: the camera's swing, zoom and sideways move (kept in the window's format), ], PAUSED, "
+              "a learner's mission preview and Load from, a computer robot's Mods, the garage's robot preview and word tips, "
+              "the Resident Robots' votes", robot_parity)
+
         def restart():
             if "robotlab" not in servers:
                 return
@@ -1016,9 +1187,25 @@ def main():
             tab("camera")
             time.sleep(2.0)
             chrome.screenshot(os.path.join(work, "fightlab.png"))
+            # (CHANGE 143) the rings box as the window's: the mode line, B small and full again; the round time in tens
+            chrome.wait_for("/PRACTICE|BATTLE/.test((document.querySelector('#places.fightboard #fb-mode') || {}).textContent || '')", 10,
+                            "the rings box's mode line")
+            chrome.js("window.__state.game.toggleBoard()")
+            chrome.wait_for("document.getElementById('places').classList.contains('small') && !document.querySelector('#places .fring')", 5,
+                            "the rings box small (B)")
+            chrome.js("window.__state.game.toggleBoard()")
+            chrome.wait_for("!document.getElementById('places').classList.contains('small') && !!document.querySelector('#places .fring')", 5,
+                            "the rings box full again")
+            assert chrome.js("window.__state.game.keyList().some(([k]) => k === 'B')"), "B isn't in Fight Lab's key list"
+            tab("controls")
+            rt = chrome.js("window.__state.lesson.round_time")
+            chrome.js("document.getElementById('fb-time-up').click()")
+            chrome.wait_for(f"window.__state.lesson.round_time === {min(300, rt + 10)}", 10, "the round time 10 s longer")
+            chrome.js(f"window.__app.send({{type: 'lesson', lesson: {{round_time: {rt}}}}})")
             no_errors()
         check("Fight Lab: the rings and the posed fighters are drawn (a woman with the app's own model), and its controls "
-              "reach the server (winner stays on: the rings and the queue)", fight_lab)
+              "reach the server (winner stays on: the rings and the queue); the rings box with its mode line, small with B; "
+              "the round time in tens", fight_lab)
         for key, proc in servers.items():
             proc.close() if isinstance(proc, Learner) else stop(proc)
 

@@ -444,7 +444,7 @@ export class FightScene extends BaseScene {
 
     // ---------- the fighters ----------
     setFighters(list) {
-        for (const f of this.fighters.values()) { f.label.dispose(false, true); f.root.dispose(); if (f.model) f.model.dispose(); }
+        for (const f of this.fighters.values()) { f.label.dispose(false, true); if (f.plate) f.plate.dispose(false, true); f.root.dispose(); if (f.model) f.model.dispose(); }
         this.fighters.clear();
         this.list = list;
         for (const f of list) this.addFighter(f);
@@ -544,6 +544,7 @@ export class FightScene extends BaseScene {
                 S(s + "fist", 0.06 * big, "skin", 0, 0.01, -0.04, 0.9, 1.1, 1.0);
             }
         }
+        const plate = this.numberPlate(n.waist, d, robot, robot ? lights : trim);
         // the weapon (the window's skinned models carry one; here a plain shape in the right fist, a shield on the left arm)
         const w = d.weapon;
         if (w) {
@@ -564,11 +565,38 @@ export class FightScene extends BaseScene {
         this.shadowCast(parts);
         const computer = info.owner === "Computer";
         const label = this.makeLabel(`${d.name || ""}\n${computer && boss ? "Boss" : info.owner || ""}`, computer ? "#ffbf4d" : "#ffffff", 0.9);
-        const f = {root, body, n, size, design: d, label, glows, cur: stance(), pos: null, h: 0, wheel: null, owner: info.owner, ring: info.ring, robot, main: M.main};
+        const f = {root, body, n, size, design: d, label, glows, plate, cur: stance(), pos: null, h: 0, wheel: null, owner: info.owner, ring: info.ring, robot, main: M.main};
         this.applyPose(f, f.cur);
         if (FighterModel.wanted(this, d)) f.model = new FighterModel(this, f, d, info.id);  // (the app's own model, once loaded)
         this.fighters.set(info.id, f);
         return f;
+    }
+
+    // (CHANGE 143) fight_gfx.FighterVisual.number_plate: the fighter's number (or its name), 8 letters at most, on the
+    // waist joint where the window puts it, (0, -0.18) on a robot and (0, -0.14) on a person, 0.34 up: the back of the
+    // torso, read from behind (a robot's in its light colour, glowing as Robin's does; a person's in the trim colour)
+    numberPlate(joint, d, robot, rgb) {
+        const text = String((d.style || {}).number || d.name || "").slice(0, 8);
+        if (!text) return null;
+        const scene = this.scene;
+        const plane = BABYLON.MeshBuilder.CreatePlane("fighternumber", {width: 0.34, height: 0.085}, scene);
+        const tex = new BABYLON.DynamicTexture("fighternumbertex", {width: 512, height: 128}, scene, true);
+        tex.hasAlpha = true;
+        tex.getContext().clearRect(0, 0, 512, 128);
+        tex.drawText(text, null, 96, "bold 92px sans-serif", `rgb(${rgb.map(c => Math.round(255 * Math.max(0, Math.min(1, c)))).join(",")})`, null, true, true);
+        const m = new BABYLON.StandardMaterial("fighternumbermat", scene);
+        m.diffuseTexture = tex;
+        m.useAlphaFromDiffuseTexture = true;
+        m.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
+        if (this.lighting) {  // (as the hall's painted words: not lit by Babylon's brighter lights; a robot's glows)
+            m.disableLighting = true;
+            m.emissiveColor = robot ? new BABYLON.Color3(1, 1, 1) : new BABYLON.Color3(0.6, 0.6, 0.6);
+        }
+        plane.material = m;
+        plane.isPickable = false;
+        plane.parent = joint;
+        plane.position = v3(0, robot ? -0.18 : -0.14, 0.34);  // (a plane faces -z, the game's -y: out of the fighter's back)
+        return plane;
     }
 
     applyPose(f, p) {
@@ -725,7 +753,28 @@ export class FightGame {
         this.pickA = this.pickB = "";
         this.controlKind = "fight";  // (play.js: the arrows move, A S D W Space F the moves, Shift blocks, X crouches)
         this.hud = new FightHud();
+        // (CHANGE 143) B: the rings box small (the title and the mode line) or full, kept on this computer as the
+        // window keeps rings_small
+        try { this.boardSmall = localStorage.getItem("rings_small") === "1"; } catch (e) { this.boardSmall = false; }
         this.hookCamera();
+    }
+
+    // B, or the rings box's Hide/Show button (fight_client.toggle_rings)
+    toggleBoard() {
+        this.boardSmall = !this.boardSmall;
+        try { localStorage.setItem("rings_small", this.boardSmall ? "1" : "0"); } catch (e) { /* private window */ }
+        this.renderBoard();
+    }
+
+    // (CHANGE 143) the window's keys (fight_client's key list and its camera keys), for a key list or help
+    keyList() {
+        const learner = this.app.state.role === "learner";
+        return [["Arrows", "move (up and down sidestep)"], ["A", "punch (again for a combo)"], ["S", "kick (forward + S: high kick)"], ["D", "special"],
+                ["W", "throw"], ["Space", "jump"], ["F", "cartwheel (when it's on)"], ["Shift", "block"], ["X", "crouch (X + Shift: low block)"],
+                ...(learner ? [["P", "autopilot"], ["U", "upload a brain"]] : []),
+                ["V", "camera view"], ["Q and E, or drag", "swing the view round (drag up and down tilts it)"], ["Wheel, + and -", "zoom"],
+                ["Home", "the view back as it was"], ["O", "every ring"], ["[ and ]", "watch another ring"], ["B", "the rings box: small or full"],
+                ["N", "sound on or off"]];
     }
 
     // the window's camera controls: dragging swings the view round and tilts it, the wheel (or + and -) zooms the
@@ -733,7 +782,7 @@ export class FightGame {
     hookCamera() {
         const canvas = this.app.canvas, cam = () => this.scene.cam;
         this.listeners = [
-            [canvas, "wheel", e => { cam().wheel(e.deltaY > 0 ? 1 / 0.88 : 0.88); this.keepCamera(); }, {passive: true}],
+            [canvas, "wheel", e => { cam().wheel(this.app.wheelZoom ? this.app.wheelZoom(e) : e.deltaY > 0 ? 1 / 0.88 : 0.88); this.keepCamera(); }, {passive: true}],  // (the Settings' Wheel zoom: CHANGE 143)
             [canvas, "pointerdown", e => { this.dragFrom = [e.clientX, e.clientY]; try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } }],
             [canvas, "pointermove", e => {
                 if (!this.dragFrom) return;
@@ -789,6 +838,16 @@ export class FightGame {
         const S = this.app.state, r = this.roster;
         const id = r && r.mine ? r.mine[S.name] : null;
         return id === undefined ? null : id;
+    }
+
+    // (CHANGE 143) your fighter's ring (fight_client.my_ring): the newest snapshot's, else the roster's; null with none
+    myRing() {
+        const id = this.myId();
+        if (id === null) return null;
+        const r = ((this.last || {}).rings || []).find(x => (x.f || []).some(f => f.id === id));
+        if (r) return r.i;
+        const f = ((this.roster || {}).fighters || []).find(x => x.id === id);
+        return f && Number.isInteger(f.ring) ? f.ring : null;
     }
 
     // the arrows as (forward, side) for your fighter, as fight_client.stick does: the camera decides which way is
@@ -877,9 +936,11 @@ export class FightGame {
         this.scene.myId = this.myId();
         this.scene.frame(fighters, (b || a).rings || [], dt, now / 1000);
         // the fight screen (hud.js): the watched ring's two fighters, from the newest snapshot
-        const ring = this.last ? (this.last.rings || []).find(r => r.i === this.watched()) : null;
+        const watched = this.watched(), ring = this.last ? (this.last.rings || []).find(r => r.i === watched) : null;
         const names = new Map(((this.roster || {}).fighters || []).map(x => [x.id, {name: (x.design || {}).name || "?", owner: x.owner || ""}]));
-        this.hud.update(ring, names, this.myId(), ((this.app.state.lesson || {}).rounds_to_win) || 2, dt, now);
+        // (CHANGE 143) RING n over the timer when the ring watched isn't yours (fight_client: watched != my_ring)
+        this.hud.update(ring, names, this.myId(), ((this.app.state.lesson || {}).rounds_to_win) || 2, dt, now,
+                        ring && watched !== this.myRing() ? `RING ${watched + 1}` : "");
         if (this.app.sound && this.last) {  // the hits, the bell, the crowd (sound.js, fight_client's sounds)
             this.app.sound.fightFrame(this.last.rings || [], this.impacts || [], this.watched(),
                 {robots: Sound.fightRobots((this.roster || {}).fighters), listener: Sound.listenerFrom(this.scene.camera), now: now / 1000});
@@ -888,28 +949,38 @@ export class FightGame {
         document.body.classList.toggle("fightscreen", !!ring && this.myId() !== null);
     }
 
+    // (CHANGE 143) the window's rings box (fight_client.hud_dark, top left under the health bars), for the teacher and
+    // a player alike: the title (FIGHT LAB, TEACHER: or LEARNER: and the name) with Hide or Show (B), the mode line
+    // (PRACTICE or BATTLE, PAUSED, the tournament or its champion), and, full, every ring's fight, the watched ring
+    // yellow, your fighter starred. #places is .fightboard (and .small when B has made it small); the fight screen's
+    // banner is the HUD's (hud.js), so #race is left empty
     renderBoard() {
-        const m = this.last, esc = this.app.esc;
+        const S = this.app.state, m = this.last, esc = this.app.esc, el = $("places");
         if (!m || !this.roster) return;
         const names = new Map((this.roster.fighters || []).map(x => [x.id, x]));
-        const w = this.watched();
+        const w = this.watched(), myId = this.myId();
         const lines = (m.rings || []).map(r => {
             const fs = (r.f || []).map(x => {
                 const info = names.get(x.id) || {design: {}};
-                const pc = Math.max(0, Math.round(100 * x.hp / (x.max || 1)));
-                return `${esc(info.design.name || "?")} ${pc}%${x.w ? ` (${x.w})` : ""}${x.ap ? " AUTO" : ""}`;
+                const pc = Math.max(0, Math.round(100 * x.hp / Math.max(1, x.max || 0)));
+                return `${x.id === myId ? "*" : ""}${esc(info.design.name || "?")} ${pc}%${x.w ? ` (${x.w})` : ""}${x.ap ? " AUTO" : ""}`;
             }).join("  v  ");
-            const tail = r.bn ? r.bn : r.tl === null || r.tl === undefined ? "training" : `round ${r.rd}  ${Math.ceil(r.tl)} s`;
-            return `<div data-ring="${r.i}" class="${r.i === w ? "watched" : ""}"><span>Ring ${r.i + 1}${r.lb ? ` · ${esc(r.lb)}` : ""}: ${fs || "empty"}</span><span class="lap">${esc(tail)}</span></div>`;
+            const tail = r.bn ? r.bn : r.tl === null || r.tl === undefined ? "training" : `round ${r.rd}  ${Math.max(0, Math.floor(r.tl || 0))} s`;
+            return `<div data-ring="${r.i}" class="fring ${r.i === w ? "watched" : ""}"><span>Ring ${r.i + 1}${r.lb ? ` - ${esc(r.lb)}` : ""}: ${fs || "empty"}</span><span class="lap">${esc(tail)}</span></div>`;
         });
-        $("places").innerHTML = lines.join("") || "<div><small>No rings</small></div>";
-        $("places").querySelectorAll("div[data-ring]").forEach(el => el.onclick = () => { this.watch = Number(el.dataset.ring); this.renderBoard(); });
-        const ring = (m.rings || []).find(r => r.i === w);
-        $("countdown").textContent = ring ? ring.bn || "" : "";
-        const T = this.app.state.tournament;
-        $("phase").textContent = (m.paused ? "PAUSED · " : "") + (m.practice ? "PRACTICE (no damage)" : "BATTLE") +
-                                 (ring && ring.tl !== null && ring.tl !== undefined ? ` · ${Math.ceil(ring.tl)} s` : "") +
-                                 (T ? ` · ${T.champion ? `CHAMPION ${T.champion}` : T.title || "tournament"}` : "");
+        const T = S.tournament, teacher = S.role !== "learner";
+        const mode = (m.practice ? "PRACTICE (no damage)" : "BATTLE") + (m.paused ? " · PAUSED" : "") +
+                     (T ? ` · TOURNAMENT: ${T.champion ? `CHAMPION ${T.champion}` : T.title || ""}` : "");
+        const head = `<div class="bhead"><b class="${teacher ? "teacher" : ""}">FIGHT LAB · ${teacher ? "TEACHER" : "LEARNER"}: ${esc(S.name || "")}</b>` +
+                     `<button id="fb-small" title="B does the same">${this.boardSmall ? "Show" : "Hide"}</button></div>` +
+                     `<div id="fb-mode" class="fmode">${esc(mode)}</div>`;
+        el.classList.add("fightboard");
+        el.classList.toggle("small", !!this.boardSmall);
+        el.innerHTML = head + (this.boardSmall ? "" : `<div class="ftitle"><small>RINGS ([ and ] watch another ring, B hides this)</small></div>` +
+                                                     (lines.join("") || "<div class='fring'><small>No rings</small></div>"));
+        $("fb-small").onpointerdown = () => this.toggleBoard();  // (not onclick: the box is redrawn 30 times a second)
+        el.querySelectorAll("div[data-ring]").forEach(d => d.onpointerdown = () => { this.watch = Number(d.dataset.ring); this.renderBoard(); this.app.updatePills(); });
+        $("countdown").textContent = $("phase").textContent = "";
     }
 
     pill() {
@@ -938,6 +1009,18 @@ export class FightGame {
         const people = (S.classList || []).filter(p => p.role === "learner").map(p => p.name).concat(L && L.teacher_fighter ? ["Teacher"] : []);
         if (tab === "controls") {
             const levels = Object.entries(R.cpu_levels || {});
+            // (CHANGE 143) who is where: each fighter's list (ids that stay the same, CHANGE 142), and where they are
+            // now, as the window greys their ring or says "sitting out" (fight_client's Rings rows)
+            const where = new Map(((this.roster || {}).fighters || []).map(f => [f.owner, f.ring]));
+            const key = s => String(s).replace(/[^A-Za-z0-9]/g, ch => "_" + ch.charCodeAt(0).toString(16));
+            const placeHtml = people.map((n, i) => {
+                const v = (L.places || {})[n], set = Number.isInteger(v) ? v : null, now = where.get(n === "Teacher" ? S.name : n);
+                const at = Number.isInteger(now) ? now : null;
+                return `<div class="row"><label>${n === "Teacher" ? "My fighter" : esc(n)}</label><select id="fb-at-${key(n)}" data-place="${i}" data-v="${set ?? ""}"><option value="">any</option>${
+                    Array.from({length: Math.max(L.rings, (set ?? -1) + 1)}, (_, k) => `<option value="${k}" ${set === k ? "selected" : ""}>ring ${k + 1}</option>`).join("")}</select>` +
+                    (at === null ? `<small class="note sitout">sitting out</small>` : at !== set ? `<small class="note">in ring ${at + 1}</small>` : "") + `</div>`;
+            }).join("");
+            const rt = Number(L.round_time) || 60;
             body.innerHTML = `
               ${app.missionRow()}
               <h2>The fights</h2>
@@ -946,10 +1029,11 @@ export class FightGame {
                 <button id="fb-restart" class="go">RESTART</button>
                 <button id="fb-pause" class="${this.last && this.last.paused ? "on" : ""}">${this.last && this.last.paused ? "RESUME" : "PAUSE"}</button></div>
               <div class="note">Practice: no damage and no timer. Battle: rounds of ${L.round_time} s, first to ${L.rounds_to_win}. RESTART begins new matches.</div>
-              <div class="row"><label>Round time</label><select id="fb-time">${[20, 30, 40, 50, 60, 90, 120, 180, 240, 300].map(t => `<option value="${t}" ${t === L.round_time ? "selected" : ""}>${t} s</option>`).join("")}</select></div>
+              <div class="row"><label>Round time</label><button id="fb-time-down" ${rt <= 20 ? "disabled" : ""}>-10</button><b id="fb-time">${rt} s</b>
+                <button id="fb-time-up" ${rt >= 300 ? "disabled" : ""}>+10</button><span class="note">20 to 300 s</span></div>
               <div class="row"><label>Rounds to win</label>${[1, 2, 3].map(k => `<button data-rtw="${k}" class="${k === L.rounds_to_win ? "on" : ""}">${k}</button>`).join("")}</div>
               <div class="row"><label>Sparring partners</label><button id="fb-cpu" class="${L.cpu_opponents ? "on" : ""}">${L.cpu_opponents ? "Computer fighters on" : "Off"}</button>
-                <select id="fb-level">${levels.map(([k, n]) => `<option value="${k}" ${k === L.cpu_level ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+                <select id="fb-level" data-v="${esc(L.cpu_level || "")}">${levels.map(([k, n]) => `<option value="${k}" ${k === L.cpu_level ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
               <div class="row"><label>The computer plays</label><button data-cf="sparring" class="${L.cpu_fighter === "sparring" ? "on" : ""}">Sparring</button>
                 ${Object.keys(R.bosses || {}).map(b => `<button data-cf="${esc(b)}" class="${L.cpu_fighter === b ? "on" : ""}">${esc(b)}</button>`).join("")}</div>
               ${L.cpu_level === "empty" ? `<div class="row"><label class="filebtn">Upload the demo brain (.py)<input id="fb-demo" type="file" accept=".py,text/plain" hidden></label></div>` : ""}
@@ -958,25 +1042,31 @@ export class FightGame {
               <h2>Rings</h2>
               <div class="row"><button data-rings="0" class="${!L.rings ? "on" : ""}">Auto</button>${[1, 2, 3, 4, 5, 6].map(k => `<button data-rings="${k}" class="${L.rings === k ? "on" : ""}">${k}</button>`).join("")}
                 <button id="fb-turns">Take turns again</button></div>
-              ${L.rings ? people.map((n, i) => `<div class="row"><label>${esc(n)}</label><select data-place="${i}"><option value="">any</option>${Array.from({length: L.rings}, (_, k) =>
-                  `<option value="${k}" ${(L.places || {})[n] === k ? "selected" : ""}>ring ${k + 1}</option>`).join("")}</select></div>`).join("") : `<div class="note">Auto: one ring each, matches share.</div>`}
+              ${L.rings ? placeHtml + (people.length ? `<div class="note">Any: the rings take turns; a third in a ring sits out.</div>` : "") : `<div class="note">Auto: one ring each, matches share.</div>`}
               ${app.restartRow()}`;
             app.wireMissionRow(body);
             body.querySelectorAll("button[data-mode]").forEach(b => b.onclick = () => lessonSend({mode: b.dataset.mode}));
             $("fb-restart").onclick = () => send({type: "restart"});
             $("fb-pause").onclick = () => send({type: "pause"});
-            $("fb-time").onchange = e => lessonSend({round_time: Number(e.target.value)});
+            // (CHANGE 143) -10 and +10 as the window's: any round time from 20 to 300 s (the server holds it there too)
+            $("fb-time-down").onclick = () => lessonSend({round_time: Math.max(20, Math.min(300, rt - 10))});
+            $("fb-time-up").onclick = () => lessonSend({round_time: Math.max(20, Math.min(300, rt + 10))});
             body.querySelectorAll("button[data-rtw]").forEach(b => b.onclick = () => lessonSend({rounds_to_win: Number(b.dataset.rtw)}));
             $("fb-cpu").onclick = () => lessonSend({cpu_opponents: !L.cpu_opponents});
-            $("fb-level").onchange = e => lessonSend({cpu_level: e.target.value});
             body.querySelectorAll("button[data-cf]").forEach(b => b.onclick = () => lessonSend({cpu_fighter: b.dataset.cf}));
             if ($("fb-demo")) $("fb-demo").onchange = async e => { const f = e.target.files[0]; if (f) send({type: "cpu_brain", source: await f.text()}); };
             $("fb-mine").onclick = () => lessonSend({teacher_fighter: !L.teacher_fighter});
             $("fb-lock").onclick = () => lessonSend({designs_locked: !L.designs_locked});
             body.querySelectorAll("button[data-rings]").forEach(b => b.onclick = () => lessonSend({rings: Number(b.dataset.rings)}));
             $("fb-turns").onclick = () => lessonSend({places: Object.fromEntries(people.map(n => [n, null]))});
-            body.querySelectorAll("select[data-place]").forEach(sel => sel.onchange = () =>
-                lessonSend({places: {[people[Number(sel.dataset.place)]]: sel.value === "" ? null : Number(sel.value)}}));
+            body.querySelectorAll("select[data-place]").forEach(sel => sel.onchange = () => {
+                sel.dataset.v = sel.value;
+                lessonSend({places: {[people[Number(sel.dataset.place)]]: sel.value === "" ? null : Number(sel.value)}});
+            });
+            $("fb-level").onchange = e => { e.target.dataset.v = e.target.value; lessonSend({cpu_level: e.target.value}); };
+            // the panel's redraw puts back what each list held; a list not in use shows the server's own (a ring or a
+            // level set elsewhere) once that is done (as robot.js's Arenas rows)
+            queueMicrotask(() => body.querySelectorAll("select[data-v]").forEach(el => { if (el.isConnected && el !== document.activeElement) el.value = el.dataset.v; }));
             app.wireRestartRow(body);
             return true;
         }
@@ -1044,6 +1134,8 @@ export class FightGame {
         this.listeners = [];
         this.scene.dispose();
         $("places").innerHTML = "";
+        $("places").classList.remove("fightboard", "small");  // (CHANGE 143: the next game's board is its own)
+        document.body.classList.remove("fightscreen");
         $("countdown").textContent = $("phase").textContent = "";
     }
 }

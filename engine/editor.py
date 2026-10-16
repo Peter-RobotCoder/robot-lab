@@ -4,66 +4,107 @@
     the words are coloured as an IDE colours Python: keywords, strings, numbers, comments, names, brackets
     code that is too long for its box scrolls (mouse wheel, or move the cursor): the buttons under it stay put
 
+CHANGE 143: it looks as the browser's code panel does since CHANGE 138 (the promo videos' code window): the navy
+panel with its cyan edge, the title bar's three dots and the file's name (title_bar), JetBrains Mono (engine/fonts,
+made from the website's font), the promo colours (a function's name and the types in cyan), the cursor's line and
+its number, and a bracket beside the cursor marked with its partner. The light look is VS Code's Light+.
+
 Keys while typing: arrows, Home, End, Backspace, Delete, Tab (4 spaces), Enter (the window decides: Robot Lab
 applies the code), Shift+Enter (a new line).
 
 The text, cursor and scroll position live in a plain dictionary the window keeps ({"lines", "cursor", "scroll"}),
 so the editor can be drawn again (when its panel is redrawn) without losing anything.
 """
-import keyword
+import math
 import os
 import re
 
 from direct.gui.DirectGui import DGG, DirectFrame
 from direct.gui.OnscreenText import OnscreenText
 from direct.showbase.DirectObject import DirectObject
-from panda3d.core import (Filename, MouseButton, PGButton, Point3, TextNode, TextProperties,
+from panda3d.core import (Filename, Geom, GeomNode, GeomTrifans, GeomVertexData, GeomVertexFormat,
+                          GeomVertexWriter, MouseButton, PGButton, Point3, TextNode, TextProperties,
                           TextPropertiesManager)
 
 WHEEL_UP = PGButton.getPressPrefix() + MouseButton.wheelUp().getName() + "-"  # (the mouse wheel over a panel)
 WHEEL_DOWN = PGButton.getPressPrefix() + MouseButton.wheelDown().getName() + "-"
 
-# the colours of Visual Studio's dark theme
-DARK_COLOURS = {"keyword": (0.34, 0.61, 0.84), "string": (0.81, 0.57, 0.47), "number": (0.71, 0.81, 0.66),
-                "comment": (0.42, 0.60, 0.33), "name": (0.61, 0.86, 1.0), "bracket": (1.0, 0.84, 0.0),
-                "other": (0.83, 0.83, 0.83)}
-LIGHT_COLOURS = {"keyword": (0.0, 0.0, 0.75), "string": (0.63, 0.13, 0.1), "number": (0.05, 0.5, 0.1),
-                 "comment": (0.0, 0.5, 0.0), "name": (0.0, 0.1, 0.4), "bracket": (0.6, 0.35, 0.0),
-                 "other": (0.15, 0.15, 0.15)}
-DARK_BACK = ((0.118, 0.118, 0.118, 1), (0.17, 0.17, 0.19, 1), (0.52, 0.52, 0.52, 1), (1, 1, 1, 1))
-LIGHT_BACK = ((1, 1, 1, 1), (0.93, 0.94, 0.97, 1), (0.55, 0.55, 0.6, 1), (0.1, 0.1, 0.1, 1))
+
+def hex_colour(text, alpha=1.0):
+    """"#ff4fd8" -> (r, g, b, a), each 0 to 1 (the browser's style.css writes its colours this way)."""
+    text = text.lstrip("#")
+    return tuple(int(text[i:i + 2], 16) / 255 for i in (0, 2, 4)) + (alpha,)
+
+
+def rgba(r, g, b, a=1.0):
+    return (r / 255, g / 255, b / 255, a)
+
+
+# CHANGE 143: the promo videos' colours (the browser's #codepanel in style.css), and VS Code's Light+ for the light look
+DARK_COLOURS = {"keyword": hex_colour("#ff4fd8"), "function": hex_colour("#3ee9ff"), "type": hex_colour("#3ee9ff"),
+                "string": hex_colour("#ffb02e"), "number": hex_colour("#b6ff3b"), "comment": hex_colour("#7f8bb0"),
+                "bracket": hex_colour("#c3cbe8"), "other": hex_colour("#e6ebff")}
+LIGHT_COLOURS = {"keyword": hex_colour("#0000ff"), "function": hex_colour("#795e26"), "type": hex_colour("#267f99"),
+                 "string": hex_colour("#a31515"), "number": hex_colour("#098658"), "comment": hex_colour("#008000"),
+                 "bracket": hex_colour("#1f1f1f"), "other": hex_colour("#1f1f1f")}
+# the panel round the code (the window draws it with code_window), the box the code is in, and the editor's marks
+DARK_LOOK = {"PANEL_BACK": rgba(10, 14, 30, 0.95), "PANEL_EDGE": rgba(62, 233, 255, 0.35),
+             "PANEL_TEXT": hex_colour("#e6ebff"), "DIM": hex_colour("#9aa6c8"), "TITLE_BACK": rgba(62, 233, 255, 0.06),
+             "BACK": rgba(4, 7, 18, 0.7), "BOX_EDGE": rgba(62, 233, 255, 0.12), "GUTTER_EDGE": rgba(76, 88, 124, 0.35),
+             "GUTTER": hex_colour("#4c587c"), "GUTTER_CUR": hex_colour("#9aa6c8"), "CURSOR": hex_colour("#b6ff3b"),
+             "LINE_BACK": rgba(62, 233, 255, 0.07), "SEL_BACK": rgba(62, 233, 255, 0.26),
+             "MATCH_BACK": rgba(182, 255, 59, 0.2), "MATCH_EDGE": rgba(182, 255, 59, 0.6),
+             "BOX_BACK": (0.15, 0.17, 0.22, 1), "BOX_TEXT": (1, 1, 1, 1), "BOX_CURSOR": (1, 1, 1, 1)}
+LIGHT_LOOK = {"PANEL_BACK": hex_colour("#ffffff"), "PANEL_EDGE": hex_colour("#c5ccd8"),
+              "PANEL_TEXT": hex_colour("#1f1f1f"), "DIM": hex_colour("#616161"), "TITLE_BACK": (0, 0, 0, 0.035),
+              "BACK": hex_colour("#ffffff"), "BOX_EDGE": hex_colour("#e1e4ea"), "GUTTER_EDGE": hex_colour("#eceef2"),
+              "GUTTER": hex_colour("#6e7681"), "GUTTER_CUR": hex_colour("#0b216f"), "CURSOR": hex_colour("#000000"),
+              "LINE_BACK": (0, 0, 0, 0.045), "SEL_BACK": rgba(0, 120, 215, 0.24),
+              "MATCH_BACK": rgba(0, 100, 0, 0.1), "MATCH_EDGE": hex_colour("#b9b9b9"),
+              "BOX_BACK": (1, 1, 1, 1), "BOX_TEXT": (0.08, 0.09, 0.12, 1), "BOX_CURSOR": (0.1, 0.1, 0.1, 1)}
+DOTS = (hex_colour("#ff5f57"), hex_colour("#febc2e"), hex_colour("#28c840"))  # the title bar's: red, amber, green
 COLOURS = dict(DARK_COLOURS)
-BACK, LINE_BACK, GUTTER, CURSOR = DARK_BACK
-BOX_BACK, BOX_TEXT = (0.15, 0.17, 0.22, 1), (1, 1, 1, 1)  # a text box's background and words (TextBox)
+(PANEL_BACK, PANEL_EDGE, PANEL_TEXT, DIM, TITLE_BACK, BACK, BOX_EDGE, GUTTER_EDGE, GUTTER, GUTTER_CUR, CURSOR, LINE_BACK, SEL_BACK,
+ MATCH_BACK, MATCH_EDGE, BOX_BACK, BOX_TEXT, BOX_CURSOR) = (DARK_LOOK[k] for k in DARK_LOOK)
 
 
 def set_theme(name):
     """The dark or the light look for code drawn after this (the window redraws its code panel)."""
-    global BACK, LINE_BACK, GUTTER, CURSOR, BOX_BACK, BOX_TEXT
     light = name == "light"
-    BOX_BACK, BOX_TEXT = ((1, 1, 1, 1), (0.08, 0.09, 0.12, 1)) if light else ((0.15, 0.17, 0.22, 1), (1, 1, 1, 1))
+    globals().update(LIGHT_LOOK if light else DARK_LOOK)
     COLOURS.clear()
     COLOURS.update(LIGHT_COLOURS if light else DARK_COLOURS)
-    BACK, LINE_BACK, GUTTER, CURSOR = LIGHT_BACK if light else DARK_BACK
     styles()
+
+
+# Python as the browser's codeTokens (garage.js) splits it: a comment, a string (with any prefix: f"...", r'...'),
+# a name, a number (0x1F, 1_000, 2.5e3, 3j), a bracket, or anything else (spaces, = , : and the like: plain text)
 TOKEN = re.compile(r"""(?P<comment>\#.*)
-                     |(?P<string>"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)
-                     |(?P<number>\b\d+(?:\.\d+)?\b)
+                     |(?P<string>(?:[rRbBuUfF]{1,2})?(?:"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?))
                      |(?P<name>[A-Za-z_]\w*)
+                     |(?P<number>(?:0[xXoObB][\da-fA-F_]+|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?[jJ]?))
                      |(?P<bracket>[\[\]{}()])
                      |(?P<other>\s+|.)""", re.VERBOSE)
+KEYWORDS = set(("False None True and as assert async await break case class continue def del elif else except "
+                "finally for from global if import in is lambda match nonlocal not or pass raise return try while "
+                "with yield").split())
+TYPES = set("int float str list dict tuple set bool bytes".split())
+CALL = re.compile(r"[ \t]*\(")
+OPENS, CLOSES = "([{", ")]}"
 MAX_LINES, MAX_LENGTH = 80, 110
 FONTS = ("consola.ttf", "cour.ttf", "lucon.ttf")  # a font with every letter the same width (Windows has these)
+OWN_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "JetBrainsMono.ttf")  # (CHANGE 143)
 _font = [None, False]  # the font, and whether we've looked for it
 
 
 def code_font(base):
-    """A fixed-width font for code, or None (Panda3D's own font) if this computer has none of ours."""
+    """A fixed-width font for code: JetBrains Mono (the engine's own, as the browser's code panel), else one Windows
+    has, else None (Panda3D's own font)."""
     if not _font[1]:
         _font[1] = True
         folder = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
-        for name in FONTS:
-            path = os.path.realpath(os.path.join(folder, name))  # (its true capitals: Panda3D is fussy about them)
+        for path in [OWN_FONT] + [os.path.join(folder, name) for name in FONTS]:
+            path = os.path.realpath(path)  # (its true capitals: Panda3D is fussy about them)
             if os.path.exists(path):
                 try:
                     font = base.loader.loadFont(Filename.fromOsSpecific(path).getFullpath())
@@ -79,26 +120,102 @@ def code_font(base):
 def styles():
     """The colours as named text styles, so one piece of text can change colour part-way along."""
     mgr = TextPropertiesManager.getGlobalPtr()
-    for kind, (r, g, b) in COLOURS.items():
+    for kind, (r, g, b, _a) in COLOURS.items():
         props = TextProperties()
         props.setTextColor(r, g, b, 1)
         mgr.setProperties("code_" + kind, props)
 
 
 def tokens(line):
-    """A line of Python as (kind, text) pieces: keyword, string, number, comment, name, bracket or other."""
-    out = []
+    """A line of Python as (kind, text) pieces: keyword, function (the name after def or class, or a name called:
+    print( ), type (int, str, list...), string, number, comment, bracket or other (plain text), as the browser's
+    codeTokens has them (CHANGE 143)."""
+    out, before = [], ""
     for m in TOKEN.finditer(line):
-        kind = m.lastgroup
-        if kind == "name" and keyword.iskeyword(m.group()):
-            kind = "keyword"
-        out.append((kind, m.group()))
+        kind, text = m.lastgroup, m.group()
+        if kind == "name":
+            kind = "keyword" if text in KEYWORDS else \
+                "function" if before in ("def", "class") or CALL.match(line, m.end()) else \
+                "type" if text in TYPES else "other"
+            before = text
+        elif kind != "other":
+            before = ""
+        out.append((kind, text))
     return out
 
 
 def coloured(line):
     """The line with each piece marked with its style (\\1style\\1 text \\2 is Panda3D's way of writing that)."""
     return "".join(text if not text.strip() else f"\1code_{kind}\1{text}\2" for kind, text in tokens(line))
+
+
+def bracket_pairs(lines):
+    """Each bracket's partner, across the lines: {(line, col): (line, col)} both ways. Brackets in strings and
+    comments don't count; a closing bracket that doesn't match the last one opened has no partner (as garage.js)."""
+    pairs, open_ = {}, []
+    for n, line in enumerate(lines):
+        col = 0
+        for kind, text in tokens(line):
+            if kind == "bracket":
+                if text in OPENS:
+                    open_.append((n, col, text))
+                elif open_ and open_[-1][2] == OPENS[CLOSES.index(text)]:
+                    o = open_.pop()
+                    pairs[(o[0], o[1])], pairs[(n, col)] = (n, col), (o[0], o[1])
+            col += len(text)
+    return pairs
+
+
+def file_name(word, who=None):
+    """The code panel's file name, as the browser's: my_robot.py, or (the teacher looking at a learner's) sam_robot.py."""
+    if not who:
+        return f"my_{word.lower()}.py"
+    return f"{re.sub(r'[^a-z0-9]+', '_', str(who).lower()).strip('_') or 'their'}_{word.lower()}.py"
+
+
+def dot(parent, x, y, radius, colour, sides=24):
+    """A filled circle (the title bar's dots: a DirectFrame can only be a rectangle)."""
+    data = GeomVertexData("dot", GeomVertexFormat.getV3(), Geom.UHStatic)
+    w = GeomVertexWriter(data, "vertex")
+    w.addData3(0, 0, 0)
+    for i in range(sides + 1):
+        a = 2 * math.pi * i / sides
+        w.addData3(radius * math.cos(a), 0, radius * math.sin(a))
+    fan = GeomTrifans(Geom.UHStatic)
+    fan.addConsecutiveVertices(0, sides + 2)
+    fan.closePrimitive()
+    geom = Geom(data)
+    geom.addPrimitive(fan)
+    node = GeomNode("dot")
+    node.addGeom(geom)
+    np = parent.attachNewNode(node)
+    np.setPos(x, 0, y)
+    np.setColor(*colour)
+    np.setTwoSided(True)
+    return np
+
+
+def code_window(rect, pos, edge=0.006):
+    """The code panel's frame as the browser's (CHANGE 143): navy (white in the light look) with a cyan edge (grey).
+    rect: (left, right, bottom, top). The window draws its title bar, the code and its buttons in it."""
+    left, right, bottom, top = rect
+    f = DirectFrame(frameColor=PANEL_EDGE, frameSize=(left - edge, right + edge, bottom - edge, top + edge), pos=pos)
+    DirectFrame(parent=f, frameColor=PANEL_BACK, frameSize=rect)
+    return f
+
+
+def title_bar(base, parent, x, y, name, scale=0.02):
+    """The promo videos' code window's title: three dots and the file's name (my_robot.py) after them, at x, y (the
+    middle of the dots). Returns the x the name ends at."""
+    r = scale * 0.42
+    for i, colour in enumerate(DOTS):
+        dot(parent, x + r + i * r * 2.9, y, r, colour)
+    font = code_font(base)
+    extra = {"font": font} if font is not None else {}
+    at = x + r * 2 * 3 + r * 1.8 + scale * 0.4
+    text = OnscreenText(name, pos=(at, y - scale * 0.32), scale=scale, fg=DIM, align=TextNode.ALeft, parent=parent,
+                        mayChange=True, **extra)
+    return at + text.textNode.getWidth() * scale
 
 
 def clean(text):
@@ -176,21 +293,35 @@ class CodeEditor(DirectObject):
         state.setdefault("cursor", [0, 0])
         state.setdefault("scroll", 0)
         height = rows * self.line_h + scale * 0.6
+        e = 0.0025  # (CHANGE 143: the box's faint edge, and a line between the numbers and the code, as the browser's)
+        self.edge = DirectFrame(parent=parent, frameColor=BOX_EDGE, frameSize=(x - e, x + width + e, top - height - e, top + e))
         self.back = DirectFrame(parent=parent, frameColor=BACK, frameSize=(x, x + width, top - height, top),
                                 state=DGG.NORMAL)
         self.back.bind(DGG.B1PRESS, self.click)
         self.back.bind(WHEEL_UP, lambda e: self.wheel(3 if getattr(base, "invert_scroll", False) else -3))
         self.back.bind(WHEEL_DOWN, lambda e: self.wheel(-3 if getattr(base, "invert_scroll", False) else 3))
+        self.gutter_edge = DirectFrame(parent=parent, frameColor=GUTTER_EDGE if not read_only else (0, 0, 0, 0),
+                                       frameSize=(self.code_x - scale * 0.55, self.code_x - scale * 0.55 + 0.002,
+                                                  top - height, top))
         self.line_back = DirectFrame(parent=parent, frameColor=LINE_BACK, frameSize=(0, width, -scale * 0.45,
                                                                                     self.line_h - scale * 0.45))
+        cw, lo, hi, t = self.text_width("M"), -scale * 0.35, scale * 1.05, 0.0018
+        self.match_backs = []  # a bracket beside the cursor and its partner: a soft box with a thin edge (CHANGE 143)
+        for _ in range(2):
+            b = DirectFrame(parent=parent, frameColor=MATCH_BACK, frameSize=(0, cw, lo, hi))
+            for size in ((0, cw, lo, lo + t), (0, cw, hi - t, hi), (0, t, lo + t, hi - t), (cw - t, cw, lo + t, hi - t)):
+                DirectFrame(parent=b, frameColor=MATCH_EDGE, frameSize=size)
+            b.hide()
+            self.match_backs.append(b)
         self.cursor = DirectFrame(parent=parent, frameColor=CURSOR,
                                   frameSize=(0, scale * 0.09, -scale * 0.35, scale * 1.05))
         self.anchor = None  # the other end of the selection (CHANGE 88), [line, col], or None
         self.dragging = False
-        self.sel_backs = [DirectFrame(parent=parent, frameColor=(0.25, 0.4, 0.7, 0.55),
+        self.sel_backs = [DirectFrame(parent=parent, frameColor=SEL_BACK,
                                       frameSize=(0, 0.01, -scale * 0.35, scale * 1.05)) for _ in range(rows)]
         for b in self.sel_backs:
             b.hide()
+        self.pairs, self.pairs_of = {}, None  # every bracket's partner, and the text they were found in
         extra = {"font": self.font} if self.font is not None else {}
         # how many letters fit across the box: a longer line is cut at the box's edge, not drawn over it
         self.cols = max(10, int((x + width - self.code_x - scale * 0.3) / max(1e-6, self.text_width("M"))))
@@ -271,6 +402,7 @@ class CodeEditor(DirectObject):
             n = first + i
             if n < len(self.lines):
                 self.numbers[i].setText(str(n + 1))
+                self.numbers[i].setFg(GUTTER_CUR if n == line and not self.read_only else GUTTER)  # (CHANGE 143)
                 text = self.lines[n][:self.cols]
                 self.texts[i].setText(text if self.read_only else coloured(text))
             else:
@@ -291,17 +423,39 @@ class CodeEditor(DirectObject):
             else:
                 self.sel_backs[i].hide()
         row = line - first
-        if self.focused and 0 <= row < self.rows:
+        if not self.read_only and 0 <= row < self.rows:  # (the cursor's line: fainter while typing is elsewhere)
             y = self.row_y(row)
             self.line_back.setPos(self.x, 0, y)
-            self.cursor.setPos(self.code_x + self.text_width(self.lines[line][:col]), 0, y)
+            self.line_back.setAlphaScale(1.0 if self.focused else 0.5)
             self.line_back.show()
-            self.cursor.show()
         else:
             self.line_back.hide()
+        if self.focused and 0 <= row < self.rows:
+            self.cursor.setPos(self.code_x + self.text_width(self.lines[line][:col]), 0, self.row_y(row))
+            self.cursor.show()
+        else:
             self.cursor.hide()
+        self.show_brackets(None if sel or not self.focused else (line, col))
         if self.on_scroll:
             self.on_scroll()
+
+    def show_brackets(self, at):
+        """A bracket just before the cursor (or else just after it) and its partner, each in a soft box (CHANGE 143)."""
+        for b in self.match_backs:
+            b.hide()
+        if at is None or self.read_only:
+            return
+        if self.pairs_of != self.lines:
+            self.pairs, self.pairs_of = bracket_pairs(self.lines), list(self.lines)
+        line, col = at
+        a = (line, col - 1) if (line, col - 1) in self.pairs else (line, col) if (line, col) in self.pairs else None
+        if a is None:
+            return
+        for box, (n, c) in zip(self.match_backs, (a, self.pairs[a])):
+            row = n - self.state["scroll"]
+            if 0 <= row < self.rows and c < self.cols:
+                box.setPos(self.code_x + self.text_width(self.lines[n][:c]), 0, self.row_y(row))
+                box.show()
 
     def blink_cursor(self, task):
         if self.focused and 0 <= self.state["cursor"][0] - self.state["scroll"] < self.rows:
@@ -512,7 +666,8 @@ class CodeEditor(DirectObject):
         self.ignoreAll()
         if self.blink is not None:
             self.base.taskMgr.remove(self.blink)
-        for node in [self.back, self.line_back, self.cursor] + self.numbers + self.texts:
+        for node in [self.edge, self.back, self.gutter_edge, self.line_back, self.cursor] + self.match_backs + \
+                self.sel_backs + self.numbers + self.texts:
             node.destroy()
 
 
@@ -538,7 +693,7 @@ class TextBox(DirectObject):
         self.back = DirectFrame(parent=parent, frameColor=BOX_BACK, frameSize=(x, x + width, top - height, top),
                                 state=DGG.NORMAL)
         self.back.bind(DGG.B1PRESS, self.click)
-        self.cursor_bar = DirectFrame(parent=parent, frameColor=CURSOR,
+        self.cursor_bar = DirectFrame(parent=parent, frameColor=BOX_CURSOR,
                                       frameSize=(0, scale * 0.08, -scale * 0.3, scale * 1.0))
         self.sel_backs = [DirectFrame(parent=parent, frameColor=(0.25, 0.4, 0.7, 0.55),
                                       frameSize=(0, 0.01, -scale * 0.3, scale * 1.0)) for _ in range(rows)]

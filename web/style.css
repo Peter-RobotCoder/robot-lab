@@ -346,3 +346,112 @@ body.light #codepanel { --c-bg: #ffffff; --c-edge: #c5ccd8; --c-shadow: 0 18px 4
 body.light #code-gutter .cur { color: #0b216f; }
 /* the AI cards' whole prompt and the Changes tab's lines in the same font */
 #panel pre.prompt, #panel pre.diff { font-family: "JetBrains Mono", Consolas, "Cascadia Mono", monospace; font-variant-ligatures: none; font-feature-settings: "calt" 0, "liga" 0; }
+
+/* CHANGE 143: fight */
+/* Fight Lab's rings box (fight.js renderBoard): #places.fightboard (.small after B or Hide): the title bar (.bhead with
+   #fb-small), the mode line (#fb-mode.fmode), and full, the RINGS title (.ftitle) and a row per ring (.fring, the
+   watched one .watched); under the health bars, as the window's. Controls: "sitting out" (.note.sitout) in orange */
+#places.fightboard { top: 178px; max-width: min(34vw, 520px); }
+#places.fightboard.small { min-width: 0; }
+#places.fightboard .fmode, #places.fightboard .ftitle { cursor: default; }
+#places.fightboard .fmode { font-weight: 600; }
+#places.fightboard .fmode:hover { color: inherit; }
+#places.fightboard .ftitle, #places.fightboard .ftitle:hover { color: var(--yellow); }
+#panel .note.sitout { color: #ff9933; margin-left: 6px; }
+/* CHANGE 143: kart */
+/* your lap time as you cross the line (kart_client.banner_note: yellow, over the track), and
+   the results panel up while the race is over (kart_gfx.Hud: dark, RESULTS in yellow, place, name, time) */
+.karthud #kh-note { position: absolute; top: 24%; left: 0; right: 0; text-align: center; font-size: 30px; font-weight: 700; color: var(--yellow); text-shadow: 0 2px 6px #000; white-space: pre; }
+#kart-results { left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(8, 9, 15, 0.88); border-radius: 10px; padding: 18px 30px 22px; min-width: min(420px, 90vw); }
+#kart-results .ktitle { text-align: center; color: var(--yellow); font-size: 32px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 10px; }
+#kart-results table { width: 100%; border-collapse: collapse; font-size: 22px; }
+#kart-results td { padding: 3px 8px; white-space: nowrap; }
+#kart-results td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* CHANGE 143: robot */
+/* the words that explain themselves (engine/hud.py's word() and TIPS): a tip box beside the mouse, in the panel's look */
+#cc-tip { position: fixed; z-index: 50; max-width: 300px; padding: 7px 10px; border-radius: 6px; background: #2a2f3d; color: var(--text);
+          border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); font-size: 13px; line-height: 1.35; pointer-events: none; white-space: pre-line; }
+#cc-tip[hidden] { display: none; }
+body.light #cc-tip { background: #ffffff; color: #1f1f1f; border-color: #c5ccd8; box-shadow: 0 6px 18px rgba(20, 30, 60, 0.2); }
+body.text-3 #cc-tip { font-size: 15px; max-width: 340px; }
+body.text-4 #cc-tip { font-size: 17px; max-width: 380px; }
+#panel .tipword { cursor: help; }
+#panel .ghead .tipword, #panel .gcols .tipword { text-decoration: underline dotted rgba(255, 255, 255, 0.3); text-underline-offset: 3px; }
+#panel [data-tip] { cursor: help; }
+#panel button[data-tip] { cursor: pointer; }
+/* the garage's robot preview (lab_client's CHANGE 82): turning on its pedestal beside the title */
+#panel .gtitlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#panel .gtitlerow .gtitle { flex: 1; min-width: 0; }
+#panel .gpreview-slot { flex: none; width: 112px; height: 112px; border-radius: 8px; overflow: hidden; background: #757a87; }
+#panel .gpreview-slot:empty { display: none; }
+#panel canvas.gpreview { display: block; width: 100%; height: 100%; outline: none; }
+/* the health bars dragged by their title bar (drag.js), as the window's */
+#places.draggable .bhead { cursor: move; }
+/* CHANGE 143: app */
+/* Fight Lab's player: the rings box (the mode line PRACTICE or BATTLE, PAUSED, TOURNAMENT or CHAMPION, and the rings)
+   shows on the fight screen too, compact, under the fight HUD's bars (fight's own section places it: top 178px) */
+body.fightscreen #places.fightboard { display: block; font-size: 12.5px; padding: 6px 10px; min-width: 0; max-width: min(30vw, 420px); opacity: 0.92; }
+body.fightscreen #places.fightboard .fring { padding: 1px 0; }
+body.fightscreen #places.fightboard .fring .lap { font-size: 11.5px; }
+@media (max-width: 700px) { body.fightscreen #places.fightboard { display: none; } }
+/* the panels dragged by their title bar and resized by their corner (drag.js): the code panel, the brain editor */
+#codepanel header, #brainpanel header { cursor: move; touch-action: none; user-select: none; }
+#codepanel header button, #brainpanel header button { cursor: pointer; }
+.dragsize { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; z-index: 3; opacity: 0.6;
+            background: linear-gradient(135deg, transparent 0 55%, var(--c-dim, #9aa6c8) 55% 62%, transparent 62% 72%, var(--c-dim, #9aa6c8) 72% 79%, transparent 79%); }
+.dragsize:hover { opacity: 1; }
+/* Back to the lobby (a learner playing in the page) */
+#btn-lobby { padding: 4px 12px; font-size: 13px; background: #6a4a8f; }
+/* H: the key list over the game, as the windows' bottom line */
+#keyhelp { left: 50%; bottom: 12px; transform: translateX(-50%); max-width: min(760px, 52vw); display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 12px;
+           background: var(--panel); border-radius: 8px; padding: 5px 12px; font-size: 12px; color: var(--grey); pointer-events: none; }
+#keyhelp > * { pointer-events: none; }
+#keyhelp[hidden] { display: none; }
+#keyhelp b { color: var(--text); font-weight: 600; }
+@media (max-width: 700px) { #keyhelp { display: none; } }
+/* the learner's panel header: HUD / GUI, each word with its tip (hud.draw_header) */
+#panel header .hudgui { flex-basis: 100%; display: flex; align-items: baseline; gap: 6px; color: var(--grey); font-size: 17px; }
+#panel header .hudgui .tipword { color: var(--yellow); font-weight: 600; cursor: help; }
+#panel header .hudgui small { margin-left: auto; font-size: 11px; }
+/* the status line's AUTOPILOT (as the windows' status line) */
+#perf b.autopilot { color: var(--yellow); letter-spacing: 0.04em; }
+/* the brain editor (brain.js): the code panel's window (navy, JetBrains Mono), at the right */
+#brainpanel { --c-dim: #9aa6c8; position: fixed; right: 12px; top: 52px; width: min(600px, calc(100vw - 24px)); height: min(640px, calc(100vh - 64px)); z-index: 7;
+              color: #e6ebff; background: rgba(10, 14, 30, 0.96); border: 2px solid rgba(62, 233, 255, 0.35); border-radius: 14px;
+              box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55); padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+#brainpanel[hidden] { display: none; }
+#brainpanel header { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; font-size: 14px; letter-spacing: 0.03em; }
+#brainpanel header .dots { display: flex; gap: 7px; }
+#brainpanel header .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+#brainpanel header .dots i:nth-child(2) { background: #febc2e; }
+#brainpanel header .dots i:nth-child(3) { background: #28c840; }
+#brainpanel header .spacer { flex: 1; }
+#brain-file { font: 500 12.5px "JetBrains Mono", Consolas, monospace; color: var(--c-dim); letter-spacing: 0; }
+#brainpanel header button { padding: 2px 9px; background: transparent; color: var(--c-dim); }
+#brainpanel .note { font-size: 12.5px; color: var(--c-dim); }
+#brain-text { flex: 1; min-height: 120px; resize: none; outline: none; margin: 0; padding: 8px 12px; white-space: pre; tab-size: 4; overflow: auto;
+              background: rgba(4, 7, 18, 0.7); color: #e6ebff; caret-color: #b6ff3b; border: 1px solid rgba(62, 233, 255, 0.12); border-radius: 8px;
+              font: 400 13px/20px "JetBrains Mono", Consolas, "Cascadia Mono", "Courier New", monospace; font-variant-ligatures: none; }
+#brain-text::selection { background: rgba(62, 233, 255, 0.26); }
+#brainpanel .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#brainpanel .filebtn { display: inline-block; background: var(--box); border-radius: 4px; padding: 6px 10px; cursor: pointer; color: var(--text); }
+#brain-msg { min-height: 1.3em; font-size: 14px; }
+#brain-msg.ok { color: var(--green); }
+#brain-msg.bad { color: var(--red); }
+body.light #brainpanel { --c-dim: #616161; color: #1f1f1f; background: #ffffff; border-color: #c5ccd8; box-shadow: 0 18px 44px rgba(20, 30, 60, 0.22); }
+body.light #brain-text { background: #ffffff; color: #1f1f1f; caret-color: #000; border-color: #e1e4ea; }
+/* CHANGE 143: tabs */
+/* (teacher.js and learner.js: the Learner view's Mission, Load from, Accounts' colours, Outcomes' lesson guide) */
+#panel .orange { color: #ffb347; }
+#panel .blue { color: var(--blue); }
+#panel .codes { margin-left: auto; color: var(--blue); font-size: 12px; }
+#panel .objective.preview .row { margin: 2px 0; }
+#panel .wrote { color: var(--blue); font-size: 13px; margin: 2px 0 2px 10px; }
+#panel .loadlist { max-height: 260px; overflow-y: auto; border: 1px solid #2a2f3b; border-radius: 6px; padding: 2px 8px; }
+#panel .loadlist .row { justify-content: space-between; margin: 3px 0; }
+#panel .outcome { margin: 6px 0 10px; }
+#panel .outcome > div { margin-left: 18px; }
+#panel button.link { background: none; padding: 2px 0; text-align: left; color: var(--text); }
+#panel button.link.on { color: var(--yellow); }
+#panel .whodone { gap: 4px 12px; font-size: 13px; }
+body.light #panel .orange { color: #b25f00; }

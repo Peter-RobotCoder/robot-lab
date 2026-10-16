@@ -450,3 +450,102 @@ export class HitBar {
         this.plane.dispose(false, true);
     }
 }
+
+// ---------- the window's camera controls (rw_camera.GameCamera, CHANGE 143) ----------
+// The five views' own settings: each zooms (the wheel, or + and -), swings round and tilts (the right button
+// dragged, Q and E), moves sideways (a sideways scroll) and goes back with Home, each view keeping its own; kept in
+// a learner's profile in the window's own format (settings() and restore() are the window's), so a window and a
+// page share them. robot.js's rigCamera places the camera from these, as GameCamera.update does.
+export const CAM_MODES = ["third", "fpv", "zoom", "arena", "centre"];
+export const CAM_NAMES = {third: "Third person", fpv: "First person", zoom: "Zoomed arena follow", arena: "Full arena", centre: "Centre camera"};
+const clampTo = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const wrapDeg = v => ((v % 360) + 360) % 360;
+const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;
+
+export class RobotCamera {
+    constructor(mode = "third") {
+        this.mode = CAM_MODES.includes(mode) ? mode : "third";
+        this.dist = 6.5;          // third person: how far behind (1.5 to 30 m)
+        this.fpvScale = 1.0;      // first person: lens zoom (0.3 = telephoto, 1.3 = very wide)
+        this.zoomScale = 1.0;     // zoomed follow: tighter or wider framing (0.2 to 4)
+        this.arenaScale = 1.0;    // full arena: closer or further away (0.35 to 2)
+        this.centreScale = 1.0;   // centre camera: closer or further away (0.35 to 2)
+        this.angles = Object.fromEntries(CAM_MODES.map(m => [m, [0.0, 0.0]]));  // each view's swing round and tilt up, degrees
+        this.pans = Object.fromEntries(CAM_MODES.map(m => [m, 0.0]));           // ...and how far it was moved sideways, metres
+        this.lookZ = 0.0;         // (the height of what the view looks at: a swung camera stays above the floor)
+    }
+
+    get name() { return CAM_NAMES[this.mode]; }
+    get orbit() { return this.angles[this.mode][0]; }
+    set orbit(v) { this.angles[this.mode][0] = v; }
+    get tilt() { return this.angles[this.mode][1]; }
+    set tilt(v) { this.angles[this.mode][1] = v; }
+
+    turn(degrees) { this.orbit = wrapDeg(this.orbit + degrees); }  // swing the view round (Q and E)
+
+    pan(metres) { this.pans[this.mode] = clampTo(this.pans[this.mode] + metres, -12.0, 12.0); }  // sideways, this view only
+
+    resetView() {  // Home: this view back as it comes (its swing, tilt and sideways move)
+        this.angles[this.mode] = [0.0, 0.0];
+        this.pans[this.mode] = 0.0;
+    }
+
+    // a drag with the right button across the picture: dx, dy as shares of its width and height (right and down
+    // positive). (The window: mouse x and y from -1 to 1, y up; 150 degrees round and 60 up for each unit)
+    drag(dx, dy) {
+        this.orbit = wrapDeg(this.orbit - dx * 2 * 150);
+        this.tilt = clampTo(this.tilt + dy * 2 * 60, -12.0, 55.0);
+    }
+
+    // an offset from what the camera looks at, swung round by orbit and tilted up by tilt (game coordinates)
+    swing(o) {
+        if (!(this.orbit || this.tilt)) return o.slice();
+        const a = this.orbit * Math.PI / 180, t = this.tilt * Math.PI / 180;
+        const x = o[0] * Math.cos(a) - o[1] * Math.sin(a), y = o[0] * Math.sin(a) + o[1] * Math.cos(a);
+        const across = Math.hypot(x, y);
+        if (across < 1e-6) return o.slice();
+        const keep = Math.cos(t);  // tilting up: less across, more height
+        return [x * keep, y * keep, Math.max(0.3 - this.lookZ, o[2] + across * Math.sin(t))];
+    }
+
+    setMode(mode) { if (CAM_MODES.includes(mode)) this.mode = mode; }
+
+    wheel(factor) {  // zoom the view in use in (factor < 1) or out (factor > 1)
+        if (this.mode === "third") this.dist = clampTo(this.dist * factor, 1.5, 30.0);
+        else if (this.mode === "fpv") this.fpvScale = clampTo(this.fpvScale * factor, 0.3, 1.3);
+        else if (this.mode === "zoom") this.zoomScale = clampTo(this.zoomScale * factor, 0.2, 4.0);
+        else if (this.mode === "arena") this.arenaScale = clampTo(this.arenaScale * factor, 0.35, 2.0);
+        else this.centreScale = clampTo(this.centreScale * factor, 0.35, 2.0);
+    }
+
+    settings() {  // (exactly rw_camera's: the window reads what the page keeps)
+        return {mode: this.mode, dist: r2(this.dist), fpv: r2(this.fpvScale), zoom: r2(this.zoomScale), arena: r2(this.arenaScale),
+                centre: r2(this.centreScale), orbit: r1(this.orbit), tilt: r1(this.tilt),
+                angles: Object.fromEntries(CAM_MODES.map(m => [m, [r1(this.angles[m][0]), r1(this.angles[m][1])]])),
+                pans: Object.fromEntries(CAM_MODES.map(m => [m, r2(this.pans[m])]))};
+    }
+
+    // put back a view and zoom levels saved earlier (a learner's profile): the window's format, or the page's older
+    // {mode, dist}, which is the same with the rest left as they come
+    restore(saved) {
+        if (!saved || typeof saved !== "object") return;
+        const num = (v, now) => (v === undefined || v === null || !Number.isFinite(Number(v)) ? now : Number(v));
+        if (CAM_MODES.includes(saved.mode)) this.setMode(saved.mode);
+        this.dist = clampTo(num(saved.dist, this.dist), 1.5, 30.0);
+        this.fpvScale = clampTo(num(saved.fpv, this.fpvScale), 0.3, 1.3);
+        this.zoomScale = clampTo(num(saved.zoom, this.zoomScale), 0.2, 4.0);
+        this.arenaScale = clampTo(num(saved.arena, this.arenaScale), 0.35, 2.0);
+        this.centreScale = clampTo(num(saved.centre, this.centreScale), 0.35, 2.0);
+        if (saved.angles && typeof saved.angles === "object") {  // (each view's own: the window's CHANGE 111)
+            for (const [m, ot] of Object.entries(saved.angles)) {
+                if (CAM_MODES.includes(m) && Array.isArray(ot)) this.angles[m] = [wrapDeg(num(ot[0], 0)), clampTo(num(ot[1], 0), -12.0, 55.0)];
+            }
+        } else {  // (saved before each view had its own: the one swing goes to the view in use)
+            this.orbit = wrapDeg(num(saved.orbit, 0));
+            this.tilt = clampTo(num(saved.tilt, 0), -12.0, 55.0);
+        }
+        if (saved.pans && typeof saved.pans === "object") {
+            for (const [m, p] of Object.entries(saved.pans)) if (CAM_MODES.includes(m)) this.pans[m] = clampTo(num(p, 0), -12.0, 12.0);
+        }
+    }
+}

@@ -168,6 +168,12 @@ def send(msg):
         net.send(msg)
 
 
+def fmt_lap(t):
+    """A lap time as the page writes it (kart.js fmtTime): 41.37s, or 1:02.50 past a minute (CHANGE 143)."""
+    m = int(t // 60)
+    return f"{m}:{t - m * 60:05.2f}" if m else f"{t:05.2f}s"
+
+
 def parse_stats(text, design):
     """--stats: the kart's points (offline, and a window's first design before the server's is known)."""
     d = dict(design)
@@ -191,6 +197,7 @@ class Lab(hud.HudKit, ShowBase):
     STAGE_WORD = "TRACK"
     LIMITS_TITLE = "KART LIMITS"
     LIMITS_NOTE = "The points: each stat from 10 to 60, 100 points in all (the standard design sheet)."
+    gp_races = 3  # the teacher's grand prix: how many races the next one has (2 to 5: CHANGE 143)
 
     def __init__(self):
         super().__init__()
@@ -929,14 +936,7 @@ class Lab(hud.HudKit, ShowBase):
         d = self.cur()
         self.code_size = self.code_fit(*self.code_size)
         self.code_at = self.code_place(*self.code_at)
-        left, right, bottom, top = rect = self.code_rect()
-        f = self.code_panel = DirectFrame(frameColor=PANEL, frameSize=rect, pos=(self.code_at[0], 0, self.code_at[1]))
-        handle = DirectFrame(parent=f, frameColor=HANDLE, state=DGG.NORMAL, frameSize=(left, right, 0.285, top))
-        handle.bind(DGG.B1PRESS, self.code_drag_start)  # (its top is a handle: drag it to move the panel)
-        label(f, f"{who.upper()}'S KART AS PYTHON CODE" if who else "YOUR KART AS PYTHON CODE", -0.83, 0.3, 0.032, YELLOW)
-        label(f, "drag here to move", right - 0.02, 0.337, 0.017, GREY, TextNode.ARight)
-        label(f, "Click in the code to type there (drag to select; Ctrl+C, X, V and A work). Change a value,\n"
-                 "then press APPLY CODE: the garage changes to match. Return makes a new line.", -0.83, 0.264, 0.021, GREY)
+        f, (left, right, bottom, top) = self.code_panel_top("kart", who)  # (CHANGE 143: as the browser's)
         st, fresh = self.code_state, self.code_lines(d)
         if self.code_shown is None or st["lines"] == self.code_shown:  # not edited: the kart as it is now
             st["lines"][:] = fresh
@@ -944,7 +944,7 @@ class Lab(hud.HudKit, ShowBase):
         self.code_editor = code_editor.CodeEditor(self, f, st, -0.845, 0.21, right - left - 0.03, self.code_rows(),
                                                   0.024 * self.text_scale(), on_enter=self.apply_code,
                                                   on_focus=self.type_code)
-        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, GREY, TextNode.ARight)
+        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, code_editor.DIM, TextNode.ARight)
         self.code_editor.on_scroll = self.show_code_more
         self.show_code_more()
         button(f, "APPLY CODE", -0.64, bottom + 0.178, self.apply_code, None, 0.03, (0.15, 0.55, 0.25, 1))
@@ -1296,10 +1296,37 @@ class Lab(hud.HudKit, ShowBase):
     def race_controls(self, f, y):
         """The race: start it, back to the grid, pause; the track, the laps, the computer karts and their level."""
         L = self.lesson
+        practice = L.get("mode", "practice") != "race"
+        racing = self.race.get("phase") == sim.FLAGS_RACE
         label(f, "Race", 0.82, y, 0.028, YELLOW)
-        button(f, "START RACE", 1.0, y + 0.008, send, [{"type": "start"}], 0.026, (0.15, 0.55, 0.25, 1))
+        button(f, "START A RACE" if practice else "RESTART" if racing else "START RACE", 1.0, y + 0.008, send,
+               [{"type": "start"}], 0.026, (0.15, 0.55, 0.25, 1))
         button(f, "TO THE GRID", 1.24, y + 0.008, send, [{"type": "grid"}], 0.026)
         button(f, "Pause", 1.48, y + 0.008, send, [{"type": "pause"}], 0.026, ON if self.race.get("paused") else OFF)
+        y -= 0.055
+        # CHANGE 143 (as the page's Controls): practice (the track open, laps timed) or race (the teacher starts each)
+        label(f, "Mode", 0.84, y, 0.024)
+        for i, (mode, text) in enumerate((("practice", "Practice"), ("race", "Race"))):
+            button(f, text, 1.0 + i * 0.16, y + 0.008, self.set_lesson, [{"mode": mode}], 0.024,
+                   ON if (mode == "practice") == practice else OFF)
+        label(f, "Practice: the track is open and laps are timed; START A RACE closes it until GO." if practice else
+              "Race: START begins the countdown; TO THE GRID lines everyone up again.", 1.3, y + 0.004, 0.016, GREY,
+              wrap=27)
+        y -= 0.055
+        # ...and a grand prix of 2 to 5 races: points for every race's places, the most at the end is the champion
+        t = self.tournament
+        label(f, "Grand prix", 0.84, y, 0.024)
+        if t is None:
+            for i, n in enumerate(range(2, 6)):
+                button(f, str(n), 1.03 + i * 0.065, y + 0.008, self.set_gp_races, [n], 0.024,
+                       ON if n == self.gp_races else OFF)
+            label(f, "races", 1.3, y, 0.021, GREY)
+            button(f, "START THE GRAND PRIX", 1.55, y + 0.008, send,
+                   [{"type": "tournament", "start": True, "races": self.gp_races}], 0.022, (0.15, 0.55, 0.25, 1))
+        else:
+            label(f, str(t.get("title") or "running"), 1.03, y, 0.024, BLUE)
+            button(f, "END IT", 1.6, y + 0.008, send, [{"type": "tournament", "start": False}], 0.024,
+                   (0.6, 0.2, 0.15, 1))
         y -= 0.055
         label(f, "Track", 0.82, y, 0.026)
         for i, t in enumerate(kart_track.TRACKS):
@@ -1352,6 +1379,10 @@ class Lab(hud.HudKit, ShowBase):
         elif not kart_version.FROZEN and not LOCAL:
             button(f, "Try on this laptop", 1.0, y, self.try_here, None, 0.024, (0.15, 0.45, 0.65, 1))
             label(f, "this window, on a test server here (the class sees nothing)", 1.19, y - 0.008, 0.02, GREY)
+
+    def set_gp_races(self, n):
+        self.gp_races = max(2, min(5, int(n)))
+        self.rebuild_panels()
 
     def restart_server(self):
         if TRY:  # (nothing would start the test server again: a new try loads new code)
@@ -1480,9 +1511,9 @@ class Lab(hud.HudKit, ShowBase):
         self.muted = not on
         self.snd.on = on and not args.offscreen
 
-    # ---------- teacher: races and the league ----------
+    # ---------- teacher: races and the grand prix ----------
     def build_races(self, f, y):
-        label(f, "RACES  -  the grid, the results and the league", 0.82, y, 0.034, YELLOW)
+        label(f, "RACES  -  the grid, the results and the grand prix", 0.82, y, 0.034, YELLOW)
         y -= 0.06
         y = self.race_controls(f, y)
         label(f, "On the grid", 0.82, y, 0.028, YELLOW)
@@ -1507,46 +1538,49 @@ class Lab(hud.HudKit, ShowBase):
                 label(f, when, 1.5, y, 0.024, GREY, TextNode.ARight)
                 y -= 0.036
             y -= 0.02
-        label(f, "LEAGUE  (designs locked while it runs)", 0.82, y, 0.028, YELLOW)
-        y -= 0.06
+        y = self.lap_times_table(f, y)
+        # the grand prix (CHANGE 143: the server's summary, as the page shows it): the standings and the champion;
+        # it is started and ended under Race above (designs are locked while it runs)
         t = self.tournament
+        label(f, "GRAND PRIX  (designs locked while it runs)", 0.82, y, 0.028, YELLOW)
+        y -= 0.05
         if t is None:
-            button(f, "Start a league", 1.0, y, send, [{"type": "tournament", "start": True, "kind": "league"}], 0.028,
-                   (0.15, 0.55, 0.25, 1))
-            label(f, "points for every race's places, race after race", 1.22, y - 0.005, 0.019, GREY)
-            y -= 0.06
-            button(f, "Knockout", 0.96, y, send, [{"type": "tournament", "start": True, "kind": "knockout"}], 0.028,
-                   (0.15, 0.55, 0.25, 1))
-            label(f, "the last-placed kart drops out each race; computer karts fill the gaps", 1.1, y - 0.005, 0.019,
-                  GREY)
-            y -= 0.06
+            label(f, "Not running: choose 2 to 5 races under Race above, then START THE GRAND PRIX. Every race's\n"
+                     "places score points (10, 7, 5, 3, 2, 1); the most at the end is the champion.", 0.84, y, 0.019, GREY)
+            y -= 0.07
         else:
-            button(f, "Stop the league", 1.05, y, send, [{"type": "tournament", "start": False}], 0.028,
-                   (0.6, 0.2, 0.15, 1))
-            y -= 0.055
-            if t.get("title"):
-                label(f, t["title"], 0.84, y, 0.026, BLUE)
-                y -= 0.04
+            label(f, str(t.get("title") or ""), 0.84, y, 0.026, BLUE)
+            y -= 0.045
             if t.get("champion"):
                 label(f, f"CHAMPION: {t['champion']}", 0.84, y, 0.036, YELLOW)
                 y -= 0.06
-            for row in (t.get("table") or [])[:12]:
-                row = list(row) + [""] * (3 - len(row))
-                label(f, str(row[0]), 0.88, y, 0.023, WHITE)
-                label(f, f"{row[1]}" + (f"   {row[2]}" if row[2] not in ("", 0, None) else ""), 1.3, y, 0.023, GREEN)
-                y -= 0.036
-            for r_i, rnd in enumerate(t.get("rounds") or []):
-                label(f, f"Race {r_i + 1}", 0.84, y, 0.024, BLUE)
-                y -= 0.04
-                for entry in rnd:
-                    label(f, "  ".join(str(e) for e in entry if e is not None), 0.88, y, 0.022, WHITE)
-                    y -= 0.034
-            if t.get("queue"):
-                label(f, "Waiting:  " + ", ".join(t["queue"]), 0.84, y, 0.022, GREY, wrap=46)
-                y -= 0.045
-            if t.get("played") is not None:
-                label(f, f"Races run: {t['played']}", 0.84, y, 0.022, GREY)
-                y -= 0.04
+            for i, row in enumerate((t.get("standings") or [])[:12]):
+                nm, pts = (list(row) + ["", 0])[:2]
+                label(f, f"{i + 1}.  {nm}", 0.88, y, 0.023, GREEN if i == 0 else WHITE)
+                label(f, f"{pts} pts", 1.5, y, 0.023, GREY, TextNode.ARight)
+                y -= 0.034
+        return y
+
+    def lap_times_table(self, f, y):
+        """CHANGE 143 (the page's Camera tab): every kart's laps this race, its best first (the race message's
+        lap_times: kart id -> seconds for each lap done)."""
+        times = self.race.get("lap_times") or {}
+        names = {str(k["id"]): k["name"] for k in (self.roster or {}).get("karts", [])}
+        label(f, "Lap times", 0.82, y, 0.028, YELLOW)
+        label(f, "best", 1.2, y, 0.02, GREY, TextNode.ARight)
+        y -= 0.042
+        rows = [(names.get(str(kid), str(kid)), [t for t in laps if isinstance(t, (int, float))])
+                for kid, laps in times.items()]
+        rows.sort(key=lambda r: min(r[1]) if r[1] else 1e9)
+        if not rows:
+            label(f, "No laps yet.", 0.84, y, 0.022, GREY)
+            y -= 0.036
+        for nm, laps in rows[:12]:
+            label(f, nm[:16], 0.84, y, 0.022, WHITE)
+            label(f, fmt_lap(min(laps)) if laps else "", 1.2, y, 0.022, GREEN, TextNode.ARight)
+            label(f, ", ".join(fmt_lap(t) for t in laps[-6:]), 1.24, y, 0.019, GREY)
+            y -= 0.032
+        return y - 0.03
 
     # ---------- teacher: the learner view ----------
     def build_learner_view(self, f, y):
@@ -1555,6 +1589,9 @@ class Lab(hud.HudKit, ShowBase):
             ([computer["name"]] if computer else []) + [self.ALL_LEARNERS]  # (CHANGE 85)
         label(f, "LEARNER VIEW  -  see and change what a learner sees", 0.82, y, 0.03, YELLOW)
         y -= 0.06
+        # every window's frame rate, ping, key delay, stalls and graphics, one table (CHANGE 143: the page's "Who is here")
+        people = [(c["name"], c["role"]) for c in self.class_list if c.get("role") in ("teacher", "learner")]
+        y = self.perf_table(f, y, people, (self.roster or {}).get("perf", {}))
         if self.view_name not in learners or (self.view_name == self.ALL_LEARNERS and len(learners) > 1
                                                 and not getattr(self, "view_picked", False)):
             self.set_view(learners[0], redraw=False)  # (never All learners by default)
@@ -2027,9 +2064,10 @@ class Lab(hud.HudKit, ShowBase):
                  "anything (new tracks, items, rules, graphics). Every change is tested before you Keep it,\n"
                  "and kept changes can be rolled back later in the Changes tab.", 0.82, y, 0.02, GREY)
         y -= 0.1
-        cards = [c for c in (self.teaching or {}).get("cards", []) if c["status"] not in ("reviewed", "rejected")][-4:]
+        # every card or only the open ones (CHANGE 143: the page's "Showing open cards" button)
+        cards = self.cards_filter(f, 1.33, y + 0.158, (self.teaching or {}).get("cards", []))
         if not cards:
-            label(f, "No requests waiting.", 0.82, y, 0.028, GREY)
+            label(f, "No cards." if self.all_cards else "No requests waiting.", 0.82, y, 0.028, GREY)
         for c in cards:
             job = self.ai_jobs.get(c["id"], {})
             target = self.card_targets.get(c["id"], c["card"].get("target", "kart"))
@@ -2088,7 +2126,7 @@ class Lab(hud.HudKit, ShowBase):
                 button(f, "Reject", 1.42, y, self.card_status, [c["id"], "rejected"], 0.026)
                 y -= 0.07
             y -= 0.02
-            if y < -0.8:
+            if y < -0.8 and not self.all_cards:  # (every card: the panel slides to show them all)
                 break
 
     @staticmethod
@@ -2312,7 +2350,8 @@ class Lab(hud.HudKit, ShowBase):
                 new = self.fill_lesson(m.get("lesson") or {})
                 if new != self.lesson or m.get("tournament") != self.tournament or \
                         (TEACHER and m.get("class", self.class_list) != self.class_list):
-                    rebuild = rebuild or self.tab in ("garage", "teacher", "learners", "races", "missions")
+                    rebuild = rebuild or self.tab in ("garage", "teacher", "learners", "races", "missions") or \
+                        (self.tab == "settings" and new.get("gfx_max") != self.lesson.get("gfx_max"))
                 mods = m.get("mods") or {}
                 if mods != self.mod_info:  # a new vote, a maker's name, or someone from the group has come in
                     rebuild = rebuild or self.tab in ("teacher", "mods")
@@ -2424,9 +2463,10 @@ class Lab(hud.HudKit, ShowBase):
         """The race message: the phase, the places, the results, who has a brain running. Returns whether a
         panel that shows these should redraw."""
         r = self.race
-        before = (r["phase"], r["results"], r.get("paused"))
+        before = (r["phase"], r["results"], r.get("paused"), r.get("lap_times"))
         r.update(phase=m["phase"], places=m["places"], laps=m["laps"], events=m["events"], results=m["results"],
-                 brains=m.get("brains", {}), paused=bool(m.get("paused")))
+                 brains=m.get("brains", {}), paused=bool(m.get("paused")),
+                 lap_times=m.get("lap_times") or {})  # (the Races tab's lap times: CHANGE 143)
         if m["go_in_ms"] is None:
             r["go_local"] = None if m["phase"] != sim.FLAGS_RACE else r.get("go_local") or 0.0
         else:  # the server's GO moment in our own clock: its time stamp is in our clock through the snapshots
@@ -2439,8 +2479,8 @@ class Lab(hud.HudKit, ShowBase):
             was, self.autopilot = self.autopilot, bool(mine.get("on"))
             if was != self.autopilot:
                 self.predictor = None  # (the server drives: nothing to predict; back on the keys we start afresh)
-        changed = (r["phase"], r["results"], r.get("paused")) != before
-        return changed and self.tab in ("races", "teacher")
+        changed = (r["phase"], r["results"], r.get("paused")) != before[:3]
+        return (changed and self.tab in ("races", "teacher")) or (r["lap_times"] != before[3] and self.tab == "races")
 
     def frozen(self, now):
         r = self.race
@@ -2712,6 +2752,7 @@ class Lab(hud.HudKit, ShowBase):
         lab = getattr(self, "perf_label", None)
         if lab is None or now - getattr(self, "perf_shown", 0.0) < 1:
             return
+        self.perf_table_update((self.roster or {}).get("perf", {}))  # (the Who is here table: CHANGE 143)
         if self.perf_frame.isEmpty():  # (the panel has been redrawn: the label went with it)
             self.perf_label = None
             return

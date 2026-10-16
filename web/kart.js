@@ -45,10 +45,15 @@ export class KartGame {
         this.setTrack(m.track);
         this.mine = m.kart ?? null;  // (our own kart's id; the teacher's when "My kart in the race" is on)
         const p = this.app.params;
+        // the view kept in their profile: the window's {mode, zoom} (ChaseCamera.settings), or a plain mode as the
+        // page kept it before CHANGE 143
+        const kept = (m.prefs || {}).camera;
+        const keptMode = typeof kept === "string" ? kept : kept && typeof kept === "object" ? kept.mode : null;
+        const keptZoom = kept && typeof kept === "object" ? Number(kept.zoom) : NaN;
+        if (Number.isFinite(keptZoom)) this.scene.zoom = Math.max(0.6, Math.min(1.5, keptZoom));
         if (p.get("cam")) this.scene.setMode(p.get("cam"), p.get("follow") !== null ? Number(p.get("follow")) : null);
-        else if (this.app.state.role === "learner" && this.mine !== null) {  // (the view kept in their profile)
-            const kept = (m.prefs || {}).camera;
-            this.scene.setMode(["chase", "hood", "tv"].includes(kept) ? kept : "chase", this.mine);
+        else if (this.app.state.role === "learner" && this.mine !== null) {
+            this.scene.setMode(["chase", "hood", "tv"].includes(keptMode) ? keptMode : "chase", this.mine);
         }
     }
 
@@ -62,7 +67,68 @@ export class KartGame {
         const id = this.myId(), order = id !== null ? ["chase", "hood", "tv"] : ["chase", "tv", "overview"];  // (the window's: chase, hood, TV)
         const next = order[(order.indexOf(this.scene.mode) + 1) % order.length];
         this.scene.setMode(next, next !== "overview" ? id : null);
-        this.app.keepPrefs && this.app.keepPrefs({camera: next});
+        this.keepCamera();
+    }
+
+    keepCamera() {  // (in the window's format, so the window and the page each find the other's: CHANGE 143)
+        this.app.keepPrefs && this.app.keepPrefs({camera: this.scene.cameraSettings()});
+    }
+
+    // ---------- the keys app.js passes on (CHANGE 143) ----------
+    // zoom(dir, how): dir 1 closer (the wheel up, +), -1 wider (the wheel down, -); how "wheel" (a notch: x0.88, the
+    // "inverted wheel zoom" setting turns it round, as the window's invert_zoom does the wheel only), "key" (+ or -
+    // pressed: x0.8 or x1.25) or "repeat" (held: x0.9 or x1.11). The window's numbers (kart_client, ChaseCamera.wheel:
+    // the field of view x the square root). The whole track zooms by its distance on + and -, and leaves the wheel to
+    // Babylon's own orbit. True when it zoomed.
+    zoom(dir, how = "wheel") {
+        if (!dir) return false;
+        let d = dir > 0 ? 1 : -1;
+        if (how === "wheel" && this.zoomInverted()) d = -d;
+        const f = how === "key" ? [0.8, 1.25] : how === "repeat" ? [0.9, 1.11] : [0.88, 1 / 0.88];
+        const factor = d > 0 ? f[0] : f[1];
+        const sc = this.scene;
+        if (sc.mode === "overview") {
+            if (how === "wheel") return false;
+            sc.camera.radius *= factor;
+            return true;
+        }
+        sc.zoomBy(factor);
+        this.keepCamera();
+        return true;
+    }
+
+    zoomInverted() {  // (read wherever the setting is kept: the window's prefs name it invert_zoom)
+        const S = this.app.state, P = S.prefs || {}, H = P.hud || {};
+        return !!(P.zoom_invert ?? P.invert_zoom ?? H.zoom_invert ?? H.invert_zoom ?? S.zoomInvert ?? false);
+    }
+
+    resetCamera() {  // Home: the zoom back to 1, the view cut back to where it belongs (the whole track: as it starts)
+        this.scene.resetCamera();
+        this.keepCamera();
+        return true;
+    }
+
+    // the teacher's keys (kart_client.start_game): Enter starts the race, G puts everyone on the grid, T the next
+    // track. key: as play.js's Keys gives it ("Enter", "g", "t"); true when it was one of them
+    teacherKey(key) {
+        if (this.app.state.role === "learner") return false;
+        const k = String(key || "").toLowerCase();
+        if (k === "enter") this.app.send({type: "start"});
+        else if (k === "g") this.app.send({type: "grid"});
+        else if (k === "t") {  // (kart_client.next_track: the next in the list, round to the first)
+            const S = this.app.state, names = Object.keys((S.rules && S.rules.tracks) || TRACKS);
+            const cur = (S.lesson && S.lesson.track) || names[0], i = names.indexOf(cur);
+            this.app.send({type: "lesson", lesson: {track: names[i >= 0 ? (i + 1) % names.length : 0]}});
+        } else return false;
+        return true;
+    }
+
+    // H: the window's key list (kart_hud.keys_text), a row a key, with the camera's zoom and Home after it
+    keyList() {
+        const teacher = this.app.state.role !== "learner";
+        return [["Arrows/WASD", "drive"], ["Shift", "drift"], ["R", "respawn"], ["V", "view"], ["Tab/I", "HUD"], ["C", "code"],
+                ...(teacher ? [["Enter", "start"], ["G", "grid"], ["T", "track"]] : [["U", "brain"], ["P", "autopilot"]]),
+                ["N", "sound"], ["H", "help"], ["+/- or the wheel", "zoom"], ["Home", "the camera back to normal"]];
     }
 
     learnerTabs() { return [["camera", "Camera"]]; }
@@ -88,6 +154,9 @@ export class KartGame {
                 return true;
             case "race":
                 m.at = Date.now();  // (go_in_ms counts from when it came: GO in our own clock)
+                // (GO kept for the lap clock once the countdown is over: the server stops sending it then)
+                if (m.go_in_ms !== null && m.go_in_ms !== undefined) this.goAt = m.at + m.go_in_ms;
+                else if (m.phase !== FLAGS_RACE) this.goAt = null;
                 this.race = S.race = m;
                 for (const e of m.events || []) this.app.addEvent(e);
                 this.renderRace();
@@ -209,6 +278,7 @@ export class KartGame {
         const designs = new Map((roster.karts || []).map(k => [k.id, k]));
         if (id !== null) {
             const colours = new Map([...designs].map(([k, d]) => [k, `rgb(${(d.colour || [200, 200, 200]).join(",")})`]));
+            this.laps(states.get(id), Date.now());
             this.hud.update(states.get(id), states, this.race, this.track, id, colours);
         }
         if (this.app.sound) {
@@ -229,18 +299,40 @@ export class KartGame {
         }
     }
 
+    // your lap times, told as you cross the line (kart_client.laps): the clock starts at GO, the best is this race's.
+    // (Joined after GO, or in practice, where the track opens with no countdown: the clock starts at the first line
+    // crossed, with nothing told for that part lap.)
+    laps(me, now) {
+        const r = this.race;
+        if (!me || !r || r.phase !== FLAGS_RACE) { this.lapSeen = null; return; }
+        const lap = me.lap || 0;
+        if (this.lapSeen === null || this.lapSeen === undefined) {
+            this.lapSeen = lap;
+            this.lapStarted = this.goAt ?? null;
+            this.bestLap = null;
+            return;
+        }
+        if (lap > this.lapSeen && (this.lapStarted === null || now > this.lapStarted + 5000)) {
+            const started = this.lapStarted;
+            this.lapSeen = lap;
+            this.lapStarted = now;
+            if (started === null) return;
+            const took = (now - started) / 1000, best = this.bestLap === null || took < this.bestLap;
+            if (best) this.bestLap = took;
+            this.hud.note(`Lap ${lap}: ${took.toFixed(1)} s` + (best ? "   NEW BEST" : `   (best ${this.bestLap.toFixed(1)} s)`), 4);
+        }
+    }
+
     renderRace() {
         const r = this.race;
         r.at = Date.now();
-        const phase = r.phase === 0 ? (r.practice ? "Practice: the track is open" : "On the grid") : r.phase === 1 ? (r.practice ? "Practice" : `Racing · ${r.laps} laps`) : "Finished";
+        // (on the grid the window says what everyone waits for: kart_client.draw)
+        const phase = r.phase === 0 ? (r.practice ? "Practice: the track is open" : "Waiting for the teacher to start the race")
+            : r.phase === 1 ? (r.practice ? "Practice" : `Racing · ${r.laps} laps`) : "Finished";
         $("phase").textContent = (r.paused ? "PAUSED · " : "") + phase;
         if (r.phase !== 1) $("countdown").textContent = r.phase === 2 ? "FINISH" : "";
-        if (r.phase === 2 && r.results && !this.shownResults) {
-            this.shownResults = true;
-            const lines = r.results.map(([name, laps, t], i) => `${i + 1}. ${name}${t !== null && t !== undefined ? ` ${fmtTime(t)}` : ` (${laps} laps)`}`);
-            this.app.toast(lines.join("\n"), true, 12000);
-        }
-        if (r.phase !== 2) this.shownResults = false;
+        // the results stay up until the next race, as the window's panel does (kart_gfx.Hud: CHANGE 143)
+        this.hud.results(r.phase === 2 ? r.results : null);
     }
 
     renderPlaces() {
@@ -277,7 +369,7 @@ export class KartGame {
     cameraPill() {
         const sc = this.scene;
         return sc.mode === "chase" ? `Camera: chasing kart ${sc.follow}` : sc.mode === "hood" ? "Camera: hood (V to change)"
-            : sc.mode === "tv" ? "Camera: TV (drag to orbit, wheel to zoom)" : "Camera: overview";
+            : sc.mode === "tv" ? "Camera: TV (V to change, wheel to zoom)" : "Camera: overview (drag to orbit, wheel to zoom)";
     }
 
     tabs() { return [["controls", "Controls"], ["camera", "Camera"]]; }
@@ -352,7 +444,8 @@ export class KartGame {
               <h2>Camera</h2>
               <div class="row"><button data-cam="tv" class="${sc.mode === "tv" ? "on" : ""}">TV</button>
                 <button data-cam="overview" class="${sc.mode === "overview" ? "on" : ""}">Whole track</button></div>
-              <div class="note">TV follows the leader (or the kart you pick below); drag to orbit, wheel to zoom. Chase sits behind one kart.</div>
+              <div class="note">TV: six trackside cameras, the nearest one watching the leader (or the kart you pick below). Chase sits behind one kart.
+                The wheel or + and - zoom, Home puts the camera back. Whole track: drag to orbit.</div>
               <h2>Chase a kart</h2>
               <div class="row">${karts.map(k => `<button data-follow="${k.id}" class="${sc.mode === "chase" && sc.follow === k.id ? "on" : ""}">${esc(k.name)}</button>`).join("") || "<span class='note'>No karts yet</span>"}</div>
               <h2>Lap times</h2>
@@ -369,6 +462,7 @@ export class KartGame {
     }
 
     dispose() {
+        this.hud.results(null);
         this.scene.dispose();
         $("places").innerHTML = "";
         $("countdown").textContent = $("phase").textContent = "";

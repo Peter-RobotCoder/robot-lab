@@ -452,6 +452,53 @@ def running_code(game_info):
         return None
 
 
+# ---------- the games' lesson files (CHANGE 143): the scheme of work and the lesson guide for the browser ----------
+LESSON_FILES = {"robotlab": ("lab_missions", "shared-world-demo"), "fightlab": ("fight_missions", "BeatEmUp"),
+                "kartlab": ("kart_missions", "kart")}
+_schemes = {}  # game -> (the file's time, its scheme)
+
+
+def lesson_file(game):
+    """A game's lesson file: games/<game>/ beside desk/ (the release, the server), or the working folder's own."""
+    module, dev = LESSON_FILES[game]
+    for folder in (os.path.join(os.path.dirname(HERE), "games", game),
+                   os.path.join(os.path.dirname(os.path.dirname(HERE)), dev)):
+        path = os.path.join(folder, module + ".py")
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def scheme(game):
+    """A game's scheme of work from its lesson file, as the app's Print scheme of work reads it (launcher/records.py
+    scheme_of_work) and Robot Lab's window its lesson guide: each lesson's title and overall task, the outcomes with
+    their curriculum references, the missions, and (where written) the lesson pieces. None if it isn't here."""
+    import importlib.util
+    path = lesson_file(game)
+    if path is None:
+        return None
+    stamp = os.path.getmtime(path)
+    if game in _schemes and _schemes[game][0] == stamp:
+        return _schemes[game][1]
+    try:
+        spec = importlib.util.spec_from_file_location(f"_desk_lessons_{game}", path)
+        lm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lm)  # (plain data: the lesson files import only ast and re)
+        tasks, guide = getattr(lm, "LESSON_TASKS", {}), getattr(lm, "GUIDE", {})
+        out = {"title": GAMES[game],
+               "lessons": {str(n): {"title": lesson.get("title", f"Lesson {n}"), "task": tasks.get(n, "")}
+                           for n, lesson in sorted(lm.LESSONS.items())},
+               "outcomes": {c: [o[0], o[1], o[2] if len(o) > 2 else ""] for c, o in lm.OUTCOMES.items()},
+               "missions": {k: [v[0], v[1], v[2], list(v[3]), v[4]] for k, v in lm.MISSIONS.items()},
+               "guide": {str(n): {c: {"task": p.get("task", ""), "do": list(p.get("do", [])), "teach": p.get("teach", ""),
+                                      "success": p.get("success", "")} for c, p in pieces.items()}
+                         for n, pieces in sorted(guide.items())}}
+    except Exception as e:  # (a lesson file that won't load: the teacher is told, the desk carries on)
+        raise DeskError(f"{GAMES[game]}'s lesson file couldn't be read: {e}")
+    _schemes[game] = (stamp, out)
+    return out
+
+
 def client_address(ws):
     host = (ws.remote_address or ("?",))[0]
     try:
@@ -761,6 +808,10 @@ class Desk:
                 raise DeskError(f"{GAMES.get(game, game)} isn't set up on this server.")
             await ws.send(json.dumps(reply))  # (no state broadcast: watching changes nothing)
             return
+        elif kind == "scheme":  # (CHANGE 143) every game's scheme of work and lesson guide, from its lesson file
+            found = {g: scheme(g) for g in GAMES}
+            await ws.send(json.dumps({"ok": True, "scheme": {g: sc for g, sc in found.items() if sc}}))
+            return  # (nothing changed: no state broadcast)
         elif kind == "session_learner":  # (CHANGE 141) the desk's This session: in the game, or back to the lobby
             if not s.live:
                 raise DeskError("Nothing is live: launch a group first.")

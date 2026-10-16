@@ -10,7 +10,7 @@
 
 import {BaseScene, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} from "./base3d.js";
 import {Sound} from "./sound.js";
-import {RobotFX, HitBar, qmul, qrot, hprQuat, quatHpr, fromBabylonQuat} from "./robotfx.js";
+import {RobotFX, HitBar, RobotCamera, CAM_MODES, CAM_NAMES, qmul, qrot, hprQuat, quatHpr, fromBabylonQuat} from "./robotfx.js";
 
 const $ = id => document.getElementById(id);
 const ARENA = 20;
@@ -24,9 +24,9 @@ const SPINNERS = new Set(["spinner", "drum", "vdisc"]);
 const STEEL = [0.6, 0.62, 0.66], DARK = [0.12, 0.12, 0.13], YELLOW = [0.95, 0.75, 0.08];
 const PAINT_YELLOW = [0.95, 0.7, 0.05], CPZ = 4.8, GUTTER = 3.0;  // (rw_gfx.py, lab_sim.py)
 // the window's five views (rw_camera.py): behind your robot, from its nose, the TV camera on the rail, the whole
-// arena, the fixed centre camera
-export const RIG_MODES = ["third", "fpv", "zoom", "arena", "centre"];
-const RIG_NAMES = {third: "Third person", fpv: "First person", zoom: "Zoomed arena follow", arena: "Full arena", centre: "Centre camera"};
+// arena, the fixed centre camera (each with its own zoom, swing, tilt and sideways move: robotfx.RobotCamera)
+export const RIG_MODES = CAM_MODES;
+const RIG_NAMES = CAM_NAMES;
 const HALF = 10.0;
 const PARTS = ["armour", "weapon", "wheel0", "wheel1", "wheel2", "wheel3"];  // (lab_sim.PARTS: pt is the body's, then these)
 const WHEELS = [[0.72, 0.55], [-0.72, 0.55], [0.72, -0.55], [-0.72, -0.55]];
@@ -55,6 +55,7 @@ export class RobotScene extends BaseScene {
         this.mode = "overview";
         this.follow = null;
         this.fx = null;
+        this.cam = new RobotCamera("third");  // (the five views' own settings, kept over a tier change: CHANGE 143)
         this.build();
     }
 
@@ -863,9 +864,11 @@ export class RobotScene extends BaseScene {
     }
 
     // the window's camera rig (rw_camera.GameCamera.update): where the camera wants to be and what it looks at, in
-    // game coordinates, eased there; your robot's node or null, its nose's distance, the robots still fighting
+    // game coordinates, eased there; your robot's node or null, its nose's distance, the robots still fighting.
+    // CHANGE 143: every view zooms, swings round, tilts and moves sideways as the window's (this.cam: robotfx.js)
     rigCamera(dt) {
-        const cam = this.camera, mode = this.mode;
+        const cam = this.camera, c = this.cam, mode = this.mode;
+        c.setMode(mode);
         const me = this.follow !== null ? this.robots.get(this.follow) : null;
         const live = [];
         for (const v of this.robots.values()) if (v.root.isEnabled() && v.root.position.y > -1) live.push([v.root.position.x, v.root.position.z, v.root.position.y]);
@@ -881,46 +884,69 @@ export class RobotScene extends BaseScene {
             if (l < 0.1) { x = 0; y = 1; } else { x /= l; y /= l; }
             return [x, y, f];
         };
+        const at = (p, o) => [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
         if (focus === "third") {
-            const [fx, fy] = flatOf(), d = this.rigDist || 6.5;
-            want = [mine[0] - fx * d, mine[1] - fy * d, d * 0.55];
+            const [fx, fy] = flatOf(), d = c.dist;
+            c.lookZ = 0;
+            want = at([mine[0], mine[1], 0], c.swing([-fx * d, -fy * d, d * 0.55]));
             if (d < 9) {  // low down: stay inside the arena, in front of the wall posts; squeezed by a wall, go up instead
                 const inside = HALF - 0.6, back = Math.hypot(want[0] - mine[0], want[1] - mine[1]);
                 want[0] = Math.max(-inside, Math.min(inside, want[0]));
                 want[1] = Math.max(-inside, Math.min(inside, want[1]));
                 want[2] += Math.max(0, back - Math.hypot(want[0] - mine[0], want[1] - mine[1])) * 1.1;
             }
-            look = [mine[0] + fx * 2, mine[1] + fy * 2, 0.4];
+            const ahead = c.orbit || c.tilt ? 0 : 2;  // (swung round: it looks at the robot itself)
+            look = [mine[0] + fx * ahead, mine[1] + fy * ahead, 0.4];
         } else if (focus === "fpv") {
             let [fx, fy] = flatOf();
             const up = new BABYLON.Vector3(0, 1, 0).rotateByQuaternionToRef(me.root.rotationQuaternion, new BABYLON.Vector3());
             if (up.y < 0.3 && this.rigLook) { fx = this.rigLook[0] - this.rigPos[0]; fy = this.rigLook[1] - this.rigPos[1]; const l = Math.hypot(fx, fy) || 1; fx /= l; fy /= l; }
             const front = 0.8 * (me.s || 1);
             want = [mine[0] + fx * (front + 0.15), mine[1] + fy * (front + 0.15), Math.max(0.35, mine[2] + 0.45)];
-            look = [want[0] + fx * 6, want[1] + fy * 6, want[2] - 0.35];
-            k = 14; fov = 95; near = 0.05;
+            c.lookZ = 50;  // (looking round from the robot: up and down are both fine)
+            const o = c.swing([-fx * 6, -fy * 6, 0.35]);
+            look = [want[0] - o[0], want[1] - o[1], want[2] - o[2]];
+            k = 14; fov = 95 * c.fpvScale; near = 0.05;
         } else if (focus === "zoom") {
             let target = mine && mode !== "zoom" ? [mine[0], mine[1], 0.3] : centre;
             if (mode === "zoom" && mine && live.length) target = [(mine[0] + centre[0]) / 2, (mine[1] + centre[1]) / 2, 0.3];
-            want = [Math.max(-8, Math.min(8, target[0] * 0.7)), -HALF - 1.2, 5.4];
+            const rail = [Math.max(-8, Math.min(8, target[0] * 0.7)), -HALF - 1.2, 5.4];  // (a TV camera on the south rail)
             const spread = Math.max(1.5, ...live.map(p => Math.hypot(p[0] - target[0], p[1] - target[1], p[2] - target[2])));
-            const dist = Math.hypot(want[0] - target[0], want[1] - target[1], want[2] - target[2]);
-            fov = Math.max(4, Math.min(100, 2 * Math.atan((spread + 1.3) / dist) * 180 / Math.PI));
+            c.lookZ = target[2];
+            const o = c.swing([rail[0] - target[0], rail[1] - target[1], rail[2] - target[2]]);
+            want = at(target, o);
+            const dist = Math.hypot(...o);
+            fov = Math.max(4, Math.min(100, 2 * Math.atan((spread + 1.3) * c.zoomScale / dist) * 180 / Math.PI));
             look = target; k = 2.5;
-        } else if (focus === "arena") {
-            look = [0, -2, 0]; want = [0, -HALF + 1, 17]; fov = 90; k = 3;
-        } else {
-            look = [0, 0, 0.3]; want = [0, -HALF - 3.5, 6.5]; fov = 62; k = 3;
+        } else if (focus === "arena") {  // high and steep: all the floor (zoom moves the camera along its line)
+            look = [0, -2, 0]; c.lookZ = 0;
+            const s = c.arenaScale;
+            want = at(look, c.swing([0, (-HALF + 1 + 2) * s, 17 * s])); fov = 90; k = 3;
+        } else {  // centre camera: fixed, lower down, aimed at the middle (it doesn't follow anyone)
+            look = [0, 0, 0.3]; c.lookZ = 0.3;
+            const s = c.centreScale;
+            want = at(look, c.swing([0, (-HALF - 3.5) * s, 6.5 * s])); fov = 62; k = 3;
         }
         if (!this.rigPos || this.snapCamera) { this.rigPos = want.slice(); this.rigLook = look.slice(); this.rigFov = fov; this.snapCamera = false; }
         const a = Math.min(1, dt * k);
         for (let i = 0; i < 3; i++) { this.rigPos[i] += (want[i] - this.rigPos[i]) * a; this.rigLook[i] += (look[i] - this.rigLook[i]) * a; }
         this.rigFov += (fov - this.rigFov) * Math.min(1, dt * 4);
+        // moved sideways (the window's CHANGE 112): the camera and what it looks at, across the view
+        this.rigShift = [0, 0, 0];
+        const p = c.pans[c.mode];
+        if (p) {
+            const dx = this.rigLook[0] - this.rigPos[0], dy = this.rigLook[1] - this.rigPos[1], l = Math.hypot(dx, dy);
+            if (l > 1e-6) this.rigShift = [dy / l * p, -dx / l * p, 0];  // ((look - pos) x up)
+        }
         cam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;  // (Panda's lens: the fov is across)
         cam.fov = this.rigFov * Math.PI / 180;
         cam.minZ = near;
-        cam.setTarget(v3(...this.rigLook));
-        cam.setPosition(v3(...this.rigPos));
+        // (the rig places the camera: Babylon's own orbit limits and drift from the mouse are not for it)
+        cam.lowerRadiusLimit = 0.01;
+        cam.upperBetaLimit = Math.PI - 0.01;
+        cam.inertialAlphaOffset = cam.inertialBetaOffset = cam.inertialRadiusOffset = cam.inertialPanningX = cam.inertialPanningY = 0;
+        cam.setTarget(v3(...at(this.rigLook, this.rigShift)));
+        cam.setPosition(v3(...at(this.rigPos, this.rigShift)));
         return focus;
     }
 
@@ -935,7 +961,8 @@ export class RobotScene extends BaseScene {
         const off = this.fx && !intro ? this.fx.shakeOffset() : null;  // (none in the countdown's sweep)
         if (!off) return;
         if (RIG_MODES.includes(this.mode) && this.rigPos) {
-            cam.setPosition(v3(this.rigPos[0] + off[0], this.rigPos[1] + off[1], this.rigPos[2] + off[2]));
+            const s = this.rigShift || [0, 0, 0];  // (with the view's sideways move: CHANGE 143)
+            cam.setPosition(v3(this.rigPos[0] + s[0] + off[0], this.rigPos[1] + s[1] + off[1], this.rigPos[2] + s[2] + off[2]));
         } else {
             this.shook = v3(off[0], off[1], off[2]);
             cam.target.addInPlace(this.shook);
@@ -952,6 +979,8 @@ export class RobotScene extends BaseScene {
         cam.fovMode = BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
         cam.fov = 0.8;
         cam.minZ = 0.1;
+        cam.lowerRadiusLimit = 2;  // (the orbiting views' own limits again: the rig takes them off)
+        cam.upperBetaLimit = 1.5;
         const above = cam.position.y > 9.0;  // (looking down past the lighting rig: hidden, as the app's full-arena camera does)
         for (const m of this.rig || []) m.isVisible = !above;
         if (st && st.intro !== null && st.intro !== undefined) {  // the pre-battle intro: round the arena
@@ -978,9 +1007,132 @@ export class RobotScene extends BaseScene {
         this.snapCamera = true;
         const cam = this.camera;
         if (this.shook) { cam.target.subtractInPlace(this.shook); this.shook = null; }
-        if (RIG_MODES.includes(mode)) return;  // (the rig places the camera every frame)
+        if (RIG_MODES.includes(mode)) { this.cam.setMode(mode); return; }  // (the rig places the camera every frame)
         if (mode === "overview") { cam.target = v3(0, 0, 0); cam.radius = 27; cam.alpha = -Math.PI / 2; cam.beta = 0.78; }
         if (mode === "follow") { cam.radius = 8; cam.beta = 0.95; }
+    }
+}
+
+// ---------- the garage's robot preview (lab_client's CHANGE 82; the page's CHANGE 143) ----------
+// A turning robot on a round pedestal in a light grey studio, beside the garage's title, built again only when the
+// design being edited changes (the draft, before BUILD). Built by RobotScene.addRobot in its own small canvas and
+// engine: WebGL 1 and Babylon's simple materials (no textures, so light on memory and quick to make), drawn about 30
+// times a second while the garage is on screen, and let go a few seconds after it isn't.
+const TEX_TONE = {steel: [0.56, 0.57, 0.6], tyre: [0.07, 0.07, 0.08], hazard: [0.95, 0.75, 0.08], diamond: [0.6, 0.6, 0.62]};  // (each texture set's own colour)
+const RIDE = 0.12;  // (lab_sim.RIDE: the body origin above the floor)
+
+// lab_sim.shapes' weapon pivot for a robot of this size: the standard robot nearest (80% to 120%) made bigger or
+// smaller all over. Returns [pivot, k]
+function weaponPivot(weapon, size) {
+    const ref = Math.max(0.8, Math.min(1.2, size)), k = size / ref, hy = 0.8 * ref, top = 0.1 + 0.18 * ref;
+    const p = {wedge: [0, hy - 0.05, top], spinner: [0, hy + 0.28 * ref, 0.1], drum: [0, hy + 0.18, 0.08],
+               vdisc: [0, hy + 0.05, 0.42 * ref - (0.32 - 0.08) + 0.04], flame: [0, hy - 0.25 * ref, top + 0.12 * ref],
+               laser: [0, hy - 0.3 * ref, top + 0.08 * ref], chainsaw: [0, hy * 0.35, top + 0.12]}[weapon] || [0, -0.2 * ref, top + 0.1];
+    return [p.map(c => c * k), k];
+}
+
+class PreviewScene extends RobotScene {
+    populate() {
+        const scene = this.scene;
+        scene.clearColor = new BABYLON.Color4(0.46, 0.48, 0.53, 1);  // (a light grey studio: dark parts stand out against it)
+        // light from everywhere (nothing on the robot left black), a key lamp high at the front, a rim lamp behind
+        const sky = scene.getLightByName("sky");
+        if (sky) { sky.intensity = 0.75; sky.diffuse = new BABYLON.Color3(1, 1, 1); sky.groundColor = new BABYLON.Color3(0.38, 0.38, 0.42); }
+        if (this.sun) { this.sun.direction = v3(-2.5, 3.0, -2.6).normalize(); this.sun.intensity = 1.0; }
+        const rim = new BABYLON.PointLight("rim", v3(0.5, 3.0, 2.5), scene);
+        rim.intensity = 0.5;
+        // the pedestal the robot stands on (it turns with it), and the studio's floor
+        this.turn = new BABYLON.TransformNode("turntable", scene);
+        this.cyl(this.turn, 1.25, 0.06, "z", this.material("pedestal", [0.78, 0.8, 0.84], 0.75, 0.05), 0, 0, -0.06, null, 48);
+        this.cyl(this.turn, 1.45, 0.03, "z", this.material("plinth", [0.6, 0.62, 0.66], 0.8, 0.05), 0, 0, -0.15, null, 48);
+        this.cyl(null, 3.5, 0.02, "z", this.material("studio", [0.5, 0.52, 0.57], 1, 0), 0, 0, -0.2, null, 48);
+        const cam = this.camera;  // (the window's: 34 degrees, from the front and above)
+        cam.detachControl();
+        cam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;
+        cam.fov = 34 * Math.PI / 180;
+        cam.minZ = 0.3;
+        cam.maxZ = 40;
+        cam.setTarget(v3(0, 0, 0.2));
+        cam.setPosition(v3(0, -4.6, 2.0));
+        this.key = null;
+    }
+
+    // Babylon's simple materials in each texture set's own colour, with a little shine on metal
+    material(name, rgb, rough = 0.9, metal = 0.0, glow = 0, opts = {}) {
+        const t = TEX_TONE[opts.tex];
+        const m = super.material(name, t ? rgb.map((c, i) => c * t[i]) : rgb, rough, metal, glow, opts);
+        if (m.specularColor && !m.ccShine) {
+            m.ccShine = true;
+            const s = metal ? 0.3 * (1.2 - Math.min(1, rough)) : 0.04;
+            m.specularColor = new BABYLON.Color3(s, s, s);
+            m.specularPower = 24;
+        }
+        return m;
+    }
+
+    // the design on the pedestal, built again only when it has changed (lab_client.preview_show, preview_pose)
+    show(design) {
+        const key = JSON.stringify(design || {});
+        if (key === this.key) return;
+        this.key = key;
+        for (const v of this.robots.values()) this.disposeRobot(v);
+        this.robots.clear();
+        let v;
+        try { v = this.addRobot({id: 0, design: JSON.parse(key), owner: ""}); } catch (e) { return; }  // (half-typed in the code: no picture)
+        v.label.setEnabled(false);
+        if (v.blur) v.blur.isVisible = false;
+        v.root.parent = v.weapon.parent = this.turn;
+        // as it rests: the body at ride height, the weapon on its mount (the sim's pivot; a big hammer stands up)
+        const [pivot, k] = weaponPivot(v.weaponType, v.s);
+        v.root.position = v3(0, 0, RIDE);
+        v.weapon.position = v3(pivot[0], pivot[1], pivot[2] + RIDE);
+        v.weapon.rotationQuaternion = gameQuat(v.weaponType === "hammer" && k > 1 ? hprQuat(0, 115, 0) : [1, 0, 0, 0]);
+    }
+}
+
+export class RobotPreview {
+    constructor(tier) {
+        this.canvas = document.createElement("canvas");
+        this.canvas.className = "gpreview";
+        this.engine = new BABYLON.Engine(this.canvas, true, {disableWebGL2Support: true, alpha: false, stencil: false}, true);
+        try { this.scene = new PreviewScene(this.canvas, tier, this.engine); } catch (e) { this.engine.dispose(); throw e; }
+        this.design = null;
+        this.seen = this.drawn = this.checked = performance.now();
+        this.gone = false;
+        this.engine.runRenderLoop(() => this.tick());
+    }
+
+    attach(slot, design) {  // (the garage is drawn again often: the same canvas goes into its new place)
+        if (this.canvas.parentNode !== slot) slot.append(this.canvas);
+        this.design = design;
+        this.engine.resize();
+        this.scene.show(design);
+        this.seen = performance.now();
+    }
+
+    tick() {
+        if (this.gone) return;
+        const now = performance.now(), c = this.canvas, r = c.isConnected ? c.getBoundingClientRect() : null;
+        const shown = r && r.width > 0 && r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
+        if (!shown) {  // (the garage closed, or the panel slid away: rests, then let go)
+            if (now - this.seen > 4000) setTimeout(() => this.dispose(), 0);
+            return;
+        }
+        this.seen = now;
+        if (now - this.drawn < 33) return;
+        const dt = Math.min(0.1, (now - this.drawn) / 1000);
+        this.drawn = now;
+        if (now - this.checked > 300) { this.checked = now; this.scene.show(this.design); }  // (a slider moved, a name typed)
+        this.scene.turn.rotation.y -= 25 * Math.PI / 180 * dt;  // (25 degrees a second, anticlockwise from above)
+        this.scene.render();
+    }
+
+    dispose() {
+        if (this.gone) return;
+        this.gone = true;
+        this.engine.stopRenderLoop();
+        try { this.scene.dispose(); this.engine.dispose(); } catch (e) { /* already gone */ }
+        this.canvas.remove();
     }
 }
 
@@ -1000,21 +1152,20 @@ export class RobotGame {
         this.controlKind = "robot";  // (play.js: the arrows drive, Space fires)
         // B: the health bars small (just the title) or full, kept on this computer as the window keeps hud_small
         try { this.boardSmall = localStorage.getItem("hud_small") === "1"; } catch (e) { this.boardSmall = false; }
+        // the health bars dragged by their title bar, as the window's (lab_client's hud_at), kept on this computer;
+        // a double click on the title puts them back (drag.js, CHANGE 143)
+        this.boardDrag = app.makeDraggable ? app.makeDraggable($("places"), "robotboard", {handle: ".bhead"}) : null;
     }
 
     welcome(m) {
         const p = this.app.params;
         this.followMine = this.app.state.role === "learner";  // (a learner's camera starts behind their own robot)
-        const saved = (m.prefs || {}).camera || {};  // (the view kept in their profile, as the window keeps it)
+        // the views kept in their profile, in the window's own format (rw_camera.settings: each view's zoom, swing,
+        // tilt and sideways move), or the page's older {mode, dist} (CHANGE 143)
+        const saved = (m.prefs || {}).camera || {};
+        this.scene.cam.restore(saved);
         if (RIG_MODES.includes(saved.mode)) this.rigMode = saved.mode;
-        if (saved.dist) this.scene.rigDist = Math.max(1.5, Math.min(30, Number(saved.dist) || 6.5));
-        if (!this.wheelHooked) {  // (the wheel zooms the rig's views: how far behind, in third person)
-            this.wheelHooked = true;
-            this.app.canvas.addEventListener("wheel", e => {
-                if (this.scene.mode !== "third") return;
-                this.scene.rigDist = Math.max(1.5, Math.min(30, (this.scene.rigDist || 6.5) * (e.deltaY > 0 ? 1 / 0.88 : 0.88)));
-            }, {passive: true});
-        }
+        this.hookCamera();
         if (p.get("cam")) { this.followMine = false; this.scene.setMode(p.get("cam") === "chase" ? "follow" : "overview", p.get("follow") !== null ? Number(p.get("follow")) : null); }
     }
 
@@ -1030,7 +1181,115 @@ export class RobotGame {
         const i = RIG_MODES.indexOf(this.scene.mode);
         this.rigMode = RIG_MODES[(i + 1) % RIG_MODES.length];
         this.scene.setMode(this.rigMode, this.myId());
-        this.app.keepPrefs && this.app.keepPrefs({camera: {mode: this.rigMode, dist: this.scene.rigDist || 6.5}});
+        this.keepCamera();
+    }
+
+    // ---------- the window's camera controls (rw_camera, lab_client's keys: CHANGE 143) ----------
+    // The canvas's own: the wheel zooms the view in use (the other way round with the profile's invert_zoom, as the
+    // window's Settings), a sideways scroll moves it sideways, the right button dragged swings it round and tilts
+    // it. The keys are app.js's, calling zoom, turnCamera, resetCamera, fullArena and watchArena below.
+    hookCamera() {
+        if (this.listeners) return;
+        const canvas = this.app.canvas;
+        this.listeners = [
+            [canvas, "wheel", e => {
+                if (!RIG_MODES.includes(this.scene.mode)) return;  // (the orbiting views zoom as Babylon's)
+                if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {  // (a sideways scroll: wheel_left and wheel_right, 0.6 m a notch)
+                    this.panCamera(e.deltaX * (e.deltaMode === 1 ? 0.2 : e.deltaMode === 2 ? 6 : 0.006));
+                } else if (e.deltaY) {
+                    const f = e.deltaY > 0 ? 1 / 0.88 : 0.88;
+                    this.zoomBy(this.zoomInverted() ? 1 / f : f);
+                }
+            }, {passive: true}],
+            [canvas, "pointerdown", e => {
+                if (e.button !== 2 || !RIG_MODES.includes(this.scene.mode)) return;  // (the orbiting views drag as Babylon's)
+                this.dragFrom = [e.clientX, e.clientY];
+                try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* gone */ }
+            }],
+            [canvas, "pointermove", e => {
+                if (!this.dragFrom) return;
+                this.scene.cam.drag((e.clientX - this.dragFrom[0]) / Math.max(1, canvas.clientWidth), (e.clientY - this.dragFrom[1]) / Math.max(1, canvas.clientHeight));
+                this.dragFrom = [e.clientX, e.clientY];
+            }],
+            [canvas, "pointerup", () => { if (this.dragFrom) { this.dragFrom = null; this.keepCamera(); } }],
+            [canvas, "pointercancel", () => { this.dragFrom = null; }],
+            [canvas, "contextmenu", e => e.preventDefault()],  // (the window drags with the right button)
+        ];
+        for (const [el, ev, fn, opts] of this.listeners) el.addEventListener(ev, fn, opts);
+    }
+
+    // the profile's "the camera's zoom the other way round" (the window's invert_zoom, kept in prefs as the window
+    // keeps it; a page's own switch may keep it as zoom_invert or wheel_invert)
+    zoomInverted() {
+        const P = this.app.state.prefs || {};
+        for (const k of ["invert_zoom", "zoom_invert", "wheel_invert"]) if (k in P) return !!P[k];
+        return !!this.app.state.invertZoom;
+    }
+
+    // a learner's camera kept in their profile, in the window's format (rw_camera.GameCamera.settings)
+    keepCamera() {
+        if (this.app.keepPrefs) this.app.keepPrefs({camera: this.scene.cam.settings()});
+    }
+
+    // zoom the view in use by a factor (under 1: in); the orbiting views (the whole arena, following a robot) move
+    // Babylon's camera in and out
+    zoomBy(factor) {
+        const sc = this.scene;
+        if (RIG_MODES.includes(sc.mode)) { sc.cam.wheel(factor); this.keepCamera(); }
+        else if (sc.camera) sc.camera.radius = Math.max(2, Math.min(400, sc.camera.radius * factor));
+    }
+
+    // + and - (dir -1 zooms in, 1 out; repeat: the key held down), as the window's keys: 0.8 and 1.25 a press, 0.9
+    // and 1.11 a repeat. (The keys aren't turned round by invert_zoom: only the wheel is, as in the window)
+    zoom(dir, repeat = false) {
+        this.zoomBy(dir < 0 ? (repeat ? 0.9 : 0.8) : (repeat ? 1.11 : 1.25));
+    }
+
+    // Q and E: swing the view round (the window: 20 degrees a press, Q +20, E -20)
+    turnCamera(degrees) {
+        const sc = this.scene;
+        if (RIG_MODES.includes(sc.mode)) { sc.cam.turn(degrees); this.keepCamera(); }
+        else if (sc.camera) sc.camera.alpha += degrees * Math.PI / 180;
+    }
+
+    // a sideways scroll: the view moved sideways (metres, right positive), this view only
+    panCamera(metres) {
+        if (!RIG_MODES.includes(this.scene.mode) || !metres) return;
+        this.scene.cam.pan(metres);
+        this.keepCamera();
+    }
+
+    // Home: this view back as it comes (its swing, tilt and sideways move; its zoom stays); the whole arena's view
+    // back over the arena
+    resetCamera() {
+        const sc = this.scene;
+        if (RIG_MODES.includes(sc.mode)) { sc.cam.resetView(); this.keepCamera(); }
+        else sc.setMode(sc.mode, sc.follow);
+    }
+
+    // O: the full arena view (the window's cam.set_mode("arena"))
+    fullArena() {
+        this.rigMode = "arena";
+        this.scene.setMode("arena", this.myId());
+        this.keepCamera();
+        this.app.updatePills();
+    }
+
+    // [ and ]: watch the next arena (lab_client.watch_arena), as the Camera tab's buttons do; back on your own arena
+    // the view follows yours again (Mine)
+    watchArena(delta) {
+        const n = (this.app.state.roster || {}).arenas || 1;
+        if (n < 2) return;
+        const next = (((this.watched() + delta) % n) + n) % n, mine = this.myArena();
+        this.watch = next === mine ? null : next;
+        this.renderBoard();
+        this.app.renderPanel();
+        this.app.toast(`Watching arena ${next + 1}${next === mine ? "  (yours)" : ""}`, false, 2000);
+    }
+
+    myArena() {  // the arena our own robot is in, or null
+        const id = this.myId(), r = id !== null ? ((this.app.state.roster || {}).robots || []).find(x => x.id === id) : null;
+        return r ? r.arena : null;
     }
 
     // B, or the board's Hide/Show button (lab_client.toggle_hud)
@@ -1038,6 +1297,16 @@ export class RobotGame {
         this.boardSmall = !this.boardSmall;
         try { localStorage.setItem("hud_small", this.boardSmall ? "1" : "0"); } catch (e) { /* private window */ }
         this.renderBoard();
+    }
+
+    // garage.js's hook (CHANGE 143): the robot being built, turning on its pedestal in slot (the window's preview).
+    // A computer that can't make a second drawing has no preview, and the garage is as it was
+    garagePreview(slot, design) {
+        if (!slot || !design || typeof BABYLON === "undefined") return;
+        if (!this.preview || this.preview.gone) {
+            try { this.preview = new RobotPreview(this.app.tier); } catch (e) { console.warn("No robot preview:", e); this.preview = null; return; }
+        }
+        this.preview.attach(slot, design);
     }
 
     learnerTabs() { return [["camera", "Camera"]]; }
@@ -1135,7 +1404,8 @@ export class RobotGame {
             const pc = Math.max(0, Math.min(100, Math.round(100 * r.hp / (r.max || 1))));
             const weapon = info.design.weapon || HOUSE_WEAPONS[info.design.model] || "wedge";
             const wstate = ["spinner", "drum", "vdisc"].includes(weapon)
-                ? (r.on && r.rpm ? `${Math.round(r.rpm)} rpm` : r.on ? "on" : "off") : (r.on || r.act ? "firing" : "ready");
+                ? (r.on && r.rpm ? `${Math.round(r.rpm)} rpm${r.energy !== undefined ? `, ${Math.round(r.energy)} J` : ""}` : r.on ? "on" : "off")  // (its energy: CHANGE 143)
+                : (r.on || r.act ? "firing" : "ready");
             let status = r.ko ? (house ? "OUT OF ACTION" : "KNOCKED OUT") : `weapon ${wstate}${r.hits ? ` · ${r.hits} hits` : ""}`;
             if (m.rd && !r.ko && r.pt) {  // real damage: armour, weapon and the four wheels' own bars (lab_client.hud_parts)
                 const pt = r.pt, bar = (v, w) => `<span style="display:inline-block;width:${w}px;height:6px;background:#333336;margin-right:3px;vertical-align:middle">` +
@@ -1167,13 +1437,17 @@ export class RobotGame {
             this.activateAt = performance.now();
         } else if (this.activateAt && performance.now() - this.activateAt < 1200) {
             big = "ACTIVATE!";
-        } else if (arena && arena.winner) {
-            big = esc(arena.winner);
+        } else if (arena && arena.winner) {  // (the window's banner: the teacher is told how to go again, CHANGE 143)
+            big = esc(arena.winner) + (teacher ? `<div class="sub">Press Restart in Controls</div>` : "");
+        } else if (m.paused) {
+            big = "PAUSED";
         }
         $("countdown").innerHTML = big;
         const tl = arena && arena.time_left !== null && arena.time_left !== undefined ? arena.time_left : m.time_left;
         const clock = tl !== null && tl !== undefined ? `${Math.floor(tl / 60)}:${String(Math.floor(tl % 60)).padStart(2, "0")}` : "";
-        $("phase").textContent = (m.paused ? "PAUSED · " : "") + (m.practice ? "PRACTICE (no damage)" : `BATTLE ${clock}`) + (m.rd ? " · real damage" : "");
+        const T = S.tournament;  // (the window's top line: the tournament's title, CHANGE 143)
+        $("phase").textContent = (m.paused ? "PAUSED · " : "") + (T ? `${T.title || "TOURNAMENT"} · ` : "") +
+                                 (m.practice ? "PRACTICE (no damage)" : `BATTLE ${clock}`) + (m.rd ? " · real damage" : "");
     }
 
     pill() {
@@ -1183,7 +1457,7 @@ export class RobotGame {
 
     cameraPill() {
         const sc = this.scene;
-        if (RIG_NAMES[sc.mode]) return `Camera: ${RIG_NAMES[sc.mode]} (V to change)`;
+        if (RIG_NAMES[sc.mode]) return `Camera: ${RIG_NAMES[sc.mode]} (V to change, wheel or +/- to zoom, right-drag or Q/E to turn, Home back)`;
         return sc.mode === "follow" ? "Camera: following a robot (drag to orbit)" : "Camera: the whole arena (drag to orbit, wheel to zoom)";
     }
 
@@ -1375,6 +1649,10 @@ export class RobotGame {
     }
 
     dispose() {
+        for (const [el, ev, fn, opts] of this.listeners || []) el.removeEventListener(ev, fn, opts);
+        this.listeners = null;
+        if (this.boardDrag) { this.boardDrag.release(); this.boardDrag = null; }
+        if (this.preview) { this.preview.dispose(); this.preview = null; }
         this.scene.dispose();
         $("places").innerHTML = "";
         $("countdown").textContent = $("phase").textContent = "";

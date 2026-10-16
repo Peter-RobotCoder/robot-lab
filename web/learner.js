@@ -5,7 +5,7 @@
 // and what was done each day) and Mods (the votes for the arena's or stage's items and the user mods). The same
 // messages the windows send, so the class server can't tell the page from a window.
 
-import {esc, pretty, modInfo} from "./teacher.js";
+import {esc, learnerModsHtml} from "./teacher.js";
 import {renderGarage} from "./garage.js";
 
 const $ = id => document.getElementById(id);
@@ -56,11 +56,22 @@ function missionTab(app, body) {
         html += `</div>`;
     }
     html += `</div>`;
+    // Kart Lab's own row (kart_client build_missions, CHANGE 143): the lap time predicted before a race, in Mission 2
+    // (predict, test, compare) or once a prediction is kept
+    const have = m.prediction ?? null;
+    if (app.game && app.game.id === "kartlab" && (m.lesson === 2 || have !== null)) {
+        html += `<h3>My predicted lap time</h3>
+          <p class="note">Look at your kart's stats, then predict one lap in seconds. Race, then compare.</p>
+          <div class="row"><input id="predict-lap" type="number" min="0" max="500" step="0.1" style="width: 6em" value="${have === null ? "" : esc(have)}">
+            <span class="note">seconds</span><button id="btn-predict" class="go">Save</button></div>
+          ${have !== null ? `<p class="ok">Predicted: ${esc(Number(have))} s${m.best_lap ? `   your best lap so far: ${Number(m.best_lap).toFixed(1)} s` : ""}</p>` : ""}`;
+    }
     if (m.brain || m.brain_error || (m.lesson >= 3)) {
         html += `<h3>Your brain</h3><p class="note">${m.brain ? "A brain is uploaded." : "No brain uploaded yet."}
           ${m.autopilot ? " Autopilot is ON (P turns it off)." : ""}</p>`;
         if (m.brain_error) html += `<p class="note bad">${esc(m.brain_error)}</p>`;
-        html += `<div class="row"><label class="filebtn">Upload a brain (.py)<input type="file" id="brain-file" accept=".py,.txt" hidden></label>
+        html += `<div class="row">${app.openBrainEditor ? `<button id="btn-brain-edit" class="go">Edit my brain</button>` : ""}
+          <label class="filebtn">Upload a brain (.py)<input type="file" id="brain-file" accept=".py,.txt" hidden></label>
           <button id="btn-autopilot">${m.autopilot ? "Autopilot off" : "Autopilot on"}</button></div>`;
     }
     body.innerHTML = html;
@@ -73,6 +84,12 @@ function missionTab(app, body) {
         app.send({type: "reflection", mission: id, text: $("reflect-" + id).value});
         app.toast("Saved.");
     });
+    if ($("btn-predict")) $("btn-predict").onclick = () => {
+        const value = parseFloat($("predict-lap").value);
+        if (!Number.isFinite(value)) return app.toast("Type the lap time you predict, in seconds (for example 42)");
+        app.send({type: "prediction", value});
+    };
+    if ($("btn-brain-edit")) $("btn-brain-edit").onclick = () => app.openBrainEditor();  // (the page's brain editor: app.js, brain.js)
     if ($("brain-file")) $("brain-file").onchange = e => uploadBrain(app, e.target.files[0]);
     if ($("btn-autopilot")) $("btn-autopilot").onclick = () => app.send({type: "autopilot"});
 }
@@ -116,14 +133,21 @@ function cardTab(app, body) {
       </div>
       <div class="row"><button id="ai-send" class="go">SEND TO THE TEACHER</button></div>`;
     if (S.cardResult) html += `<div class="note ${S.cardResult.ok ? "ok" : "bad"}">${esc(S.cardResult.text)}</div>`;
-    const mine = (m.cards || []).slice(-3).reverse();
+    // the last three requests, as the window's card_list: the card's words are under card (teaching.submit_card),
+    // and the first one kept ("ready") has the review questions under it ({key: question}: the answers go back
+    // keyed the same, CHANGE 143)
+    const mine = (m.cards || []).slice(-3), questions = Object.entries(m.review_questions || {});
     if (mine.length) {
         html += `<h3>My last requests</h3>`;
         for (const k of mine) {
-            html += `<div class="objective"><b>${esc(k.goal || "")}</b><div class="note">${esc(k.status || "")}${k.note ? ": " + esc(k.note) : ""}</div>`;
-            if (k.status === "ready" && !k.reviewed && (m.review_questions || []).length) {
-                html += (m.review_questions || []).map((q, i) => `<label class="note">${esc(q)}</label><textarea id="rv-${esc(k.id)}-${i}" rows="2"></textarea>`).join("") +
-                    `<div class="row"><button data-review="${esc(k.id)}" class="go">SUBMIT MY REVIEW</button></div>`;
+            const done = ["ready", "reviewed"].includes(k.status);
+            html += `<div class="objective"><b class="${done ? "ok" : ""}">#${esc(k.id)} ${esc(String(k.status || "").toUpperCase())}: ${esc((k.card || {}).goal || "")}</b>
+              ${k.note ? `<div class="note">Teacher: ${esc(k.note)}</div>` : ""}`;
+            if (k.status === "ready") {
+                if (k.acknowledgement) html += `<div class="note">${esc(k.acknowledgement)}</div>`;
+                html += questions.map(([q, text]) => `<label class="note">${esc(text)}</label><textarea id="rv-${esc(k.id)}-${esc(q)}" rows="2"></textarea>`).join("") +
+                    `<div class="row"><button data-review="${esc(k.id)}" class="go">SUBMIT MY REVIEW</button></div></div>`;
+                break;  // (the window stops at the card being reviewed)
             }
             html += `</div>`;
         }
@@ -134,7 +158,7 @@ function cardTab(app, body) {
         for (const k of ["privacy", "review", "credit"]) c[k] = $("ai-" + k).checked;
         app.keepPrefs && app.keepPrefs({card: c, card_target: c.target});
     };
-    body.querySelectorAll("textarea, input[type=checkbox]").forEach(el => el.addEventListener("change", keep));
+    body.querySelectorAll("textarea[id^='ai-'], input[id^='ai-']").forEach(el => el.addEventListener("change", keep));
     body.querySelectorAll("button[data-target]").forEach(b => b.onclick = () => { keep(); c.target = b.dataset.target; app.renderPanel(); });
     $("ai-send").onclick = () => {
         keep();
@@ -142,9 +166,9 @@ function cardTab(app, body) {
                                          privacy: c.privacy, review: c.review, credit: c.credit, target: c.target}});
     };
     body.querySelectorAll("button[data-review]").forEach(b => b.onclick = () => {
-        const id = b.dataset.review;
-        const answers = (m.review_questions || []).map((q, i) => ($(`rv-${id}-${i}`) || {}).value || "");
-        app.send({type: "ai_review", id, answers});
+        const id = b.dataset.review;  // (the card's number as a number: the server matches it with ==)
+        const answers = Object.fromEntries(questions.map(([q]) => [q, ($(`rv-${id}-${q}`) || {}).value || ""]));
+        app.send({type: "ai_review", id: Number(id), answers});
     });
 }
 
@@ -171,37 +195,10 @@ function myCardTab(app, body) {
 
 // ---------- Mods (votes) ----------
 function modsTab(app, body) {
-    const S = app.state, L = S.lesson || {};
-    // what's in the vote (missing: in it) and who has voted, from the lesson message (engine/hud.py build_mods)
-    const arenaIn = L.arena_in_vote || {}, modsIn = L.mods_in_vote || {};
-    const hz = L.hazards || {};
-    const info = S.mods || {}, me = S.name;
-    const mine = {arena: {}, mod: {}};
-    for (const [k, v] of Object.entries(info.arena_votes || {})) mine.arena[k] = (v || []).includes(me);
-    for (const [k, v] of Object.entries(info.votes || {})) mine.mod[k] = (v || []).includes(me);
-    let html = `<h2>Mods</h2><p class="note">Tick what you'd like in the game: your teacher sees the votes and switches things on.</p>`;
-    const items = Object.keys(hz).filter(k => arenaIn[k] !== false);
-    if (items.length) {
-        html += `<h3>The ${esc(app.game.id === "kartlab" ? "track" : app.game.id === "fightlab" ? "stage" : "arena")}</h3><table>`;
-        for (const k of items) {
-            const on = hz[k] === true || (hz[k] && typeof hz[k] === "object" && Object.values(hz[k]).some(Boolean));
-            html += `<tr><td><label><input type="checkbox" data-avote="${esc(k)}" ${mine.arena[k] ? "checked" : ""}> ${esc(pretty(k))}</label></td><td class="note">${on ? "ON" : "off"}</td></tr>`;
-        }
-        html += `</table>`;
-    }
-    const userMods = Object.keys(L.user_mods || {}).filter(k => modsIn[k] !== false || L.user_mods[k]);
-    if (userMods.length) {
-        html += `<h3>User mods</h3><table>`;
-        for (const k of userMods) {
-            const on = !!(L.user_mods || {})[k], maker = (info.makers || {})[k], m = modInfo(app, k);
-            const n = ((info.votes || {})[k] || []).length;
-            html += `<tr><td><label><input type="checkbox" data-mvote="${esc(k)}" ${mine.mod[k] ? "checked" : ""}> ${esc(maker ? `${maker}'s ` : "")}${esc(m.title)}${n ? ` (${n})` : ""}</label>
-              ${m.text ? `<div class="note">${esc(m.text)}</div>` : ""}</td><td class="note">${on ? "ON" : "off"}</td></tr>`;
-        }
-        html += `</table>`;
-    }
-    if (!items.length && !userMods.length) html += `<p class="note">Nothing is in the vote at the moment.</p>`;
-    body.innerHTML = html;
+    // what's in the vote (missing: in it), what is on, and who has voted, from the lesson message: the window's
+    // build_mods (CHANGE 143: an item on but out of the vote shown ON with no tick; Robot Lab's Resident Robots each
+    // their own vote; this group's own mods first)
+    body.innerHTML = `<h2>Mods</h2>` + learnerModsHtml(app);
     body.querySelectorAll("input[data-avote]").forEach(el => el.onchange = () => {
         app.send({type: "arena_vote", item: el.dataset.avote, on: el.checked});
     });

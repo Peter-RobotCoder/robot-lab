@@ -29,6 +29,65 @@ function pyRound(x) {  // Python's round(): halves to even
     return f % 2 === 0 ? f : f + 1;
 }
 
+// ---------- the words that explain themselves (engine/hud.py TIPS: CHANGE 44 and 45; the page's CHANGE 143) ----------
+// The approved wording, word for word. Any element with data-tip="KEY" (a key here, or its own words) shows its
+// tip beside the mouse while the mouse is over it, as the windows' word() does; tipWord makes one.
+export const TIPS = {
+    HUD: "Heads Up Display: the information and controls drawn over the top of the game, so you can see them " +
+         "while you play.",
+    GUI: "Graphical User Interface: a nice graphical way to talk to a computer, with buttons, boxes and sliders " +
+         "instead of typed commands.",
+    VARIABLE: "A variable is a name that holds a value. Change the value and the program behaves differently.",
+    STRING: "A string is text: letters, digits, spaces and symbols, in quotes. \"Richy\" is a string. " +
+            "Its type is str. A string is made of chars: a char is one character from the ASCII set of " +
+            "characters, a letter, a digit, a space or a symbol.",
+    INTEGER: "An integer is a whole number: 0, 25, 100 or -3, with no decimal point. Its type is int.",
+    LIST: "A list holds several values in order, in square brackets: [220, 60, 50]. Its type is list.",
+    str: "str: the string type. A string is text, made of chars. A char is one character from the ASCII set of " +
+         "characters: a letter, a digit, a space or a symbol.",
+    int: "int: the integer type. An integer is a whole number.",
+    list: "list: the list type. A list holds values in order, in square brackets.",
+    NAME: "The variable's name: how the code refers to it. In Python, lower-case words joined with _",
+    VALUE: "What the variable holds right now. The GUI changes it here; the code changes it with  name = value",
+    TYPE: "The type says what kind of value the variable holds: str (text), int (a whole number) or list.",
+    RGB: "The colour is a list of three integers: [red, green, blue], each from 0 (none) to 255 (full).",
+    PERCENT: "Each setting is a percentage: 100 is the standard robot, 50 is half of it.",
+    POINTS: "The points are shared out: raising one means lowering another (every choice is a trade-off).",
+};
+
+const tipAttr = tip => ` data-tip="${esc(tip)}"`;
+// words with a tip (html is already escaped): <span data-tip="KEY">html</span>
+export const tipWord = (html, tip, cls = "") => `<span class="tipword${cls ? " " + cls : ""}"${tipAttr(tip)}>${html}</span>`;
+
+let tipsHooked = false;
+export function hookTips() {  // (once: one tip box for the whole page, shown for whatever word the mouse is over)
+    if (tipsHooked) return;
+    tipsHooked = true;
+    const box = document.createElement("div");
+    box.id = "cc-tip";
+    box.hidden = true;
+    document.body.append(box);
+    let on = null;
+    const place = e => {  // beside the mouse, to its left (the panel is at the right edge of the screen), kept on screen
+        const w = box.offsetWidth, h = box.offsetHeight;
+        box.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - w - 14))}px`;
+        box.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, e.clientY + 10))}px`;
+    };
+    const over = e => {  // (the panel is drawn again often: what is under the mouse is looked at as it moves)
+        const el = e.target && e.target.closest ? e.target.closest("[data-tip]") : null;
+        if (el !== on) {
+            on = el;
+            if (el) box.textContent = TIPS[el.dataset.tip] || el.dataset.tip;
+            box.hidden = !el;
+        }
+        if (on) place(e);
+    };
+    document.addEventListener("pointerover", over);
+    document.addEventListener("pointermove", over, {passive: true});
+    document.addEventListener("pointerdown", () => { on = null; box.hidden = true; });
+    document.addEventListener("pointerleave", () => { on = null; box.hidden = true; });
+}
+
 export function gameSchema(app) {
     const S = app.state;
     return S.schemas && app.game ? S.schemas[app.game.id] || null : null;
@@ -104,15 +163,19 @@ export function renderGarage(app, box, opts = {}) {
     };
     const title = opts.title || (who === "*all" ? `EVERY LEARNER'S ${WORD}` : isCpu(who) ? `${esc(ctx.title)}` : who ? `${esc(who.toUpperCase())}'S ${WORD}`
                                  : teacher ? `MY ${WORD}` : `GARAGE  -  your ${word} as variables`);
-    let html = `<h2 class="gtitle">${title}</h2>`;
+    hookTips();
+    // (CHANGE 143: a game with a preview, Robot Lab's, shows the design turning beside the title)
+    const preview = typeof app.game.garagePreview === "function";
+    let html = preview ? `<div class="gtitlerow"><h2 class="gtitle">${title}</h2><div class="gpreview-slot" id="${pre}-preview"></div></div>`
+                       : `<h2 class="gtitle">${title}</h2>`;
     if (app.game.id === "kartlab") html += `<p class="note">${esc(limits.points_total)} points between top speed, acceleration and grip: every choice is a trade-off.</p>`;
     if (!S.customColour && Array.isArray(d.colour) && !(G.consts.swatches || []).some(c => same(c, d.colour))) S.customColour = copy(d.colour);
-    // STRING VARIABLES
-    if (T.strings.length) html += `<div class="ghead" title="Text: letters, numbers and spaces in quotes">STRING VARIABLES</div>
-        <div class="gcols"><span>STRING NAME</span><span>STRING VALUE</span></div>`;
+    // STRING VARIABLES (each heading, column and variable's name explains itself, as engine/garage.py's: CHANGE 143)
+    if (T.strings.length) html += `<div class="ghead">${tipWord("STRING VARIABLES", "STRING")}</div>
+        <div class="gcols">${tipWord("STRING NAME", "NAME")}${tipWord("STRING VALUE", "VALUE")}</div>`;
     for (const row of T.strings) {
         const v = G.vars.find(x => x.name === row.name);
-        html += `<div class="grow"><span class="gname">${esc(row.name)}</span>`;
+        html += `<div class="grow">${tipWord(esc(row.name), "VARIABLE", "gname")}`;
         html += row.kind === "str"
             ? `<input id="${pre}-name" data-str="${esc(row.name)}" maxlength="${v.max_len}" value="${esc(row.text)}">`
             : `<span class="gvalue">${esc(row.text)}</span>`;
@@ -125,28 +188,29 @@ export function renderGarage(app, box, opts = {}) {
         if (row.extra === "look_section") html += lookSection(app, d, teacher, tools);
     }
     // VARIABLE LISTS
-    if (T.lists.length) html += `<div class="ghead" title="A list: values in order, in square brackets">VARIABLE LISTS</div>`;
+    if (T.lists.length) html += `<div class="ghead">${tipWord("VARIABLE LISTS", "LIST")}</div>`;
     for (const row of T.lists) {
-        html += `<div class="grow"><span class="gname">${esc(row.name)}</span><span class="gtype">list</span>${tick(row.tool)}</div>
-          <div class="gcode">${esc(row.text)}</div>`;
+        const c = row.kind === "rgb" && Array.isArray(d.colour) ? d.colour : null;  // (the colour as the code says it: the window's CHANGE 81)
+        html += `<div class="grow">${tipWord(esc(row.name), row.kind === "rgb" ? "RGB" : "VARIABLE", "gname")}${tipWord("list", "list", "gtype")}${tick(row.tool)}</div>
+          <div class="gcode"${c ? tipAttr(`The colour chosen, as the code says it: red ${c[0]}, green ${c[1]}, blue ${c[2]}, each 0 to 255.`) : ""}>${esc(row.text)}</div>`;
         if (row.kind === "rgb") {
             const blocks = (G.consts.swatches || []).concat([S.customColour || null]);
             html += `<div class="swatches">` + blocks.map((c, i) => c === null
-                ? `<span class="swatch empty" title="a colour typed in the code goes here">custom</span>`
-                : `<button class="swatch ${same(c, d.colour) ? "on" : ""}" data-colour="${i}" style="background:${rgb(c)}" title="${esc(row.name)} = [${c.join(", ")}]"></button>`).join("") + `</div>`;
+                ? `<span class="swatch empty"${tipAttr("a colour typed in the code goes here")}>custom</span>`
+                : `<button class="swatch ${same(c, d.colour) ? "on" : ""}" data-colour="${i}" style="background:${rgb(c)}"${tipAttr(`${row.name} = [${c.join(", ")}]`)}></button>`).join("") + `</div>`;
         }
         if (row.extra === "combo_section") html += comboSection(app, d, teacher, tools);
     }
     // INTEGER VARIABLES
-    if (T.points || T.settings.length) html += `<div class="ghead" title="Whole numbers">INTEGER VARIABLES</div>`;
+    if (T.points || T.settings.length) html += `<div class="ghead">${tipWord("INTEGER VARIABLES", "INTEGER")}</div>`;
     if (T.points) {
         const P = T.points;
-        html += `<div class="grow"><b style="color:${P.over ? "var(--red)" : "var(--text)"}">Points</b>
+        html += `<div class="grow"><b style="color:${P.over ? "var(--red)" : "var(--text)"}"${tipAttr("POINTS")}>Points</b>
             <span class="note" style="color:${P.over ? "var(--red)" : "var(--grey)"}">(${P.used} of ${P.total} used, ${P.total - P.used} left)</span>${tick(P.rows[0] && P.rows[0].tool)}</div>
-          <div class="gcols"><span>VARIABLE NAMES</span><span>VARIABLE VALUE</span><span>share</span></div>`;
+          <div class="gcols">${tipWord("VARIABLE NAMES", "NAME")}${tipWord("VARIABLE VALUE", "VALUE")}${tipWord("share", "POINTS")}</div>`;
         for (const p of P.rows) {
             const val = Number(p.value) || 0;
-            html += `<div class="grow gpoints"><span class="gname">${esc(p.name)}</span>
+            html += `<div class="grow gpoints">${tipWord(esc(p.name), "VARIABLE", "gname")}
               <button data-pts="${esc(p.stat)}" data-d="-5">-5</button><button data-pts="${esc(p.stat)}" data-d="-1">-</button>
               <span class="gnum">${esc(SC.pyStr(p.value))}</span>
               <button data-pts="${esc(p.stat)}" data-d="1">+</button><button data-pts="${esc(p.stat)}" data-d="5">+5</button>
@@ -154,10 +218,10 @@ export function renderGarage(app, box, opts = {}) {
         }
     }
     if (T.settings.length) {
-        html += `<div class="grow"><b>Settings</b> <span class="note">(percent)</span></div>
-          <div class="gcols"><span>VARIABLE NAMES</span><span>VARIABLE VALUE</span></div>`;
+        html += `<div class="grow"><b${tipAttr("PERCENT")}>Settings</b> <span class="note">(percent)</span></div>
+          <div class="gcols">${tipWord("VARIABLE NAMES", "NAME")}${tipWord("VARIABLE VALUE", "VALUE")}</div>`;
         for (const s of T.settings) {
-            html += `<div class="grow"><span class="gname">${esc(s.name)}</span>`;
+            html += `<div class="grow">${tipWord(esc(s.name), "VARIABLE", "gname")}`;
             html += s.fixed ? `<span class="note">${esc(s.text)}  (set by the teacher)</span>`
                 : `<input type="range" class="gslider" data-set="${esc(s.key)}" min="${s.lo}" max="${s.hi}" step="any" value="${clamp(Number(s.value) || 0, s.lo, s.hi)}">
                    <span class="gnum" id="${pre}-set-${esc(s.key)}">${esc(s.text)}</span>`;
@@ -175,6 +239,7 @@ export function renderGarage(app, box, opts = {}) {
     if (opts.after) html += opts.after;
     box.innerHTML = html;
     wireGarage(app, box, {who, pre, d, ctx, limits, tools, opts});
+    if (preview) app.game.garagePreview(box.querySelector(".gpreview-slot"), d);  // (the same canvas, put in its new place)
 }
 
 function lookSection(app, d, teacher, tools) {  // fight_client.look_section / build_look: a detailed body's look
@@ -640,6 +705,7 @@ function wireTeacherCode(app) {  // (lab_client: load_learners_start, save_code_
 
 export function setupCodePanel(app) {  // (once, at the start)
     app_ = app;
+    hookTips();  // (CHANGE 143: any data-tip on the page explains itself, the panel's HUD and GUI too)
     const ta = $("code-text"), box = ta.parentNode, gut = document.createElement("div"), edit = document.createElement("div");
     // the editor's window (CHANGE 138): the title bar's three dots and the file's name; the gutter, the bars and the
     // highlighted text under the textarea

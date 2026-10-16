@@ -226,9 +226,22 @@ export class Sound {
         if (!this.own) this.settings = soundSettings(lessonSound || null);
     }
 
-    // Change settings ({music: "rock"}, {crowd_volume: 0.8}...): checked, applied and kept for next time
+    // Change settings ({music: "rock"}, {crowd_volume: 0.8}...): checked, applied and kept for next time (and
+    // onChange(settings) told: CHANGE 143, a learner's go to their profile as the windows keep them, prefs.sound)
     set(change) {
         this.own = soundSettings(this.settings, change);
+        this.settings = this.own;
+        if (this.storageKey) {
+            try { localStorage.setItem(this.storageKey, JSON.stringify(this.own)); } catch (e) { /* storage blocked */ }
+        }
+        if (this.onChange) this.onChange(this.settings);
+        return this.settings;
+    }
+
+    // (CHANGE 143) a learner's own settings from their profile (the windows' prefs.sound, rw_sound.sound_settings'
+    // format): this browser's from now on, as their window takes them from the profile
+    useOwn(saved) {
+        this.own = soundSettings(saved);
         this.settings = this.own;
         if (this.storageKey) {
             try { localStorage.setItem(this.storageKey, JSON.stringify(this.own)); } catch (e) { /* storage blocked */ }

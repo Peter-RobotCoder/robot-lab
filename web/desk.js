@@ -289,14 +289,25 @@ const DESK_TABS = {
         const sessions = ctx.desk.sessions;
         if (!sessions) return "<p class='note'>Asking the desk…</p>";
         const rec = ctx.desk.record;
+        // (CHANGE 143) one learner's cards on their own: everyone with a card in these sessions
+        const named = [...new Set(sessions.flatMap(s => [...Object.keys((s.report || {}).done || {}), ...Object.keys(s.notes || {})]))].sort();
+        const games = (ctx.desk.state || {}).games || {};
         return `<h2>Past sessions</h2>
           ${rec ? `<p class="ok">${esc(rec.group)} has stopped: its record is filed. <button data-print="${esc(rec.id)}" class="go">Print its record</button></p>` : ""}
           <table class="wide"><tr><th>Started</th><th>Group</th><th>Game</th><th>Lesson</th><th>Here</th><th></th></tr>
           ${sessions.map(s => `<tr><td>${esc(String(s.started || "").slice(0, 16))}</td><td>${esc(s.group)}</td><td>${esc((ctx.lessons[s.game] || {}).title || s.game)}</td>
             <td class="num">${esc(s.lesson)}</td><td class="num">${Object.keys((s.report || {}).present || {}).length}</td>
-            <td><button data-print="${esc(s.id)}">Print</button></td></tr>`).join("") || "<tr><td class='note' colspan='6'>No sessions yet.</td></tr>"}</table>
+            <td><button data-print="${esc(s.id)}">Print</button> <button data-printsum="${esc(s.id)}" title="the session summary on its own">Summary only</button></td></tr>`).join("") || "<tr><td class='note' colspan='6'>No sessions yet.</td></tr>"}</table>
           <p class="note">Print makes the session summary and a card for each learner who completed something or has a note, as the
-            app's Records does. Choose "Save as PDF" in the print box to keep them as files.</p>`;
+            app's Records does; Summary only prints just the summary. Choose "Save as PDF" in the print box to keep them as files.</p>
+          <h2>One learner's records</h2>
+          ${named.length ? `<div class="row"><select id="dk-recname">${named.map(n => `<option>${esc(n)}</option>`).join("")}</select>
+              <button id="dk-printlearner">Print their cards</button></div>
+            <p class="note">Every learner card of theirs from these sessions, oldest first (the app files them in the learner's own folder).</p>`
+            : "<p class='note'>No learner has a card yet.</p>"}
+          <h2>Scheme of work</h2>
+          <div class="row">${Object.entries(games).map(([g, v]) => `<button data-scheme="${esc(g)}">Print scheme of work: ${esc(v.title)}</button>`).join("")}</div>
+          <p class="note">Each game's lessons, outcomes with their curriculum references, missions and lesson pieces, from the game's lesson file.</p>`;
     },
     watch(ctx) {
         const games = ctx.watchGames;
@@ -394,6 +405,24 @@ const DESK_WIRE = {
             const rec = all.find(s => s.id === b.dataset.print) || (ctx.desk.record && ctx.desk.record.id === b.dataset.print ? ctx.desk.record : null);
             if (rec) printSession(rec, all, ctx.lessons);
         });
+        root.querySelectorAll("button[data-printsum]").forEach(b => b.onclick = () => {
+            const rec = (ctx.desk.sessions || []).find(s => s.id === b.dataset.printsum);
+            if (rec) printPages(`${String(rec.started || "").slice(0, 10)} ${rec.group} summary`, summaryHtml(rec, ctx.lessons));
+        });
+        const pick = root.querySelector("#dk-printlearner");
+        if (pick) pick.onclick = () => {
+            const name = root.querySelector("#dk-recname").value, p = learnerPages(name, ctx.desk.sessions || [], ctx.lessons);
+            if (!p.cards) return say(ctx, `${name} has no learner cards in these sessions.`);
+            printPages(p.title, p.html);
+        };
+        root.querySelectorAll("button[data-scheme]").forEach(b => b.onclick = () => {  // (the app's Print scheme of work)
+            const game = b.dataset.scheme;
+            ctx.desk.ask({type: "scheme"}, "scheme").then(m => {
+                const sc = (m.scheme || {})[game];
+                if (!sc) return say(ctx, "That game's lesson file isn't on this server.");
+                printPages(`Scheme of work - ${sc.title}`, schemeHtml(sc));
+            }, e => say(ctx, e.message));
+        });
     },
     watch(root, ctx) {
         root.querySelectorAll("button[data-watchgame]").forEach(b => b.onclick = () => ctx.watch(b.dataset.watchgame));
@@ -449,6 +478,30 @@ function table(head, rows) {
 
 export function sessionPages(record, sessions, lessons) {
     // the session summary and a card per learner who completed something or has a note: what records.py makes
+    const report = record.report || {}, notes = record.notes || {};
+    const changed = [...new Set([...Object.keys(report.done || {}), ...Object.keys(notes)])].sort();
+    const html = summaryHtml(record, lessons) + changed.map(name => cardHtml(record, name, sessions, lessons)).join("");
+    return {title: `${String(record.started || "").slice(0, 10)} ${record.group}`, html, cards: changed.length};
+}
+
+// (CHANGE 143) records.py files each learner's cards in their own folder and each summary in sessions/: these print
+// one session's summary on its own, and one learner's cards from every session that made one
+function hasCard(record, name) {
+    return name in ((record.report || {}).done || {}) || name in (record.notes || {});
+}
+
+export function learnerPages(name, sessions, lessons) {
+    const mine = (sessions || []).filter(s => hasCard(s, name)).sort((a, b) => String(a.started).localeCompare(String(b.started)));
+    return {title: `${name} learner cards`, html: mine.map(s => cardHtml(s, name, sessions, lessons)).join(""), cards: mine.length};
+}
+
+function lessonOf(record, lessons) {
+    const lm = lessons[record.game] || null;
+    return {lm, gameTitle: (lm && lm.title) || record.game, info: lessonInfo(lm, record.lesson || 1),
+            outName: c => (lm && lm.outcomes[c] ? lm.outcomes[c][0] : c), date: String(record.started || "").slice(0, 10)};
+}
+
+function summaryHtml(record, lessons) {
     const lm = lessons[record.game] || null;
     const gameTitle = (lm && lm.title) || record.game;
     const report = record.report || {}, done = report.done || {}, totals = report.totals || {}, notes = record.notes || {};
@@ -477,31 +530,52 @@ export function sessionPages(record, sessions, lessons) {
     const cards = report.cards || [];
     html += `<h2>AI cards</h2>` + (cards.length ? table(["Learner", "Status", "Request"], cards.map(c => [esc(c.learner), esc(c.status), esc(c.goal)])) : "<p>None in this session.</p>");
     if (Object.keys(notes).length) html += `<h2>Teacher's notes</h2>` + Object.entries(notes).sort().map(([n, t]) => `<p><b>${esc(n)}:</b> ${esc(t)}</p>`).join("");
-    html += `<p class="small">Usernames only. Printed from Club Coders Live, from the club desk's record.</p></section>`;
-    const changed = [...new Set([...Object.keys(done), ...Object.keys(notes)])].sort();
-    for (const name of changed) {
-        const attended = (sessions || []).filter(s => name in ((s.report || {}).present || {})).sort((a, b) => String(a.started).localeCompare(String(b.started)));
-        const number = (attended.findIndex(s => s.id === record.id) + 1) || attended.length + 1;
-        const mine = done[name] || {};
-        const shown = Object.entries(totals[name] || {}).filter(([c, k]) => k).map(([c, k]) => [esc(outName(c)), String(k)]).sort();
-        html += `<section class="sheet"><h1>Learner card: ${esc(name)}</h1>
-          <p class="small">${esc(gameTitle)} - session ${number} - ${esc(date)} - group ${esc(record.group)}</p>
-          <h2>Lesson ${esc(info.number)}: ${esc(info.title)}</h2>
-          ${info.task ? `<p><b>Aim:</b> ${esc(info.task)}</p>` : ""}
-          <p><b>Learning outcomes for this lesson:</b> ${info.outcomes.map(([c, n]) => `${esc(n)} (${esc(c)})`).join("; ")}</p>
-          <h2>What I achieved in this session</h2>
-          ${Object.keys(mine).length ? table(["Mission", "Outcomes", "Evidence"], Object.entries(mine).sort((a, b) => String(a[1].time || "").localeCompare(String(b[1].time || "")))
-              .map(([mid, d]) => [esc(d.title || mid), esc((d.outcomes || []).join(" ")), esc(d.detail || "")])) : "<p>No missions were completed in this session.</p>"}
-          ${notes[name] ? `<p class="green"><b>Teacher's note:</b> ${esc(notes[name])}</p>` : ""}
-          <h2>Outcomes shown so far in ${esc(gameTitle)}</h2>
-          ${shown.length ? table(["Outcome", "Times shown"], shown) : "<p>None yet.</p>"}
-          <h2>Sessions so far</h2>
-          ${table(["Date", "Game", "Group", "Lesson", "Missions completed", "Note"], attended.map(s => [esc(String(s.started || "").slice(0, 10)),
-              esc((lessons[s.game] || {}).title || s.game), esc(s.group), esc(s.lesson), String(Object.keys(((s.report || {}).done || {})[name] || {}).length),
-              esc((s.notes || {})[name] || "")]))}
-          <p class="small">Club Coders keeps usernames only.</p></section>`;
-    }
-    return {title: `${date} ${record.group}`, html, cards: changed.length};
+    return html + `<p class="small">Usernames only. Printed from Club Coders Live, from the club desk's record.</p></section>`;
+}
+
+function cardHtml(record, name, sessions, lessons) {
+    const {gameTitle, info, outName, date} = lessonOf(record, lessons);
+    const report = record.report || {}, done = report.done || {}, totals = report.totals || {}, notes = record.notes || {};
+    const attended = (sessions || []).filter(s => name in ((s.report || {}).present || {})).sort((a, b) => String(a.started).localeCompare(String(b.started)));
+    const number = (attended.findIndex(s => s.id === record.id) + 1) || attended.length + 1;
+    const mine = done[name] || {};
+    const shown = Object.entries(totals[name] || {}).filter(([c, k]) => k).map(([c, k]) => [esc(outName(c)), String(k)]).sort();
+    return `<section class="sheet"><h1>Learner card: ${esc(name)}</h1>
+      <p class="small">${esc(gameTitle)} - session ${number} - ${esc(date)} - group ${esc(record.group)}</p>
+      <h2>Lesson ${esc(info.number)}: ${esc(info.title)}</h2>
+      ${info.task ? `<p><b>Aim:</b> ${esc(info.task)}</p>` : ""}
+      <p><b>Learning outcomes for this lesson:</b> ${info.outcomes.map(([c, n]) => `${esc(n)} (${esc(c)})`).join("; ")}</p>
+      <h2>What I achieved in this session</h2>
+      ${Object.keys(mine).length ? table(["Mission", "Outcomes", "Evidence"], Object.entries(mine).sort((a, b) => String(a[1].time || "").localeCompare(String(b[1].time || "")))
+          .map(([mid, d]) => [esc(d.title || mid), esc((d.outcomes || []).join(" ")), esc(d.detail || "")])) : "<p>No missions were completed in this session.</p>"}
+      ${notes[name] ? `<p class="green"><b>Teacher's note:</b> ${esc(notes[name])}</p>` : ""}
+      <h2>Outcomes shown so far in ${esc(gameTitle)}</h2>
+      ${shown.length ? table(["Outcome", "Times shown"], shown) : "<p>None yet.</p>"}
+      <h2>Sessions so far</h2>
+      ${table(["Date", "Game", "Group", "Lesson", "Missions completed", "Note"], attended.map(s => [esc(String(s.started || "").slice(0, 10)),
+          esc((lessons[s.game] || {}).title || s.game), esc(s.group), esc(s.lesson), String(Object.keys(((s.report || {}).done || {})[name] || {}).length),
+          esc((s.notes || {})[name] || "")]))}
+      <p class="small">Club Coders keeps usernames only.</p></section>`;
+}
+
+// the scheme of work (records.py scheme_of_work): one game's lessons from its lesson file, through the desk
+export function schemeHtml(sc) {
+    const date = new Date().toISOString().slice(0, 10);
+    return Object.entries(sc.lessons || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([n, lesson], i) => {
+        const missions = Object.entries(sc.missions || {}).filter(([, v]) => v[0] === Number(n));
+        const codes = [...new Set(missions.flatMap(([, v]) => v[3]))].sort().filter(c => (sc.outcomes || {})[c]);
+        const pieces = Object.entries((sc.guide || {})[n] || {});
+        return `<section class="sheet">
+          ${i === 0 ? `<h1>Scheme of work: ${esc(sc.title)}</h1><p class="small">From the game's lesson file, ${esc(date)}. Five lessons; each
+            mission gives evidence for the learning outcomes shown, checked by the game or ticked by the teacher.</p>` : ""}
+          <h2>Lesson ${esc(n)}: ${esc(lesson.title)}</h2>
+          ${lesson.task ? `<p><b>Overall task:</b> ${esc(lesson.task)}</p>` : ""}
+          ${table(["Outcome", "Learners can", "Curriculum"], codes.map(c => [`${esc(sc.outcomes[c][0])} (${esc(c)})`, esc(sc.outcomes[c][1]), `<span class="small">${esc(sc.outcomes[c][2])}</span>`]))}
+          ${table(["Mission", "What learners do", "Outcomes", "Checked by"], missions.map(([k, v]) => [esc(k), esc(v[2]), esc(v[3].join(" ")), v[4] === "teacher" ? "teacher" : "the game"]))}
+          ${pieces.map(([c, p]) => `<h2>${esc(((sc.outcomes || {})[c] || [c])[0])}: ${esc(p.task)}</h2>
+            ${(p.do || []).map((step, k) => `<p>${k + 1}. ${esc(step)}</p>`).join("")}
+            <p><b>Explain or show:</b> ${esc(p.teach)}</p><p class="green"><b>Success looks like:</b> ${esc(p.success)}</p>`).join("")}</section>`;
+    }).join("");
 }
 
 function printSession(record, sessions, lessons) {

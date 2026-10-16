@@ -4,7 +4,8 @@
 //   10; the ring's label; the big banner (ROUND 1, FIGHT!, K.O.!); the combo counter on the attacker's side; in
 //   practice, the training readout of the last hit. You are always on the left.
 // - Kart Lab (kart_gfx.Hud): LAP n/N, your place, km/h, the drift and boost meter with its MINI TURBO and SUPER TURBO
-//   marks, WRONG WAY, and the minimap with every kart.
+//   marks, WRONG WAY, and the minimap with every kart; your lap time as you cross the line and the results panel
+//   (CHANGE 143).
 // One element (#gamehud) over the 3D view, redrawn each frame from what the game already has.
 
 const $ = id => document.getElementById(id);
@@ -35,8 +36,9 @@ export class FightHud {
         this.lastHit = "";
     }
 
-    // ring: the watched ring from the newest snapshot; names: id -> {name, owner}; myId: yours (or null)
-    update(ring, names, myId, roundsToWin, dt, now) {
+    // ring: the watched ring from the newest snapshot; names: id -> {name, owner}; myId: yours (or null); ringName:
+    // "RING n" when the ring watched isn't yours (CHANGE 143: fight_hud's label is it and the ring's own, " - " between)
+    update(ring, names, myId, roundsToWin, dt, now, ringName = "") {
         const el = box();
         if (!ring || !(ring.f || []).length) { el.innerHTML = ""; return; }
         el.className = "hud fighthud";
@@ -83,7 +85,8 @@ export class FightHud {
                 training = `TRAINING &nbsp; ${esc(who)}: ${esc(String(lh.move || "").replace(/_/g, " ").toUpperCase())} (${esc(lh.height || "")}) &nbsp; ${Number(lh.dmg || 0).toFixed(1)} damage &nbsp; ${what}${lh.counter ? " &nbsp; COUNTER HIT" : ""}`;
             } else training = "TRAINING &nbsp; practice: nobody loses health";
         }
-        el.innerHTML = `${sides.join("")}<div class="fmid">${ring.lb ? `<div class="flabel">${esc(ring.lb)}</div>` : ""}${timer}</div>${banner}${sub}` +
+        const label = [ringName, ring.lb].filter(Boolean).join(" - ");
+        el.innerHTML = `${sides.join("")}<div class="fmid">${label ? `<div class="flabel">${esc(label)}</div>` : ""}${timer}</div>${banner}${sub}` +
                        (training ? `<div class="ftraining">${training}</div>` : "");
     }
 }
@@ -99,6 +102,39 @@ function ordinal(n) {
 export class KartHud {
     constructor() {
         this.mapKey = "";
+        this.noteText = "";      // the banner over the track (your lap time: CHANGE 143) and until when
+        this.noteUntil = 0;
+        this.resultsKey = null;  // the results last drawn (CHANGE 143)
+    }
+
+    // a few words over the track for a few seconds (kart_client.banner_note)
+    note(text, secs = 3) {
+        this.noteText = text;
+        this.noteUntil = performance.now() + secs * 1000;
+    }
+
+    // the results panel, up while the race is over (kart_gfx.Hud: "1st  name" and each one's time, or the lap they
+    // were on), for everyone watching, kart or none. list: the race message's results ([name, laps, seconds or
+    // null] in finishing order), or null to take it down. CHANGE 143
+    results(list) {
+        let el = $("kart-results");
+        if (!list || !list.length) {
+            if (el) el.remove();
+            this.resultsKey = null;
+            return;
+        }
+        const key = JSON.stringify(list.map(([n, l, t]) => [n, l, t === null || t === undefined ? null : Math.round(t * 10)]));
+        if (el && key === this.resultsKey) return;
+        this.resultsKey = key;
+        if (!el) {
+            el = document.createElement("div");
+            el.id = "kart-results";
+            el.className = "hud";
+            document.body.appendChild(el);
+        }
+        const time = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+        el.innerHTML = `<div class="ktitle">RESULTS</div><table>${list.map(([name, laps, t], i) =>
+            `<tr><td>${ordinal(i + 1)}</td><td>${esc(name)}</td><td class="num">${t === null || t === undefined ? `lap ${laps + 1}` : time(t)}</td></tr>`).join("")}</table>`;
     }
 
     // me: our kart's state (interpolated or predicted), states: every kart, race: the race message, track
@@ -121,12 +157,15 @@ export class KartHud {
         $("kh-drift").style.background = charge >= SUPER_TURBO ? (flash ? "#fff299" : "#ff9933") : charge >= MINI_TURBO ? "#ff9933" : "#8cd9ff";
         $("kh-dlabel").textContent = charge >= SUPER_TURBO ? "SUPER TURBO" : charge >= MINI_TURBO ? "MINI TURBO" : "DRIFT";
         $("kh-wrong").style.display = wrong && Math.floor(performance.now() / 400) % 2 === 0 ? "block" : "none";
+        const note = performance.now() < this.noteUntil ? this.noteText : "";
+        if ($("kh-note").textContent !== note) $("kh-note").textContent = note;
         this.drawMap(states, myId, colours);
     }
 
     build(el, track) {
         el.innerHTML = `<div class="ktop"><div id="kh-lap"></div><div id="kh-place"></div></div>
           <div id="kh-wrong">WRONG WAY</div>
+          <div id="kh-note"></div>
           <div class="kbottom"><div class="kdrift"><span id="kh-dlabel">DRIFT</span><div class="kmeter"><b id="kh-drift"></b>
             <i style="left:${MINI_TURBO / CHARGE_MAX * 100}%"></i></div></div>
             <div id="kh-speed"></div></div>

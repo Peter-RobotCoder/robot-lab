@@ -1041,15 +1041,7 @@ class Lab(hud.HudKit, ShowBase):
         d = self.cur()
         self.code_size = self.code_fit(*self.code_size)
         self.code_at = self.code_place(*self.code_at)
-        left, right, bottom, top = rect = self.code_rect()
-        f = self.code_panel = DirectFrame(frameColor=PANEL, frameSize=rect, pos=(self.code_at[0], 0, self.code_at[1]))
-        handle = DirectFrame(parent=f, frameColor=HANDLE, state=DGG.NORMAL, frameSize=(left, right, 0.285, top))
-        handle.bind(DGG.B1PRESS, self.code_drag_start)  # (its top is a handle: drag it to move the panel)
-        label(f, f"{who.upper()}'S FIGHTER AS PYTHON CODE" if who else "YOUR FIGHTER AS PYTHON CODE", -0.83, 0.3, 0.032,
-              YELLOW)
-        label(f, "drag here to move", right - 0.02, 0.337, 0.017, GREY, TextNode.ARight)
-        label(f, "Click in the code to type there (drag to select; Ctrl+C, X, V and A work). Change a value,\n"
-                 "then press APPLY CODE: the garage changes to match. Return makes a new line.", -0.83, 0.264, 0.021, GREY)
+        f, (left, right, bottom, top) = self.code_panel_top("fighter", who)  # (CHANGE 143: as the browser's)
         st, fresh = self.code_state, self.code_lines(d)
         if self.code_shown is None or st["lines"] == self.code_shown:  # not edited: the fighter as it is now
             st["lines"][:] = fresh
@@ -1057,7 +1049,7 @@ class Lab(hud.HudKit, ShowBase):
         self.code_editor = code_editor.CodeEditor(self, f, st, -0.845, 0.21, right - left - 0.03, self.code_rows(),
                                                   0.024 * self.text_scale(), on_enter=self.apply_code,
                                                   on_focus=self.type_code)
-        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, GREY, TextNode.ARight)
+        self.code_more = label(f, "", right - 0.02, 0.243, 0.019, code_editor.DIM, TextNode.ARight)
         self.code_editor.on_scroll = self.show_code_more
         self.show_code_more()
         button(f, "APPLY CODE", -0.64, bottom + 0.178, self.apply_code, None, 0.03, (0.15, 0.55, 0.25, 1))
@@ -1761,6 +1753,9 @@ class Lab(hud.HudKit, ShowBase):
             ([computer["name"]] if computer else []) + [self.ALL_LEARNERS]  # (CHANGE 85)
         label(f, "LEARNER VIEW  -  see and change what a learner sees", 0.82, y, 0.03, YELLOW)
         y -= 0.06
+        # every window's frame rate, ping, key delay, stalls and graphics, one table (CHANGE 143: the page's "Who is here")
+        people = [(c["name"], c["role"]) for c in self.class_list if c.get("role") in ("teacher", "learner")]
+        y = self.perf_table(f, y, people, (self.roster or {}).get("perf", {}))
         if not learners:
             label(f, "No learners are connected yet.", 0.82, y, 0.028, GREY)
             return
@@ -2235,9 +2230,10 @@ class Lab(hud.HudKit, ShowBase):
                  "anything (new moves, specials, hazards, rules, graphics). Every change is tested before you Keep it,\n"
                  "and kept changes can be rolled back later in the Changes tab.", 0.82, y, 0.02, GREY)
         y -= 0.1
-        cards = [c for c in (self.teaching or {}).get("cards", []) if c["status"] not in ("reviewed", "rejected")][-4:]
+        # every card or only the open ones (CHANGE 143: the page's "Showing open cards" button)
+        cards = self.cards_filter(f, 1.33, y + 0.158, (self.teaching or {}).get("cards", []))
         if not cards:
-            label(f, "No requests waiting.", 0.82, y, 0.028, GREY)
+            label(f, "No cards." if self.all_cards else "No requests waiting.", 0.82, y, 0.028, GREY)
         for c in cards:
             job = self.ai_jobs.get(c["id"], {})
             target = self.card_targets.get(c["id"], c["card"].get("target", "fighter"))
@@ -2296,7 +2292,7 @@ class Lab(hud.HudKit, ShowBase):
                 button(f, "Reject", 1.42, y, self.card_status, [c["id"], "rejected"], 0.026)
                 y -= 0.07
             y -= 0.02
-            if y < -0.8:
+            if y < -0.8 and not self.all_cards:  # (every card: the panel slides to show them all)
                 break
 
     @staticmethod
@@ -2584,7 +2580,8 @@ class Lab(hud.HudKit, ShowBase):
             elif kind == "lesson":
                 if m["lesson"] != self.lesson or m.get("tournament") != self.tournament or \
                         (TEACHER and m["class"] != self.class_list):
-                    rebuild = rebuild or self.tab in ("garage", "teacher", "learners", "matches")
+                    rebuild = rebuild or self.tab in ("garage", "teacher", "learners", "matches") or \
+                        (self.tab == "settings" and m["lesson"].get("gfx_max") != self.lesson.get("gfx_max"))
                 mods = m.get("mods") or {}
                 if mods != self.mod_info:  # a new vote, a maker's name, or someone from the group has come in
                     rebuild = rebuild or self.tab in ("teacher", "mods")
@@ -2818,6 +2815,7 @@ class Lab(hud.HudKit, ShowBase):
         lab = getattr(self, "perf_label", None)
         if lab is None or now - getattr(self, "perf_shown", 0.0) < 1:
             return
+        self.perf_table_update((self.roster or {}).get("perf", {}))  # (the Who is here table: CHANGE 143)
         if self.perf_frame.isEmpty():  # (the panel has been redrawn: the label went with it)
             self.perf_label = None
             return

@@ -7,7 +7,8 @@
 
 /* global BABYLON */
 
-import {BaseScene, TIERS, v3, lerpAngle, mulberry, upwardNormals} from "./base3d.js";
+import {BaseScene, TIERS, v3, mulberry, upwardNormals} from "./base3d.js";
+import "./robotfx.js";  // (CHANGE 143: its particle shader, "ccfx", with the app's tone curve, for the drift smoke)
 
 export {TIERS};
 
@@ -16,6 +17,9 @@ const WHEELS = [[0.5, 0.6], [0.5, -0.6], [-0.52, 0.62], [-0.52, -0.62]];  // x, 
 const KERB_RED = [0.85, 0.12, 0.08, 1], KERB_WHITE = [0.95, 0.95, 0.92, 1];
 const TARMAC_TINT = [0.9, 0.9, 0.92], GRASS_TINT = [0.95, 1.0, 0.9], STEEL = [0.6, 0.6, 0.62];
 const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_BOOSTING = 16;
+const PUFFS = 8, PUFF_LIFE = 0.7;  // (kart_gfx.KartVisual.PUFFS: a kart's drift smoke; the scene's pool holds 12 karts' worth)
+const DEG = Math.PI / 180;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // kart_gfx.init: the sky, the sun 40 degrees up behind the kart, a blue fill, the daytime sky's reflections
 const LOOK = {sky: [0.3, 0.5, 0.9], radius: 60, target: [30, 40, 0],
               pbr: {background: [0.3, 0.5, 0.9], exposure: 0.55, ambient: [0.22, 0.25, 0.32], sky: "sky",
@@ -77,12 +81,23 @@ export class KartScene extends BaseScene {
         this.track = null;
         this.trackMeshes = [];
         this.follow = null;         // kart id the camera chases, or null for the TV camera
-        this.mode = "tv";           // tv | chase | overview
+        this.mode = "tv";           // tv | chase | hood | overview
+        // the camera as the window's (kart_gfx.ChaseCamera, CHANGE 143): where it is and looks (game coordinates,
+        // eased), its field of view (degrees across), the zoom (the wheel, + and -: under 1 closer), the TV stand in use
+        this.zoom = 1.0;
+        this.camPos = this.camLook = null;
+        this.camYaw = null;
+        this.camFov = 70;
+        this.camKart = undefined;
+        this.tvIndex = 0;
         this.build();
     }
 
     // after build() (and again after a tier change): the track and the karts back in
     populate(rebuild) {
+        // (the arrows drive: the camera doesn't turn with them; the drift smoke's pool, none on blocks)
+        this.camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
+        this.smoke = this.tier !== "blocks" ? new Smoke(this, PUFFS * 12) : null;
         if (!rebuild) return;
         const track = this.trackData, karts = [...this.karts.values()].map(k => k.design);
         this.karts.clear();
@@ -433,7 +448,8 @@ export class KartScene extends BaseScene {
         const label = this.makeLabel(design.name || "", "#ffffff", 1.3);  // (about the app's size: a kart's width)
         label.parent = root;
         label.position = v3(0, 0, 1.15);
-        this.karts.set(id, {root, body, wheels, flame, label, design, lastYaw: 0, spin: 0});
+        this.karts.set(id, {root, body, wheels, flame, label, design, lastYaw: 0, spin: 0,
+                            lastV: null, pitch: 0, roll: 0, glowT: 0, puffTimer: 0, nextPuff: 0});
     }
 
     removeKart(id) {
@@ -460,7 +476,7 @@ export class KartScene extends BaseScene {
         const track = this.track;
         for (const [id, k] of this.karts) {
             const st = states.get(id);
-            if (!st) { k.root.setEnabled(false); continue; }
+            if (!st) { k.root.setEnabled(false); k.lastV = null; continue; }
             k.root.setEnabled(true);
             let z = 0;
             if (track) {
@@ -471,9 +487,34 @@ export class KartScene extends BaseScene {
             k.root.position.set(st.x, z, st.y);
             k.root.rotation.y = -st.yaw * Math.PI / 180;
             const drift = (st.flags & FLAG_DRIFT_L) ? 1 : (st.flags & FLAG_DRIFT_R) ? -1 : 0;
-            k.body.rotation.x = BABYLON.Scalar.Lerp(k.body.rotation.x, drift * 0.08, 0.2);  // (roll into a drift)
-            k.flame.isVisible = !!(st.flags & FLAG_BOOSTING);
-            k.spin += (st.v || 0) * dt / WHEEL_R;
+            // (kart_gfx.KartVisual.update, CHANGE 143) the body pitches with the acceleration, nose up as it speeds
+            // up and down as it brakes (smoothed: v is quantised each tick), and leans with the slide (u < 0, the back
+            // out to the right in a left turn: a lean right); in Babylon's axes a lean is -x, a nose dip -z
+            const v = st.v || 0, step = Math.max(1e-4, dt);
+            const accel = k.lastV === null ? 0 : (v - k.lastV) / step;
+            k.lastV = v;
+            const a = Math.min(1, step * 8);
+            k.pitch += (clamp(-accel * 0.45, -5, 5) - k.pitch) * a;
+            k.roll += (clamp(-(st.u || 0) * 2.2, -7, 7) - k.roll) * a;
+            k.body.rotation.x = -k.roll * DEG;
+            k.body.rotation.z = -k.pitch * DEG;
+            const boosting = !!(st.flags & FLAG_BOOSTING);
+            k.flame.isVisible = boosting;
+            if (boosting) {  // (the glow flickers: 0.9 to 1.15 times its size)
+                k.glowT += dt;
+                k.flame.scaling.setAll(0.9 + 0.25 * Math.sin(k.glowT * 31));
+            }
+            // drift smoke from each rear tyre in turn, every 0.07 s while drifting above 3 m/s
+            if (this.smoke && drift && Math.abs(v) > 3) {
+                k.puffTimer -= dt;
+                if (k.puffTimer <= 0) {
+                    k.puffTimer = 0.07;
+                    const side = k.nextPuff % 2 ? 0.6 : -0.6, h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
+                    k.nextPuff = (k.nextPuff + 1) % PUFFS;
+                    this.smoke.emit([st.x - 0.55 * c - side * s, st.y - 0.55 * s + side * c, z + 0.15]);
+                }
+            }
+            k.spin += v * dt / WHEEL_R;
             const steer = Math.max(-0.45, Math.min(0.45, (st.u || 0) * 0.08 + drift * 0.3));
             for (const w of k.wheels) {
                 w.spin.rotation.z = -k.spin;
@@ -485,45 +526,93 @@ export class KartScene extends BaseScene {
             this.padMat.setVector3("emission", new BABYLON.Vector3(glow, glow * 0.55, glow * 0.07));
         }
         this.updateCamera(states, dt);
+        if (this.smoke) this.smoke.update(dt, this.camera);
         this.followSun();
     }
 
-    updateCamera(states, dt) {
-        const cam = this.camera;
-        const snap = this.snapCamera;  // (the first frame after a change of camera jumps straight there)
-        if (this.mode === "chase" && this.follow !== null && states.has(this.follow)) {
-            const st = states.get(this.follow), k = this.karts.get(this.follow);
-            if (!k) return;
-            const yaw = st.yaw * Math.PI / 180;
-            const p = k.root.position;
-            const target = new BABYLON.Vector3(p.x + Math.cos(yaw) * 4, p.y + 0.8, p.z + Math.sin(yaw) * 4);
-            cam.target = snap ? target : BABYLON.Vector3.Lerp(cam.target, target, Math.min(1, dt * 8));
-            // ArcRotate: alpha measured from +x towards +z; behind the kart is the opposite of its heading
-            const wantAlpha = Math.atan2(-Math.sin(yaw), -Math.cos(yaw));
-            cam.alpha = snap ? wantAlpha : lerpAngle(cam.alpha, wantAlpha, Math.min(1, dt * 4));
-            cam.beta = snap ? 1.25 : BABYLON.Scalar.Lerp(cam.beta, 1.25, Math.min(1, dt * 4));
-            cam.radius = snap ? 7.5 : BABYLON.Scalar.Lerp(cam.radius, 7.5, Math.min(1, dt * 4));
-            this.snapCamera = false;
-        } else if (this.mode === "hood" && this.follow !== null && states.has(this.follow)) {
-            // (the window's hood camera: from just above your kart's nose, looking down the road)
-            const st = states.get(this.follow), k = this.karts.get(this.follow);
-            if (!k) return;
-            const yaw = st.yaw * Math.PI / 180, p = k.root.position;
-            const target = new BABYLON.Vector3(p.x + Math.cos(yaw) * 10.5, p.y + 0.6, p.z + Math.sin(yaw) * 10.5);
-            cam.target = target;
-            cam.alpha = Math.atan2(-Math.sin(yaw), -Math.cos(yaw));
-            cam.beta = Math.PI / 2 - 0.03;
-            cam.radius = 10;
-            this.snapCamera = false;
-        } else if (this.mode === "tv") {
-            const lead = this.follow !== null && states.has(this.follow) ? this.follow : this.leader;
-            const k = lead !== null && lead !== undefined ? this.karts.get(lead) : null;
-            if (k) {
-                const target = k.root.position.add(new BABYLON.Vector3(0, 0.5, 0));
-                cam.target = snap ? target : BABYLON.Vector3.Lerp(cam.target, target, Math.min(1, dt * 3));
-                this.snapCamera = false;
-            }
+    // ---------- the cameras (kart_gfx.ChaseCamera, CHANGE 143) ----------
+    // chase: behind and above the kart, lagging its yaw a little so turns read, further back, higher and wider at
+    // speed; hood: from the nose, looking down the road; tv: six fixed stands round the circuit, the nearest one
+    // watching the kart and zoomed to fit it. Each eases to where it wants to be (a steady exponential approach) and
+    // is zoomed by the field of view (zoomBy). The kart watched: the one followed, else the leader.
+    tvCameras() {  // six camera stands, on the outside of each bend, 5 m up
+        const t = this.track;
+        if (this.tvTrack === t) return this.tvPoints;
+        const pts = [];
+        for (let k = 0; k < 6; k++) {
+            const s = (k + 0.5) * t.length / 6;
+            const side = this.curvature(s, 30) > 0 ? -1 : 1;  // (a left bend: the camera on the right, across the apex)
+            const [x, y, z] = t.point(s, side * (t.half + 6.0));
+            pts.push([x, y, z + 5.0]);
         }
+        this.tvPoints = pts;
+        this.tvTrack = t;
+        return pts;
+    }
+
+    zoomBy(factor) {  // (ChaseCamera.wheel: the wheel's 0.88 a notch, + and - 0.8 and 1.25)
+        this.zoom = clamp(this.zoom * Math.sqrt(factor), 0.6, 1.5);
+    }
+
+    cameraSettings() {  // what a learner's profile keeps of the camera (ChaseCamera.settings: the window's format)
+        return {mode: this.mode, zoom: Math.round(this.zoom * 100) / 100};
+    }
+
+    resetCamera() {  // (Home) the zoom back to 1 and the view cut straight to where it belongs
+        this.zoom = 1.0;
+        this.setMode(this.mode, this.follow);
+    }
+
+    updateCamera(states, dt) {
+        if (this.mode === "overview" || !this.track) return;  // (the whole track: Babylon's own orbit)
+        const id = this.follow !== null && states.has(this.follow) ? this.follow : this.leader;
+        const st = id !== null && id !== undefined ? states.get(id) : null, k = st ? this.karts.get(id) : null;
+        if (!k) return;
+        if (id !== this.camKart) { this.camKart = id; this.camPos = null; this.camYaw = null; }  // (another kart: cut to it)
+        const p = k.root.position, tx = p.x, ty = p.z, tz = p.y;
+        const yr = st.yaw * DEG, fx = Math.cos(yr), fy = Math.sin(yr);
+        let want, look, fov, rate, near = 0.2;
+        if (this.mode === "hood") {
+            want = [tx + fx * 0.95, ty + fy * 0.95, tz + 0.62];  // (just over the nose plate)
+            look = [tx + fx * 25, ty + fy * 25, tz + 0.3];
+            fov = 82; rate = 60; near = 0.08;
+        } else if (this.mode === "tv") {
+            const pts = this.tvCameras(), d = pts.map(q => Math.hypot(q[0] - tx, q[1] - ty, q[2] - tz));
+            let best = 0;
+            for (let i = 1; i < d.length; i++) if (d[i] < d[best]) best = i;
+            if (this.camPos === null || d[best] < d[this.tvIndex] * 0.85) this.tvIndex = best;  // (a little hysteresis)
+            want = pts[this.tvIndex];
+            look = [tx, ty, tz + 0.4];
+            const dist = Math.hypot(want[0] - look[0], want[1] - look[1], want[2] - look[2]);
+            fov = clamp(2 * Math.atan(7.0 / Math.max(1, dist)) / DEG, 14, 70);
+            rate = 60;
+        } else {  // chase
+            if (this.camYaw === null) this.camYaw = st.yaw;
+            const diff = ((st.yaw - this.camYaw + 180) % 360 + 360) % 360 - 180;
+            this.camYaw += diff * Math.min(1, dt * 4.5);  // (lagging the kart's yaw: the kart turns in the frame)
+            const cr = this.camYaw * DEG, speed = Math.max(0, st.v || 0);
+            const dist = 5.2 + 0.07 * speed, height = 2.0 + 0.025 * speed;
+            want = [tx - Math.cos(cr) * dist, ty - Math.sin(cr) * dist, tz + height];
+            look = [tx + fx * 5, ty + fy * 5, tz + 0.6];
+            fov = 72 + 0.25 * speed; rate = 14;
+        }
+        if (this.camPos === null) { this.camPos = want.slice(); this.camLook = look.slice(); this.camFov = fov; }
+        const a = Math.min(1, dt * rate);
+        for (let i = 0; i < 3; i++) {
+            this.camPos[i] += (want[i] - this.camPos[i]) * a;
+            this.camLook[i] += (look[i] - this.camLook[i]) * a;
+        }
+        this.camFov += (fov - this.camFov) * Math.min(1, dt * 4);
+        const cam = this.camera;
+        cam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;  // (Panda's lens: the fov is across)
+        cam.fov = clamp(this.camFov * this.zoom, 20, 110) * DEG;
+        cam.minZ = near;
+        // (the rig places the camera, as robot.js's: Babylon's own orbit limits and drift from the mouse are not for it)
+        cam.lowerRadiusLimit = 0.01;
+        cam.upperBetaLimit = Math.PI - 0.01;
+        cam.inertialAlphaOffset = cam.inertialBetaOffset = cam.inertialRadiusOffset = cam.inertialPanningX = cam.inertialPanningY = 0;
+        cam.setTarget(v3(...this.camLook));
+        cam.setPosition(v3(...this.camPos));
     }
 
     overview() {
@@ -539,8 +628,84 @@ export class KartScene extends BaseScene {
     setMode(mode, follow = null) {
         this.mode = mode;
         this.follow = follow;
-        this.snapCamera = true;
-        if (mode === "overview") this.overview();
-        if (mode === "tv") { this.camera.radius = 18; this.camera.beta = 0.95; }
+        this.camPos = null;  // (cut straight to the new view)
+        this.camYaw = null;
+        this.camKart = undefined;
+        if (mode === "overview") {  // (Babylon's own orbit again: its limits and lens)
+            const cam = this.camera;
+            cam.fovMode = BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
+            cam.fov = 0.8;
+            cam.minZ = 0.1;
+            cam.lowerRadiusLimit = 2;
+            cam.upperBetaLimit = 1.5;
+            this.overview();
+        }
+    }
+}
+
+// drift smoke (kart_gfx.KartVisual's puffs, CHANGE 143): soft grey puffs left behind in the world, rising at 0.6 m/s,
+// growing from 0.35 m to 1.25 m and fading over 0.7 s. One pool for every kart, the oldest reused, drawn as one
+// mesh's thin instances facing the camera (robotfx.js's way, with its shader: one draw call, the app's tone curve)
+class Smoke {
+    constructor(sc, cap) {
+        const scene = sc.scene;
+        const m = new BABYLON.ShaderMaterial("ccfxkartsmoke", scene, {vertex: "ccfx", fragment: "ccfx"}, {
+            attributes: ["position", "uv"], uniforms: ["world", "viewProjection", "baseColor", "exposure"],
+            defines: ["SOFT"], needAlphaBlending: true});
+        m.setColor4("baseColor", new BABYLON.Color4(1, 1, 1, 1));
+        m.setFloat("exposure", sc.lighting ? sc.lighting.exposure : 0);
+        m.alphaMode = BABYLON.Constants.ALPHA_COMBINE;
+        m.disableDepthWrite = true;
+        m.backFaceCulling = false;
+        scene.setRenderingAutoClearDepthStencil(1, false, false, false);
+        const mesh = this.mesh = BABYLON.MeshBuilder.CreatePlane("kartpuff", {size: 1}, scene);
+        mesh.material = m;
+        mesh.isPickable = false;
+        mesh.alwaysSelectAsActiveMesh = true;  // (the instances move: no bounds kept)
+        mesh.doNotSyncBoundingInfo = true;
+        mesh.renderingGroupId = 1;  // (after the whole scene; the depth kept, so the stand and the trees still hide them)
+        this.mats = new Float32Array(16 * cap);
+        this.cols = new Float32Array(4 * cap);
+        mesh.thinInstanceSetBuffer("matrix", this.mats, 16, false);
+        mesh.thinInstanceSetBuffer("color", this.cols, 4, false);
+        mesh.thinInstanceCount = 0;
+        mesh.isVisible = false;
+        this.items = Array.from({length: cap}, () => ({p: [0, 0, 0], life: 0}));
+        this.cursor = 0;
+    }
+
+    emit(p) {  // a new puff at a game position
+        const it = this.items[this.cursor];
+        this.cursor = (this.cursor + 1) % this.items.length;
+        it.p = p;
+        it.life = PUFF_LIFE;
+    }
+
+    update(dt, cam) {
+        const r = cam.getDirection(BABYLON.Axis.X), u = cam.getDirection(BABYLON.Axis.Y), f = cam.getDirection(BABYLON.Axis.Z);
+        const M = this.mats, C = this.cols;
+        let n = 0;
+        for (const it of this.items) {
+            if (it.life <= 0) continue;
+            it.life -= dt;
+            if (it.life <= 0) continue;
+            it.p[2] += 0.6 * dt;
+            const left = it.life / PUFF_LIFE, s = 0.35 + (1 - left) * 0.9;
+            const o = n * 16, p = it.p;
+            M[o] = r.x * s; M[o + 1] = r.y * s; M[o + 2] = r.z * s; M[o + 3] = 0;
+            M[o + 4] = u.x * s; M[o + 5] = u.y * s; M[o + 6] = u.z * s; M[o + 7] = 0;
+            M[o + 8] = f.x * s; M[o + 9] = f.y * s; M[o + 10] = f.z * s; M[o + 11] = 0;
+            M[o + 12] = p[0]; M[o + 13] = p[2]; M[o + 14] = p[1]; M[o + 15] = 1;
+            const c = n * 4;
+            C[c] = 0.75; C[c + 1] = 0.75; C[c + 2] = 0.78; C[c + 3] = 0.55 * left;
+            n++;
+        }
+        const mesh = this.mesh;
+        mesh.thinInstanceCount = n;
+        mesh.isVisible = n > 0;
+        if (n) {
+            mesh.thinInstanceBufferUpdated("matrix");
+            mesh.thinInstanceBufferUpdated("color");
+        }
     }
 }
