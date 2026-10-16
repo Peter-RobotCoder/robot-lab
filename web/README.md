@@ -67,8 +67,14 @@ What it does now:
 - cameras per game, and the app's graphics tiers (CHANGE 131, `base3d.js` and `pbr.js`), lit the way the app lights
   them: simplepbr's shader (the one every game's window draws with) ported to the browser, with each game's own
   lights, exposure and sky from its gfx module, and the app's own texture sets and skies (`tex/`):
-  - mesh (CHANGE 144, Kart Lab): black, every triangle's edges in one line colour, the lines behind hidden;
-  - lines (CHANGE 144, Kart Lab): black, the outlines, folds and colour changes in the line colour, a 10 m ground grid;
+  - mesh (CHANGE 144, Kart Lab; CHANGE 145, Robot Lab): black, every triangle's edges in one line colour, the lines
+    behind hidden;
+  - lines (CHANGE 144, Kart Lab; CHANGE 145, Robot Lab): black, the outlines, folds and colour changes in the line
+    colour, a ground grid (Kart Lab's every 10 m on the grass, Robot Lab's every 2 m on the floor's plates, none over
+    the holes). Robot Lab's as its window's: each part that moves on its own has its own lines (the armour panels,
+    the body, the beacon, the chain, the weapon, each wheel), the glowing parts' lines pulse as they glow, the cage's
+    screens are their edges alone, the arena's name and the big screen's in the line colour, sparks in the line
+    colour, debris as edges, no smoke or fire, no names on the decks;
   - blocks: flat colours, nothing lit (the floor every machine can draw, and the fallback without WebGL 2);
   - low: the app's lighting and the textures' colours, no shadows or reflections;
   - medium: + the normal maps, the sky's reflections, a 1024 shadow map;
@@ -88,9 +94,20 @@ What it does now:
     finish, four karts on the grid) ultra takes 17 to 22 ms a frame with the circuit against 15 to 17 with the old
     land and woods (high: 5.6 and 6.7 ms, as before): about 2 ms of that is the 350,000 triangles drawn three times
     (the picture, the shadow map, the shading in corners), the rest pixels.
+  - ultra (CHANGE 145, Robot Lab, `robotfx.js`): high's lights with a soft 4096 shadow over the arena's 26 m, 16x
+    anisotropy, a gentle bloom and sharpening on a 4x MSAA picture, and the window's smooth robots and arena
+    (`models/robot_ultra.json`, 1 MB, and `models/arena_ultra.json`, 4.8 MB, from make_models.py: the window's
+    `robot_models.py` and `arena_models.py`): each robot's pieces placed as the window's `robot_models.layout` places
+    them on the nodes the other tiers move (the body, the armour panels on their hinges, the beacon, the weapon, the
+    chain, each wheel), a node's pieces one mesh with a texel a role for roughness, metal and glow (about 11 meshes a
+    robot); the steel floor, its scars, the cage, the towers, the rig and roof, the stands with 560 seats and 464
+    fans (thin instances), the big screen and the hall, in place of high's floor, walls, towers, rig, stands, crowd
+    and screen box (the markings, hazards and user mods' items as high's); the hall in a faint haze. Fetched only on
+    ultra; until both have loaded (or if they don't) ultra draws high's robots and arena. No SSAO (5 ms more a frame
+    here) and no reflection probe: ultra costs about what high does.
 
-  Each game draws its own tiers (Robot Lab and Fight Lab blocks to high); a tier it doesn't have is drawn as its
-  nearest (mesh and lines as blocks, ultra as high). Auto never steps into or out of mesh and lines. The line colour
+  Each game draws its own tiers (Kart Lab and Robot Lab all seven, Fight Lab blocks to high); a tier it doesn't have
+  is drawn as its nearest (mesh and lines as blocks, ultra as high). Auto never steps into or out of mesh and lines. The line colour
   (green, amber, cyan, white, magenta or any) is kept on the computer and in a learner's profile (`line_colour`).
 
   Each tier draws at most so many pixels (1.0 for mesh, lines and blocks, 1.1, 1.6, 2.4 and 3.7 million), however fine the screen: a 4K laptop
@@ -147,7 +164,7 @@ escapes; code nested more than about 1,500 deep).
 | `schema_test.py` | `schema.js` against the windows' own Python (their code_ctx, outside_limits, apply_code and update_stats_text, run without a window): thousands of designs and code texts, broken in every way; needs Node, says so and passes without it |
 | `kart.js`, `scene.js`, `track.js`, `wire.js` | Kart Lab: its messages and controls, the track and karts, the track maths, the binary snapshots |
 | `kartfx.js`, `models/`, `make_models.py` | Kart Lab's ultra tier (CHANGE 144): the sky, the after-effects, skid marks, sparks, and the curved kart and the circuit the window draws (`kart/kart_models.py` and `kart/kart_scenery.py`, pure Python, written to `models/` by `make_models.py`: run it after either changes; the test checks it) |
-| `robot.js` | Robot Lab: the arena, the robots, its controls |
+| `robot.js`, `robotfx.js` | Robot Lab: the arena, the robots, its controls; its effects, cameras and ultra tier (CHANGE 145: the window's robots and arena from `models/robot_ultra.json` and `arena_ultra.json`, written by `make_models.py` from the window's `robot_models.py` and `arena_models.py`) |
 | `fight.js` | Fight Lab: the rings, the fighters and their poses, its controls |
 | `fightmodels.js` | Fight Lab's detailed fighters (woman, man, Robin): the app's glTF models, fetched once per body and shape when one appears (from `models/fightlab/`: Caddy serves the release's `games/fightlab/models` there), posed and dressed as `fight_model.py` does it |
 | `base3d.js` | what every scene shares: the engine, tiers and their pixel budgets, materials, labels, coordinate rules, texture coordinates in metres, merging what never moves |
@@ -184,12 +201,16 @@ opening by itself; her Garage drawn from the schema, her code panel: APPLY CODE 
 on its line, BUILD reaching the server sent as code); a note, LAUNCH LEARNERS' WINDOWS, Stop and the printed
 record (kept as `records.pdf` in the test folder); a reset, a removal, login slips; the teacher password changed.
 Kart Lab: snapshots, the drawing, the controls, the four tiers (each with the app's lighting, every picture loaded, no mesh left holding a thrown-away material, the pixel budget kept, the ultra circuit never fetched), the line tiers, ultra (its effects and the window's circuit: parts, thin instances, no shadow from the flat or far), the teacher's class maximum holding the learner's page (and Auto's steps, fed simulated frame rates), the Learners tab, the class-code login. Robot Lab, with a
-scripted learner: the arena and robots on every tier; the shared tabs (a tool and a hazard, an objective added and
+scripted learner: the arena and robots on blocks to high (ultra's models never fetched there) and the Graphics tab's
+seven tiers; the line tiers (CHANGE 145: black, the arena's, the screens' and every robot's lines, each moving part's
+own, the floor grid on lines only, the line colour at once); ultra (the window's robots and arena from `models/`,
+fetched then: parts, thin instances, the flat and far casting no shadow, the haze on the far parts alone, a few
+meshes a robot, soft 4096 shadows, the glow, no SSAO); the shared tabs (a tool and a hazard, an objective added and
 ticked, missions out and back in, the evidence CSV, an AI card sent back, a learner's mission and robot rebuilt);
 the teacher's own garage (a weapon chosen); computer robot 2 renamed and put in arena 2 from the Learners tab (the
 snapshot has it there alone); the Controls tab's Arenas rows (computer robot 2, amy's robot and the teacher's renamed
 and put in an arena, a name amy changes showing in her row, Save settings keeping who is where); Restart server and
 the page reconnecting. Fight Lab: the rings and posed
-fighters, the detailed model, its controls, the teacher's own garage (the woman's look). lessons.json, schemas.json,
+fighters on its four tiers (lines drawn as blocks, ultra as high, the Graphics tab showing four), the detailed model, its controls, the teacher's own garage (the woman's look). lessons.json, schemas.json,
 tex/ and sfx/ up to date; `schema_test.py` passing. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
 or Edge.

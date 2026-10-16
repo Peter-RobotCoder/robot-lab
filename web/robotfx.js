@@ -7,11 +7,16 @@
 // Kept cheap, as the app keeps them: a fixed pool per kind, each pool one mesh drawn with thin instances (one draw
 // call), sized per tier. Particles are unlit and blended over the scene as the app blends them (sparks added on,
 // fire added by its soft dot's alpha, smoke mixed), with the app's tone curve on the lit tiers (simplepbr's post
-// pass, which the app's effects go through), and drawn after everything else without writing depth.
+// pass, which the app's effects go through), and drawn after everything else without writing depth. On mesh and
+// lines (CHANGE 145, as the window's rw_fx) the sparks are the line colour, debris is its edges, and there is no
+// smoke or fire.
+//
+// (CHANGE 145) Robot Lab's ultra tier too: the window's smooth robots and arena (robot_models.py and arena_models.py,
+// written by make_models.py to models/robot_ultra.json and arena_ultra.json, fetched on ultra alone), see the end.
 
 /* global BABYLON */
 
-import {v3, gameQuat} from "./base3d.js";
+import {v3, gameQuat, unpackPart, getLineColour} from "./base3d.js";
 
 // ---------- game quaternions [w, x, y, z] (Panda's, z up, right handed) ----------
 export function qmul(a, b) {  // a then b in Hamilton's order: rotate by b first, then a
@@ -99,10 +104,13 @@ void main(void) {
 }`;
 
 // how many of each the pools hold (rw_fx.Effects: 400 sparks, 90 puffs, 160 flames; 120, 30, 50 on the low tiers)
-const POOLS = {blocks: {sparks: 80, puffs: 20, flames: 50, debris: 12},
+// (CHANGE 145: the line tiers' 400 sparks and no smoke or fire, as the window's; ultra's as high's)
+const POOLS = {mesh: {sparks: 400, puffs: 1, flames: 1, debris: 40}, lines: {sparks: 400, puffs: 1, flames: 1, debris: 40},
+               blocks: {sparks: 80, puffs: 20, flames: 50, debris: 12},
                low: {sparks: 120, puffs: 30, flames: 50, debris: 40},
                medium: {sparks: 400, puffs: 90, flames: 160, debris: 40},
-               high: {sparks: 400, puffs: 90, flames: 160, debris: 40}};
+               high: {sparks: 400, puffs: 90, flames: 160, debris: 40},
+               ultra: {sparks: 400, puffs: 90, flames: 160, debris: 40}};
 
 // a pool of particles drawn as one mesh's thin instances
 class Cloud {
@@ -192,6 +200,7 @@ export class RobotFX {
         this.tmpP = new BABYLON.Vector3();
         this.shake = 0;
         this.flameAcc = 0;
+        this.look = !!sc.wire;  // (mesh and lines: the sparks in the line colour, read each frame, so a new one at once)
     }
 
     paint(rgb) {
@@ -231,6 +240,7 @@ export class RobotFX {
 
     // each frame while a flame thrower fires: a jet of fire from the nozzle (the app's 3 a frame, at 60 a second)
     flame(pos, d, dt) {
+        if (this.look) return;  // (the line tiers: no fire)
         this.flameAcc += 180 * dt;
         const amount = Math.floor(this.flameAcc);
         this.flameAcc -= amount;
@@ -254,11 +264,17 @@ export class RobotFX {
     }
 
     debrisMesh(colour) {
-        const key = colour.map(c => c.toFixed(3)).join(",");
+        const key = this.look ? "lines" : colour.map(c => c.toFixed(3)).join(",");
         let d = this.debrisMeshes.get(key);
         if (!d) {
-            const m = BABYLON.MeshBuilder.CreateBox("fxdebris", {size: 1}, this.sc.scene);
-            m.material = this.paint(colour);
+            let m = BABYLON.MeshBuilder.CreateBox("fxdebris", {size: 1}, this.sc.scene);
+            if (this.look) {  // (the line tiers: a chunk's edges, every chunk in the line colour)
+                const box = m, sc = this.sc;
+                m = sc.linesMesh("fxdebris", sc.edgeLines([box], sc.wire), sc.lineMaterial("debris", 1, ...sc.lineFade()));
+                box.dispose();
+            } else {
+                m.material = this.paint(colour);
+            }
             m.isPickable = false;
             m.alwaysSelectAsActiveMesh = true;
             m.doNotSyncBoundingInfo = true;
@@ -280,7 +296,7 @@ export class RobotFX {
 
     // each frame for a damaged robot: amount 0..1 and more (a robot knocked out is on fire)
     smoke(pos, amount, dt) {
-        if (Math.random() > amount * 0.5 * Math.min(1, dt * 60)) return;
+        if (this.look || Math.random() > amount * 0.5 * Math.min(1, dt * 60)) return;  // (the line tiers: no smoke)
         const p = this.puffs.free();
         if (!p) return;
         p.p[0] = pos[0] + U(-0.2, 0.2); p.p[1] = pos[1] + U(-0.2, 0.2); p.p[2] = pos[2] + 0.3;
@@ -303,7 +319,7 @@ export class RobotFX {
         const right = cam.getDirection(BABYLON.Axis.X), up = cam.getDirection(BABYLON.Axis.Y), fwd = cam.getDirection(BABYLON.Axis.Z);
         const R = [right.x, right.y, right.z], Up = [up.x, up.y, up.z], F = [fwd.x, fwd.y, fwd.z];
         const g = 9.81 * dt;
-        const S = this.sparks;
+        const S = this.sparks, ink = this.look ? BABYLON.Color3.FromHexString(getLineColour()) : null;
         for (const s of S.items) {
             if (s.life <= 0) continue;
             s.life -= dt;
@@ -318,7 +334,8 @@ export class RobotFX {
             const la = Math.hypot(ax[0], ax[1], ax[2]) || 1;
             ax = [ax[0] / la, ax[1] / la, ax[2] / la];
             const ay = [az[1] * ax[2] - az[2] * ax[1], az[2] * ax[0] - az[0] * ax[2], az[0] * ax[1] - az[1] * ax[0]];
-            S.put(s.p, ax, ay, az, 1, 1, 0.5 + f, 1.0, 0.55 + 0.4 * f, 0.15 + 0.5 * f * f, 1);
+            if (ink) S.put(s.p, ax, ay, az, 1, 1, 0.5 + f, ink.r * (0.4 + 0.6 * f), ink.g * (0.4 + 0.6 * f), ink.b * (0.4 + 0.6 * f), 1);
+            else S.put(s.p, ax, ay, az, 1, 1, 0.5 + f, 1.0, 0.55 + 0.4 * f, 0.15 + 0.5 * f * f, 1);
             if (s.p[2] < 0.01 && s.v[2] < 0) {  // bounce off the floor
                 s.v[2] *= -0.35; s.v[0] *= 0.6; s.v[1] *= 0.6;
             }
@@ -548,4 +565,270 @@ export class RobotCamera {
             for (const [m, p] of Object.entries(saved.pans)) if (CAM_MODES.includes(m)) this.pans[m] = clampTo(num(p, 0), -12.0, 12.0);
         }
     }
+}
+
+// ---------- ultra (CHANGE 145): the window's smooth robots and arena ----------
+// models/robot_ultra.json (1 MB) and models/arena_ultra.json (4.8 MB), written by make_models.py from the window's
+// robot_models.py and arena_models.py. Fetched only on ultra (a school laptop on low never asks for them); null until
+// loaded (or when they aren't there or are broken), and the scene draws high's robots and arena till then.
+const DEG = Math.PI / 180;
+let robotModels = null, robotAsked = null, arenaModels = null, arenaAsked = null;
+export function loadRobotModels() {
+    if (!robotAsked) {
+        robotAsked = fetch("models/robot_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+            robotModels = d && d.version === 1 && d.roles && d.pieces && d.pieces.hull ? d : null;
+            return robotModels;
+        }).catch(() => null);
+    }
+    return robotAsked;
+}
+export function robotModelsData() { return robotModels; }
+
+export function loadArenaModels() {
+    if (!arenaAsked) {
+        arenaAsked = fetch("models/arena_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+            arenaModels = d && d.version === 1 && d.materials && d.groups && d.groups.floor ? d : null;
+            return arenaModels;
+        }).catch(() => null);
+    }
+    return arenaAsked;
+}
+export function arenaModelsData() { return arenaModels; }
+
+// lab_sim.shapes: a robot's sizes and pivots (the physics' own), the standard robot nearest (80% to 120%) made k
+// times bigger or smaller all over; a Resident Robot (big) its own size. Game coordinates
+export function robotShapes(weapon, size, big = false) {
+    const ref = big ? size : Math.max(0.8, Math.min(1.2, size)), k = size / ref, s = ref;
+    const h = [0.6 * s, 0.8 * s, 0.18 * s], top = 0.1 + h[2];
+    let sh;
+    if (weapon === "wedge") sh = {plate: [h[0] + 0.02, 0.6, 0.03], pivot: [0, h[1] - 0.05, top]};
+    else if (weapon === "spinner") sh = {bar: [0.8 * s, 0.08, 0.05], pivot: [0, h[1] + 0.28 * s, 0.1]};
+    else if (weapon === "drum") sh = {drum: [0.2 * s, h[0] * 0.8], pivot: [0, h[1] + 0.18, 0.08]};
+    else if (weapon === "vdisc") sh = {disc: [0.42 * s, 0.035 * s], pivot: [0, h[1] + 0.05, 0.42 * s - (0.32 - 0.08) + 0.04]};
+    else if (weapon === "flame") sh = {nozzle: [0.07 * s, 0.22 * s, 0.07 * s], pivot: [0, h[1] - 0.25 * s, top + 0.12 * s]};
+    else if (weapon === "laser") sh = {emitter: [0.06 * s, 0.18 * s, 0.05 * s], pivot: [0, h[1] - 0.3 * s, top + 0.08 * s]};
+    else if (weapon === "chainsaw") sh = {arm: [0.06 * s, 0.3 * s, 0.05 * s], bar: [0.025 * s, 0.42 * s, 0.07 * s], pivot: [0, h[1] * 0.35, top + 0.12]};
+    else {
+        const m = Math.min(s, 1.3);
+        sh = {arm: [0.05 * m, Math.min(0.85 * s, 1.3), 0.05 * m], head: [0.22 * s, 0.14 * s, 0.14 * s], pivot: [0, -0.2 * s, top + 0.1]};
+    }
+    return Object.assign(sh, {half: h, top, k, size: ref});
+}
+
+// robot_models.layout: where each piece goes for a robot of this weapon and standard size (house: a Resident
+// Robot's styling), [[node, piece, pos, hpr, scale]] in the node's frame (game coordinates, degrees)
+export function robotLayout(weapon, size, house, sh) {
+    const s = size, hx = 0.6 * s, hy = 0.8 * s, hz = 0.18 * s, z0 = 0.1, top = z0 + hz;
+    const one = [1, 1, 1], S = [s, s, s], O = [0, 0, 0];
+    const out = [["chassis", "hull", [0, 0, z0], O, S], ["chassis", "eyes", [0, hy + 0.005, z0 + hz * 0.45], O, S],
+                 ["chassis", "antenna", [-hx * 0.6, -hy * 0.7, top + 0.04 + 0.045 * s], O, one], ["deck", "deck", O, O, S],
+                 ["skirt_r", "skirt", O, O, S], ["skirt_l", "skirt", O, [180, 0, 0], S], ["rear", "rear", O, O, S]];
+    [[0.72, 0.55], [-0.72, 0.55], [0.72, -0.55], [-0.72, -0.55]].forEach(([x], i) =>
+        out.push([`wheel${i}`, house ? "house_wheel" : "wheel", O, [x < 0 ? 180 : 0, 0, 0], one]));
+    if (house) {
+        out.push(["deck", "house_plates", O, O, S], ["skirt_r", "skirt_stripes", O, O, S], ["skirt_l", "skirt_stripes", O, [180, 0, 0], S],
+                 ["chassis", "house_handles", [0, -hy, top], O, S], ["chassis", "beacon_base", [hx * 0.55, -hy * 0.55, top + 0.14], O, one],
+                 ["beacon", "beacon", O, O, one]);
+    }
+    const pv = sh.pivot;
+    if (weapon === "wedge") out.push(["weapon", "wedge", O, O, [sh.plate[0] / 0.62, 1, 1]], ["chassis", "wedge_cheeks", [0, 0, top - 0.05], O, S]);
+    else if (weapon === "spinner") out.push(["weapon", "spinner_bar", O, O, [sh.bar[0] / 0.8, 1, 1]], ["weapon", "spinner_hub", O, O, one],
+                                            ["chassis", "spinner_forks", [0, hy, z0], O, one]);
+    else if (weapon === "drum") out.push(["weapon", "drum", O, O, S], ["chassis", "drum_mounts", [0, hy, z0], O, S]);
+    else if (weapon === "vdisc") out.push(["weapon", "vdisc", O, O, S], ["chassis", "vdisc_slot", [pv[0], pv[1], pv[2]], O, S]);
+    else if (weapon === "flame") out.push(["weapon", "flame_nozzle", O, O, S], ["chassis", "flame_tanks", [0, -hy * 0.25, top + 0.13 * s / 1.6], O, S],
+                                          ["chassis", "flame_base", [pv[0], pv[1], pv[2] - 0.09], O, S]);
+    else if (weapon === "laser") out.push(["weapon", "laser", O, O, S], ["chassis", "laser_mount", [pv[0], pv[1], pv[2] - 0.07], O, S]);
+    else if (weapon === "chainsaw") out.push(["weapon", "chainsaw_arm", O, O, S], ["chain", "chain", O, O, S],
+                                             ["chassis", "chainsaw_mounts", [pv[0], pv[1], pv[2] - 0.05], O, S]);
+    else {
+        const a = sh.arm, hd = sh.head;
+        out.push(["weapon", "hammer_arm", O, O, [a[0] / 0.05, a[1] / 0.85, a[2] / 0.05]],
+                 ["weapon", "hammer_head", [0, a[1] * 2, 0], O, [hd[0] / 0.22, hd[1] / 0.14, hd[2] / 0.14]],
+                 ["chassis", "hammer_axle", [0, -0.2 * s, top + 0.1], O, S]);
+    }
+    return out;
+}
+
+// each piece's parts unpacked once for the page's life (shared by every robot): [{role, pos, nor, idx}], Babylon axes
+const pieceCache = new Map();
+function pieceParts(name) {
+    if (!pieceCache.has(name)) {
+        const parts = [];
+        for (const p of (robotModels.pieces[name] || [])) {
+            const a = unpackPart(p);
+            if (a && robotModels.roles[p.material]) parts.push({role: p.material, pos: a.pos, nor: a.nor, idx: a.idx});
+        }
+        pieceCache.set(name, parts);
+    }
+    return pieceCache.get(name);
+}
+
+const lin = c => Math.pow(Math.max(0, c), 2.2);
+
+// One node's pieces as ONE mesh (the window's: a Geom a node), in the robot's colours: each vertex its role's colour
+// (null: the design's colour, "trim": the style's, both screen colours; made linear) and its texture coordinates on
+// its role's texel of the atlas (robotAtlas: roughness, metal and glow). items: [[piece, pos, hpr, scale]] in the
+// node's frame (game coordinates; only headings are used), colour and trim screen colours 0 to 1. Null if empty
+export function robotNodeMesh(sc, name, items, colour, trim) {
+    const roles = Object.keys(robotModels.roles), n = roles.length, parts = [];
+    let nv = 0, ni = 0;
+    for (const [piece, pos, hpr, scale] of items) {
+        for (const p of pieceParts(piece)) { parts.push([p, pos, hpr, scale]); nv += p.pos.length / 3; ni += p.idx.length; }
+    }
+    if (!nv) return null;
+    const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), UV = new Float32Array(nv * 2), C = new Float32Array(nv * 4);
+    const I = nv >= 65536 ? new Uint32Array(ni) : new Uint16Array(ni);
+    let ov = 0, oi = 0;
+    for (const [p, at, hpr, scale] of parts) {
+        const h = hpr[0] * DEG, c = Math.cos(h), s = Math.sin(h), [sx, sy, sz] = scale;
+        const look = robotModels.roles[p.role], ri = roles.indexOf(p.role);
+        const rgb = (look.colour === null ? colour : look.colour === "trim" ? trim : look.colour).map(lin);
+        const u = (ri + 0.5) / n, src = p.pos, nor = p.nor, cnt = src.length / 3;
+        for (let i = 0; i < cnt; i++) {
+            const o = i * 3, w = (ov + i) * 3;
+            // (Babylon's x, y, z are the game's x, z, y: scaled, turned about the game's z, moved)
+            const gx = src[o] * sx, gy = src[o + 2] * sy, gz = src[o + 1] * sz;
+            P[w] = c * gx - s * gy + at[0]; P[w + 2] = s * gx + c * gy + at[1]; P[w + 1] = gz + at[2];
+            const nx = nor[o] / sx, ny = nor[o + 2] / sy, nz = nor[o + 1] / sz, l = Math.hypot(nx, ny, nz) || 1;
+            N[w] = (c * nx - s * ny) / l; N[w + 2] = (s * nx + c * ny) / l; N[w + 1] = nz / l;
+            const t = (ov + i) * 2, q = (ov + i) * 4;
+            UV[t] = u; UV[t + 1] = 0.5;
+            C[q] = rgb[0]; C[q + 1] = rgb[1]; C[q + 2] = rgb[2]; C[q + 3] = 1;
+        }
+        for (let k = 0; k < p.idx.length; k++) I[oi + k] = p.idx[k] + ov;
+        ov += cnt;
+        oi += p.idx.length;
+    }
+    const mesh = new BABYLON.Mesh(name, sc.scene);
+    const vd = new BABYLON.VertexData();
+    vd.positions = P;
+    vd.normals = N;
+    vd.uvs = UV;
+    vd.colors = C;
+    vd.indices = I;
+    vd.applyToMesh(mesh);
+    mesh.ccOwnUV = true;  // (its texture coordinates are the atlas's: not the metres base3d gives a mesh)
+    mesh.isPickable = false;
+    return mesh;
+}
+
+// a robot's two little pictures, a texel a role (the window's rw_gfx.robot_atlas): (1, roughness, metal), and its glow
+// over ROBOT_GLOW ("lights": the robot's own lights colour, linear). Made once per scene and lights colour
+export const ROBOT_GLOW = 8.0;
+export function robotAtlas(sc, lights) {
+    if (!sc.ultraAtlas || sc.ultraAtlas.scene !== sc.scene) sc.ultraAtlas = {scene: sc.scene};  // (a scene's own: gone with it)
+    const cache = sc.ultraAtlas;
+    const roles = Object.keys(robotModels.roles), n = roles.length, key = lights.map(v => v.toFixed(3)).join(",");
+    const near = BABYLON.Texture.NEAREST_SAMPLINGMODE;
+    const make = data => {
+        const t = BABYLON.RawTexture.CreateRGBATexture(data, n, 1, sc.scene, false, false, near);
+        t.wrapU = t.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        return t;
+    };
+    if (!cache.mr) {
+        const mr = new Uint8Array(n * 4);
+        roles.forEach((r, i) => { const L = robotModels.roles[r]; mr.set([255, Math.round(L.rough * 255), Math.round(L.metal * 255), 255], i * 4); });
+        cache.mr = make(mr);
+    }
+    if (!cache[key]) {
+        const glow = new Uint8Array(n * 4);
+        roles.forEach((r, i) => {
+            const e = robotModels.roles[r].emission, v = e === "lights" ? lights : Array.isArray(e) ? e : [0, 0, 0];
+            glow.set([...v.map(c => Math.round(Math.min(1, c / ROBOT_GLOW) * 255)), 255], i * 4);
+        });
+        cache[key] = make(glow);
+    }
+    return {mr: cache.mr, glow: cache[key]};
+}
+
+// The window's ultra arena (rw_gfx.ArenaVisual.ultra) from models/arena_ultra.json: the floor for the holes the user
+// mods cut, its scars, the cage (not with No cage), the venue's floor, the towers, the stands with their seats and
+// crowd (seats alone if the look has no crowd), the big screen, the hall, and the rig and roof (returned apart: the
+// full arena view hides them). Each part one mesh (the file has one per material and group), each placed shape's
+// part one mesh drawn as thin instances (turned h degrees about the game's z, scaled by s, moved to x, y, z; the
+// tinted parts coloured by each instance's r, g, b, made linear). Colour = the material's colour (null: the arena's
+// wall colour) x vertex colour x tint x texture; decal: drawn a little nearer than the floor it lies on; alpha: see-
+// through by its vertices' alpha, after the solid things, not writing depth; flat and far cast no shadow; far parts
+// are in the hall's haze (pbr.js's picked fog). Returns {meshes, rig, casters, parts, instances, triangles}
+export function makeUltraArena(sc, data, mods, look) {
+    const scene = sc.scene, out = {meshes: [], rig: [], casters: [], parts: 0, instances: 0, triangles: 0};
+    const wall = (Array.isArray(look.wall_colour) && look.wall_colour.length >= 3 ? look.wall_colour : [155, 25, 20]).map(v => v / 255);
+    const mats = {};
+    const material = (name, variant, far) => {
+        const L = data.materials[name] || {colour: [1, 1, 1], rough: 1, metal: 0};
+        const key = `arena ${name}${variant}${far ? " far" : ""}`;
+        if (mats[key]) return mats[key];
+        const m = sc.lighting.material(key, {rgb: L.colour === null ? wall : L.colour || [1, 1, 1], rough: Number(L.rough ?? 1),
+            metal: Number(L.metal ?? 0), tex: L.texture || "", emission: Array.isArray(L.emission) ? L.emission : null,
+            blend: !!L.alpha, haze: far});
+        m.backFaceCulling = !L.two_sided;
+        m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;  // (the front as the file's, turned round by unpackPart)
+        if (L.decal) { m.zOffset = -1; m.zOffsetUnits = -4; }  // (Panda's setDepthOffset(1))
+        if (L.alpha) m.disableDepthWrite = true;
+        sc.materials[key] = m;
+        return (mats[key] = m);
+    };
+    const build = (part, name) => {
+        const a = unpackPart(part);
+        if (!a) return null;
+        const mesh = new BABYLON.Mesh(name, scene);
+        const vd = new BABYLON.VertexData();
+        vd.positions = a.pos;
+        vd.normals = a.nor;
+        vd.uvs = a.uv;
+        vd.indices = a.idx;
+        if (a.col) vd.colors = a.col;
+        vd.applyToMesh(mesh);
+        if (part.alpha) { mesh.hasVertexAlpha = true; mesh.alphaIndex = 0; }  // (the scars before the cage's screens)
+        mesh.ccOwnUV = true;  // (its texture coordinates are the file's: repeats already)
+        mesh.isPickable = false;
+        const L = data.materials[part.material] || {};
+        mesh.ccCast = !part.far && !L.flat;
+        out.triangles += a.idx.length / 3;
+        return mesh;
+    };
+    const own = (part, into) => {
+        const mesh = build(part, "arena " + part.name);
+        if (!mesh) return;
+        mesh.material = material(part.material, `:${!!(part.colours || part.alpha)}`, !!part.far);
+        mesh.freezeWorldMatrix();
+        into.push(mesh);
+        out.parts++;
+    };
+    const group = n => (Array.isArray(data.groups[n]) ? data.groups[n] : []);
+    const floor = "floor" + (mods.spike_pit ? "_spike_pit" : "") + (mods.flame_pit ? "_flame_pit" : "");
+    // (made, so drawn, in this order, near to far: the cage and the towers, the crowd, then the stands and the hall
+    // behind them, the floors last, so what the nearer parts hide is depth tested, never lit)
+    for (const n of [...(mods.no_cage ? [] : ["cage"]), "towers", "screen"]) for (const p of group(n)) own(p, out.meshes);
+    for (const p of [...group("rig"), ...group("roof")]) own(p, out.rig);
+    const rows = look.crowd === false ? {seat: (data.instances || {}).seat || []} : data.instances || {};
+    for (const [shape, list] of Object.entries(rows).sort(([a], [b]) => (a === "seat") - (b === "seat"))) {  // (the fans before the seats they sit in)
+        const parts = data.shapes[shape];
+        if (!Array.isArray(parts) || !Array.isArray(list) || !list.length) continue;
+        const M = new Float32Array(list.length * 16), C = new Float32Array(list.length * 4);
+        list.forEach((r, i) => {
+            const h = r[3] * DEG, s = r[4], c = Math.cos(h) * s, n = Math.sin(h) * s, o = i * 16;
+            M[o] = c; M[o + 2] = n; M[o + 5] = s; M[o + 8] = -n; M[o + 10] = c;
+            M[o + 12] = r[0]; M[o + 13] = r[2]; M[o + 14] = r[1]; M[o + 15] = 1;
+            C[i * 4] = lin(r[5]); C[i * 4 + 1] = lin(r[6]); C[i * 4 + 2] = lin(r[7]); C[i * 4 + 3] = 1;
+        });
+        for (const part of parts) {
+            const mesh = build(part, `arena ${shape} ${part.name}`);
+            if (!mesh) continue;
+            out.triangles += (list.length - 1) * mesh.getTotalIndices() / 3;
+            mesh.material = material(part.material, `:${!!part.colours}:i${part.tint ? "t" : ""}`, !!part.far);
+            mesh.thinInstanceSetBuffer("matrix", M, 16, true);
+            if (part.tint) mesh.thinInstanceSetBuffer("color", C, 4, true);
+            mesh.thinInstanceRefreshBoundingInfo(false);
+            mesh.ccCast = false;  // (out in the stands, beyond the shadow's 26 m: drawn into it for nothing)
+            mesh.freezeWorldMatrix();
+            mesh.doNotSyncBoundingInfo = true;
+            out.meshes.push(mesh);
+        }
+        out.instances += list.length;
+    }
+    for (const n of ["stands", "hall", "scars", floor, mods.no_cage ? "venue_floor_open" : "venue_floor"]) for (const p of group(n)) own(p, out.meshes);
+    for (const m of [...out.meshes, ...out.rig]) if (m.ccCast) out.casters.push(m);
+    return out;
 }

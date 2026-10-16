@@ -33,12 +33,12 @@ sys.path.insert(0, kart_version.ENGINE_HOME)
 from direct.gui.DirectGui import DirectFrame  # noqa: E402
 from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, ColorBlendAttrib, DirectionalLight,  # noqa: E402
-                          Filename, Fog, Geom, GeomLines, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat,
-                          GeomVertexWriter, InternalName, LineSegs, LRotationf, Material, NodePath, OmniBoundingVolume,
+                          Filename, Fog, Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat,
+                          GeomVertexWriter, LineSegs, LRotationf, Material, NodePath, OmniBoundingVolume,
                           PNMImage, PTA_uchar, SamplerState, Shader, TextNode, Texture, TextureStage, TransparencyAttrib,
                           Vec3)
 
-from engine import gfx_tiers, rw_textures  # noqa: E402
+from engine import gfx_tiers, line_look, rw_textures  # noqa: E402
 from engine.rw_mesh import FORMAT, FORMAT_COLOUR, Mesh, bevel_box, cylinder  # noqa: E402
 import kart_models  # noqa: E402  (the ultra kart: numbers only, shared with the page)
 import kart_scenery  # noqa: E402  (the ultra circuit: numbers only, shared with the page)
@@ -61,11 +61,9 @@ GRASS_TINT = (0.95, 1.0, 0.9)
 # are (sRGB), the sky's light is ENV_STRENGTH of that, and the plain fill keeps ENV_FILL of its own beside it.
 ENV_STRENGTH = 0.4
 ENV_FILL = 0.4
-# mesh and lines (CHANGE 144): the line colour (a learner's choice: settings.json and their profile, line_colour)
-LINE_COLOURS = (("Green", "#33ff66"), ("Amber", "#ffb000"), ("Cyan", "#33e0ff"), ("White", "#f0f0f0"),
-                ("Magenta", "#ff4dd2"))
-LINE_COLOUR = "#33ff66"  # phosphor green
-CREASE = 30.0  # degrees: lines draws an edge where its two faces meet at more than this
+# mesh and lines (CHANGE 144; the code is engine/line_look.py since CHANGE 145): the line colour (a learner's
+# choice: settings.json and their profile, line_colour)
+LINE_COLOURS, LINE_COLOUR, CREASE = line_look.LINE_COLOURS, line_look.LINE_COLOUR, line_look.CREASE
 GRID = 10.0    # metres between the ground grid's lines on lines
 
 
@@ -347,6 +345,7 @@ def init(base, tier="medium", line_colour=None):
     quality = tier if tier in gfx_tiers.TIERS else gfx_tiers.DEFAULT
     s = gfx_tiers.SETTINGS[quality]
     _state.clear()
+    line_look.reset()
     _state["mats"] = Materials(base.loader, quality)
     _state["base"] = base
     if quality in gfx_tiers.LOOKS:
@@ -434,22 +433,11 @@ def scale_env(env, k):
 
 
 def init_look(base, quality, line_colour=None):
-    """mesh and lines: black, no lights or shaders (Panda's fixed pipeline: the cheapest drawing there is), and a
-    black fog so the far lines fade into the dark. Returns None (no pipeline)."""
-    base.setBackgroundColor(0, 0, 0, 1)
-    fog = Fog("dark")
-    fog.setColor(0, 0, 0)
-    fog.setLinearRange(*((15, 140) if quality == "mesh" else (60, 380)))  # (mesh's ground is dense: it fades sooner)
-    base.render.setFog(fog)
-    base.camLens.setFar(1000)
-    if gfx_tiers.SETTINGS[quality]["msaa"]:
-        base.render.setAntialias(AntialiasAttrib.MMultisample)
-    try:
-        height = base.win.getYSize()
-    except Exception:
-        height = 720
-    _state.update(quality=quality, pipeline=None, sun=None, look=quality, lines=[],
-                  line_px=max(1.0, round(height / 720 * 1.2, 1)), line_colour=parse_colour(line_colour))
+    """mesh and lines (engine.line_look): black, no lights or shaders, and a black fog so the far lines fade into
+    the dark. Returns None (no pipeline)."""
+    fade = (15, 140) if quality == "mesh" else (60, 380)  # (mesh's ground is dense: it fades sooner)
+    line_look.init(base, quality, line_colour, fade=fade)
+    _state.update(quality=quality, pipeline=None, sun=None)
     return None
 
 
@@ -465,177 +453,9 @@ def follow_sun(x, y, z):
         sun.setPos(Vec3(x, y, z) + SUN_OFFSET)
 
 
-# ---------- mesh and lines (CHANGE 144) ----------
-def look():
-    """"mesh" or "lines" when the tier in use is one of those looks, else None."""
-    return _state.get("look")
-
-
-def parse_colour(text):
-    """"#rrggbb" (a learner's line_colour) as (r, g, b) from 0 to 1; anything else is phosphor green."""
-    text = text if isinstance(text, str) and len(text) == 7 and text.startswith("#") else LINE_COLOUR
-    try:
-        return tuple(int(text[i:i + 2], 16) / 255 for i in (1, 3, 5))
-    except ValueError:
-        return parse_colour(LINE_COLOUR)
-
-
-def set_line_colour(text):
-    """The lines' colour, changed at once on everything already drawn."""
-    _state["line_colour"] = parse_colour(text)
-    _state["lines"] = [n for n in _state.get("lines", []) if not n.isEmpty()]
-    for n in _state["lines"]:
-        n.setColor(*_state["line_colour"], 1, 2)
-
-
-def _arrays(root):
-    """Every triangle under root in root's frame, as numpy arrays: the corners (n, 3), the triangles (t, 3) as
-    indices into them, and a key per triangle that differs where the material or the vertex colour does."""
-    import numpy as np
-    nodes = list(root.findAllMatches("**/+GeomNode"))
-    if root.node().isGeomNode():
-        nodes.insert(0, root)
-    points, tris, keys = [], [], []
-    count = 0
-    for k, gnp in enumerate(nodes):
-        if gnp.isHidden() or gnp.hasNetTag("no_lines"):
-            continue
-        mat = gnp.getMat(root)
-        m = np.array([[mat.getCell(r, c) for c in range(4)] for r in range(4)])
-        gn = gnp.node()
-        for gi in range(gn.getNumGeoms()):
-            geom = gn.getGeom(gi)
-            vdata = geom.getVertexData()
-            fmt = vdata.getFormat()
-            ai = fmt.getArrayWith(InternalName.getVertex())
-            col = fmt.getColumn(InternalName.getVertex())
-            stride = fmt.getArray(ai).getStride()
-            raw = np.frombuffer(vdata.getArray(ai).getHandle().getData(), dtype=np.uint8).reshape(-1, stride)
-            pos = raw[:, col.getStart():col.getStart() + 12].copy().view(np.float32).reshape(-1, 3).astype(np.float64)
-            pos = pos @ m[:3, :3] + m[3, :3]  # (Panda's matrices act on row vectors)
-            shade = np.zeros(len(pos), dtype=np.int64)
-            if fmt.hasColumn(InternalName.getColor()):
-                cai = fmt.getArrayWith(InternalName.getColor())
-                ccol = fmt.getColumn(InternalName.getColor())
-                craw = np.frombuffer(vdata.getArray(cai).getHandle().getData(), dtype=np.uint8)
-                craw = craw.reshape(-1, fmt.getArray(cai).getStride())
-                if ccol.getNumericType() == Geom.NT_float32:
-                    c = craw[:, ccol.getStart():ccol.getStart() + 12].copy().view(np.float32).reshape(-1, 3)
-                    c = np.clip(c * 15 + 0.5, 0, 15).astype(np.int64)
-                else:
-                    c = craw[:, ccol.getStart():ccol.getStart() + 3].astype(np.int64) // 16
-                shade = c[:, 0] * 256 + c[:, 1] * 16 + c[:, 2]
-            for pi in range(geom.getNumPrimitives()):
-                prim = geom.getPrimitive(pi)
-                if prim.getPrimitiveType() != prim.PT_polygons:
-                    continue
-                prim = prim.decompose()
-                if prim.isIndexed():
-                    kind = {Geom.NT_uint8: np.uint8, Geom.NT_uint16: np.uint16}.get(prim.getIndexType(), np.uint32)
-                    idx = np.frombuffer(prim.getVertices().getHandle().getData(), dtype=kind).astype(np.int64)
-                else:
-                    idx = np.arange(prim.getFirstVertex(), prim.getFirstVertex() + prim.getNumVertices())
-                t = idx.reshape(-1, 3)
-                tris.append(t + count)
-                keys.append((k * 64 + gi) * 4096 + shade[t[:, 0]])
-            points.append(pos)
-            count += len(pos)
-    if not points or not tris:
-        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64), np.zeros(0, dtype=np.int64)
-    return np.concatenate(points), np.concatenate(tris), np.concatenate(keys)
-
-
-def edges(root, mode):
-    """The edges to draw for root's triangles: (points (n, 3), pairs (m, 2)). mode "mesh": every triangle's edges;
-    "lines": the outline only, edges with one face (the boundary), edges whose two faces meet at more than CREASE
-    degrees, and edges where the material or colour changes (the kerbs' blocks, the start line's squares). Corners
-    within a millimetre are one point (the meshes give each quad its own corners), and each edge is drawn once:
-    the points are sorted once (numpy), then each edge is a key in one pass, so the work grows with the triangles."""
-    import numpy as np
-    pts, tris, keys = _arrays(root)
-    if not len(tris):
-        return pts, np.zeros((0, 2), dtype=np.int64)
-    uniq, inv = np.unique(np.round(pts * 1000).astype(np.int64), axis=0, return_inverse=True)
-    t = inv.reshape(-1)[tris]
-    good = (t[:, 0] != t[:, 1]) & (t[:, 1] != t[:, 2]) & (t[:, 0] != t[:, 2])
-    t, keys = t[good], keys[good]
-    pts = uniq / 1000.0
-    e = np.sort(np.stack([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]], axis=1).reshape(-1, 2), axis=1)
-    ekey = e[:, 0] * len(pts) + e[:, 1]
-    order = np.argsort(ekey, kind="stable")
-    ekey = ekey[order]
-    starts = np.flatnonzero(np.r_[True, ekey[1:] != ekey[:-1]])
-    counts = np.diff(np.r_[starts, len(ekey)])
-    first = e[order[starts]]
-    if mode == "mesh":
-        return pts, first
-    face = order // 3  # (each edge's triangle)
-    n = np.cross(pts[t[:, 1]] - pts[t[:, 0]], pts[t[:, 2]] - pts[t[:, 0]])
-    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-    keep = counts != 2  # an edge of one face is the boundary; three or more faces meet at a fold
-    two = np.flatnonzero(counts == 2)
-    f1, f2 = face[starts[two]], face[starts[two] + 1]
-    fold = np.einsum("ij,ij->i", n[f1], n[f2]) < math.cos(math.radians(CREASE))
-    keep[two] = fold | (keys[f1] != keys[f2])
-    return pts, first[keep]
-
-
-def line_node(name, pts, pairs, extra=None):
-    """A GeomLines node for the edges (pairs of indices into pts), plus extra segments ((m, 2, 3) points)."""
-    import numpy as np
-    if extra is not None and len(extra):
-        base = len(pts)
-        pts = np.concatenate([pts, extra.reshape(-1, 3)])
-        pairs = np.concatenate([pairs, base + np.arange(len(extra) * 2).reshape(-1, 2)])
-    used, compact = np.unique(pairs.reshape(-1), return_inverse=True)  # (only the points the lines use)
-    vdata = GeomVertexData(name, GeomVertexFormat.getV3(), Geom.UH_static)
-    vdata.uncleanSetNumRows(len(used))
-    vdata.modifyArray(0).modifyHandle().setData(pts[used].astype(np.float32).tobytes())
-    lines = GeomLines(Geom.UH_static)
-    lines.setIndexType(Geom.NT_uint32)
-    lines.modifyVertices().modifyHandle().setData(compact.astype(np.uint32).tobytes())
-    geom = Geom(vdata)
-    geom.addPrimitive(lines)
-    node = GeomNode(name)
-    node.addGeom(geom)
-    return node
-
-
-def wire(np_, lines_np):
-    """Give a line node the look: the line colour, no light or texture. (It wins against its own black faces
-    because those are pushed back a little, blacken: a depth offset moves polygons, never lines.)"""
-    lines_np.setLightOff(3)
-    lines_np.setTextureOff(3)
-    lines_np.setMaterialOff(3)
-    lines_np.setShaderOff(3)
-    lines_np.setColor(*_state.get("line_colour", parse_colour(None)), 1, 2)
-    lines_np.setRenderModeThickness(_state.get("line_px", 1.0))
-    lines_np.setAntialias(AntialiasAttrib.MLine)  # (smoothed lines: blended, so drawn after the black faces)
-    lines_np.setTransparency(TransparencyAttrib.M_alpha)
-    _state.setdefault("lines", []).append(lines_np)
-    return lines_np
-
-
-def blacken(np_):
-    """The faces: black, solid and writing depth, so they hide the lines behind them, and pushed back a little
-    (slope-scaled, so the road seen end-on too) so that their own edges are drawn over them whole."""
-    np_.setColor(0, 0, 0, 1, 1)
-    np_.setDepthOffset(-2, 1)
-    np_.setTextureOff(1)
-    np_.setMaterialOff(1)
-    np_.setLightOff(1)
-    np_.setShaderOff(1)
-    return np_
-
-
-def outline(np_, parent=None, mode=None, extra=None):
-    """mesh and lines: np_'s faces go black and its edges are drawn as lines (under parent, np_ by default).
-    Returns the line node."""
-    mode = mode or look()
-    pts, pairs = edges(np_, mode)
-    blacken(np_)
-    node = line_node(f"{np_.getName()} {mode}", pts, pairs, extra)
-    return wire(np_, (parent or np_).attachNewNode(node))
+# ---------- mesh and lines (CHANGE 144: the engine's line_look since CHANGE 145) ----------
+look, parse_colour, set_line_colour = line_look.look, line_look.parse_colour, line_look.set_line_colour
+edges, line_node, wire, blacken, outline = line_look.edges, line_look.line_node, line_look.wire, line_look.blacken, line_look.outline
 
 
 # ---------- mesh helpers ----------
@@ -851,8 +671,8 @@ class TrackVisual:
             outline(static, extra=self.grid_lines() if look() == "lines" else None)
             self.pads_lines = outline(self.pads)
             for n in self.signs.getChildren():  # (the START sign is written in the line colour)
-                n.setColor(*_state["line_colour"], 1, 2)
-                _state["lines"].append(n)
+                n.setColor(*line_look.colour(), 1, 2)
+                line_look.keep(n)
             self.lines_secs = time.perf_counter() - started
 
     def grass(self, parent, rnd):

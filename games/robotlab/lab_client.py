@@ -126,8 +126,8 @@ if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 from engine import gfx_tiers  # noqa: E402
-args.gfx = gfx_tiers.nearest(args.gfx)  # (Kart Lab's mesh, lines and ultra, from the app's Graphics button: drawn as basic and high here)
-GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx)  # (auto: this computer's saved tier, else what its driver suggested)
+GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx, gfx_tiers.TIERS)  # (auto: this computer's saved tier, else what its
+# driver suggested; Robot Lab draws all seven tiers, mesh to ultra, as Kart Lab does: CHANGE 145)
 loadPrcFileData("", hud.window_arg(args.window, x) + f"window-title {title}\n"  # (the size: CHANGE 126)
                     + gfx_tiers.prc_for(GFX))  # (texture size, mipmaps, multisamples: read as the window opens)
 if args.offscreen:
@@ -203,6 +203,8 @@ class Lab(hud.HudKit, ShowBase):
     reflections = ("2d", "5b")
     user_mods = sim.USER_MODS
     STAGE_WORD = "ARENA"
+    GFX_TIERS = gfx_tiers.TIERS          # (CHANGE 145: the Settings tab's Graphics row and the class maximum's)
+    LINE_COLOURS = rw_gfx.LINE_COLOURS
     LIMITS_TITLE = "ROBOT LIMITS"
     LIMITS_NOTE = "Size: 100 is the standard size, 12.5 is one eighth of it and 200 is double."
 
@@ -217,7 +219,7 @@ class Lab(hud.HudKit, ShowBase):
         self.preview_setup()  # (CHANGE 82)
         self.my_name = name
         gfx_tiers.detect(self, SETTINGS_DIR)  # (the window is open: what the driver says, for the next run's tier)
-        rw_gfx.init(self, GFX)
+        rw_gfx.init(self, GFX, line_colour=self.line_colour)
         self.gfx_tier = rw_gfx.tier()  # (the tier in use: lower than GFX when the driver couldn't run that one)
         self.fx = rw_fx.Effects(self.render, "low" if self.gfx_tier in ("basic", "low") else self.gfx_tier)
         self.snd = rw_sound.Sounds(self, on=not args.offscreen)
@@ -542,12 +544,6 @@ class Lab(hud.HudKit, ShowBase):
     def key(self, key, fn, *extra):
         """A game shortcut key. It does nothing while you are typing in a text box."""
         self.accept(key, lambda: None if self.typing or not self.started else fn(*extra))
-
-    def escape(self):
-        if self.typing:  # Esc while typing just stops typing
-            self.stop_typing()
-        else:
-            self.userExit()
 
     def tab_key(self, step):
         """Tab moves the typing from one text box to the next (Shift+Tab: to the one before), on the login screen
@@ -936,6 +932,9 @@ class Lab(hud.HudKit, ShowBase):
                          pos=(0, 0, -0.15))
                 gfx_part(stage, mesh_cylinder(3.5, 0.02, seg=48), None, (0.5, 0.52, 0.57), rough=1.0, metal=0.0,
                          pos=(0, 0, -0.2))  # (the floor of the grey space)
+                if rw_gfx.look():  # (mesh and lines: the pedestal's edges in the line colour, in the dark: CHANGE 145)
+                    rw_gfx.outline(stage)
+                    self.preview_buffer.setClearColor((0, 0, 0, 1))
                 from panda3d.core import AmbientLight, PointLight
                 fill = AmbientLight("preview fill")  # light from everywhere: nothing on the robot is left black
                 fill.setColor((0.55, 0.55, 0.58, 1))
@@ -1397,9 +1396,13 @@ class Lab(hud.HudKit, ShowBase):
             return
         self.gfx_max_seen = cap
         note = gfx_tiers.obey_class_max(SETTINGS_DIR, cap, getattr(self, "gfx_monitor", None),
-                                        getattr(self, "gfx_tier", None))
+                                        getattr(self, "gfx_tier", None), gfx_tiers.TIERS)
         if note:
             self.banner_note(note, 6)
+
+    def on_line_colour(self, colour):
+        """Mesh and lines: the learner's line colour, at once (CHANGE 145)."""
+        rw_gfx.set_line_colour(colour)
 
     def banner_note(self, text, secs=3, big=False):
         """Words over the arena for a few seconds. big: the size of a battle's banner (a restart warning)."""

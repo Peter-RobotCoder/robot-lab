@@ -9,7 +9,8 @@ which opens the class view with the desk's teacher ticket; the page draws the tr
 snapshots with no JavaScript errors;
 the line tiers (mesh, lines: black, the edges as lines in the line colour) and ultra (its sky, after-effects and
 reflections, and the window's circuit from models/kart_scenery.json, fetched on ultra alone) draw with no errors
-(CHANGE 144);
+(CHANGE 144); Robot Lab's line tiers and ultra too (the window's robots and arena from models/robot_ultra.json and
+arena_ultra.json, fetched on ultra alone), Fight Lab still its four (CHANGE 145);
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
 a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
@@ -84,6 +85,9 @@ DRAWN_RIGHT = """(() => {
 
 # (in the page, CHANGE 144) whether it has asked for the ultra circuit (4.7 MB, ultra's alone)
 SCENERY_FETCHED = "performance.getEntriesByType('resource').some(e => e.name.includes('models/kart_scenery.json'))"
+# (CHANGE 145) which of Robot Lab's ultra models it has asked for (1 MB and 4.8 MB, ultra's alone)
+ROBOT_MODELS_FETCHED = ("performance.getEntriesByType('resource').map(e => e.name.split('/').pop())"
+                        ".filter(n => n === 'robot_ultra.json' || n === 'arena_ultra.json').sort().join(',')")
 
 
 class StaticServer:
@@ -976,18 +980,13 @@ def main():
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.robots.size") >= 3, f"robots lost on {tier}"
                 chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Robot Lab drawn properly on {tier}")
-            # (CHANGE 144) Robot Lab draws blocks to high: the page's lines is drawn as blocks (and kept), ultra as high;
-            # its Graphics tab shows its own four
-            chrome.js("window.__app.setTier('lines')")
-            chrome.wait_for(f"window.__state.scene.tier === 'blocks' && window.__state.tier === 'lines' && {DRAWN_RIGHT} === 'ok'", 15,
-                            "Robot Lab drawing blocks for lines")
+            # (CHANGE 145) Robot Lab draws all seven, as its window (no nearest tier): its Graphics tab shows the seven;
+            # low to high never ask for ultra's models
+            assert chrome.js(ROBOT_MODELS_FETCHED) == "", "Robot Lab's ultra models were fetched below ultra"
             tab("graphics")
-            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == "blocks,low,medium,high"
-            assert chrome.js("document.querySelector('button[data-tier=\"blocks\"]').classList.contains('on')")
-            chrome.js("window.__app.setTier('ultra')")
-            chrome.wait_for(f"window.__state.scene.tier === 'high' && {DRAWN_RIGHT} === 'ok'", 15, "Robot Lab drawing high for ultra")
-            chrome.js("window.__app.setTier('low')")
-            chrome.wait_for("window.__state.scene.tier === 'low'", 10, "Robot Lab back on low")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == \
+                "mesh,lines,blocks,low,medium,high,ultra"
+            assert chrome.js("!!document.querySelector('button[data-linecol]')"), "no line colours on Robot Lab's Graphics tab"
             chrome.js("window.__app.send({type: 'restart'})")  # (new robots: the old ones go, their materials stay)
             time.sleep(3.0)
             chrome.wait_for(f"window.__state.scene.robots.size >= 3 && {DRAWN_RIGHT} === 'ok'", 20, "Robot Lab drawn properly after a restart")
@@ -1005,6 +1004,85 @@ def main():
             no_errors()
         check("Robot Lab: the arena and the robots are drawn from its snapshots, on every tier; B makes the health bars small",
               robot_lab)
+
+        def robot_line_tiers():  # (CHANGE 145) mesh and lines as the window's: black, the arena's, the cage's screens'
+            if "amy" not in servers:  # and every robot's edges as lines (each moving part's own), the grid on lines only
+                return
+            for tier in ("mesh", "lines"):
+                chrome.js(f"window.__app.setTier('{tier}')")
+                chrome.wait_for(f"window.__state.scene.tier === '{tier}' && window.__state.scene.robots.size >= 3 && {DRAWN_RIGHT} === 'ok'",
+                                20, f"Robot Lab drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                time.sleep(1.0)  # (frames drawn: the glowing parts' lines pulsed)
+                got = chrome.js("""(() => { const sc = window.__state.scene, s = sc.scene, c = s.clearColor;
+                    const lines = s.meshes.filter(m => m.material && m.material.name.startsWith('cclines') && m.getTotalVertices() > 0);
+                    const robots = [...sc.robots.values()];
+                    return {black: c.r + c.g + c.b === 0, arena: lines.filter(m => m.name === 'arenalines').length,
+                            screens: lines.some(m => m.name === 'screenlines'), pit: lines.some(m => m.name === 'pitlines'),
+                            robots: robots.length, lined: robots.filter(v => v.root.getChildMeshes(false).some(m => m.name === 'robotlines')
+                                && v.wheels.every(w => w.spin.getChildMeshes(true).some(m => m.name === 'wheellines'))
+                                && v.panels.every(p => p.node.getChildMeshes(true).some(m => m.name === 'robotlines'))).length,
+                            deckNames: robots.some(v => v.deckName), blur: robots.some(v => v.blur),
+                            segments: sc.lineStats.segments, grid: sc.lineStats.grid, ms: sc.lineStats.ms, smoke: !sc.fx.look,
+                            lit: s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name.includes(':'))}; })()""")
+                print(f"    {tier}: {got['segments']} line segments for the arena ({got['grid']} the grid), built in {got['ms']} ms")
+                assert got["black"] and got["arena"] >= 1 and got["screens"] and got["pit"] and not got["lit"] and not got["smoke"], got
+                assert got["lined"] == got["robots"] and not got["deckNames"] and not got["blur"], got
+                assert (got["grid"] > 50) == (tier == "lines"), got
+                chrome.screenshot(os.path.join(work, f"robotlab_{tier}.png"))
+            # the line colour: at once on the arena's and the robots' lines
+            chrome.js("window.__app.lineColour('#ffb000')")
+            got = chrome.js("window.__state.scene.lineMats.filter(m => m._colors4).map(m => [m._colors4.color.r, m._colors4.color.g])")
+            assert got and any(r > 0.99 for r, g in got) and all(abs(g / r - 0.69) < 0.02 for r, g in got if r > 0.01), got
+            chrome.js("window.__app.lineColour('#33ff66')")
+            assert chrome.js(ROBOT_MODELS_FETCHED) == "", "Robot Lab's ultra models were fetched on the line tiers"
+            no_errors()
+        check("Robot Lab's line tiers (mesh: every triangle's edges; lines: the outlines and a floor grid) draw black with the "
+              "arena's, the screens' and every robot's lines, and change colour at once", robot_line_tiers)
+
+        def robot_ultra():  # (CHANGE 145) ultra: the window's robots and arena, fetched now (and not before)
+            if "amy" not in servers:
+                return
+            chrome.js("window.__app.setTier('ultra')")
+            chrome.wait_for("window.__state.scene.tier === 'ultra'", 10, "Robot Lab on ultra")
+            have = [n for n in ("robot_ultra.json", "arena_ultra.json") if os.path.exists(os.path.join(HERE, "models", n))]
+            if len(have) < 2:
+                print("    (models/ hasn't Robot Lab's ultra models: high's robots and arena drawn)")
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, "Robot Lab drawn properly on ultra without its models")
+                return
+            chrome.wait_for("window.__state.scene.ultraArena && window.__state.scene.ultraRobots && window.__state.scene.robots.size >= 3", 40,
+                            "the window's robots and arena (models/robot_ultra.json, arena_ultra.json)")
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, f"Robot Lab drawn properly on ultra (last: {chrome.js(DRAWN_RIGHT)})")
+            got = chrome.js("""(() => { const sc = window.__state.scene, u = sc.ultraParts, L = sc.lighting, list = L.rtt.renderList;
+                const robots = [...sc.robots.values()];
+                const own = robots.map(v => [...v.root.getChildMeshes(false), ...v.weapon.getChildMeshes(false)].filter(m => m.name.startsWith('robot ')).length);
+                return {fetched: %s, parts: u.parts, instances: u.instances, triangles: u.triangles,
+                        thin: u.meshes.filter(m => m.thinInstanceCount > 1).length, tinted: u.meshes.filter(m => m.isVerticesDataPresent('instanceColor')).length,
+                        casters: u.casters.filter(m => list.includes(m)).length,
+                        flatCasting: [...u.meshes, ...u.rig].filter(m => list.includes(m) && !m.ccCast).length,
+                        rig: sc.rig.filter(m => m.name.startsWith('arena ')).length, own: Math.max(...own), fewest: Math.min(...own),
+                        boxes: robots.some(v => v.root.getChildMeshes(false).some(m => m.name === 'box' || m.name === 'cyl')),
+                        shadow: L.rtt.getRenderSize(), soft: [...L.materials].some(m => m.options.defines.includes('SOFTSHADOW')),
+                        haze: [...L.materials].some(m => m.options.defines.includes('FOG')),
+                        hazeNear: [...L.materials].some(m => m.options.defines.includes('FOG') && !m.name.endsWith(' far')),
+                        atlas: [...L.materials].some(m => m.options.defines.includes('GLOWMAP') && m.options.defines.includes('MRMAP')),
+                        bloom: !!(sc.after && sc.after.pipeline.bloomEnabled), ssao: !!(sc.after && sc.after.ssao)}; })()""" % ROBOT_MODELS_FETCHED)
+            print(f"    ultra arena: {got['parts']} parts, {got['instances']} placed shapes, {got['triangles']} triangles; "
+                  f"{got['fewest']} to {got['own']} meshes a robot; {got['casters']} arena parts casting shadows")
+            assert got["fetched"] == "arena_ultra.json,robot_ultra.json" and got["parts"] >= 20 and got["instances"] > 500, got
+            assert got["thin"] >= 10 and got["tinted"] >= 5 and got["casters"] >= 5 and got["flatCasting"] == 0 and got["rig"] >= 3, got
+            assert 4 <= got["fewest"] and got["own"] <= 12 and not got["boxes"], got
+            assert got["shadow"] == 4096 and got["soft"] and got["haze"] and not got["hazeNear"] and got["atlas"] and got["bloom"], got
+            assert not got["ssao"], got
+            time.sleep(2.0)
+            print(f"    ultra: {chrome.js('window.__state.fps')} fps here")
+            chrome.screenshot(os.path.join(work, "robotlab_ultra.png"))
+            chrome.js("window.__app.setTier('low')")
+            chrome.wait_for(f"window.__state.scene.tier === 'low' && {DRAWN_RIGHT} === 'ok'", 15, "Robot Lab back on low")
+            no_errors()
+        check("Robot Lab's ultra draws the window's robots (a mesh a moving part, the roles from an atlas) and arena (its "
+              "parts, the crowd and seats as thin instances, the flat and far casting no shadow, the hall in its haze) from "
+              "models/robot_ultra.json and arena_ultra.json, fetched on ultra alone, with soft 4096 shadows and a glow",
+              robot_ultra)
 
         def shared_tabs():
             if "amy" not in servers:
@@ -1250,6 +1328,18 @@ def main():
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.fighters.size") >= 2, f"fighters lost on {tier}"
                 chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Fight Lab drawn properly on {tier}")
+            # (CHANGE 144, 145) Fight Lab draws blocks to high: the page's lines is drawn as blocks (and kept), ultra as
+            # high; its Graphics tab shows its own four
+            chrome.js("window.__app.setTier('lines')")
+            chrome.wait_for(f"window.__state.scene.tier === 'blocks' && window.__state.tier === 'lines' && {DRAWN_RIGHT} === 'ok'", 15,
+                            "Fight Lab drawing blocks for lines")
+            tab("graphics")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == "blocks,low,medium,high"
+            assert chrome.js("document.querySelector('button[data-tier=\"blocks\"]').classList.contains('on')")
+            chrome.js("window.__app.setTier('ultra')")
+            chrome.wait_for(f"window.__state.scene.tier === 'high' && {DRAWN_RIGHT} === 'ok'", 15, "Fight Lab drawing high for ultra")
+            chrome.js("window.__app.setTier('low')")
+            chrome.wait_for("window.__state.scene.tier === 'low'", 10, "Fight Lab back on low")
             # the detailed bodies (woman, man, Robin): the app's own skinned model and moves (fightmodels.js, the files
             # from models/fightlab/) on the lit tiers, posed every frame; the primitive stand-in on blocks
             chrome.js("window.__app.send({type: 'cpu_robot', design: {name: 'Ava', body: 'woman', colour: [200, 40, 40], "
@@ -1315,9 +1405,9 @@ def main():
             chrome.wait_for(f"window.__state.lesson.round_time === {min(300, rt + 10)}", 10, "the round time 10 s longer")
             chrome.js(f"window.__app.send({{type: 'lesson', lesson: {{round_time: {rt}}}}})")
             no_errors()
-        check("Fight Lab: the rings and the posed fighters are drawn (a woman with the app's own model), and its controls "
-              "reach the server (winner stays on: the rings and the queue); the rings box with its mode line, small with B; "
-              "the round time in tens", fight_lab)
+        check("Fight Lab: the rings and the posed fighters are drawn (a woman with the app's own model) on its four tiers "
+              "(lines drawn as blocks, ultra as high), and its controls reach the server (winner stays on: the rings and the "
+              "queue); the rings box with its mode line, small with B; the round time in tens", fight_lab)
         for key, proc in servers.items():
             proc.close() if isinstance(proc, Learner) else stop(proc)
 
@@ -1331,11 +1421,12 @@ def main():
             assert r.returncode == 0, r.stdout + r.stderr
         check("tex/ (the app's textures and skies) is up to date with the games' texture generators", textures_current)
 
-        def models_current():  # (CHANGE 144) the curved ultra kart and circuit (kart_models.py, kart_scenery.py)
+        def models_current():  # (CHANGE 144) the curved ultra kart and circuit (kart_models.py, kart_scenery.py);
+            # (CHANGE 145) Robot Lab's ultra robots and arena (robot_models.py, arena_models.py)
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_models.py"), "--check"], capture_output=True, text=True)
             assert r.returncode == 0, r.stdout + r.stderr
-        check("models/ (Kart Lab's curved ultra kart and ultra circuit) is up to date with kart/kart_models.py and "
-              "kart/kart_scenery.py", models_current)
+        check("models/ (Kart Lab's curved ultra kart and ultra circuit, Robot Lab's ultra robots and arena) is up to date "
+              "with kart/kart_models.py, kart/kart_scenery.py, robot_models.py and arena_models.py", models_current)
 
         def schemas_current():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_schemas.py"), "--check"], capture_output=True, text=True)

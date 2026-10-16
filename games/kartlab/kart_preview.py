@@ -9,7 +9,7 @@
 
 An offscreen screenshot steps the race one tick a frame (not by the clock), so every tier shows the same moment.
 
-Keys:  C next camera   1-4 follow that kart   R restart the race   Esc quit
+Keys:  C next camera   1-4 follow that kart   R restart the race   Esc out of full screen (the button top right)
 """
 import argparse
 import math
@@ -35,7 +35,7 @@ args = ap.parse_args()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kart_version  # noqa: E402
 sys.path.insert(0, kart_version.ENGINE_HOME)
-from engine import gfx_tiers, wire  # noqa: E402
+from engine import full_screen, gfx_tiers, wire  # noqa: E402
 
 loadPrcFileData("", "win-size 1600 900\nwindow-title Kart Lab preview\nsync-video true\n")
 loadPrcFileData("", gfx_tiers.prc_for(args.gfx))
@@ -94,7 +94,8 @@ class Preview(ShowBase):
         self.new_race()
         self.accept("c", self.cam.cycle)
         self.accept("r", self.new_race)
-        self.accept("escape", self.userExit)
+        if not args.offscreen:  # (CHANGE 146: a full screen button; Esc comes out of full screen, never quits)
+            self.full = full_screen.FullScreen(self)
         for i in range(4):
             self.accept(str(i + 1), self.set_follow, [i])
         self.start = self.last = time.perf_counter()

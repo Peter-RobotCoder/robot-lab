@@ -460,6 +460,7 @@ class Monitor:
         self.class_max = class_max(saved.get("gfx_class_max"))  # the teacher's (CHANGE 139): never stepped up past
         self.capped_knobs = []           # the knobs the class maximum turned down in this run
         self.lights = [l for l in lights if self._shadow_size(l)]
+        self.msaa0 = getattr(pipeline, "msaa_samples", None)  # (the game's own, which may not be the tier's: CHANGE 145)
         self.has_lod = bool(render is not None and not render.find("**/+LODNode").isEmpty())
         self.steps = self._plan_steps()  # the in-run step-downs still to take, in order
         self.taken = []                  # those taken (undone in reverse when stepping up)
@@ -518,8 +519,8 @@ class Monitor:
         kind, _ = step
         s = SETTINGS[self.tier]
         before = [v for k, v in self.taken if k == kind]
-        value = before[-1] if before else {"shadow": s["shadow"], "msaa": s["pbr"].get("msaa_samples", 0),
-                                           "lod": s["lod_scale"]}[kind]
+        msaa = self.msaa0 if self.msaa0 is not None else s["pbr"].get("msaa_samples", 0)
+        value = before[-1] if before else {"shadow": s["shadow"], "msaa": msaa, "lod": s["lod_scale"]}[kind]
         self._apply((kind, value))
 
     # --- the decisions ---

@@ -67,7 +67,8 @@ GAMES = {
 }
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx", "--window")
 GFX_CHOICES = ("auto", "mesh", "lines", "low", "medium", "high", "ultra")  # the Graphics button on the first screen
-# (auto: the game picks; mesh, lines and ultra are Kart Lab's, CHANGE 144: the other games draw them as basic and high)
+# (auto: the game picks; Kart Lab and Robot Lab draw all seven, CHANGE 144 and 145: Fight Lab draws mesh and lines
+# as basic and ultra as high)
 # the Window button (CHANGE 126): auto is the game's own remembered size (its Settings tab); the rest are passed
 # as --window, and the game remembers them too
 WINDOW_CHOICES = ("auto", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160", "full")
@@ -428,6 +429,15 @@ def launcher(args, passed_on):
             self.page = 0
             self.fields = {}
             self.draw()
+            # (CHANGE 146) Full screen, top right over every screen (the games' windows have the same button): Esc
+            # comes back out of it and never closes the app
+            self.fullscreen, self.windowed = False, None
+            self.full_button = DirectButton(parent=self.a2dTopRight, text="Full screen", scale=0.035,
+                                            pos=(-0.02, 0, -0.04), command=self.toggle_fullscreen,
+                                            frameColor=(0.15, 0.42, 0.62, 0.95), text_fg=white,
+                                            text_align=TextNode.ARight, relief=DGG.FLAT, pad=(0.3, 0.15))
+            self.full_button.setBin("gui-popup", 0)  # (over the screens drawn after it)
+            self.accept("escape", self.leave_fullscreen)
             self.taskMgr.add(self.read_desk, "desk")
             if args.snap:  # (tests: a picture of this window after a few seconds, then close)
                 self.taskMgr.doMethodLater(args.snap, lambda t: self.finish(), "snap")
@@ -457,6 +467,29 @@ def launcher(args, passed_on):
             getattr(self, "draw_" + self.screen)(f, keep)
             label(f, self.message[0], 0, -0.8, 0.04, self.message[1], wrap=60)
             label(f, f"Club Coders {version}", 1.46, -0.89, 0.028, grey, TextNode.ARight)
+
+        def toggle_fullscreen(self):
+            """(CHANGE 146) A borderless window the size of the screen, or back to the window it was."""
+            wp = WindowProperties()
+            if not self.fullscreen:
+                cur = self.win.getProperties()
+                self.windowed = (cur.getXSize(), cur.getYSize(), cur.getXOrigin(), cur.getYOrigin())
+                wp.setUndecorated(True)
+                wp.setOrigin(0, 0)
+                wp.setSize(self.pipe.getDisplayWidth(), self.pipe.getDisplayHeight())
+            else:
+                w, h, x, y = self.windowed
+                wp.setUndecorated(False)
+                wp.setOrigin(max(0, x), max(0, y))
+                wp.setSize(w, h)
+            self.win.requestProperties(wp)
+            self.fullscreen = not self.fullscreen
+            self.full_button["text"] = "Exit full screen (Esc)" if self.fullscreen else "Full screen"
+
+        def leave_fullscreen(self):
+            """Esc: out of full screen (in a window it does nothing; it never closes the app)."""
+            if self.fullscreen:
+                self.toggle_fullscreen()
 
         def draw_home(self, f, keep):
             label(f, "CLUB CODERS", 0, 0.7, 0.11, yellow)

@@ -1,6 +1,7 @@
 {
  "engine": "4",
  "kart": "2",
+ "lab": "3",
  "size": 512,
  "skies": {
   "env": [
@@ -42,6 +43,12 @@
   "kerb_albedo.jpg",
   "kerb_mr.jpg",
   "kerb_normal.jpg",
+  "lab_floor_albedo.jpg",
+  "lab_floor_mr.jpg",
+  "lab_floor_normal.jpg",
+  "lab_signs_albedo.jpg",
+  "lab_signs_mr.jpg",
+  "lab_signs_normal.jpg",
   "needles_albedo.jpg",
   "needles_mr.jpg",
   "needles_normal.jpg",

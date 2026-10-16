@@ -3,22 +3,37 @@
 Call init(base, quality) once, then build ArenaVisual and RobotVisual. The same classes work in the
 single-player showcase (robot_wars.py) and in Robot Lab (lab_client.py).
 quality: a graphics tier from engine.gfx_tiers: "basic" (Panda's own shaders, the paint texture only: the oldest
-laptops), "low" (simplepbr without shadows or surface detail), "medium", "high".
+laptops), "low" (simplepbr without shadows or surface detail), "medium", "high". Robot Lab draws all seven
+(CHANGE 145, as Kart Lab does since CHANGE 144):
+    mesh    every triangle's edges in one colour on black (engine.line_look: hidden lines), no lights or textures
+    lines   only the shapes' outlines and a floor grid every GRID metres, in one colour, fading into the dark
+    ultra   high with a 4096 shadow map and 16x anisotropy (4x MSAA, as high), and the smooth robots and arena of
+            robot_models.py and arena_models.py (pure Python: the page draws the same from models/robot_ultra.json
+            and arena_ultra.json)
+Nothing here changes the fight: the sim never reads a picture.
 """
 import math
 import os
 import random
 import time
 
-from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker, DirectionalLight, Filename, Material, PerspectiveLens,
-                          Point3, Quat, SamplerState, Spotlight, TextNode, Texture, TextureStage,
+from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, DirectionalLight, Filename, Fog, GeomNode, Material,
+                          PerspectiveLens, Point3, Quat, SamplerState, Spotlight, TextNode, Texture, TextureStage,
                           TransparencyAttrib, Vec3)
 
+import arena_models  # (the ultra arena: numbers only, shared with the page)
 import lab_sim as sim
-from engine import gfx_tiers, rw_textures
+import lab_textures
+import robot_models  # (the ultra robots: numbers only, shared with the page)
+from engine import gfx_tiers, line_look, model_geom, rw_textures
 from engine.rw_mesh import Mesh, bevel_box, cylinder, plate_y, prism
 
 _state = {}
+# mesh and lines (CHANGE 145): the line colour (a learner's choice, as Kart Lab's), how far away the lines fade into
+# the dark (metres from the camera: the arena is 20 m, the stands reach 18 m out from its middle) and the floor grid
+LINE_COLOURS = line_look.LINE_COLOURS
+LOOK_FADE = {"mesh": (16, 60), "lines": (24, 90)}
+GRID = 2.0  # metres between the floor grid's lines on lines (the floor plates' size)
 
 
 # ---------- materials ----------
@@ -31,11 +46,15 @@ class Materials:
         self.ts_normal.setMode(TextureStage.M_normal)
         self.ts_mr = TextureStage("metal_rough")
         self.ts_mr.setMode(TextureStage.M_selector)
+        self.ts_glow = TextureStage("emission")  # (ultra's robots: CHANGE 145)
+        self.ts_glow.setMode(TextureStage.M_emission)
+        self.share, self.shared = False, {}  # (ultra's arena: see apply)
 
     def tex(self, name, kind):
         key = (name, kind)
         if key not in self.cache:
-            t = self.loader.loadTexture(Filename.fromOsSpecific(os.path.join(rw_textures.TEX, f"{name}_{kind}.png")))
+            folder = lab_textures.ensure() if name in lab_textures.SETS else rw_textures.TEX  # (CHANGE 145: ultra's own)
+            t = self.loader.loadTexture(Filename.fromOsSpecific(os.path.join(folder, f"{name}_{kind}.png")))
             if kind == "albedo":
                 t.setFormat(Texture.F_srgb)
             t.setMinfilter(SamplerState.FT_linear_mipmap_linear)
@@ -47,15 +66,24 @@ class Materials:
         return self.cache[key]
 
     def apply(self, np_, name=None, colour=(1, 1, 1), rough=1.0, metal=1.0, emission=None):
-        """Give a part a PBR look: a texture set (paint, steel, diamond...) tinted by colour."""
-        m = Material()
-        m.setBaseColor((*(c ** 2.2 for c in colour), 1))  # screen colours (sRGB) to the linear colours lighting uses
-        m.setRoughness(rough)
-        m.setMetallic(metal)
-        if emission:
-            m.setEmission((*emission, 1))
+        """Give a part a PBR look: a texture set (paint, steel, diamond...) tinted by colour. (mesh and lines: the
+        material only, which nothing lights, so the arena's glowing parts can still be set; no textures loaded.)
+        While share is on (ultra's arena, CHANGE 145), parts that look the same and don't glow share one Material, so
+        flattening merges them: a few dozen draw calls fewer, in the shadow pass too."""
+        key = (tuple(colour), rough, metal)
+        if self.share and not emission and key in self.shared:
+            m = self.shared[key]
+        else:
+            m = Material()
+            m.setBaseColor((*(c ** 2.2 for c in colour), 1))  # screen colours (sRGB) to the linear colours lighting uses
+            m.setRoughness(rough)
+            m.setMetallic(metal)
+            if emission:
+                m.setEmission((*emission, 1))
+            elif self.share:
+                self.shared[key] = m
         np_.setMaterial(m, 1)
-        if name:
+        if name and self.quality not in gfx_tiers.LOOKS:
             np_.setTexture(TextureStage.getDefault(), self.tex(name, "albedo"), 1)
             if gfx_tiers.SETTINGS[self.quality]["simplepbr"]:  # (basic: Panda's shaders know nothing of these)
                 np_.setTexture(self.ts_mr, self.tex(name, "mr"), 1)
@@ -76,12 +104,20 @@ def part(parent, mesh, name=None, colour=(1, 1, 1), rough=1.0, metal=1.0, emissi
 
 
 # ---------- lighting ----------
-def init(base, quality="high"):
+def init(base, quality="high", line_colour=None):
     """Lights, reflections and the PBR pipeline for a graphics tier (engine.gfx_tiers). Returns the simplepbr
-    pipeline, or None when the tier used is "basic" (asked for, or because the driver couldn't run the others)."""
+    pipeline, or None when the tier used is "basic" (asked for, or because the driver couldn't run the others), mesh
+    or lines (CHANGE 145: line_colour "#rrggbb", else phosphor green)."""
     quality = quality if quality in gfx_tiers.TIERS else gfx_tiers.DEFAULT
     tier = gfx_tiers.SETTINGS[quality]
+    _state.clear()
+    line_look.reset()
     _state["mats"] = Materials(base.loader, quality)
+    _state["base"] = base
+    if quality in gfx_tiers.LOOKS:  # black, no lights or shaders: the faces black, their edges in the line colour
+        line_look.init(base, quality, line_colour, fade=LOOK_FADE[quality], far=400.0)
+        _state.update(quality=quality, pipeline=None, sun=None)
+        return None
     base.setBackgroundColor(0.02, 0.02, 0.03)
     render = base.render
     sun = DirectionalLight("key")
@@ -117,7 +153,9 @@ def init(base, quality="high"):
             return simplepbr.EnvMap(cube, prefiltered_size=64, prefiltered_samples=16, blocking_prepare=True)
         except Exception:
             return None
-    pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.7)
+    def extra(t):  # ultra: the hall's haze is compiled into simplepbr's shader (CHANGE 145)
+        return {"enable_fog": True} if t == "ultra" else {}
+    pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.7, extra=extra)
     if used != quality:  # the driver couldn't run the tier asked for: the lights and materials follow the one used
         print(f"gfx: {quality} graphics don't run here, using {used}", flush=True)
         _state["mats"].quality = used
@@ -127,6 +165,14 @@ def init(base, quality="high"):
         _state["tone"] = gfx_tiers.basic_look(base, exposure=0.7)  # (Panda's shaders: the lights come down, the tone curve is a post pass)
     if gfx_tiers.SETTINGS[used]["msaa"]:
         render.setAntialias(AntialiasAttrib.MMultisample)
+    if used == "ultra":  # (CHANGE 145)
+        if pipeline is not None:  # Robot Lab's ultra keeps high's 4x MSAA: 8x cost this laptop's Iris Xe 2.5 ms a frame
+            pipeline.msaa_samples = ULTRA_MSAA  # at 1280 x 720 with ten robots, and the 4096 shadow map is worth more
+        sun.setCameraMask(SHADOW_MASK)  # the floor, the hall and the crowd stay out of the shadow map
+        fog = Fog("haze")  # a faint haze over the hall alone (ultra_parts): simplepbr's fog would make see-through
+        fog.setColor(*HAZE)  # things (lettering, the screens, scorch marks) more solid with distance
+        fog.setExpDensity(HAZE_DENSITY)
+        _state["haze"] = fog
     _state.update(quality=used, pipeline=pipeline, sun=sun_np)
     return pipeline
 
@@ -136,15 +182,93 @@ def tier():
     return _state.get("quality", gfx_tiers.DEFAULT)
 
 
+def look():
+    """"mesh" or "lines" when the tier in use is one of those looks (CHANGE 145), else None."""
+    return line_look.look()
+
+
+def set_line_colour(text):
+    """mesh and lines: the learner's line colour, at once on everything drawn (CHANGE 145)."""
+    line_look.set_line_colour(text)
+
+
 def start_monitor(base, settings_dir, override=None, on_note=None, judge=True):
     """Watch the frame times from now on (engine.gfx_tiers.Monitor): call it once play has started. judge=False
-    when the server runs on this same computer (a test): the knobs still turn, but no tier is saved."""
+    when the server runs on this same computer (a test): the knobs still turn, but no tier is saved. Robot Lab
+    draws all seven tiers (CHANGE 145)."""
+    sun = _state.get("sun")
     return gfx_tiers.Monitor(settings_dir, tier(), override=override, pipeline=_state.get("pipeline"),
-                             lights=[_state["sun"]], render=base.render, on_note=on_note, judge=judge).start(base)
+                             lights=[sun] if sun is not None else [], render=base.render, on_note=on_note, judge=judge,
+                             tiers=gfx_tiers.TIERS).start(base)
+
+
+# ---------- mesh and lines (CHANGE 145: engine.line_look, as Kart Lab's) ----------
+def outline(np_, extra=None):
+    """mesh and lines: np_'s faces black, its edges in the line colour (worked out once, now). Returns the lines.
+    (Its material is kept as a tag: the glowing parts' update still sets it, glow_material.)"""
+    if np_.getMaterial() is not None:
+        np_.setPythonTag("material", np_.getMaterial())
+    return line_look.outline(np_, extra=extra)
+
+
+def glow_material(np_):
+    """A glowing part's material (on mesh and lines, the one it had before its faces went black)."""
+    return np_.getMaterial() or np_.getPythonTag("material")
+
+
+def edges_only(np_):
+    """mesh and lines: a see-through part (the cage's screens): its edges drawn, its faces not at all (black ones
+    would hide the robots behind them from the cameras outside the cage)."""
+    node = line_look.line_node(f"{np_.getName()} {look()}", *line_look.edges(np_, look()))
+    lines = line_look.wire(np_, np_.getParent().attachNewNode(node))
+    np_.hide()
+    return lines
+
+
+def lettering(np_):
+    """mesh and lines: words (the arena's name, the score) in the line colour, recoloured with it."""
+    np_.setColor(*line_look.colour(), 1, 2)
+    np_.setLightOff(2)
+    line_look.keep(np_)
+    return np_
+
+
+def pulse(lines, k):
+    """mesh and lines: a glowing part's lines brighter or dimmer (k from 0 to 1), as its glow would be."""
+    if lines is not None:
+        lines.setColorScale(k, k, k, 1)
 
 
 # ---------- the arena ----------
 PAINT_RED, PAINT_YELLOW = (0.6, 0.08, 0.06), (0.95, 0.7, 0.05)
+SHADOW_MASK = BitMask32.bit(5)  # ultra: the sun's shadow camera sees what doesn't hide from this (CHANGE 145)
+ULTRA_MSAA = 4                  # ultra: simplepbr's samples (gfx_tiers says 8: see init)
+HAZE = (0.012, 0.014, 0.02)     # ultra: the hall's air, which the stands and walls fade into (linear, as lit)...
+HAZE_DENSITY = 0.012            # ...and how thick (exponential: the far stands four fifths themselves)
+
+
+def ultra_parts(parent, parts, shapes, instances, wall_colour):
+    """ultra (CHANGE 145): model_kit parts and placed shapes as one Geom per material under parent, each with its
+    look from arena_models.MATERIALS (colour None: the arena's wall colour)."""
+    for (material, far), (pos, nrm, uv, col, alpha, idx) in sorted(model_geom.merged(parts, shapes, instances).items()):
+        node = GeomNode(f"{material}{' far' if far else ''}")
+        node.addGeom(model_geom.geom_of(pos, nrm, uv, idx, col, alpha, material))
+        np_ = parent.attachNewNode(node)
+        look_ = arena_models.MATERIALS[material]
+        mats().apply(np_, look_["texture"], wall_colour if look_["colour"] is None else tuple(look_["colour"]),
+                     look_["rough"], look_["metal"], tuple(look_["emission"]) if look_.get("emission") else None)
+        if look_.get("two_sided"):
+            np_.setTwoSided(True)
+        if look_.get("decal"):
+            np_.setDepthOffset(1)
+        if look_.get("alpha"):
+            np_.setTransparency(TransparencyAttrib.M_alpha)
+            np_.setDepthWrite(False)
+            np_.setBin("transparent", 2)
+        if far or look_.get("flat"):  # (the floor and the hall needn't fill the shadow map: they only have shadows cast on them)
+            np_.hide(SHADOW_MASK)
+        if far and "haze" in _state:
+            np_.setFog(_state["haze"])
 
 
 class ArenaVisual:
@@ -156,16 +280,19 @@ class ArenaVisual:
         wall_colour = tuple(v / 255 for v in look.get("wall_colour", (155, 25, 20)))
         arena_name = str(look.get("name", "ROBOT LAB"))
         self.root = parent.attachNewNode("arena_visual")
-        static = self.root.attachNewNode("static")
+        static = self.static = self.root.attachNewNode("static")
         A, h = sim.Arena, sim.ARENA / 2
         px, py, ps = A.PIT
         rnd = random.Random(3)
+        ultra = tier() == "ultra"  # (CHANGE 145: arena_models' floor, cage, towers, rig, stands and screen: self.ultra)
+        mats().share = ultra
 
         # floor: diamond plate, with holes for the pit and the floor flipper (the same rectangles as the physics)
-        floor = Mesh(tile=0.6)
-        for x0, y0, x1, y1 in sim.floor_rects(hazards, user_mods):
-            bevel_box((x1 - x0) / 2, (y1 - y0) / 2, 0.25, 0.01, mesh=floor, offset=Vec3((x0 + x1) / 2, (y0 + y1) / 2, -0.25))
-        part(static, floor, "diamond", rough=1.0, metal=1.0)
+        if not ultra:
+            floor = Mesh(tile=0.6)
+            for x0, y0, x1, y1 in sim.floor_rects(hazards, user_mods):
+                bevel_box((x1 - x0) / 2, (y1 - y0) / 2, 0.25, 0.01, mesh=floor, offset=Vec3((x0 + x1) / 2, (y0 + y1) / 2, -0.25))
+            part(static, floor, "diamond", rough=1.0, metal=1.0)
         # painted markings: the corner patrol zones (Resident Robots), start squares, centre circle
         cz = sim.CPZ / 2
         for sx in (-1, 1):
@@ -191,6 +318,9 @@ class ArenaVisual:
         logo_np.setHpr(0, -90, 0)
         logo_np.setScale(1.2)
         mats().apply(logo_np, None, PAINT_YELLOW, 0.5, 0)
+        if line_look.look():  # (mesh and lines: written in the line colour, apart from the floor that goes black)
+            logo_np.reparentTo(self.root)
+            lettering(logo_np)
         if mods["flame_pit"]:  # (the Flame pit user mod is in the middle: no name painted across it)
             logo_np.removeNode()
 
@@ -207,17 +337,18 @@ class ArenaVisual:
             part(static, sides, "paint", colour=wall_colour, rough=1.0, metal=1.0)
             part(static, gutter, "steel", colour=(0.12, 0.12, 0.13), rough=1.0, metal=1.0)
         else:  # walls: red kick-plates, steel rail and posts, clear screens
-            wall = Mesh(tile=0.5)
-            rail = Mesh(tile=1.0)
-            for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.25), (0, -h - 0.25, h + 0.5, 0.25),
-                                   (h + 0.25, 0, 0.25, h), (-h - 0.25, 0, 0.25, h)):
-                bevel_box(hx, hy, 0.6, 0.04, mesh=wall, offset=Vec3(cx, cy, 0.6))
-                bevel_box(hx + 0.03, hy + 0.03, 0.05, 0.02, mesh=rail, offset=Vec3(cx, cy, 1.25))
-            for k in range(-5, 6):
-                for x, y in ((k * 2, h + 0.25), (k * 2, -h - 0.25), (h + 0.25, k * 2), (-h - 0.25, k * 2)):
-                    cylinder(0.07, 1.65, mesh=rail, offset=Vec3(x, y, 2.9), seg=12)
-            part(static, wall, "paint", colour=wall_colour, rough=1.0, metal=1.0)
-            part(static, rail, "steel", rough=1.0, metal=1.0)
+            if not ultra:
+                wall = Mesh(tile=0.5)
+                rail = Mesh(tile=1.0)
+                for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.25), (0, -h - 0.25, h + 0.5, 0.25),
+                                       (h + 0.25, 0, 0.25, h), (-h - 0.25, 0, 0.25, h)):
+                    bevel_box(hx, hy, 0.6, 0.04, mesh=wall, offset=Vec3(cx, cy, 0.6))
+                    bevel_box(hx + 0.03, hy + 0.03, 0.05, 0.02, mesh=rail, offset=Vec3(cx, cy, 1.25))
+                for k in range(-5, 6):
+                    for x, y in ((k * 2, h + 0.25), (k * 2, -h - 0.25), (h + 0.25, k * 2), (-h - 0.25, k * 2)):
+                        cylinder(0.07, 1.65, mesh=rail, offset=Vec3(x, y, 2.9), seg=12)
+                part(static, wall, "paint", colour=wall_colour, rough=1.0, metal=1.0)
+                part(static, rail, "steel", rough=1.0, metal=1.0)
             screens = self.root.attachNewNode("screens")
             glass = Mesh()
             for cx, cy, hx, hy in ((0, h + 0.25, h + 0.5, 0.02), (0, -h - 0.25, h + 0.5, 0.02),
@@ -228,8 +359,12 @@ class ArenaVisual:
             g.setAlphaScale(0.1)
             screens.setBin("transparent", 10)
             screens.setDepthWrite(False)
+            if line_look.look():  # (mesh and lines: the screens' edges only, never black faces in front of the robots)
+                edges_only(g)
 
         # corner towers with lamps, and an overhead lighting rig
+        if ultra:
+            self.rig = self.root.attachNewNode("lighting_rig")  # (filled by self.ultra)
         towers, lamps = Mesh(), Mesh()
         for sx in (-1, 1):
             for sy in (-1, 1):
@@ -245,19 +380,23 @@ class ArenaVisual:
             bevel_box(0.1, 12.5, 0.1, 0.02, mesh=truss, offset=Vec3(i * 3.2, 0, 9.3))
             for j in (-6, -2, 2, 6):
                 bevel_box(0.35, 0.2, 0.08, 0.02, mesh=rig_lamps, offset=Vec3(i * 3.2, j, 9.15))
-        part(static, towers, "steel", colour=(0.25, 0.26, 0.28), rough=1.0, metal=1.0)
-        part(static, lamps, None, colour=(1, 1, 1), rough=0.3, metal=0, emission=(6, 5.6, 5))
-        # the overhead rig is its own node: the full arena camera looks down past it, so it hides it
-        self.rig = self.root.attachNewNode("lighting_rig")
-        part(self.rig, truss, "steel", colour=(0.25, 0.26, 0.28), rough=1.0, metal=1.0)
-        part(self.rig, rig_lamps, None, colour=(1, 1, 1), rough=0.3, metal=0, emission=(6, 5.6, 5))
-        self.rig.flattenStrong()
+        if not ultra:
+            part(static, towers, "steel", colour=(0.25, 0.26, 0.28), rough=1.0, metal=1.0)
+            part(static, lamps, None, colour=(1, 1, 1), rough=0.3, metal=0, emission=(6, 5.6, 5))
+            # the overhead rig is its own node: the full arena camera looks down past it, so it hides it
+            self.rig = self.root.attachNewNode("lighting_rig")
+            part(self.rig, truss, "steel", colour=(0.25, 0.26, 0.28), rough=1.0, metal=1.0)
+            part(self.rig, rig_lamps, None, colour=(1, 1, 1), rough=0.3, metal=0, emission=(6, 5.6, 5))
+            self.rig.flattenStrong()
+        if line_look.look():
+            outline(self.rig)
 
         # outside: concrete floor, tiered stands and a crowd (one mesh, coloured per person)
         outside = Mesh(tile=0.3)
         far = 30
-        for cx, cy, hx, hy in ((0, h + edge + far / 2, h + far, far / 2), (0, -h - edge - far / 2, h + far, far / 2),
-                               (h + edge + far / 2, 0, far / 2, h + edge), (-h - edge - far / 2, 0, far / 2, h + edge)):
+        slabs = ((0, h + edge + far / 2, h + far, far / 2), (0, -h - edge - far / 2, h + far, far / 2),
+                 (h + edge + far / 2, 0, far / 2, h + edge), (-h - edge - far / 2, 0, far / 2, h + edge))
+        for cx, cy, hx, hy in () if ultra else slabs:  # (ultra: arena_models' hall floor)
             bevel_box(hx, hy, 0.05, 0.0, mesh=outside, offset=Vec3(cx, cy, -0.05))
         if no_cage:
             for cx, cy, hx, hy in ((0, h + gw, h + gw, 0.02), (0, -h - gw, h + gw, 0.02),
@@ -267,7 +406,7 @@ class ArenaVisual:
         crowd = Mesh(colours=True)
         shirt = [(0.8, 0.1, 0.1), (0.1, 0.3, 0.8), (0.9, 0.8, 0.2), (0.2, 0.6, 0.3), (0.9, 0.9, 0.9),
                  (0.15, 0.15, 0.18), (0.9, 0.5, 0.1), (0.5, 0.2, 0.6)]
-        for side in range(4):
+        for side in range(0 if ultra else 4):  # (ultra: arena_models' stands and crowd)
             for row in range(4):
                 d = h + 3.2 + row * 1.3
                 z = 0.35 + row * 0.55
@@ -282,14 +421,18 @@ class ArenaVisual:
                         bevel_box(0.08, 0.08, 0.09, 0.04, mesh=crowd, offset=Vec3(x, y, z * 2 + tall * 2 + 0.1))
                 cx, cy, hx, hy = [(0, d, h + 3, 0.65), (0, -d, h + 3, 0.65), (d, 0, 0.65, h + 3), (-d, 0, 0.65, h + 3)][side]
                 bevel_box(hx, hy, z, 0.02, mesh=stands, offset=Vec3(cx, cy, z))
-        part(static, outside, "concrete", rough=1.0, metal=0.0)
-        part(static, stands, "concrete", colour=(0.5, 0.55, 0.65), rough=1.0, metal=0.0)
-        part(static, crowd, None, colour=(0.45, 0.45, 0.45), rough=0.9, metal=0.0)  # dim: the stands are in shadow
+        if ultra:  # (the hall's floor, the stands and the crowd: arena_models'; the gutter's outer side as ever)
+            if no_cage:
+                part(static, outside, "concrete", rough=1.0, metal=0.0)
+        else:
+            part(static, outside, "concrete", rough=1.0, metal=0.0)
+            part(static, stands, "concrete", colour=(0.5, 0.55, 0.65), rough=1.0, metal=0.0)
+            part(static, crowd, None, colour=(0.45, 0.45, 0.45), rough=0.9, metal=0.0)  # dim: the stands are in shadow
 
         # a big screen for the score
         screen = Mesh()
         bevel_box(4, 0.3, 1.4, 0.05, mesh=screen)
-        scr = part(static, screen, "steel", colour=(0.1, 0.1, 0.12), pos=(0, h + 7.5, 6.5))
+        scr = part(static, screen, "steel", colour=(0.1, 0.1, 0.12), pos=(0, h + 7.5, 6.5)) if not ultra else None
         self.scoreboard = TextNode("score")
         self.scoreboard.setAlign(TextNode.ACenter)
         self.scoreboard.setText(arena_name)
@@ -297,6 +440,8 @@ class ArenaVisual:
         sb.setPos(0, h + 7.15, 6.6)
         sb.setScale(0.9)
         mats().apply(sb, None, (0, 0, 0), 1, 0, emission=(3, 2.4, 0.4))
+        if line_look.look():
+            lettering(sb)
         del scr
 
         # hazards
@@ -491,7 +636,51 @@ class ArenaVisual:
                  pos=(s * 0.9, 0.05, 0.0))
         self.ff_light = part(self.root, cylinder(0.12, 0.08, seg=16), None, (0.05, 0, 0), 0.4, 0,
                              emission=(0.2, 0, 0), pos=(fx - 1.9, fy - 1.2, 0.08))
+        if ultra:
+            self.ultra(mods, look, wall_colour, no_cage)
+        mats().share = False
         static.flattenStrong()  # one draw call per material: fast on low-spec laptops
+        self.pit_lines = self.ff_lines = self.boost_lines = self.repair_lines = None
+        if line_look.look():
+            self.looks(hazards, user_mods)
+
+    def ultra(self, mods, look, wall_colour, no_cage):
+        """ultra (CHANGE 145): arena_models' parts, as models/arena_ultra.json has them for the page: the steel floor
+        for the holes the user mods cut, its battle scars, the cage (not with No cage), the hall's floor, the towers,
+        the stands with their seats and crowd (none if the arena's look says so), the big screen, and the lighting
+        rig under its own node. One Geom per material (crowds and seats included), so a dozen or two draw calls.
+        What lies flat or stands outside the arena hides from the sun's shadow camera (it only covers the arena)."""
+        made = arena_models.made()
+        names = [arena_models.floor_group(mods["spike_pit"], mods["flame_pit"]), "scars", "towers", "stands", "screen",
+                 "hall", "venue_floor_open" if no_cage else "venue_floor"] + ([] if no_cage else ["cage"])
+        instances = made["instances"] if look.get("crowd", True) else {"seat": made["instances"]["seat"]}
+        self.ultra_root = self.root.attachNewNode("ultra arena")
+        ultra_parts(self.ultra_root, [p for n in names for p in made["groups"][n]], made["shapes"], instances, wall_colour)
+        ultra_parts(self.rig, made["groups"]["rig"] + made["groups"]["roof"], {}, {}, wall_colour)  # (the full arena
+        # camera, looking down from over the roof, hides the rig and the roof with it: rw_camera.show_rig)
+
+    def looks(self, hazards, user_mods):
+        """mesh and lines (CHANGE 145): the arena's faces black and its edges in the line colour, worked out once:
+        the still parts as one set (with the floor grid on lines, lying on the floor's own rectangles: none across
+        the holes), each moving part its own, so its lines move with it. The glowing parts' lines glow as they do
+        (pulse, in update); the saws' blur discs (see-through) aren't drawn."""
+        started = time.perf_counter()
+        grid = line_look.grid(sim.floor_rects(hazards, user_mods), GRID) if look() == "lines" else None
+        outline(self.static, extra=grid)
+        for np_ in (self.pit_lid, self.floor_flipper, self.spikes):
+            if np_ is not None:
+                outline(np_)
+        for saw, spin, blur, glow in self.saws:
+            outline(spin)
+            outline(glow)
+            blur.hide()
+        for node, _ in self.flames:
+            outline(node)
+        self.pit_lines = outline(self.pit_lights)
+        self.ff_lines = outline(self.ff_light)
+        self.boost_lines = outline(self.boost) if self.boost is not None else None
+        self.repair_lines = outline(self.repair_light) if self.repair_light is not None else None
+        self.lines_secs = time.perf_counter() - started
 
     def build_saw(self, static, sx, sy):
         """A floor saw: a slotted steel housing, and a blade with hooked carbide-tipped teeth, expansion
@@ -563,6 +752,9 @@ class ArenaVisual:
         glow.setAlphaScale(0.5)
         glow.setDepthWrite(False)
         glow.setBin("transparent", 5)
+        if look():  # (mesh and lines: the beam is a solid line in the line colour)
+            glow.hide()
+            lettering(beam)
         aim.hide()
         return aim, beam
 
@@ -579,25 +771,30 @@ class ArenaVisual:
         if self.floor_flipper is not None and hz.get("ff") is not None:
             self.floor_flipper.setQuat(Quat(*hz["ff"]))
             warn = hz.get("on", {}).get("floor_flipper", True) and (t % 4.0) > 3.2  # blinks just before it fires
-            m = self.ff_light.getMaterial()
+            m = glow_material(self.ff_light)
             m.setEmission((8, 0.3, 0.1, 1) if warn and int(t * 8) % 2 == 0 else (0.2, 0, 0, 1))
+            pulse(self.ff_lines, 1.0 if warn and int(t * 8) % 2 == 0 else 0.45)
         if self.spikes is not None:
             self.spikes.setX(sim.Arena.spike_x(hz.get("spikes", 0.0)))
         if self.pit_lid is not None and hz.get("pit") is not None:
             self.pit_lid.setZ(hz["pit"])
-            m = self.pit_lights.getMaterial()
+            m = glow_material(self.pit_lights)
             if hz.get("pit_open", True):
-                pulse = 2.5 + 1.5 * math.sin(t * 4)
-                m.setEmission((pulse * 1.6, pulse * 0.12, pulse * 0.04, 1))
+                glow = 2.5 + 1.5 * math.sin(t * 4)
+                m.setEmission((glow * 1.6, glow * 0.12, glow * 0.04, 1))
+                pulse(self.pit_lines, glow / 4)
             else:
                 m.setEmission((0.05, 0.3, 0.08, 1))  # closed: a calm green
+                pulse(self.pit_lines, 0.35)
         if self.boost is not None:  # the boost button user mod: green (pulsing) while it works, dim red while it rests
             glow = 0.9 + 0.35 * math.sin(t * 5)
-            self.boost_light.getMaterial().setEmission((0.25 * glow, glow, 0.35 * glow, 1) if hz.get("boost", 1)
+            glow_material(self.boost_light).setEmission((0.25 * glow, glow, 0.35 * glow, 1) if hz.get("boost", 1)
                                                        else (0.45, 0.06, 0.04, 1))
+            pulse(self.boost_lines, glow / 1.25 if hz.get("boost", 1) else 0.3)
         if self.repair_light is not None:  # the Repair bay user mod: bright and pulsing while it repairs a robot
             glow = 2.0 + 1.2 * math.sin(t * 6) if hz.get("repair") else 0.6
-            self.repair_light.getMaterial().setEmission((0.2 * glow, 0.5 * glow, glow, 1))
+            glow_material(self.repair_light).setEmission((0.2 * glow, 0.5 * glow, glow, 1))
+            pulse(self.repair_lines, min(1.0, glow / 3.2 + 0.2))
         for node, phase in self.flames:  # the Flame pit user mod: from the pit's floor to the flames' height above it
             flicker = 0.88 + 0.12 * math.sin(t * 11 + phase) * math.sin(t * 6.3 + phase * 2)
             node.setSz(max(0.01, (sim.Arena.FLAME_PIT_DEPTH + hz.get("flames", 0.0)) * flicker))
@@ -619,6 +816,69 @@ class ArenaVisual:
 
 
 # ---------- robots ----------
+ROLE_INDEX = {role: i for i, role in enumerate(robot_models.ROLES)}  # ultra: each role's texel in a robot's atlas
+ATLAS_GLOW = 8.0  # ultra: the atlas's glow texels are a role's emission over this (the material's emission is this)
+
+
+def ultra_robot_arrays():
+    """ultra (CHANGE 145): robot_models' pieces as numpy arrays, made once: {piece: [(role, (pos, nrm, idx)), ...]}."""
+    if "ultra_robot" not in _state:
+        out = {}
+        for name, parts in robot_models.kit().items():
+            out[name] = []
+            for p in parts:
+                pos, nrm, uv, col, alpha, idx = model_geom.arrays([p])
+                out[name].append((p.material, (pos, nrm, idx)))
+        _state["ultra_robot"] = out
+    return _state["ultra_robot"]
+
+
+def robot_role_geom(arrays, role, colour, trim):
+    """One role of one piece for a robot of these colours: its vertices coloured, its texture coordinates on the
+    role's texel of the atlas (robot_atlas)."""
+    import numpy as np
+    pos, nrm, idx = arrays
+    look_ = robot_models.ROLES[role]
+    c = colour if look_["colour"] is None else trim if look_["colour"] == "trim" else tuple(look_["colour"])
+    uv = np.tile([(ROLE_INDEX[role] + 0.5) / len(ROLE_INDEX), 0.5], (len(pos), 1))
+    return model_geom.geom_of(pos, nrm, uv, idx, np.tile(c, (len(pos), 1)), None, role, tangents=False)
+
+
+def robot_atlas(lights):
+    """ultra: a robot's two little pictures, a texel a role: (ambient 1, roughness, metal) and its glow (emission over
+    ATLAS_GLOW; "lights" is the robot's own lights colour)."""
+    from panda3d.core import PNMImage
+    n = len(ROLE_INDEX)
+    mr, glow = PNMImage(n, 1, 3), PNMImage(n, 1, 3)
+    for role, i in ROLE_INDEX.items():
+        look_ = robot_models.ROLES[role]
+        mr.setXel(i, 0, 1.0, look_["rough"], look_["metal"])
+        e = look_.get("emission")
+        e = lights if e == "lights" else e or (0, 0, 0)
+        glow.setXel(i, 0, *(min(1.0, v / ATLAS_GLOW) for v in e))
+    out = []
+    for img, name in ((mr, "robot roles"), (glow, "robot glow")):
+        t = Texture(name)
+        t.load(img)
+        t.setMinfilter(SamplerState.FT_nearest)
+        t.setMagfilter(SamplerState.FT_nearest)
+        t.setWrapU(SamplerState.WM_clamp)
+        t.setWrapV(SamplerState.WM_clamp)
+        out.append(t)
+    return out
+
+
+def white_texture():
+    if "white" not in _state:
+        from panda3d.core import PNMImage
+        img = PNMImage(1, 1, 3)
+        img.fill(1, 1, 1)
+        t = Texture("white")
+        t.load(img)
+        _state["white"] = t
+    return _state["white"]
+
+
 class HitBar:
     """A small health bar that floats over one part of a robot for a moment after that part is hit."""
 
@@ -690,6 +950,10 @@ class RobotVisual:
         h = sh["half"]
         self.front = h.y * self.k  # how far the nose is from the middle (for the first person camera)
         z0, top = sim.CHASSIS_Z, sim.CHASSIS_Z + h.z
+        if tier() == "ultra":  # (CHANGE 145: the smooth robot of robot_models.py, on the same nodes)
+            self.ultra(design, weapon, size, sh, colour, trim, lights, style)
+            self.finish()
+            return
         # body: a chunky bevelled hull, a raised armour deck and side skirts
         part(self.chassis, bevel_box(h.x, h.y, h.z, 0.06, tile=1.2), "paint", colour, pos=(0, 0, z0))
         # armour: bolted-on panels, each on a hinge edge, so under real damage they bend, rattle and come off
@@ -741,7 +1005,7 @@ class RobotVisual:
         tn = TextNode("name")
         tn.setText(str(style.get("number", design["name"]))[:10].upper())
         tn.setAlign(TextNode.ACenter)
-        tnp = self.deck.attachNewNode(tn)  # (painted on the deck)
+        tnp = self.name_np = self.deck.attachNewNode(tn)  # (painted on the deck)
         tnp.setPos(0, h.y * 0.68, 0.048)
         tnp.setHpr(0, -90, 0)
         tnp.setScale(min(0.2, 1.2 * h.x / max(3, len(tn.getText()))))
@@ -889,14 +1153,21 @@ class RobotVisual:
                  (0.8, 0.8, 0.84), rough=1.0, metal=1.0, pos=(0, a.y * 2, -hd.z * 0.6))
             part(self.chassis, cylinder(0.08, h.x * 0.5, axis="x", seg=16), "steel", trim,
                  pos=(0, -0.2 * size, top + 0.1))
+        self.finish()
+
+    def finish(self):
+        """What every tier does once the robot is built: the size, the lines (mesh and lines), its state."""
         if self.k != 1.0:  # (built at a standard size above: now the whole robot is made k times bigger)
             for np_ in [self.chassis, self.weapon] + [w for w, *_ in self.wheels] + ([self.blur] if self.blur else []):
                 np_.setScale(self.k)
+        self.beacon_lines = None
+        if look():
+            self.looks()
         self.rear = None  # (see update)
         self.tag = None
         self.spin_angle = 0.0
         self.chain_pos = 0.0
-        self.top = top * self.k
+        self.top = (sim.CHASSIS_Z + self.shape["half"].z) * self.k
         # real damage: how healthy each part is (0..1), parts that have come off, bits flying off, the hit bars
         self.health = {}
         self.gone = set()
@@ -904,6 +1175,124 @@ class RobotVisual:
         self.bars, self.bar_until = {}, {}
         self.scorch = 0.0
         self.weak = {}  # how far each part is from breaking off (0 = fine, 1 = about to come off)
+
+    def ultra(self, design, weapon, size, sh, colour, trim, lights, style):
+        """ultra (CHANGE 145): the robot from robot_models' pieces (made once, shared by every robot), placed by
+        robot_models.layout on the nodes the other tiers use: the chassis, the armour panels on their hinges, the
+        wheels, the weapon, a Resident Robot's beacon and a chainsaw's chain. Each node's pieces are one Geom in the
+        robot's own colours (about 10 draw calls a robot, the shadow pass's too)."""
+        h = sh["half"]
+        z0, top = sim.CHASSIS_Z, sim.CHASSIS_Z + h.z
+        nodes = {"chassis": self.chassis.attachNewNode("body")}
+        self.armour = self.chassis.attachNewNode("armour")
+        self.panels = []
+        self.deck = self.panel((0, -h.y * 0.8, top + 0.04), (0, 28, 0), (0, 0))
+        nodes["deck"] = self.deck.attachNewNode("pieces")  # (a node of its own under each panel: flattened below)
+        hinge_z = z0 - 0.02 + h.z * 0.7
+        for s in (1, -1):
+            skirt = self.panel((s * (h.x + 0.02), 0, hinge_z), (0, 0, s * 34), (0, s * 90))
+            nodes["skirt_r" if s > 0 else "skirt_l"] = skirt.attachNewNode("pieces")
+        nodes["rear"] = self.panel((0, -h.y - 0.018, top - 0.03), (0, -34, 0), (-90, 0)).attachNewNode("pieces")
+        self.eyes = None
+        self.beacon = None
+        if self.house:
+            self.beacon = nodes["beacon"] = self.chassis.attachNewNode("beacon")
+            self.beacon.setPos(h.x * 0.55, -h.y * 0.55, top + 0.26)
+        self.wheels = []
+        ww = 0.075 * (1.6 if self.house else 1.0)
+        for i, (x, y) in enumerate(sim.WHEELS):
+            w = self.root.attachNewNode("wheel")
+            spin = nodes[f"wheel{i}"] = w.attachNewNode("spin")
+            self.wheels.append((w, spin, x * size, y * size))
+            w.setPythonTag("width", ww)
+        self.weapon = nodes["weapon"] = self.root.attachNewNode("weapon")
+        self.blur = None
+        if weapon == "chainsaw":
+            a, b = sh["arm"], sh["bar"]
+            self.chain = nodes["chain"] = self.weapon.attachNewNode("chain")
+            self.chain.setPos(0, a.y * 2 + b.y - 0.05, -0.04)
+            self.chain_step = 0.06 * size
+        elif weapon in ("spinner", "vdisc"):  # the see-through disc when it spins fast (as the other tiers')
+            blur = Mesh()
+            if weapon == "spinner":
+                cylinder(sh["bar"].x, 0.004, seg=48, mesh=blur)
+            else:
+                cylinder(sh["disc"][0] * 1.12, 0.004, axis="x", seg=48, mesh=blur)
+            self.blur = part(self.weapon.getParent(), blur, None, (0.8, 0.82, 0.86), 0.2, 1.0)
+            self.blur.setTransparency(TransparencyAttrib.MAlpha)
+            self.blur.setDepthWrite(False)
+            self.blur.setBin("transparent", 5)
+            self.blur_axis = "z" if weapon == "spinner" else "x"
+        # each node's pieces as ONE Geom: the roles' colours in the vertices, their roughness, metal and glow from a
+        # picture with a texel a role (a few draw calls a robot, not one a role and piece: the shadow pass draws them too)
+        mr, glow = robot_atlas(lights)
+        material = Material()
+        material.setBaseColor((1, 1, 1, 1))
+        material.setRoughness(1.0)
+        material.setMetallic(1.0)
+        material.setEmission((ATLAS_GLOW, ATLAS_GLOW, ATLAS_GLOW, 1))
+        for name, holder_parent in list(nodes.items()):
+            pieces = nodes[name] = holder_parent.attachNewNode("pieces")
+            pieces.setMaterial(material, 1)
+            pieces.setTexture(mats().ts_mr, mr, 1)
+            pieces.setTexture(mats().ts_glow, glow, 1)
+        if self.beacon is not None:  # (update flashes the beacon: its own material, its glow from its emission alone)
+            beacon_mat = Material()
+            beacon_mat.setBaseColor((1, 1, 1, 1))
+            beacon_mat.setRoughness(1.0)
+            beacon_mat.setMetallic(1.0)
+            beacon_mat.setEmission((6, 3, 0, 1))
+            self.beacon.setMaterial(beacon_mat, 2)
+            nodes["beacon"].setMaterial(beacon_mat, 2)
+            nodes["beacon"].setTexture(mats().ts_glow, white_texture(), 2)
+        for node, piece, pos, hpr, scale in robot_models.layout(weapon, size, self.house, sh):
+            holder = nodes[node].attachNewNode(piece)
+            holder.setPos(*pos)
+            holder.setHpr(*hpr)
+            holder.setScale(*scale)
+            for role, arrays in ultra_robot_arrays()[piece]:
+                gn = GeomNode(role)
+                gn.addGeom(robot_role_geom(arrays, role, colour, trim))
+                holder.attachNewNode(gn)
+        for pieces in nodes.values():
+            pieces.flattenStrong()
+        # the name across the deck, as the other tiers paint it
+        tn = TextNode("name")
+        tn.setText(str(style.get("number", design["name"]))[:10].upper())
+        tn.setAlign(TextNode.ACenter)
+        tnp = self.name_np = self.deck.attachNewNode(tn)
+        tnp.setPos(0, h.y * 0.68, 0.045 * size + 0.002)
+        tnp.setHpr(0, -90, 0)
+        tnp.setScale(min(0.2, 1.2 * h.x / max(3, len(tn.getText()))))
+        mats().apply(tnp, None, (1, 1, 1), 0.5, 0, emission=(0.6, 0.6, 0.6))
+
+    def looks(self):
+        """mesh and lines (CHANGE 145): the robot's faces black and its edges in the line colour. Each part that moves
+        on its own has its own lines, worked out once: every armour panel (they bend and come off), the beacon (it
+        flashes), the body with what is fixed to it, the chainsaw's chain, the weapon, and each wheel (one set for
+        every wheel of that size, shared by every robot). The see-through blur disc isn't drawn, nor the name on
+        the deck (its letters' cards would be black boxes on lines: the name tag above says who it is)."""
+        self.name_np.hide()
+        for np_, hinge, bend in self.panels:
+            outline(np_)
+        self.armour.setTag("no_lines", "1")
+        if self.beacon is not None:
+            self.beacon_lines = outline(self.beacon)
+            self.beacon.setTag("no_lines", "1")
+        outline(self.chassis)
+        chain = getattr(self, "chain", None)
+        if chain is not None:
+            outline(chain)
+            chain.setTag("no_lines", "1")
+        outline(self.weapon)
+        if self.blur is not None:
+            self.blur.hide()
+        for w, spin, x, y in self.wheels:
+            key = ("wheel lines", look(), round(self.wheel_r, 4), round(w.getPythonTag("width"), 4))
+            if key not in _state:
+                _state[key] = line_look.line_node("wheel lines", *line_look.edges(spin, look()))
+            line_look.blacken(spin)
+            line_look.wire(spin, spin.attachNewNode(_state[key]))
 
     def panel(self, hinge, bend, lie):
         """An armour panel: a node on its hinge edge. bend is how it turns (h, p, r) when nearly off, and lie is
@@ -967,7 +1356,8 @@ class RobotVisual:
             self.chain.setY(self.weapon, self.shape["arm"].y * 2 + self.shape["bar"].y - 0.05 + self.chain_pos)
         if self.beacon is not None:  # a turning amber beacon: flashes
             glow = 6 if int(time.perf_counter() * 3) % 2 == 0 else 1
-            self.beacon.getMaterial().setEmission((glow, glow * 0.5, 0, 1))
+            glow_material(self.beacon).setEmission((glow, glow * 0.5, 0, 1))
+            pulse(self.beacon_lines, 1.0 if glow > 1 else 0.35)
         if self.tag is not None:
             self.tag.setPos(self.chassis.getPos() + Vec3(0, 0, 1.3))
 

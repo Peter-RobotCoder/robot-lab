@@ -14,7 +14,7 @@
 
 /* global BABYLON */
 
-import {v3, mulberry} from "./base3d.js";
+import {v3, mulberry, unpackPart} from "./base3d.js";  // (the packed parts' reader, shared with Robot Lab: CHANGE 145)
 import {toneMap} from "./pbr.js";
 import "./robotfx.js";
 
@@ -222,12 +222,14 @@ export function makeForest(sc, spots) {
 // SSAO (Babylon's SSAO2, on its own geometry buffer: pbr.js's materials can't write Babylon's pre-pass), then the
 // glow on what is brightest (the sun, the dash pads, a boost's flame) and a little sharpening. The scene's own
 // shader has already applied the app's tone curve, so Babylon's image processing stays off. The scene says which
-// meshes shade each other (gbuffer.renderList: the world's, not the labels, the smoke or the sky)
+// meshes shade each other (gbuffer.renderList: the world's, not the labels, the smoke or the sky). (CHANGE 145) opts:
+// which parts (ssao, sharpen) and how many samples the picture has (samples): Kart Lab's all, 8; Robot Lab's ultra
+// says its own (robot.js)
 export class AfterFx {
-    constructor(sc) {
-        const scene = sc.scene, cam = sc.camera;
-        this.ssao = null;
-        try {
+    constructor(sc, opts = {}) {
+        const scene = sc.scene, cam = sc.camera, o = Object.assign({ssao: true, sharpen: true, samples: 8, bloomWeight: 0.32}, opts);
+        this.ssao = this.gbuffer = null;
+        if (o.ssao) try {
             const ssao = this.ssao = new BABYLON.SSAO2RenderingPipeline("ccssao", scene, {ssaoRatio: 0.5, blurRatio: 1}, [cam], true);
             ssao.radius = 1.6;
             ssao.totalStrength = 2.2;
@@ -240,16 +242,18 @@ export class AfterFx {
         } catch (e) { console.warn("No SSAO:", e); this.ssao = null; }
         const p = this.pipeline = new BABYLON.DefaultRenderingPipeline("ccultra", false, scene, [cam]);
         // (the canvas's multisampling doesn't reach a picture drawn for after-effects: its own, 8 as the window's ultra)
-        p.samples = Math.max(1, Math.min(8, scene.getEngine().getCaps().maxMSAASamples || 4));
+        p.samples = Math.max(1, Math.min(o.samples, scene.getEngine().getCaps().maxMSAASamples || 4));
         p.imageProcessingEnabled = false;
         p.bloomEnabled = true;
         p.bloomThreshold = 0.82;
-        p.bloomWeight = 0.32;
+        p.bloomWeight = o.bloomWeight;
         p.bloomKernel = 48;
         p.bloomScale = 0.5;
-        p.sharpenEnabled = true;
-        p.sharpen.edgeAmount = 0.18;
-        p.sharpen.colorAmount = 1.0;
+        p.sharpenEnabled = !!o.sharpen;
+        if (o.sharpen) {
+            p.sharpen.edgeAmount = 0.18;
+            p.sharpen.colorAmount = 1.0;
+        }
     }
 
     dispose() {
@@ -450,48 +454,6 @@ export function loadScenery() {
     return sceneryAsked;
 }
 export function sceneryData() { return scenery; }
-
-const LINEAR = new Float32Array(256).map((_, i) => Math.pow(i / 255, 2.2));  // (a screen colour's byte as light)
-
-function bytes(b64) {  // (base64 to its bytes, in a buffer of their own: read as little-endian arrays below)
-    const s = atob(b64), out = new Uint8Array(s.length);
-    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
-    return out;
-}
-
-// a packed part (kart_scenery.Part.packed) as a Babylon mesh's arrays: positions and uvs uint16 in 65535 steps across
-// box and uv_box, normals int8 (times 127), colours uint8 (screen colours: made linear, as the window's ultra_circuit
-// does), indices uint16 (uint32 from 65536 vertices); the game's (x, y, z) as Babylon's (x, z, y) and each triangle
-// turned round, as partMesh. Null if it doesn't add up
-export function unpackPart(part) {
-    const n = part.count | 0, b = part.box, ub = part.uv_box;
-    if (n < 3 || !Array.isArray(b) || b.length !== 6 || !Array.isArray(ub) || ub.length !== 4) return null;
-    const q = new Uint16Array(bytes(part.positions).buffer), nq = new Int8Array(bytes(part.normals).buffer);
-    const tq = new Uint16Array(bytes(part.uvs).buffer);
-    const raw = bytes(part.indices), ix = n >= 65536 ? new Uint32Array(raw.buffer) : new Uint16Array(raw.buffer);
-    if (q.length !== n * 3 || nq.length !== n * 3 || tq.length !== n * 2 || ix.length % 3) return null;
-    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2);
-    const kx = (b[3] - b[0]) / 65535, ky = (b[4] - b[1]) / 65535, kz = (b[5] - b[2]) / 65535;
-    const ku = (ub[2] - ub[0]) / 65535, kv = (ub[3] - ub[1]) / 65535;
-    for (let i = 0, o = 0; i < n; i++, o += 3) {
-        pos[o] = b[0] + q[o] * kx; pos[o + 1] = b[2] + q[o + 2] * kz; pos[o + 2] = b[1] + q[o + 1] * ky;
-        const x = nq[o], y = nq[o + 1], z = nq[o + 2], l = Math.hypot(x, y, z) || 1;
-        nor[o] = x / l; nor[o + 1] = z / l; nor[o + 2] = y / l;
-        uv[i * 2] = ub[0] + tq[i * 2] * ku; uv[i * 2 + 1] = ub[1] + tq[i * 2 + 1] * kv;
-    }
-    for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; }
-    let col = null;
-    if (part.colours) {
-        const cq = bytes(part.colours);
-        if (cq.length !== n * 3) return null;
-        const lin = LINEAR;
-        col = new Float32Array(n * 4);
-        for (let i = 0; i < n; i++) {
-            col[i * 4] = lin[cq[i * 3]]; col[i * 4 + 1] = lin[cq[i * 3 + 1]]; col[i * 4 + 2] = lin[cq[i * 3 + 2]]; col[i * 4 + 3] = 1;
-        }
-    }
-    return {pos, nor, uv, col, idx: ix};
-}
 
 // One track's circuit (data: the file, key: club, oval or straight), as the window's ultra_circuit draws it: each of
 // the track's own parts one mesh (the file has one per material, and far or near), and each part of each shape placed

@@ -17,17 +17,17 @@
 // Each tier also has a budget of pixels: the page draws at most that many, however fine the screen (a 4K laptop
 // at 300% has 7.7 million at full sharpness; the app's 1280 x 720 window draws 0.9 million). The canvas's own
 // multisampling smooths the edges on every tier.
-// Each game says which tiers it draws (its scene's TIERS: Kart Lab all seven, Robot Lab and Fight Lab blocks to
-// high); a tier it doesn't have is drawn as its nearest (gameTier: mesh and lines as blocks, ultra as high), so the
-// page's choice can stay "lines" while Robot Lab draws blocks. mesh and lines are a look chosen by hand (or by the
-// teacher), not a fallback: they need no WebGL 2 and Auto never steps into them or out of them.
+// Each game says which tiers it draws (its scene's TIERS: Kart Lab and Robot Lab all seven since CHANGE 145, Fight
+// Lab blocks to high); a tier it doesn't have is drawn as its nearest (gameTier: mesh and lines as blocks, ultra as
+// high), so the page's choice can stay "lines" while Fight Lab draws blocks. mesh and lines are a look chosen by hand
+// (or by the teacher), not a fallback: they need no WebGL 2 and Auto never steps into them or out of them.
 
 /* global BABYLON */
 
 import {Lighting} from "./pbr.js";
 
 export const TIERS = ["mesh", "lines", "blocks", "low", "medium", "high", "ultra"];
-export const GAME_TIERS = ["blocks", "low", "medium", "high"];  // (a game that doesn't say: Robot Lab, Fight Lab)
+export const GAME_TIERS = ["blocks", "low", "medium", "high"];  // (a game that doesn't say: Fight Lab)
 export const LINE_TIERS = ["mesh", "lines"];
 export const TIER_SETTINGS = {
     mesh: {pbr: false, shadow: 0, normal: false, ibl: false, occlusion: false, aniso: 1, pixels: 1.0e6, wire: "all"},
@@ -234,6 +234,52 @@ export function upwardNormals(pos, idx) {
     return norm;
 }
 
+// ---------- the models' packed parts (Kart Lab's circuit, CHANGE 144; Robot Lab's robots and arena, CHANGE 145) ----------
+const LINEAR = new Float32Array(256).map((_, i) => Math.pow(i / 255, 2.2));  // (a screen colour's byte as light)
+
+function bytes(b64) {  // (base64 to its bytes, in a buffer of their own: read as little-endian arrays below)
+    const s = atob(b64), out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+}
+
+// A packed part (engine/model_kit.py's Part.packed, kart_scenery.Part.packed: the same format) as a Babylon mesh's
+// arrays: positions and uvs uint16 in 65535 steps across box and uv_box, normals int8 (times 127), colours uint8
+// (screen colours: made linear, as the windows' model_geom does) with alpha uint8 if the part has it (CHANGE 145: see-
+// through at its edges, a scorch mark's), indices uint16 (uint32 from 65536 vertices); the game's (x, y, z) as
+// Babylon's (x, z, y) and each triangle turned round (the swap is a mirror image, which turns the winding over).
+// col is null when the part is all white and opaque. Null if it doesn't add up
+export function unpackPart(part) {
+    const n = part.count | 0, b = part.box, ub = part.uv_box;
+    if (n < 3 || !Array.isArray(b) || b.length !== 6 || !Array.isArray(ub) || ub.length !== 4) return null;
+    const q = new Uint16Array(bytes(part.positions).buffer), nq = new Int8Array(bytes(part.normals).buffer);
+    const tq = new Uint16Array(bytes(part.uvs).buffer);
+    const raw = bytes(part.indices), ix = n >= 65536 ? new Uint32Array(raw.buffer) : new Uint16Array(raw.buffer);
+    if (q.length !== n * 3 || nq.length !== n * 3 || tq.length !== n * 2 || ix.length % 3) return null;
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2);
+    const kx = (b[3] - b[0]) / 65535, ky = (b[4] - b[1]) / 65535, kz = (b[5] - b[2]) / 65535;
+    const ku = (ub[2] - ub[0]) / 65535, kv = (ub[3] - ub[1]) / 65535;
+    for (let i = 0, o = 0; i < n; i++, o += 3) {
+        pos[o] = b[0] + q[o] * kx; pos[o + 1] = b[2] + q[o + 2] * kz; pos[o + 2] = b[1] + q[o + 1] * ky;
+        const x = nq[o], y = nq[o + 1], z = nq[o + 2], l = Math.hypot(x, y, z) || 1;
+        nor[o] = x / l; nor[o + 1] = z / l; nor[o + 2] = y / l;
+        uv[i * 2] = ub[0] + tq[i * 2] * ku; uv[i * 2 + 1] = ub[1] + tq[i * 2 + 1] * kv;
+    }
+    for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; }
+    let col = null;
+    if (part.colours || part.alpha) {
+        const cq = part.colours ? bytes(part.colours) : null, aq = part.alpha ? bytes(part.alpha) : null;
+        if ((cq && cq.length !== n * 3) || (aq && aq.length !== n)) return null;
+        const lin = LINEAR;
+        col = new Float32Array(n * 4).fill(1);
+        for (let i = 0; i < n; i++) {
+            if (cq) { col[i * 4] = lin[cq[i * 3]]; col[i * 4 + 1] = lin[cq[i * 3 + 1]]; col[i * 4 + 2] = lin[cq[i * 3 + 2]]; }
+            if (aq) col[i * 4 + 3] = aq[i] / 255;
+        }
+    }
+    return {pos, nor, uv, col, idx: ix};
+}
+
 let sharedEngine = null;
 export function pageEngine(canvas, antialias = true) {
     if (!sharedEngine) {
@@ -264,16 +310,18 @@ const PBR_LOOK = {background: [0.3, 0.5, 0.9], exposure: 0.55, ambient: [0.22, 0
                   sun: {colour: [2.6, 2.45, 2.2], offset: [30, -45, 45], film: 40, near: 50, far: 90, bias: 0.0015}, spots: []};
 
 // the line tiers' shader (CHANGE 144): one colour, faded to the black behind between two distances (as the window's
-// black fog: mesh from 15 m to 140 m, lines and the grid from 60 m to 380 m), as on an old vector screen
+// black fog: mesh from 15 m to 140 m, lines and the grid from 60 m to 380 m), as on an old vector screen. (CHANGE
+// 145: thin instances too, Robot Lab's flying debris)
 const LINES_VERT = `
 precision highp float;
 attribute vec3 position;
-uniform mat4 world;
+#include<instancesDeclaration>
 uniform mat4 viewProjection;
 uniform vec3 cameraPosition;
 varying float vDist;
 void main(void) {
-    vec4 wp = world * vec4(position, 1.0);
+#include<instancesVertex>
+    vec4 wp = finalWorld * vec4(position, 1.0);
     vDist = distance(wp.xyz, cameraPosition);
     gl_Position = viewProjection * wp;
 }`;
@@ -318,7 +366,13 @@ export class BaseScene {
         // (CHANGE 144) the line tiers: black behind, every mesh filled black (wireFill) and its edges drawn as lines
         this.wire = settings.wire || null;
         this.lineMats = [];
-        if (this.wire) scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+        if (this.wire) {
+            scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+            // (CHANGE 145) every black face first, then every line: two shaders in turn, not one per mesh (switching
+            // for each of Robot Lab's few hundred parts cost a millisecond on an Iris Xe); the picture is the same
+            const line = sub => (sub.getMaterial() || {}).ccLine ? 1 : 0;
+            scene.setRenderingOrder(0, (a, b) => line(a) - line(b));
+        }
         this.lit = !this.wire && this.tier !== "blocks";
         this.pbr = settings.pbr;
         // the labels and floor writing (Babylon's own materials): one even light from everywhere on blocks, so every
@@ -466,17 +520,57 @@ export class BaseScene {
             attributes: ["position"], uniforms: ["world", "viewProjection", "cameraPosition", "color", "fade"]});
         m.fillMode = BABYLON.Material.LineListDrawMode;
         m.backFaceCulling = false;
+        m.ccLine = true;
         m.setVector2("fade", new BABYLON.Vector2(near, far));
         m.ccFar = far;
         m.ccDim = dim;
+        m.ccPulse = 1;
         this.lineMats.push(m);
         this.paintLine(m);
         return m;
     }
 
     paintLine(m) {
-        const c = BABYLON.Color3.FromHexString(lineColour);
-        m.setColor4("color", new BABYLON.Color4(c.r * m.ccDim, c.g * m.ccDim, c.b * m.ccDim, 1));
+        const c = BABYLON.Color3.FromHexString(lineColour), k = (m.ccDim ?? 1) * (m.ccPulse ?? 1);
+        if (m.setColor4) m.setColor4("color", new BABYLON.Color4(c.r * k, c.g * k, c.b * k, 1));
+        else m.emissiveColor = c.scale(k);  // (lettering: lineInk)
+    }
+
+    // (CHANGE 145) a glowing part's lines brighter or dimmer (k from 0 to 1), as its glow would be (Robot Lab's pit
+    // lights, warning lamp, pads and beacons: the window's rw_gfx.pulse)
+    pulseLine(m, k) {
+        if (!m || Math.abs((m.ccPulse ?? 1) - k) < 0.004) return;
+        m.ccPulse = k;
+        this.paintLine(m);
+    }
+
+    // (CHANGE 145) words and solid strokes in the line colour on the line tiers (Robot Lab's floor name and score, a
+    // laser's beam: the window's rw_gfx.lettering): white pictures or plain shapes shown in the line colour, unlit
+    lineInk(name = "ink") {
+        const key = "lineink:" + name;
+        if (this.materials[key]) return this.materials[key];
+        const m = this.materials[key] = new BABYLON.StandardMaterial("cclineink" + name, this.scene);
+        m.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        m.specularColor = new BABYLON.Color3(0, 0, 0);
+        m.disableLighting = true;
+        m.backFaceCulling = false;
+        m.ccDim = 1;
+        m.ccPulse = 1;
+        this.lineMats.push(m);
+        this.paintLine(m);
+        return m;
+    }
+
+    // (CHANGE 145) a word drawn white (floorText, makeLabel) shown in the line colour instead, recoloured with it
+    lettering(mesh) {
+        const m = mesh && mesh.material;
+        if (!m) return mesh;
+        m.disableLighting = true;
+        m.ccDim = 1;
+        m.ccPulse = 1;
+        this.lineMats.push(m);
+        this.paintLine(m);
+        return mesh;
     }
 
     recolourLines() {  // (the line colour changed: at once, nothing rebuilt)
@@ -607,7 +701,7 @@ export class BaseScene {
 
     // change a glowing material's glow while running (a pit's lights, a lamp that blinks): linear, as the app's
     setGlow(m, emission) {
-        if (!m) return;
+        if (!m || m === this.materials.wirefill) return;  // (the line tiers: its faces stay black; its lines pulse)
         if (this.lighting && m.setVector3) m.setVector3("emission", new BABYLON.Vector3(emission[0], emission[1], emission[2]));
         else if (m.emissiveColor) m.emissiveColor = col(emission.map(c => Math.min(1, c)));
     }

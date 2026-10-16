@@ -1,6 +1,7 @@
 """Effects for Robot Wars: sparks at the hit point, smoke from damaged robots, flying debris, camera shake.
 
-Kept cheap for low-spec laptops: a fixed pool of small pieces, reused.
+Kept cheap for low-spec laptops: a fixed pool of small pieces, reused. On mesh and lines (CHANGE 145) the sparks are
+the line colour, debris is drawn as its edges, and there is no smoke or fire (as Kart Lab's looks have no smoke).
 """
 import math
 import random
@@ -28,6 +29,7 @@ class Effects:
     def __init__(self, render, quality="high"):
         self.render = render
         self.rnd = random.Random()
+        self.look = rw_gfx.look()  # (mesh or lines: CHANGE 145)
         n_sparks = 400 if quality not in ("low", "basic") else 120
         # sparks: tiny glowing streaks, added on top of the scene (additive blend)
         self.spark_root = render.attachNewNode("sparks")
@@ -120,6 +122,8 @@ class Effects:
 
     def flame(self, pos, direction, amount=3):
         """Call each frame while a flame thrower fires: a jet of fire from the nozzle."""
+        if self.look:
+            return
         d = Vec3(*direction)
         for _ in range(amount):
             f = self._free(self.flames)
@@ -143,6 +147,8 @@ class Effects:
         node = rw_gfx.part(self.render, bevel_box(self.rnd.uniform(0.03, 0.08), self.rnd.uniform(0.03, 0.08), 0.012, 0.004),
                            "paint", colour)
         node.setPos(*pos)
+        if self.look:
+            rw_gfx.outline(node)
         v = Vec3(self.rnd.uniform(-4, 4), self.rnd.uniform(-4, 4), self.rnd.uniform(2, 6))
         spin = Vec3(self.rnd.uniform(-700, 700), self.rnd.uniform(-700, 700), 0)
         self.debris.append([node, v, 4.0, spin])
@@ -152,7 +158,7 @@ class Effects:
 
     def smoke(self, pos, amount):
         """Call each frame for a damaged robot: amount 0..1."""
-        if self.rnd.random() > amount * 0.5:
+        if self.look or self.rnd.random() > amount * 0.5:
             return
         p = self._free(self.puffs)
         if p is None:
@@ -185,7 +191,11 @@ class Effects:
             node.setPos(node.getPos() + s[1] * dt)
             node.lookAt(node.getPos() + s[1])
             f = s[2] / s[3]
-            node.setColor(1.0, 0.55 + 0.4 * f, 0.15 + 0.5 * f * f, 1)
+            if self.look:
+                r, g, b = rw_gfx.line_look.colour()
+                node.setColor(r * (0.4 + 0.6 * f), g * (0.4 + 0.6 * f), b * (0.4 + 0.6 * f), 1)
+            else:
+                node.setColor(1.0, 0.55 + 0.4 * f, 0.15 + 0.5 * f * f, 1)
             node.setScale(1, 0.5 + f, 1)
             if node.getZ() < 0.01 and s[1].z < 0:  # bounce off the floor
                 s[1].z *= -0.35

@@ -5,12 +5,19 @@
 // The app's effects (rw_fx.py, in robotfx.js: sparks, saw showers, the flame jet, smoke and fire, debris, the camera
 // shake) and rw_gfx.py's real damage (armour panels that bend, rattle and fly off, failing wheels, a shaking weapon,
 // darkened and scorched parts, the hit bars), the saws' blur and hot rims, lasers, beacons and the running chain.
+// (CHANGE 145) Every tier, as the window's since its CHANGE 145: mesh and lines draw the meshes black with their edges
+// as lines (base3d.js), each moving part's own, a floor grid on lines, the glowing parts' lines pulsing; ultra draws
+// the window's smooth robots and arena (robotfx.js, from models/robot_ultra.json and arena_ultra.json) once loaded.
 
 /* global BABYLON */
 
-import {BaseScene, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} from "./base3d.js";
+import {BaseScene, TIERS, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} from "./base3d.js";
+import {toneMap} from "./pbr.js";
 import {Sound} from "./sound.js";
-import {RobotFX, HitBar, RobotCamera, CAM_MODES, CAM_NAMES, qmul, qrot, hprQuat, quatHpr, fromBabylonQuat} from "./robotfx.js";
+import {AfterFx} from "./kartfx.js";
+import {RobotFX, HitBar, RobotCamera, CAM_MODES, CAM_NAMES, qmul, qrot, hprQuat, quatHpr, fromBabylonQuat, loadRobotModels,
+        robotModelsData, loadArenaModels, arenaModelsData, robotShapes, robotLayout, robotNodeMesh, robotAtlas, ROBOT_GLOW,
+        makeUltraArena} from "./robotfx.js";
 
 const $ = id => document.getElementById(id);
 const ARENA = 20;
@@ -38,13 +45,49 @@ function designSize(d) {
     return d.model ? 1.6 * s : s;
 }
 
+// lab_sim.floor_rects: the floor as rectangles (x0, y0, x1, y1) with the holes cut out (the drop zone, the floor
+// flipper, and the pits the user mods add), as the window's floor and its grid on lines are made (CHANGE 145)
+function floorRects(mods) {
+    const h = ARENA / 2, holes = [[PIT[0] - PIT[2] / 2, PIT[1] - PIT[2] / 2, PIT[0] + PIT[2] / 2, PIT[1] + PIT[2] / 2], [FF[0] - 1.5, FF[1] - 1.0, FF[0] + 1.5, FF[1] + 1.0]];
+    if (mods.spike_pit) holes.push([SPIKE_PIT[0] - SPIKE_PIT[2] / 2, SPIKE_PIT[1] - SPIKE_PIT[2] / 2, SPIKE_PIT[0] + SPIKE_PIT[2] / 2, SPIKE_PIT[1] + SPIKE_PIT[2] / 2]);
+    if (mods.flame_pit) holes.push([FLAME_PIT[0] - FLAME_PIT[2] / 2, FLAME_PIT[1] - FLAME_PIT[2] / 2, FLAME_PIT[0] + FLAME_PIT[2] / 2, FLAME_PIT[1] + FLAME_PIT[2] / 2]);
+    let rects = [[-h, -h, h, h]];
+    for (const [hx0, hy0, hx1, hy1] of holes) {
+        const out = [];
+        for (const [x0, y0, x1, y1] of rects) {
+            if (hx1 <= x0 || hx0 >= x1 || hy1 <= y0 || hy0 >= y1) { out.push([x0, y0, x1, y1]); continue; }
+            if (hx0 > x0) out.push([x0, y0, hx0, y1]);
+            if (hx1 < x1) out.push([hx1, y0, x1, y1]);
+            const mx0 = Math.max(x0, hx0), mx1 = Math.min(x1, hx1);
+            if (hy0 > y0) out.push([mx0, y0, mx1, hy0]);
+            if (hy1 < y1) out.push([mx0, hy1, mx1, y1]);
+        }
+        rects = out;
+    }
+    return rects;
+}
+
+// (ultra, CHANGE 145) the hall's air the stands and walls fade into (rw_gfx.HAZE, linear) and how thick (per metre)
+const HAZE = [0.012, 0.014, 0.02], HAZE_DENSITY = 0.012, EXPOSURE = 0.7;
+
 export class RobotScene extends BaseScene {
+    static TIERS = TIERS;  // (every tier, the line tiers and ultra too, as the window: CHANGE 145)
+    // (the Graphics tab: what this game's ultra adds)
+    // (ultra's after-effects, kartfx.js's AfterFx: a gentle glow on the lamps, LEDs and glowing parts and a little
+    // sharpening, 4x MSAA on that picture as the window's ultra; no SSAO: 5 ms more a frame on an Iris Xe, a third of
+    // the whole, where the glow costs half a millisecond; no reflection probe: six more views of a busy arena)
+    static ULTRA_FX = {ssao: false, sharpen: true, samples: 4, bloomWeight: 0.25};
+    static TIER_TEXT = {lines: "lines: black, the outlines in one colour and a grid on the floor (an old vector arcade game).",
+                        ultra: "ultra: for a strong graphics card: the window's smooth robots (round edges, tread, bolts, machined weapons) and arena (steel plates, the cage, towers, the rig, the stands and their crowd), soft 4096 shadows, sharper textures at a slant."};
+
     constructor(canvas, tier, engine) {
         // rw_gfx.init's lights: a warm key light high over one corner, a spotlight on each corner tower aimed at the
-        // middle, a dim blue fill, the arena's reflections
+        // middle, a dim blue fill, the arena's reflections; on ultra a haze over the hall alone (fog.picked: the far
+        // parts' materials, as the window's), given as the colour the tone curve makes of its light
         super(canvas, tier, engine, {sky: [0.1, 0.11, 0.14], radius: 26, target: [0, 0, 0], ground: [0.25, 0.25, 0.28],
                                      sunDir: [-0.3, -0.85, 0.4],
-                                     pbr: {background: [0.02, 0.02, 0.03], exposure: 0.7, ambient: [0.05, 0.055, 0.07], sky: "env",
+                                     pbr: {background: [0.02, 0.02, 0.03], exposure: EXPOSURE, ambient: [0.05, 0.055, 0.07], sky: "env",
+                                           fog: {colour: toneMap(HAZE, Math.pow(2, EXPOSURE)), density: HAZE_DENSITY, picked: true},
                                            sun: {colour: [1.5, 1.42, 1.3], offset: [8, -14, 30], film: 26, near: 5, far: 60, bias: 0.005, follow: false},
                                            spots: [[-1, -1, [1.0, 0.85, 0.7]], [1, -1, [0.75, 0.85, 1.0]], [-1, 1, [0.75, 0.85, 1.0]], [1, 1, [1.0, 0.85, 0.7]]]
                                                .map(([sx, sy, c]) => ({pos: [sx * 12.5, sy * 12.5, 8.5], at: [sx * 2, sy * 2, 0],
@@ -59,8 +102,26 @@ export class RobotScene extends BaseScene {
         this.build();
     }
 
+    build() {  // (ultra's after-effects let go before the scene they were made for: CHANGE 145)
+        if (this.after) { this.after.dispose(); this.after = null; }
+        super.build();
+    }
+
     populate() {
+        // (ultra, CHANGE 145) the window's robots and arena once both files are here (asked for on ultra alone): high's
+        // until then, or if they don't come; then everything is made again with them
+        this.ultra = !!(this.settings.ultra && this.lighting);
+        this.ultraArena = this.ultraRobots = false;
+        this.wheelLines = {};
+        this.lineCount = 0;
+        if (this.ultra) {
+            const scene = this.scene;
+            Promise.all([loadRobotModels(), loadArenaModels()]).then(([r, a]) => {
+                if (this.scene === scene && ((r && !this.ultraRobots) || (a && !this.ultraArena))) this.build();
+            });
+        }
         this.buildArena();
+        this.after = this.ultra && RobotScene.ULTRA_FX ? new AfterFx(this, RobotScene.ULTRA_FX) : null;
         this.fx = new RobotFX(this);  // (rw_fx.Effects: sparks, smoke, fire, debris, the camera shake)
         this.shook = null;
         const designs = this.designs;
@@ -78,9 +139,15 @@ export class RobotScene extends BaseScene {
     }
 
     // ---------- the arena (rw_gfx.ArenaVisual: its colours, textures and roughness) ----------
+    // (CHANGE 145) mesh and lines: the still parts' edges as lines (with a floor grid on lines), each moving part's
+    // with it, the glowing parts' pulsing (arenaLines); ultra: the window's arena (robotfx.js's makeUltraArena) in
+    // place of high's floor, walls, rails, posts, towers, lamps, rig, outside floor, stands, crowd and screen box, the
+    // markings, hazards, user mods' items, the cage's screens, the arena's name and the gutter kept
     buildArena() {
         const hz = this.setup.hazards || {}, mods = this.setup.user_mods || {}, look = this.setup.look || {};
         const noCage = !!mods.no_cage, blocks = this.tier === "blocks", h = ARENA / 2;
+        const file = this.ultra ? arenaModelsData() : null, ultra = !!file;
+        this.ultraArena = ultra;
         const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
         const floorM = blocks ? M("floor", [0.58, 0.59, 0.62], 1, 1) : M("floor", [1, 1, 1], 1, 1, "diamond", 0.6);
         const hazard = blocks ? M("hazard", YELLOW, 1, 0) : M("hazard", [1, 1, 1], 1, 0, "hazard", 0.8);
@@ -89,19 +156,12 @@ export class RobotScene extends BaseScene {
         const wall = M("wall", rgb255(look.wall_colour, [155, 25, 20]), 1, 1, "paint", 0.5);
         const statics = [];
         const S = m => { statics.push(m); return m; };
-        // the floor, with holes for the drop zone and the flipper (and the pits a mod adds)
-        const holes = [[PIT[0] - 1.5, PIT[1] - 1.5, PIT[0] + 1.5, PIT[1] + 1.5], [-5, -4.5, -2, -2.5]];
-        if (mods.spike_pit) holes.push([SPIKE_PIT[0] - 1.2, SPIKE_PIT[1] - 1.2, SPIKE_PIT[0] + 1.2, SPIKE_PIT[1] + 1.2]);
-        if (mods.flame_pit) holes.push([-1.2, -1.2, 1.2, 1.2]);
-        const xs = [...new Set([-10, 10, ...holes.flatMap(q => [q[0], q[2]])])].sort((a, b) => a - b);
-        const ys = [...new Set([-10, 10, ...holes.flatMap(q => [q[1], q[3]])])].sort((a, b) => a - b);
-        for (let i = 0; i < xs.length - 1; i++) {
-            for (let j = 0; j < ys.length - 1; j++) {
-                const cx = (xs[i] + xs[i + 1]) / 2, cy = (ys[j] + ys[j + 1]) / 2;
-                if (holes.some(q => cx > q[0] && cx < q[2] && cy > q[1] && cy < q[3])) continue;
-                S(this.box(null, (xs[i + 1] - xs[i]) / 2, (ys[j + 1] - ys[j]) / 2, 0.25, floorM, cx, cy, -0.25));
-            }
-        }
+        this.glowLines = {};  // (the line tiers: the glowing parts' line materials, pulsed in frame())
+        const moving = [];    // (the line tiers: [node, meshes, glow]: each moving part's lines move with it)
+        // the floor, with holes for the drop zone and the flipper (and the pits a mod adds): lab_sim.floor_rects'
+        // rectangles (CHANGE 145: as the window's, so its grid and edges on the line tiers match)
+        const rects = floorRects(mods);
+        if (!ultra) for (const [x0, y0, x1, y1] of rects) S(this.box(null, (x1 - x0) / 2, (y1 - y0) / 2, 0.25, floorM, (x0 + x1) / 2, (y0 + y1) / 2, -0.25));
         // markings: the Resident Robots' corner squares, the start squares, the centre circle, the arena's name
         const cz = CPZ / 2;
         for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
@@ -120,7 +180,10 @@ export class RobotScene extends BaseScene {
             const d = S(this.box(null, 0.17, 0.05, 0.004, yellow, Math.cos(a) * 3, Math.sin(a) * 3, 0.005));
             d.rotation.y = -(a + Math.PI / 2);
         }
-        if (!mods.flame_pit) this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7, "#e6cf86", 0.75);  // (the window's yellow paint under the spotlights)
+        if (!mods.flame_pit) {  // (the window's yellow paint under the spotlights; the line colour on the line tiers)
+            const logo = this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7, this.wire ? "#ffffff" : "#e6cf86", 0.75);
+            if (this.wire) this.lettering(logo);
+        }
         // the drop zone: a dark shaft, a striped rim, the lights round its edge and the lid that drops
         const [px, py, ps] = PIT;
         for (const [ox, oy, hx, hy] of [[0, ps / 2 + 0.05, ps / 2 + 0.1, 0.05], [0, -ps / 2 - 0.05, ps / 2 + 0.1, 0.05],
@@ -134,6 +197,7 @@ export class RobotScene extends BaseScene {
         this.pitGlowMat = M("pitlights", [0, 0, 0], 1, 0, null, null, [4, 0.3, 0.1]);
         this.pitGlow = [[0, ps / 2, ps / 2, 0.02], [0, -ps / 2, ps / 2, 0.02], [ps / 2, 0, 0.02, ps / 2], [-ps / 2, 0, 0.02, ps / 2]]
             .map(([ox, oy, hx, hy]) => this.box(null, hx, hy, 0.02, this.pitGlowMat, px + ox, py + oy, -0.15));
+        moving.push([null, this.pitGlow, "pit"]);
         this.pitLid = new BABYLON.TransformNode("pitlid", this.scene);
         this.pitLid.position = v3(px, py, 0);
         const lidParts = [this.box(this.pitLid, ps / 2 - 0.03, ps / 2 - 0.03, 0.25,
@@ -142,6 +206,7 @@ export class RobotScene extends BaseScene {
         for (const [ox, oy, hx, hy] of [[0, q - 0.1, q, 0.1], [0, -q + 0.1, q, 0.1], [q - 0.1, 0, 0.1, q - 0.2], [-q + 0.1, 0, 0.1, q - 0.2]]) {
             lidParts.push(this.box(this.pitLid, hx, hy, 0.004, hazard, ox, oy, 0.004));
         }
+        moving.push([this.pitLid, lidParts]);
         // the floor flipper: a dark recess, a steel frame, a striped plate hinged on its back edge, a warning lamp
         const [fx, fy] = FF;
         S(this.box(null, 1.5, 1.0, 0.02, M("recess", [0.02, 0.02, 0.02], 0.9, 0), fx, fy, -0.19));
@@ -157,6 +222,7 @@ export class RobotScene extends BaseScene {
                          ...[-1, 1].map(s => this.cyl(this.ffPivot, 0.06, 0.25, "x", hinge, s * 0.9, 0.05, 0, null, 14))];
         this.ffLampMat = M("fflamp", [0.05, 0, 0], 0.4, 0, null, null, [0.2, 0, 0]);
         this.ffLamp = this.cyl(null, 0.12, 0.08, "z", this.ffLampMat, fx - 1.9, fy - 1.2, 0.08, null, 16);
+        moving.push([this.ffPivot, ffParts], [null, [this.ffLamp], "fflamp"]);
         // the saws: a bolted cover plate with a black slot edged with lights, a blade that rises and spins
         const coverM = M("cover", [0.3, 0.3, 0.32], 1, 1, "steel", 1.2), slotM = M("slot", [0.01, 0.01, 0.01], 1, 0);
         const slotLights = M("slotlights", [0, 0, 0], 1, 0, null, null, [3, 1.2, 0.1]);
@@ -179,15 +245,18 @@ export class RobotScene extends BaseScene {
                 tooth.rotation.z = a;
                 sawParts.push(tooth);
             }
-            this.mergeParts(sawParts, spin);
-            // (rw_gfx.build_saw) a see-through disc as it spins up, and the hot rim while it grinds a robot
+            moving.push([spin, this.mergeParts(sawParts, spin)]);
+            // (rw_gfx.build_saw) a see-through disc as it spins up (not on the line tiers), and the hot rim while it
+            // grinds a robot
             const blur = this.cyl(node, R * 1.1, 0.011, "y", this.seeThrough("sawblur", [0.55, 0.57, 0.62], 0.22, 0.3, 1), 0, 0, 0, null, 64);
             const glow = BABYLON.MeshBuilder.CreateCylinder("sawglow", {height: 0.04, diameter: R * 2.08, tessellation: 64, cap: BABYLON.Mesh.NO_CAP}, this.scene);
             glow.material = M("sawglow", [0, 0, 0], 1, 0, null, null, [3.5, 1.2, 0.2]);
             glow.rotation.x = Math.PI / 2;
             glow.parent = node;
             glow.isVisible = false;
-            return {node, spin, angle: 0, blur, glow};
+            const saw = {node, spin, angle: 0, blur, glow, glowLines: null};
+            moving.push([glow, [glow], null, saw]);
+            return saw;
         });
         // the wall spikes (west wall), unless there is no cage
         this.spikeBank = null;
@@ -200,19 +269,21 @@ export class RobotScene extends BaseScene {
                 c.rotation.z = -Math.PI / 2;  // (the tip along the game's +x)
                 bank.push(c);
             }
-            this.mergeParts(bank, this.spikeBank);
+            moving.push([this.spikeBank, this.mergeParts(bank, this.spikeBank)]);
             S(this.box(null, 0.02, 2.8, 0.45, hazard, -h + 0.01, 0, 0.55));
         }
         // the cage: kick plates in the wall colour, a rail, posts and glass screens; or, with no cage, a gutter
-        const edge = noCage ? GUTTER : 0.5;
+        // (ultra: the window's cage and posts, the screens as here; the line tiers: the screens' edges alone, black
+        // faces would hide the robots from the cameras outside the cage)
+        const edge = noCage ? GUTTER : 0.5, screens = [];
         if (!noCage) {
             const glass = this.glass("screen", [0.6, 0.75, 0.9], 0.1);
             for (const [cx, cy, hx, hy] of [[0, h + 0.25, h + 0.5, 0.25], [0, -h - 0.25, h + 0.5, 0.25], [h + 0.25, 0, 0.25, h], [-h - 0.25, 0, 0.25, h]]) {
-                S(this.box(null, hx, hy, 0.6, wall, cx, cy, 0.6));
-                S(this.box(null, hx + 0.03, hy + 0.03, 0.05, steel, cx, cy, 1.25));
-                this.box(null, hy === 0.25 ? hx : 0.02, hy === 0.25 ? 0.02 : hy, 1.6, glass, cx, cy, 2.9);
+                if (!ultra) S(this.box(null, hx, hy, 0.6, wall, cx, cy, 0.6));
+                if (!ultra) S(this.box(null, hx + 0.03, hy + 0.03, 0.05, steel, cx, cy, 1.25));
+                screens.push(this.box(null, hy === 0.25 ? hx : 0.02, hy === 0.25 ? 0.02 : hy, 1.6, glass, cx, cy, 2.9));
             }
-            for (let k = -5; k <= 5; k++) {
+            for (let k = -5; k <= 5 && !ultra; k++) {
                 for (const [x, y] of [[k * 2, h + 0.25], [k * 2, -h - 0.25], [h + 0.25, k * 2], [-h - 0.25, k * 2]]) {
                     S(this.cyl(null, 0.07, 1.65, "z", steel, x, y, 2.9, null, 12));
                 }
@@ -226,28 +297,34 @@ export class RobotScene extends BaseScene {
                                             [h + GUTTER / 2, 0, GUTTER / 2, h], [-h - GUTTER / 2, 0, GUTTER / 2, h]]) {
                 S(this.box(null, hx, hy, 0.05, darkSteel, cx, cy, -deep - 0.05));
             }
+            if (ultra) {  // (the gutter's outer side, as the window's: the venue's floor stops at the gutter)
+                const g = GUTTER, out = M("outside", [1, 1, 1], 1, 0, "concrete", 0.3);
+                for (const [cx, cy, hx, hy] of [[0, h + g, h + g, 0.02], [0, -h - g, h + g, 0.02], [h + g, 0, 0.02, h + g], [-h - g, 0, 0.02, h + g]]) {
+                    S(this.box(null, hx, hy, deep / 2, out, cx, cy, -deep / 2));
+                }
+            }
         }
         // the corner towers with their lamps, and the lighting rig overhead
         const towerM = M("tower", [0.25, 0.26, 0.28], 1, 1, "steel"), lampM = M("lamp", [1, 1, 1], 0.3, 0, null, null, [6, 5.6, 5]);
-        for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+        for (const sx of ultra ? [] : [-1, 1]) for (const sy of [-1, 1]) {
             const x = sx * 12.5, y = sy * 12.5;
             S(this.box(null, 0.25, 0.25, 4.3, towerM, x, y, 4.3));
             S(this.box(null, 0.5, 0.5, 0.35, towerM, x - sx * 0.3, y - sy * 0.3, 8.6));
             S(this.cyl(null, 0.32, 0.05, "z", lampM, x - sx * 0.62, y - sy * 0.62, 8.5, null, 20));
         }
         const rig = [];
-        for (const k of [-1, 1]) {
+        for (const k of ultra ? [] : [-1, 1]) {
             rig.push(this.box(null, 13, 0.15, 0.15, towerM, 0, k * 12.5, 9.2), this.box(null, 0.15, 13, 0.15, towerM, k * 12.5, 0, 9.2));
         }
-        for (let i = -3; i <= 3; i++) {
+        for (let i = -3; i <= 3 && !ultra; i++) {
             rig.push(this.box(null, 0.1, 12.5, 0.1, towerM, i * 3.2, 0, 9.3));
             for (const j of [-6, -2, 2, 6]) rig.push(this.box(null, 0.35, 0.2, 0.08, lampM, i * 3.2, j, 9.15));
         }
         this.rig = this.mergeStatic(rig);  // (hidden from the overview camera, which looks down past it)
         // outside: a concrete floor, tiered stands and a crowd
         const far = 30, concrete = M("outside", [1, 1, 1], 1, 0, "concrete", 0.3);
-        for (const [cx, cy, hx, hy] of [[0, h + edge + far / 2, h + far, far / 2], [0, -h - edge - far / 2, h + far, far / 2],
-                                        [h + edge + far / 2, 0, far / 2, h + edge], [-h - edge - far / 2, 0, far / 2, h + edge]]) {
+        for (const [cx, cy, hx, hy] of ultra ? [] : [[0, h + edge + far / 2, h + far, far / 2], [0, -h - edge - far / 2, h + far, far / 2],
+                                                     [h + edge + far / 2, 0, far / 2, h + edge], [-h - edge - far / 2, 0, far / 2, h + edge]]) {
             S(this.box(null, hx, hy, 0.05, concrete, cx, cy, -0.05));
         }
         const standM = M("stands", [0.5, 0.55, 0.65], 1, 0, "concrete", 0.5);
@@ -256,7 +333,7 @@ export class RobotScene extends BaseScene {
         const shirts = [[0.8, 0.1, 0.1], [0.1, 0.3, 0.8], [0.9, 0.8, 0.2], [0.2, 0.6, 0.3], [0.9, 0.9, 0.9], [0.15, 0.15, 0.18], [0.9, 0.5, 0.1], [0.5, 0.2, 0.6]];
         const skins = [[0.85, 0.65, 0.5], [0.6, 0.42, 0.3], [0.4, 0.28, 0.2]];
         const people = [];
-        for (let side = 0; side < 4; side++) {
+        for (let side = 0; side < (ultra ? 0 : 4); side++) {
             for (let row = 0; row < 4; row++) {
                 const d = h + 3.2 + row * 1.3, z = 0.35 + row * 0.55;
                 if (look.crowd !== false && !blocks) {
@@ -274,10 +351,11 @@ export class RobotScene extends BaseScene {
             }
         }
         statics.push(...people);
-        // the big screen with the arena's name
-        S(this.box(null, 4, 0.3, 1.4, M("screenbox", [0.1, 0.1, 0.12], 1, 1, "steel"), 0, h + 7.5, 6.5));
-        const board = this.floorText(look.name || "ROBOT LAB", 0, h + 7.15, 6.6, 6, "#ffcc33");
+        // the big screen with the arena's name (on ultra the window's screen; the line colour on the line tiers)
+        if (!ultra) S(this.box(null, 4, 0.3, 1.4, M("screenbox", [0.1, 0.1, 0.12], 1, 1, "steel"), 0, h + 7.5, 6.5));
+        const board = this.floorText(look.name || "ROBOT LAB", 0, h + 7.15, 6.6, 6, this.wire ? "#ffffff" : "#ffcc33");
         board.rotation.x = 0;
+        if (this.wire) this.lettering(board);
         // the user mods
         if (mods.spike_pit) {
             const [kx, ky, ks] = SPIKE_PIT;
@@ -297,12 +375,15 @@ export class RobotScene extends BaseScene {
                 c.material = fire;
                 c.position = v3(Math.cos(a) * 0.6, Math.sin(a) * 0.6, -0.5);
                 this.flames.push(c);
+                moving.push([c, [c]]);
             }
         }
         this.boostMat = mods.boost_pad ? M("boost", [0.02, 0.05, 0.02], 0.5, 0, null, null, [0.2, 0.9, 0.3]) : null;
         this.boost = mods.boost_pad ? this.box(null, BOOST_PAD[2] / 2, BOOST_PAD[2] / 2, 0.008, this.boostMat, BOOST_PAD[0], BOOST_PAD[1], 0.008) : null;
         this.repairMat = mods.repair_bay ? M("repair", [0.02, 0.04, 0.08], 0.5, 0, null, null, [0.2, 0.5, 1.0]) : null;
         this.repair = mods.repair_bay ? this.box(null, REPAIR_BAY[2] / 2, REPAIR_BAY[2] / 2, 0.008, this.repairMat, REPAIR_BAY[0], REPAIR_BAY[1], 0.008) : null;
+        if (this.boost) moving.push([null, [this.boost], "boost"]);
+        if (this.repair) moving.push([null, [this.repair], "repair"]);
         if (mods.ramps) {
             const deck = blocks ? M("ramp", [0.75, 0.75, 0.78], 1, 1) : M("ramp", [0.75, 0.75, 0.78], 1, 1, "diamond", 0.6);
             for (const [cx, cy, d] of RAMPS) {
@@ -312,9 +393,61 @@ export class RobotScene extends BaseScene {
             }
         }
         this.lasers = [];
-        this.mergeStatic(statics);
+        const still = this.mergeStatic(statics);
         this.shadowCast([...ffParts, ...lidParts]);
         if (this.spikeBank) this.spikeBank.position = v3(-10.5, 0, 0.45);
+        this.ultraParts = null;
+        if (ultra) {  // (the window's arena: its rig and roof hidden with the rig by the full arena view)
+            const u = this.ultraParts = makeUltraArena(this, file, mods, look);
+            this.rig.push(...u.rig);
+            this.shadowCast(u.casters);
+        }
+        if (this.wire) this.arenaLines(still, rects, screens, moving);
+    }
+
+    lineFade() {  // (where the lines fade out, as the window's dark fog: rw_gfx.LOOK_FADE, CHANGE 145)
+        return this.wire === "all" ? [16, 60] : [24, 90];
+    }
+
+    // (the line tiers, CHANGE 145: rw_gfx.ArenaVisual.looks) the still parts' edges as lines in tiles, with on lines a
+    // grid every 2 m (the floor plates' size) on the floor's own rectangles, none over the holes; the cage's screens as
+    // their edges alone; each moving part's lines under it (the pit's lid, the flipper, the spikes, each saw, the
+    // flames); the glowing parts' lines their own material, pulsed in frame() as they glow; the rig's hidden with it
+    arenaLines(still, rects, screens, moving) {
+        const t0 = performance.now(), before = this.lineCount || 0, fade = this.lineFade(), fill = this.wireFill();
+        const mat = this.lineMaterial("arena", 1, ...fade);
+        const lists = this.edgeLines(still.filter(m => m.material === fill), this.wire), edges = lists.idx.length / 2;
+        if (this.wire === "outline") {
+            const z = 0.002;  // (line_look.grid: each line cut at the rectangles' edges, not along them)
+            for (const [x0, y0, x1, y1] of rects) {
+                for (let x = Math.ceil(x0 / 2 - 1e-9) * 2; x < x1 - 1e-6; x += 2) {
+                    if (x <= x0 + 1e-6) continue;
+                    const b = lists.pos.length / 3;
+                    lists.pos.push(x, z, y0, x, z, y1);
+                    lists.idx.push(b, b + 1);
+                }
+                for (let y = Math.ceil(y0 / 2 - 1e-9) * 2; y < y1 - 1e-6; y += 2) {
+                    if (y <= y0 + 1e-6) continue;
+                    const b = lists.pos.length / 3;
+                    lists.pos.push(x0, z, y, x1, z, y);
+                    lists.idx.push(b, b + 1);
+                }
+            }
+        }
+        const grid = lists.idx.length / 2 - edges;
+        this.staticLines("arenalines", lists, mat);
+        if (screens.length) {
+            this.staticLines("screenlines", this.edgeLines(screens, this.wire), mat);
+            for (const m of screens) m.dispose();
+        }
+        const rigLines = this.rig.length ? this.linesMesh("riglines", this.edgeLines(this.rig, this.wire), mat) : null;
+        if (rigLines) this.rig.push(rigLines);
+        for (const [node, meshes, glow, saw] of moving) {
+            const m = glow ? (this.glowLines[glow] = this.glowLines[glow] || this.lineMaterial(glow, 1, ...fade)) : mat;
+            const lines = this.linesMesh(glow ? glow + "lines" : "movinglines", this.edgeLines(meshes, this.wire, node), m, node);
+            if (saw) { saw.glowLines = lines; if (lines) lines.isVisible = false; }
+        }
+        this.lineStats = {segments: (this.lineCount || 0) - before, grid, ms: Math.round(performance.now() - t0)};
     }
 
     // a box in its own colour (a person in the crowd): vertex colours, so a whole crowd is one mesh
@@ -348,10 +481,11 @@ export class RobotScene extends BaseScene {
 
     // a laser's beam, 1 m long along its node's z (aimed and stretched each frame): a white-hot core inside a red
     // glow (rw_gfx.build_laser)
+    // (the line tiers, CHANGE 145: a solid beam in the line colour, no glow)
     buildLaser() {
         const aim = new BABYLON.TransformNode("laser", this.scene);
-        this.cyl(aim, 0.02, 0.5, "y", this.material("lasercore", [0, 0, 0], 1, 0, 0, {emission: [10, 4, 3]}), 0, 0.5, 0, null, 8);
-        this.cyl(aim, 0.06, 0.5, "y", this.seeThrough("laserglow", [0, 0, 0], 0.5, 1, 0, [8, 0.3, 0.2]), 0, 0.5, 0, null, 10);
+        this.cyl(aim, 0.02, 0.5, "y", this.wire ? this.lineInk("laser") : this.material("lasercore", [0, 0, 0], 1, 0, 0, {emission: [10, 4, 3]}), 0, 0.5, 0, null, 8);
+        if (!this.wire) this.cyl(aim, 0.06, 0.5, "y", this.seeThrough("laserglow", [0, 0, 0], 0.5, 1, 0, [8, 0.3, 0.2]), 0, 0.5, 0, null, 10);
         aim.setEnabled(false);
         return aim;
     }
@@ -366,6 +500,7 @@ export class RobotScene extends BaseScene {
 
     // Panda's colour scale k (linear, per channel) on a group of parts: their colours times k (the screen colour
     // times k^(1/2.2)); a glow isn't scaled, as simplepbr doesn't scale it. Steps of 0.05, so few materials are made.
+    // (ultra's robots, CHANGE 145: their material's own maker, a.make)
     tint(v, group, k) {
         const q = k.map(c => Math.round(c * 20) / 20), key = q.join(",");
         if (v.tints[group] === key) return;
@@ -374,7 +509,7 @@ export class RobotScene extends BaseScene {
         for (const mesh of v.groups[group]) {
             const base = mesh.ccBase, a = base && base.ccArgs;
             if (!a) continue;
-            mesh.material = one ? base : this.material(a.name, a.rgb.map((c, i) => c * Math.pow(q[i], 1 / 2.2)), a.rough, a.metal, 0, a.opts);
+            mesh.material = one ? base : a.make ? a.make(q) : this.material(a.name, a.rgb.map((c, i) => c * Math.pow(q[i], 1 / 2.2)), a.rough, a.metal, 0, a.opts);
         }
     }
 
@@ -411,6 +546,7 @@ export class RobotScene extends BaseScene {
         const style = d.style || {};
         const trim = rgb255(style.trim, [30, 30, 34]), lights = rgb255(style.lights, [255, 60, 30]).map(v => v * 6);
         const blocks = this.tier === "blocks";
+        if (this.ultra && robotModelsData()) return this.addUltraRobot(info, d, s, big, weaponType, colour, trim, lights, style);
         // rw_gfx.RobotVisual's looks: the paint and steel texture sets (their maps give the shine), tread on the tyres
         const T = (name, rgb, tex, tile = 1, rough = 1, metal = 1) => this.paintOf(name, rgb, rough, metal, {tex, tile});
         const paint = T("hull", colour, "paint", 1.2);
@@ -458,12 +594,13 @@ export class RobotScene extends BaseScene {
         all.push(this.box(root, 0.5 * hx, 0.012, 0.025, glow, 0, hy + 0.005, z0 + 0.45 * hzz));
         G("chassis", this.cyl(root, 0.008, 0.18, "z", steel, -0.6 * hx, -0.7 * hy, top + 0.24, null, 6));
         all.push(this.cyl(root, 0.022, 0.022, "z", glow, -0.6 * hx, -0.7 * hy, top + 0.43, null, 10));
+        let beacon = null;
         if (big) {  // Resident Robots: grab handles, armour plates on the deck, a flashing beacon
             for (const sd of [-1, 1]) G("chassis", this.box(root, 0.03, 0.03, 0.12, T("handle", [0.3, 0.3, 0.32], "steel"), sd * hx * 0.5, -hy - 0.04, top - 0.05));
             for (let i = 0; i < 3; i++) G("armour", this.box(deck, hx * 0.36, hy * 0.2, 0.03, T("plate", [0.4, 0.4, 0.42], "steel"), 0, hy * 0.35 + i * hy * 0.45, 0.06));
             G("chassis", this.cyl(root, 0.1, 0.05, "z", T("beaconbase", [0.2, 0.2, 0.22], "steel"), 0.55 * hx, -0.55 * hy, top + 0.14, null, 16));
             this.beaconMat = this.material("beacon", [0, 0, 0], 0.3, 0, 0, {emission: [6, 3, 0]});
-            all.push(this.cyl(root, 0.08, 0.07, "z", this.beaconMat, 0.55 * hx, -0.55 * hy, top + 0.26, null, 16));
+            all.push(beacon = this.cyl(root, 0.08, 0.07, "z", this.beaconMat, 0.55 * hx, -0.55 * hy, top + 0.26, null, 16));
         }
         for (const m of this.mergeParts(rivets, deck)) G("armour", m);
         const wr = big ? 0.32 : 0.2, ww = big ? 0.12 : 0.075;
@@ -537,8 +674,8 @@ export class RobotScene extends BaseScene {
             W(this.cyl(weapon, 0.08, 0.15, "x", steel, 0, 0, 0, null, 10));
         }
         this.shadowCast(all);
-        // its name (or number) painted on the deck, as rw_gfx does
-        const painted = String(style.number || d.name || "").slice(0, 10).toUpperCase();
+        // its name (or number) painted on the deck, as rw_gfx does (not on the line tiers: CHANGE 145)
+        const painted = this.wire ? "" : String(style.number || d.name || "").slice(0, 10).toUpperCase();
         if (painted) {
             const deckName = this.floorText(painted, 0, 0, 0, 2.3 * hx, "#ffffff", 0.85);  // (letters about 0.2 m, as the window paints them)
             deckName.parent = deck;
@@ -548,10 +685,137 @@ export class RobotScene extends BaseScene {
         const house = owner === "Resident Robot";
         const label = this.makeLabel(house ? `${d.name || ""}\nResident Robot` : owner || d.name || "", house ? "#ffbf4d" : "#ffffff", 1.1, false);
         const vis = {key: JSON.stringify([info.design || {}, owner]), deckName: painted ? deck.getChildMeshes(true).find(m => m.name === "floortext") : null, root, armour, panels, weapon, spin, blur, chain, chainBase, chainPos: 0, wheels, wr, ww, label, design: d, owner, weaponType, s, top,
-                     angle: 0, roll: 0, hp: null, flash: 0, groups, tints: {}, trimM, hazardM, trim, hx, rear: null,
+                     angle: 0, roll: 0, hp: null, flash: 0, groups, tints: {}, trimM, hazardM, trim, hx, rear: null, beacon,
                      health: {}, weak: {}, gone: new Set(), flying: [], bars: {}, barUntil: {}, scorch: 0, fresh: true};
+        if (this.wire) this.robotLines(vis);
         this.robots.set(info.id, vis);
         return vis;
+    }
+
+    // (the line tiers, CHANGE 145: rw_gfx.RobotVisual.looks) the robot's edges as lines, each part that moves on its
+    // own with its own: every armour panel, the beacon (pulsing as it flashes), the body with what is fixed to it, the
+    // chainsaw's chain, the weapon (a spinning weapon's turning part apart), each wheel (worked out once a wheel size,
+    // for every robot). The see-through blur isn't drawn, nor the name on the deck (the label above says who it is)
+    robotLines(v) {
+        const mode = this.wire, fade = this.lineFade(), mat = this.lineMaterial("robot", 1, ...fade);
+        const own = (node, meshes, m = mat) => this.linesMesh("robotlines", this.edgeLines(meshes, mode, node), m, node);
+        for (const pn of v.panels) own(pn.node, pn.node.getChildMeshes(false));
+        own(v.root, v.root.getChildMeshes(true).filter(m => m !== v.beacon));
+        if (v.beacon) own(v.beacon, [v.beacon], this.glowLines.beacon = this.glowLines.beacon || this.lineMaterial("beacon", 1, ...fade));
+        if (v.blur) { v.blur.dispose(); v.blur = null; }
+        if (v.chain) own(v.chain, v.chain.getChildMeshes(false));
+        own(v.weapon, v.weapon.getChildMeshes(true));
+        own(v.spin, v.spin.getChildMeshes(false));
+        for (const w of v.wheels) {
+            const key = `${mode}:${v.wr}:${v.ww}`;
+            if (!this.wheelLines[key]) this.wheelLines[key] = this.edgeLines(w.spin.getChildMeshes(false), mode, w.spin);
+            this.linesMesh("wheellines", this.wheelLines[key], mat, w.spin);
+        }
+    }
+
+    // (ultra, CHANGE 145: rw_gfx.RobotVisual.ultra) the window's smooth robot from models/robot_ultra.json: its pieces
+    // placed by robotLayout (robot_models.layout) on the nodes the other tiers use (the body, the armour panels on their
+    // hinges, a Resident Robot's beacon, the weapon and its spin, a chainsaw's chain, each wheel), each node's pieces ONE
+    // mesh in the robot's colours (a texel a role for roughness, metal and glow, as the window's atlas: about 11 draws a
+    // robot, its shadow's too), and the whole robot k times the standard robot it is drawn as (lab_sim.shapes)
+    addUltraRobot(info, d, s, big, weaponType, colour, trim, lights, style) {
+        const scene = this.scene, sh = robotShapes(weaponType, s, big), k = sh.k, size = sh.size;
+        const [hx, hy, hz] = sh.half, z0 = 0.1, top = z0 + hz;
+        const node = (name, parent, pos = null, scale = 1) => {
+            const n = new BABYLON.TransformNode(name, scene);
+            n.parent = parent;
+            if (pos) n.position = v3(...pos);
+            if (scale !== 1) n.scaling.setAll(scale);
+            return n;
+        };
+        const root = new BABYLON.TransformNode("robot" + info.id, scene);
+        root.rotationQuaternion = BABYLON.Quaternion.Identity();
+        const body = node("body", root, null, k), armour = node("armour", body), panels = [];
+        const panel = (hinge, bend, lie) => {
+            const n = node("panel", armour, hinge);
+            n.rotationQuaternion = BABYLON.Quaternion.Identity();
+            panels.push({node: n, hinge, bend, lie});
+            return n;
+        };
+        const hingeZ = z0 - 0.02 + hz * 0.7;
+        const nodes = {chassis: body, deck: panel([0, -hy * 0.8, top + 0.04], [0, 28, 0], [0, 0]),
+                       skirt_r: panel([hx + 0.02, 0, hingeZ], [0, 0, 34], [0, 90]), skirt_l: panel([-(hx + 0.02), 0, hingeZ], [0, 0, -34], [0, -90]),
+                       rear: panel([0, -hy - 0.018, top - 0.03], [0, -34, 0], [-90, 0])};
+        if (big) nodes.beacon = node("beacon", body, [hx * 0.55, -hy * 0.55, top + 0.26]);
+        const wr = (big ? 0.32 : 0.2) * k, ww = (big ? 0.12 : 0.075) * k;
+        const wheels = WHEELS.map(([x, y], i) => {  // (where the other tiers put them; k times the standard wheel)
+            const lean = node("wheel", root, [x * s, y * s, 0.08], k);
+            lean.rotationQuaternion = BABYLON.Quaternion.Identity();
+            nodes["wheel" + i] = node("wheelspin", lean);
+            return {lean, spin: nodes["wheel" + i], x: x * s, y: y * s};
+        });
+        const weapon = new BABYLON.TransformNode("weapon" + info.id, scene);
+        weapon.rotationQuaternion = BABYLON.Quaternion.Identity();
+        const spin = node("wspin", weapon);
+        nodes.weapon = node("pieces", spin, null, k);
+        let chain = null, chainBase = 0, blur = null;
+        if (weaponType === "chainsaw") {
+            chainBase = sh.arm[1] * 2 + sh.bar[1] - 0.05;
+            chain = nodes.chain = node("chain", nodes.weapon, [0, chainBase, -0.04]);
+        } else if (weaponType === "spinner" || weaponType === "vdisc") {  // (the see-through disc, as the other tiers')
+            const see = this.seeThrough("spinblur", [0.8, 0.82, 0.86], 0.28, 0.2, 1);
+            blur = weaponType === "spinner" ? this.cyl(weapon, 0.8 * s, 0.004, "z", see, 0, 0, 0, null, 48)
+                : this.cyl(weapon, 1.12 * 0.42 * s, 0.004, "x", see, 0, 0, 0, null, 48);
+        }
+        const byNode = {};
+        for (const [n, piece, pos, hpr, scale] of robotLayout(weaponType, size, big, sh)) (byNode[n] = byNode[n] || []).push([piece, pos, hpr, scale]);
+        const groups = {chassis: [], armour: [], weapon: [], wheel0: [], wheel1: [], wheel2: [], wheel3: []}, all = [];
+        const groupOf = n => (["deck", "skirt_r", "skirt_l", "rear"].includes(n) ? "armour" : n === "chain" ? "weapon" : n);
+        const base = this.ultraRobotMaterial(lights, [1, 1, 1]);
+        let beacon = null;
+        for (const [n, items] of Object.entries(byNode)) {
+            const mesh = nodes[n] ? robotNodeMesh(this, "robot " + n, items, colour, trim) : null;
+            if (!mesh) continue;
+            mesh.parent = nodes[n];
+            all.push(mesh);
+            if (n === "beacon") {  // (flashed in frame(): its own material, as the window's)
+                mesh.material = this.beaconMat = this.material("beacon", [0, 0, 0], 0.3, 0, 0, {emission: [6, 3, 0]});
+                beacon = mesh;
+                continue;
+            }
+            mesh.material = mesh.ccBase = base;
+            groups[groupOf(n)].push(mesh);
+        }
+        this.shadowCast(all);
+        const painted = String(style.number || d.name || "").slice(0, 10).toUpperCase();
+        let deckName = null;
+        if (painted) {  // (across the deck just above its plate, the letters the window's size: its text scale, over the
+            // capitals' share of floorText's picture)
+            deckName = this.floorText(painted, 0, 0, 0, Math.min(0.2, 1.2 * hx / Math.max(3, painted.length)) * 6.67, "#ffffff", 0.85);
+            deckName.parent = nodes.deck;
+            deckName.position = v3(0, hy * 0.68, 0.045 * size + 0.002);
+        }
+        const owner = info.owner || "", house = owner === "Resident Robot";
+        const label = this.makeLabel(house ? `${d.name || ""}\nResident Robot` : owner || d.name || "", house ? "#ffbf4d" : "#ffffff", 1.1, false);
+        const vis = {key: JSON.stringify([info.design || {}, owner]), deckName, root, armour, panels, weapon, spin, blur, chain, chainBase,
+                     chainPos: 0, chainStep: 0.06 * size, wheels, wr, ww, label, design: d, owner, weaponType, s, top: top * k, k,
+                     angle: 0, roll: 0, hp: null, flash: 0, groups, tints: {}, trimM: base, hazardM: base, trim, hx: hx * k, rear: null, beacon,
+                     ultraWeapon: groups.weapon.filter(m => m.parent === nodes.weapon),
+                     health: {}, weak: {}, gone: new Set(), flying: [], bars: {}, barUntil: {}, scorch: 0, fresh: true};
+        this.ultraRobots = true;
+        this.robots.set(info.id, vis);
+        return vis;
+    }
+
+    // (ultra) a robot's material: white times its colour scale q (linear: rw_gfx's colour scales), the vertices' colours,
+    // the roles' roughness and metal and glow from the atlas (robotfx.js's robotAtlas, its lights colour's), the backs
+    // of its faces culled as the window's
+    ultraRobotMaterial(lights, q) {
+        const key = `rultra:${lights.map(v => v.toFixed(3)).join(",")}:${q.join(",")}`;
+        if (this.materials[key]) return this.materials[key];
+        const atlas = robotAtlas(this, lights);
+        const m = this.lighting.material(key, {rgb: q.map(c => Math.pow(c, 1 / 2.2)), rough: 1, metal: 1,
+                                               emission: [ROBOT_GLOW, ROBOT_GLOW, ROBOT_GLOW], mrMap: atlas.mr, glowMap: atlas.glow});
+        m.backFaceCulling = true;
+        m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;  // (the front as the file's, turned round by unpackPart)
+        m.ccArgs = {make: c => this.ultraRobotMaterial(lights, c)};
+        this.materials[key] = m;
+        return m;
     }
 
     // a wedge's plate on its hinge, the hazard stripe along its lip (and the Flipper on both ends' back plate)
@@ -676,6 +940,7 @@ export class RobotScene extends BaseScene {
                 pn.node.parent = v.armour;
                 pn.node.position = v3(...pn.hinge);
                 pn.node.rotationQuaternion = BABYLON.Quaternion.Identity();
+                pn.node.scaling.setAll(1);  // (loosened, it took the robot's size with it: ultra's k)
                 pn.node.setEnabled(true);
                 nodes.push(pn.node);
             }
@@ -721,7 +986,11 @@ export class RobotScene extends BaseScene {
     frame(st, dt, t) {
         const seen = new Set(), fx = this.fx, real = !!(st && st.rd);
         this.lastRobots = (st && st.robots) || [];
-        if (this.beaconMat) { const g = Math.floor(t * 3) % 2 === 0 ? 6 : 1; this.setGlow(this.beaconMat, [g, g * 0.5, 0]); }  // a turning amber beacon
+        if (this.beaconMat) {  // a turning amber beacon (its lines pulse on the line tiers)
+            const g = Math.floor(t * 3) % 2 === 0 ? 6 : 1;
+            this.setGlow(this.beaconMat, [g, g * 0.5, 0]);
+            this.pulseLine((this.glowLines || {}).beacon, g > 1 ? 1 : 0.35);
+        }
         for (const r of this.lastRobots) {
             const v = this.robots.get(r.id);
             if (!v) continue;
@@ -749,7 +1018,14 @@ export class RobotScene extends BaseScene {
                 if (!v.rear) {
                     v.rear = new BABYLON.TransformNode("rear", this.scene);
                     v.rear.rotationQuaternion = BABYLON.Quaternion.Identity();
-                    for (const m of this.wedge(v.rear, v.hx, v.trimM, v.hazardM, v.trim)) { m.ccBase = m.material; v.groups.weapon.push(m); }
+                    if (v.ultraWeapon) {  // (ultra: the smooth plate again, k times its size)
+                        const kw = new BABYLON.TransformNode("pieces", this.scene);
+                        kw.parent = v.rear;
+                        kw.scaling.setAll(v.k);
+                        for (const m of v.ultraWeapon) { const c = m.clone(m.name, kw); c.ccBase = m.ccBase; v.groups.weapon.push(c); }
+                    } else {
+                        for (const m of this.wedge(v.rear, v.hx, v.trimM, v.hazardM, v.trim)) { m.ccBase = m.material; v.groups.weapon.push(m); }
+                    }
                     this.shadowCast(v.rear.getChildMeshes());
                     v.tints.weapon = null;
                 }
@@ -769,7 +1045,7 @@ export class RobotScene extends BaseScene {
                 w.spin.rotation.x = v.roll;
             });
             if (v.chain && (r.on ?? true)) {  // the chain runs round the bar
-                v.chainPos = (v.chainPos + dt * 3.0) % 0.06;
+                v.chainPos = (v.chainPos + dt * 3.0) % (v.chainStep || 0.06);
                 v.chain.position.z = v.chainBase + v.chainPos;  // (Babylon's z: the game's y, along the bar)
             }
             if (r.fl && fx) {  // the flame thrower: a jet of fire from its nozzle
@@ -806,11 +1082,14 @@ export class RobotScene extends BaseScene {
         if (hz) {
             const ht = hz.t || 0;  // (the arena's clock: the lights blink and pulse with the app's)
             if (this.pitLid && hz.pit !== undefined) this.pitLid.position.y = hz.pit;
-            if (hz.pit_open ?? true) { const p = 2.5 + 1.5 * Math.sin(ht * 4); this.setGlow(this.pitGlowMat, [p * 1.6, p * 0.12, p * 0.04]); }
-            else this.setGlow(this.pitGlowMat, [0.05, 0.3, 0.08]);  // (closed: a calm green)
+            const G = this.glowLines || {};  // (the line tiers: the glowing parts' lines pulse as they would glow)
+            if (hz.pit_open ?? true) { const p = 2.5 + 1.5 * Math.sin(ht * 4); this.setGlow(this.pitGlowMat, [p * 1.6, p * 0.12, p * 0.04]); this.pulseLine(G.pit, p / 4); }
+            else { this.setGlow(this.pitGlowMat, [0.05, 0.3, 0.08]); this.pulseLine(G.pit, 0.35); }  // (closed: a calm green)
             if (this.ffPivot && hz.ff) this.ffPivot.rotationQuaternion = gameQuat(hz.ff);
             const warn = (!hz.on || hz.on.floor_flipper !== false) && (ht % 4) > 3.2;  // (blinks just before it fires)
-            this.setGlow(this.ffLampMat, warn && Math.floor(ht * 8) % 2 === 0 ? [8, 0.3, 0.1] : [0.2, 0, 0]);
+            const lit = warn && Math.floor(ht * 8) % 2 === 0;
+            this.setGlow(this.ffLampMat, lit ? [8, 0.3, 0.1] : [0.2, 0, 0]);
+            this.pulseLine(G.fflamp, lit ? 1 : 0.45);
             (hz.saws || []).forEach((h, i) => {
                 const saw = this.saws[i];
                 if (!saw) return;
@@ -818,9 +1097,10 @@ export class RobotScene extends BaseScene {
                 saw.angle -= (400 + 1400 * Math.min(1, 2 * h)) * Math.PI / 180 * dt;
                 saw.spin.rotation.z = saw.angle;
                 const a = Math.min(0.22, h * 0.3);  // (rw_gfx: the blur as it rises, the hot rim while it grinds)
-                saw.blur.isVisible = a > 0.002;
+                saw.blur.isVisible = !this.wire && a > 0.002;  // (no blur on the line tiers)
                 saw.blur.visibility = a / 0.22;
                 saw.glow.isVisible = !!(hz.saw_hot || [])[i];
+                if (saw.glowLines) saw.glowLines.isVisible = saw.glow.isVisible;
             });
             if (this.spikeBank) this.spikeBank.position.x = -10.5 + 0.6 * (hz.spikes || 0);
             for (const [i, f] of this.flames.entries()) {
@@ -828,8 +1108,16 @@ export class RobotScene extends BaseScene {
                 f.scaling.y = hgt;
                 f.position.y = -0.5 + hgt / 2;
             }
-            if (this.boostMat) { const g = 0.9 + 0.35 * Math.sin(ht * 5); this.setGlow(this.boostMat, (hz.boost ?? 1) ? [0.25 * g, g, 0.35 * g] : [0.45, 0.06, 0.04]); }
-            if (this.repairMat) { const g = hz.repair ? 2.0 + 1.2 * Math.sin(ht * 6) : 0.6; this.setGlow(this.repairMat, [0.2 * g, 0.5 * g, g]); }
+            if (this.boostMat) {
+                const g = 0.9 + 0.35 * Math.sin(ht * 5), on = !!(hz.boost ?? 1);
+                this.setGlow(this.boostMat, on ? [0.25 * g, g, 0.35 * g] : [0.45, 0.06, 0.04]);
+                this.pulseLine(G.boost, on ? g / 1.25 : 0.3);
+            }
+            if (this.repairMat) {
+                const g = hz.repair ? 2.0 + 1.2 * Math.sin(ht * 6) : 0.6;
+                this.setGlow(this.repairMat, [0.2 * g, 0.5 * g, g]);
+                this.pulseLine(G.repair, Math.min(1, g / 3.2 + 0.2));
+            }
             const beams = hz.lasers || [];  // lasers: a beam for each laser firing, from where it starts to its end
             while (this.lasers.length < beams.length) this.lasers.push(this.buildLaser());
             this.lasers.forEach((aim, i) => {
@@ -1034,7 +1322,12 @@ function weaponPivot(weapon, size) {
 class PreviewScene extends RobotScene {
     populate() {
         const scene = this.scene;
-        scene.clearColor = new BABYLON.Color4(0.46, 0.48, 0.53, 1);  // (a light grey studio: dark parts stand out against it)
+        this.ultra = false;  // (Babylon's simple materials: high's robot on ultra; CHANGE 145)
+        this.wheelLines = {};
+        this.glowLines = {};
+        this.lineCount = 0;
+        // (a light grey studio: dark parts stand out against it; black on the line tiers, the pedestal's edges in lines)
+        scene.clearColor = this.wire ? new BABYLON.Color4(0, 0, 0, 1) : new BABYLON.Color4(0.46, 0.48, 0.53, 1);
         // light from everywhere (nothing on the robot left black), a key lamp high at the front, a rim lamp behind
         const sky = scene.getLightByName("sky");
         if (sky) { sky.intensity = 0.75; sky.diffuse = new BABYLON.Color3(1, 1, 1); sky.groundColor = new BABYLON.Color3(0.38, 0.38, 0.42); }
@@ -1045,7 +1338,12 @@ class PreviewScene extends RobotScene {
         this.turn = new BABYLON.TransformNode("turntable", scene);
         this.cyl(this.turn, 1.25, 0.06, "z", this.material("pedestal", [0.78, 0.8, 0.84], 0.75, 0.05), 0, 0, -0.06, null, 48);
         this.cyl(this.turn, 1.45, 0.03, "z", this.material("plinth", [0.6, 0.62, 0.66], 0.8, 0.05), 0, 0, -0.15, null, 48);
-        this.cyl(null, 3.5, 0.02, "z", this.material("studio", [0.5, 0.52, 0.57], 1, 0), 0, 0, -0.2, null, 48);
+        const studio = this.cyl(null, 3.5, 0.02, "z", this.material("studio", [0.5, 0.52, 0.57], 1, 0), 0, 0, -0.2, null, 48);
+        if (this.wire) {
+            const mat = this.lineMaterial("pedestal", 1, ...this.lineFade());
+            this.linesMesh("pedestallines", this.edgeLines(this.turn.getChildMeshes(), this.wire, this.turn), mat, this.turn);
+            this.linesMesh("studiolines", this.edgeLines([studio], this.wire), mat);
+        }
         const cam = this.camera;  // (the window's: 34 degrees, from the front and above)
         cam.detachControl();
         cam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;

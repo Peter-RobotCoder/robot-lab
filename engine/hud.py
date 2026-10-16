@@ -18,7 +18,7 @@ from direct.gui.DirectGui import (DGG, DirectButton, DirectCheckButton, DirectEn
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import MouseButton, PGItem, TextNode, WindowProperties
 
-from engine import editor
+from engine import editor, full_screen
 
 APP = None  # the window (so any button click can end typing in a text box): set by setup_app
 SEND = None  # the window's send(message) to its server: set by setup_app
@@ -268,10 +268,11 @@ class HudKit:
         self.slots, self.slot_pick, self.slot_confirm = {}, 1, None  # saved designs (CHANGE 83): who -> slot -> design
         self.history, self.load_from = None, None  # (CHANGE 84, 86: the teacher's Load from row)
         self.loaded_note = ""
-        self.full_button = button(self.aspect2d, "[ ]", 1.735, 0.965, self.toggle_fullscreen, None, 0.024, (0.2, 0.22, 0.28, 0.9))
-        self.full_button["sortOrder"] = 20  # (above the side panel header)
+        # (CHANGE 146: words, not "[ ]", held to the top right corner whatever the window's shape, drawn over the
+        # side panel's header)
+        self.full_button = full_screen.corner_button(self, lambda: (self.stop_typing(), self.toggle_fullscreen()), 0.026)
         self.full_button.bind(DGG.WITHIN, lambda e: self.show_tip("Full screen: the game fills the screen, no title bar "
-                                                                 "or taskbar. Press again for a window."))
+                                                                 "or taskbar. Esc or this button again for a window."))
         self.full_button.bind(DGG.WITHOUT, lambda e: self.hide_tip())
         if SETTINGS.get("fullscreen"):
             self.taskMgr.doMethodLater(0.5, lambda t: self.toggle_fullscreen() and None, "full screen at the start")
@@ -297,7 +298,7 @@ class HudKit:
             word(f, "HUD", 0.81, 0.937, 0.036, YELLOW, "HUD")
             label(f, "/", 0.905, 0.937, 0.036, GREY)
             word(f, "GUI", 0.935, 0.937, 0.036, YELLOW, "GUI")
-            label(f, "hover over a word in capitals\nto see what it means", 1.68, 0.952, 0.017, GREY,
+            label(f, "hover over a word in capitals\nto see what it means", 1.5, 0.952, 0.017, GREY,  # (left of Full screen)
                   TextNode.ARight)
         for i, (key, text) in enumerate(tabs):
             b = button(f, tab_text(key, text) if tab_text else text, left + (i % across + 0.5) * (width / across),
@@ -459,10 +460,18 @@ class HudKit:
             wp.setSize(w, h)
         win.requestProperties(wp)
         self.fullscreen = not self.fullscreen
-        self.full_button["text"] = "> <" if self.fullscreen else "[ ]"
+        self.full_button["text"] = full_screen.LEAVE if self.fullscreen else full_screen.ENTER
         remember("fullscreen", self.fullscreen)
         if self.tab == "settings":
             self.rebuild_panels()
+
+    def escape(self):
+        """Esc (CHANGE 146): stops the typing, or else comes out of full screen. It never closes the window: the
+        title bar's cross does, or a Close button."""
+        if self.typing:
+            self.stop_typing()
+        elif self.fullscreen:
+            self.toggle_fullscreen()
 
     def display_size(self):
         pipe = getattr(self, "pipe", None)

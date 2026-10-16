@@ -8,6 +8,9 @@
 4. resolve() follows --gfx, then the saved tier, then the saved detection, then medium
 5. the whole ladder (CHANGE 144): each game draws its own tiers, the monitor never steps into or out of mesh and
    lines, and climbs into ultra only once it has run cleanly here
+6. a game's own MSAA (Robot Lab's ultra keeps 4x) is what the monitor puts back on stepping up (CHANGE 145)
+7. the looks' lines (engine.line_look: the edges of mesh and lines, the floor grid, the colour) and the ultra
+   models' kit (engine.model_kit: round edges facing out, the files' packing) (CHANGE 145)
 Exit code 0 = all fine.
 """
 import os
@@ -275,7 +278,8 @@ def ladder():  # CHANGE 144: mesh < lines < basic < low < medium < high < ultra,
     assert g.SETTINGS["ultra"]["shadow"] > g.SETTINGS["high"]["shadow"] and g.SETTINGS["ultra"]["msaa"] >= 4
     tmp = tempfile.mkdtemp(prefix="gfx_tiers_test_")
     try:
-        # resolve gives each game its own tier: Robot Lab and Fight Lab draw lines as basic, ultra as high
+        # resolve gives each game its own tier: Fight Lab draws lines as basic, ultra as high (Kart Lab and Robot Lab,
+        # CHANGE 145, all seven)
         assert g.resolve(tmp, "lines") == "basic" and g.resolve(tmp, "lines", kart) == "lines"
         assert g.resolve(tmp, "ultra") == "high" and g.resolve(tmp, "ultra", kart) == "ultra"
         g.remember(tmp, gfx_tier="mesh")
@@ -289,7 +293,7 @@ def ladder():  # CHANGE 144: mesh < lines < basic < low < medium < high < ultra,
         g.remember(tmp, gfx_tier="ultra", gfx_class_max="high")
         assert g.resolve(tmp, None, kart) == "high"
         g.forget(tmp, "gfx_class_max", "gfx_tier")
-        # a class maximum of lines, heard by a Robot Lab learner already at basic, says nothing; at high it says Basic
+        # a class maximum of lines, heard by a Fight Lab learner already at basic, says nothing; at high it says Basic
         assert g.obey_class_max(tmp, "lines", None, "basic") is None
         note = g.obey_class_max(tmp, "lines", None, "high")
         assert note and "Basic" in note, note
@@ -324,7 +328,7 @@ def ladder():  # CHANGE 144: mesh < lines < basic < low < medium < high < ultra,
         feed(mon, clock, 60, 1 / 60, every_nth_slow=4)
         s = g.load_settings(tmp)
         assert light.size == 512 and pipe.msaa_samples == 0 and s.get("gfx_tier") == "high", (light.size, s)
-        # a Robot Lab monitor never steps up past high, whatever the settings say
+        # a Fight Lab monitor (the core four) never steps up past high, whatever the settings say
         g.remember(tmp, gfx_tier="high", gfx_failed=[], gfx_benchmarked="ultra")
         mon = g.Monitor(tmp, "high", clock=clock)
         feed(mon, clock, 40, 0.008)
@@ -340,6 +344,49 @@ def ladder():  # CHANGE 144: mesh < lines < basic < low < medium < high < ultra,
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def game_msaa():  # CHANGE 145: Robot Lab's ultra keeps 4x MSAA, not the tier's 8
+    tmp = tempfile.mkdtemp(prefix="gfx_tiers_test_")
+    try:
+        clock = Clock()
+        light, pipe = FakeLight(4096), FakePipeline()
+        pipe.msaa_samples = 4
+        mon = g.Monitor(None, "ultra", pipeline=pipe, lights=[light], clock=clock, tiers=g.TIERS)
+        feed(mon, clock, 12, 1 / 60, every_nth_slow=2)  # (missed frames: the knobs come down)
+        assert pipe.msaa_samples == 0 and light.size < 4096, (pipe.msaa_samples, light.size)
+        feed(mon, clock, 200, 0.004)  # (headroom: they go back up, one a window)
+        assert pipe.msaa_samples == 4 and light.size == 4096, (pipe.msaa_samples, light.size)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def looks():  # CHANGE 145: engine.line_look and engine.model_kit, shared by Kart Lab and Robot Lab
+    from panda3d.core import NodePath
+    from engine import line_look, model_geom, model_kit as mk
+    from engine.rw_mesh import bevel_box
+    cube = NodePath("cube")
+    cube.attachNewNode(bevel_box(0.5, 0.5, 0.5, 0.0).node())
+    pts, pairs = line_look.edges(cube, "mesh")
+    assert len(pts) == 8 and len(pairs) == 18, (len(pts), len(pairs))  # (12 edges and a diagonal on each face)
+    pts, pairs = line_look.edges(cube, "lines")
+    assert len(pairs) == 12, len(pairs)  # (the outline: the diagonals lie flat)
+    node = line_look.line_node("cube", pts, pairs, line_look.grid([(-2.0, -1.0, 2.0, 1.0)], 1.0))
+    assert node.getGeom(0).getPrimitive(0).getNumPrimitives() == 12 + 3 + 1  # (inner lines only: x -1, 0, 1 and y 0)
+    assert line_look.parse_colour("#ff0000") == (1.0, 0.0, 0.0) and line_look.parse_colour("green") == line_look.parse_colour(None)
+    # a rounded box: every normal points out of it, and its triangles face the way of their normals
+    part = mk.Part("box", "steel")
+    mk.rounded_box(part, mk.Frame((1.0, 2.0, 3.0)), (0.3, 0.2, 0.1), 0.04, steps=3)
+    for p, n in zip(part.p, part.n):
+        assert mk.dot(mk.sub(p, (1.0, 2.0, 3.0)), n) > 0, (p, n)
+        assert abs(p[0] - 1.0) <= 0.3001 and abs(p[1] - 2.0) <= 0.2001 and abs(p[2] - 3.0) <= 0.1001, p
+    for i in range(0, len(part.idx), 3):
+        a, b, c = (part.p[k] for k in part.idx[i:i + 3])
+        assert mk.dot(mk.cross(mk.sub(b, a), mk.sub(c, a)), part.n[part.idx[i]]) > -1e-12
+    # the files' packing reads back to a few millimetres, and the window makes one Geom of it
+    pos, nrm, uv, col, alpha, idx = mk.unpack(part.packed())
+    assert idx == part.idx and all(abs(a - b) < 0.002 for a, b in zip(pos, [c for q in part.p for c in q]))
+    assert model_geom.node([part]).getGeom(0).getVertexData().getNumRows() == len(part.p)
+
+
 if __name__ == "__main__":
     check("Heuristic puts real renderer strings in the right tier", heuristic)
     check("prc_for gives each tier its lines", prc)
@@ -347,6 +394,8 @@ if __name__ == "__main__":
     check("resolve follows --gfx, the saved tier, the detection, then medium", resolve)
     check("The class maximum caps resolve, the knobs in a run and the monitor's climb", class_maximum)
     check("The whole ladder: each game's own tiers, the looks and ultra", ladder)
+    check("A game's own MSAA is what a step back up restores", game_msaa)
+    check("The looks' lines and the ultra models' kit", looks)
     for name, ok, note in results:
         print(("PASS " if ok else "FAIL ") + name + ("" if ok else ":\n    " + note))
     sys.exit(0 if all(ok for _, ok, _ in results) else 1)

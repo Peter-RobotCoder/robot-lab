@@ -635,9 +635,9 @@ function classCap() {  // the teacher's class maximum, on a learner's page (the 
     return state.role === "learner" && TIERS.includes(t) ? t : null;
 }
 
-// (CHANGE 144) the tiers the game in front draws (Kart Lab all seven, Robot Lab and Fight Lab blocks to high); the
-// page's choice under the class maximum (kept page-wide: "lines" stays chosen in Robot Lab); and the tier the game
-// draws for it (its nearest: lines as blocks there)
+// (CHANGE 144) the tiers the game in front draws (Kart Lab and Robot Lab all seven, CHANGE 145; Fight Lab blocks to
+// high); the page's choice under the class maximum (kept page-wide: "lines" stays chosen in Fight Lab); and the tier
+// the game draws for it (its nearest: lines as blocks there)
 function gameTiers() {
     return (state.scene && state.scene.constructor.TIERS) || GAME_TIERS;
 }
@@ -710,7 +710,8 @@ const PART_ROWS = [  // [part, label, choices, what the tier part needs]
 const partText = (part, v) => v === true ? "on" : v === false ? "off" : part === "shadow" ? (v ? String(v) : "off")
     : part === "aniso" ? `${v}x` : v >= SCREEN ? "as the screen" : `${(v / 1e6).toFixed(1)} million`;
 
-// what each tier draws, for the Graphics tab (only the game's own are shown: CHANGE 144)
+// what each tier draws, for the Graphics tab (only the game's own are shown: CHANGE 144; a game's scene may say it
+// its own way, its TIER_TEXT: Robot Lab's ultra, CHANGE 145)
 const TIER_TEXT = {
     mesh: "mesh: black, and every triangle's edges in one colour (the basic mesh), the lines behind hidden.",
     lines: "lines: black, the outlines in one colour and a grid on the ground (an old vector arcade game).",
@@ -732,7 +733,7 @@ function graphicsHtml() {
       <div class="note">Drawing ${drawn}${chosen !== drawn ? ` (${chosen} chosen: this game draws ${drawn} for it)` : ""}${state.autoTier ? " (Auto: down a tier after three seconds under 28 frames a second, back up after " +
         `${AutoTier.UP_SECS} seconds with no frames missed${tiers.includes("lines") ? "; it never picks mesh or lines, or leaves them" : ""})` : ""}${tuned ? ", with parts changed below" : ""}.
         ${cap ? `Your teacher's class maximum is <b>${capShown}</b>: nothing above it can be chosen.` : ""}
-        ${tiers.map(t => TIER_TEXT[t]).join(" ")} A tier picked here turns Auto off; picking a tier sets every part below to that tier's. Kept on this computer.</div>`;
+        ${tiers.map(t => ((state.scene && state.scene.constructor.TIER_TEXT) || {})[t] || TIER_TEXT[t]).join(" ")} A tier picked here turns Auto off; picking a tier sets every part below to that tier's. Kept on this computer.</div>`;
     if (tiers.includes("lines")) {  // (the line tiers' colour: at once, kept on this computer and in a learner's profile)
         const lc = getLineColour();
         html += `<div class="row"><label>Line colour</label>${LINE_COLOURS.map(([n, c]) =>

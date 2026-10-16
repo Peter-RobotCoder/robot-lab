@@ -520,12 +520,6 @@ class Lab(hud.HudKit, ShowBase):
         """A game shortcut key. It does nothing while you are typing in a text box."""
         self.accept(key, lambda: None if self.typing or not self.started else fn(*extra))
 
-    def escape(self):
-        if self.typing:  # Esc while typing just stops typing
-            self.stop_typing()
-        else:
-            self.userExit()
-
     def tab_key(self, step):
         """Tab moves the typing from one text box to the next (Shift+Tab: to the one before), on the login screen
         and every other screen; from the last box it goes round to the first. Text boxes only, in the order they

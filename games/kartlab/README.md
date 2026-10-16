@@ -19,8 +19,9 @@ Double-click, in this folder (they use Robot Lab's `.venv`):
 Keys: arrows or WASD drive, **Shift** (or Space) drifts (hold it through a bend, let go for a boost), **R** puts
 you back on the track, **V** changes the camera, **Tab** opens your kart's design sheet (100 points between top
 speed, acceleration and grip; the teacher's race controls are on the same panel), **U** uploads
-`brains/my_brain.py` to drive your kart, **P** switches that autopilot on and off, Esc quits. Sound: the engine
-note follows your speed, tyres squeal in a drift, a whoosh for a boost, beeps for the countdown (`--mute` for
+`brains/my_brain.py` to drive your kart, **P** switches that autopilot on and off, the **Full screen** button (top
+right) fills the screen and **Esc** comes back out of it (it never closes the window). Sound: the engine note follows
+your speed, tyres squeal in a drift, a whoosh for a boost, beeps for the countdown (`--mute` for
 none). Lap times show as you cross the line; offline, the best lap on each track is kept on this computer.
 
 Command line: `kart_client.py --offline --cpu 5 --level expert --track oval --stats 50,25,25 --brain brains/demo_brain.py`;

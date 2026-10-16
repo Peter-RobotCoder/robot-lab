@@ -74,6 +74,9 @@ uniform sampler2D mrTex;
 #ifdef NORMALMAP
 uniform sampler2D normalTex;
 #endif
+#ifdef GLOWMAP
+uniform sampler2D glowTex;           // (CHANGE 145: each part's glow from a picture, times emission)
+#endif
 #ifdef IBL
 uniform vec3 sh[9];
 uniform sampler2D reflectTex;
@@ -273,7 +276,11 @@ void main(void) {
     float cF = (0.04 + 0.96 * pow(1.0 - cv, 5.0)) * clearcoat;
     color = color * (1.0 - cF) + coat + reflection(reflect(-v, nc), 0.0) * cF * fill.y;
 #endif
+#ifdef GLOWMAP
+    color += emission * texture2D(glowTex, vUV).rgb;
+#else
     color += emission;
+#endif
 #ifdef FOG
     // (ultra, CHANGE 144) the haze far off, as the window's: Panda's exponential fog mixed into the light before the
     // tone curve (so even near grass is a little hazy, as the window's is), to the light that the tone curve makes the
@@ -344,7 +351,8 @@ const bab = p => new BABYLON.Vector3(p[0], p[2], p[1]);  // a game vector in Bab
 // read raw and at full strength, its sky greyed every colour on medium and high).
 // fog: {colour (a screen colour), density (per metre: exponential, as Panda's)}, the haze on ultra. On ultra the
 // shadow is soft and reaches ultraFilm metres across (else film), and a material may have a clear coat and the world's
-// reflection (setProbe)
+// reflection (setProbe). (CHANGE 145) fog.picked: the haze only on the materials made with haze (Robot Lab's: the hall
+// round the arena, as its window hazes only those)
 export class Lighting {
     constructor(scene, look, tier, sh) {
         register();
@@ -465,22 +473,27 @@ export class Lighting {
     // a material: {rgb (screen colour), rough, metal, glow (emission as a share of the colour) or emission (linear, as
     // the app gives it), alpha, tex (a texture set's name)}; or a model's own (fightmodels.js, as a glTF file gives
     // it): {linear (the base colour, linear, with its alpha), rough, metal, emission, albedoUrl and mrUrl (its
-    // pictures, if it has them), blend (alpha blended)}
+    // pictures, if it has them), blend (alpha blended)}. (CHANGE 145) mrMap and glowMap: pictures already made (Robot
+    // Lab's ultra robots: a texel a role, its roughness and metal, and its glow times emission, as the window's atlas);
+    // haze: this one in the haze where the look's fog is picked; shadowless: no shadow looked up (what stands beyond the
+    // shadow's reach)
     material(key, o) {
         const scene = this.scene, tier = this.tier;
         const defines = [`NUM_LIGHTS ${this.lights.count}`];
         const textured = !!o.tex;
         if (textured) defines.push("TEXTURED");
         if (o.albedoUrl) defines.push("ALBEDOMAP");
-        if (o.mrUrl) defines.push("MRMAP");
+        if (o.mrUrl || o.mrMap) defines.push("MRMAP");
+        if (o.glowMap) defines.push("GLOWMAP");
         if (textured && tier.normal) defines.push("NORMALMAP");
         if ((textured || o.mrUrl) && tier.occlusion) defines.push("OCCLUSION");
         if (tier.ibl && this.reflect) defines.push("IBL");
         if (tier.ibl && this.reflect && this.look.envSrgb) defines.push("ENVSRGB");
-        if (this.rtt) defines.push("SHADOWS");
+        const shadows = this.rtt && !o.shadowless;
+        if (shadows) defines.push("SHADOWS");
         // (ultra, CHANGE 144)
-        if (tier.ultra && this.rtt) defines.push("SOFTSHADOW");
-        if (tier.ultra && this.look.fog) defines.push("FOG");
+        if (tier.ultra && shadows) defines.push("SOFTSHADOW");
+        if (tier.ultra && this.look.fog && (!this.look.fog.picked || o.haze)) defines.push("FOG");
         if (tier.ultra && tier.ibl && this.reflect && o.clearcoat) defines.push("CLEARCOAT");
         if (tier.ultra && tier.ibl && this.reflect && o.probe && this.probe) defines.push("PROBE");
         const m = new BABYLON.ShaderMaterial(key, scene, {vertex: "ccpbr", fragment: "ccpbr"}, {
@@ -488,7 +501,7 @@ export class Lighting {
             uniforms: ["world", "viewProjection", "baseColor", "emission", "roughness", "metallic", "camPos", "ambient",
                        "exposure", "visibility", "lightPos", "lightCol", "lightAtt", "lightSpot", "sh", "shadowMatrix", "shadowBias",
                        "fill", "clearcoat", "fogColor", "fogDensity"],
-            samplers: ["albedoTex", "mrTex", "normalTex", "reflectTex", "brdfTex", "shadowMap", "probeTex"],
+            samplers: ["albedoTex", "mrTex", "normalTex", "reflectTex", "brdfTex", "shadowMap", "probeTex", "glowTex"],
             defines,
             needAlphaBlending: (o.alpha ?? 1) < 1 || !!o.blend,
         });
@@ -519,12 +532,14 @@ export class Lighting {
         // (a glTF file's pictures: its texture coordinates start at the top, so the pictures aren't turned over)
         if (o.albedoUrl) m.setTexture("albedoTex", this.texture(o.albedoUrl, true, false));
         if (o.mrUrl) m.setTexture("mrTex", this.texture(o.mrUrl, true, false));
+        if (o.mrMap) m.setTexture("mrTex", o.mrMap);
+        if (o.glowMap) m.setTexture("glowTex", o.glowMap);
         if (tier.ibl && this.reflect) {
             m.setArray3("sh", this.sh.flat());
             m.setTexture("reflectTex", this.reflect);
             m.setTexture("brdfTex", this.brdf);
         }
-        if (this.rtt) {
+        if (shadows) {
             m.setInternalTexture("shadowMap", this.rtt.depthStencilTexture);
             m.setFloat("shadowBias", this.shadowBias);
             m.setMatrix("shadowMatrix", this.shadowMatrix);

@@ -616,12 +616,6 @@ class Lab(hud.HudKit, ShowBase):
     def key_down(self, which, down):
         self.keys_down[which] = down
 
-    def escape(self):
-        if self.typing:  # Esc while typing just stops typing
-            self.stop_typing()
-        else:
-            self.userExit()
-
     def tab_or_panel(self):
         """Tab: while typing, on to the next text box; otherwise the side panel opens or closes (I does too)."""
         if self.typing or not self.started:
