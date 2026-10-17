@@ -45,7 +45,7 @@ import kart_scenery  # noqa: E402  (the ultra circuit: numbers only, shared with
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEX = os.path.join(HERE, "assets", "tex")
-TEX_VERSION = "2"  # bump to regenerate the circuit's textures after changing a generator
+TEX_VERSION = "3"  # bump to regenerate the circuit's textures after changing a generator (3: the water, CHANGE 151)
 
 _state = {}
 
@@ -270,6 +270,22 @@ def _ultra_textures(save, save_set):
                   font=font, fill=rgb(fg))
     flat = np.zeros((size, size))
     save_set("signs", np.asarray(img, dtype=np.float64) / 255, flat, 1.0, flat + 0.45, flat)
+    # (CHANGE 151) the pond's water: kart_scenery.WATER_METRES. Ripples (waves a whole number of times across, so it
+    # tiles) from a few directions, longer ones stronger, and a fine chop; nearly white (the material is the water's
+    # colour), smooth (the material's roughness times this). The window moves it, the page its texture coordinates
+    size = 512
+    u, v = np.meshgrid(np.arange(size) / size, np.arange(size) / size)
+    ripples = np.zeros((size, size))
+    for _ in range(12):
+        kx, ky = rng.integers(-11, 12, 2)
+        k = math.hypot(kx, ky)
+        if k < 3:
+            continue
+        ripples += np.sin(2 * math.pi * (kx * u + ky * v) + rng.random() * 2 * math.pi) / k
+    chop = fbm(size, 24, 3)
+    height = ripples / max(1e-6, np.abs(ripples).max()) + 0.25 * chop
+    tone = 0.92 + 0.08 * (height - height.min()) / max(1e-6, np.ptp(height))
+    save_set("water", np.dstack([tone, tone, tone]), height, 1.6, 0.8 + 0.2 * chop, np.zeros_like(chop))
 
 
 class Materials:
@@ -650,10 +666,19 @@ class TrackVisual:
             oil.poly(pts, Vec3(0, 0, 1))
         part(static, oil, None, (0.16, 0.15, 0.2), rough=0.3, metal=0.4)
 
+        self.lamp_mats, self.lit, self.water, self.water_stages = [], -1, None, []
         if ultra:  # the circuit of kart_scenery.py, as the page draws it (models/kart_scenery.json), and the sky
             started = time.perf_counter()
             self.circuit = kart_scenery.circuit(track)
             self.ultra_root = ultra_circuit(self.root, self.circuit)
+            # (CHANGE 151) the start lights, a pair a node (update lights them), and the pond (its ripples move)
+            for k in range(1, 6):
+                lamp = self.ultra_root.find(f"lamp {k}")
+                if not lamp.isEmpty() and lamp.getMaterial() is not None:
+                    self.lamp_mats.append(lamp.getMaterial())
+            water = self.ultra_root.find("water")
+            if not water.isEmpty():
+                self.water, self.water_stages = water, list(water.findAllTextureStages())
             import numpy as np
             self._ground = (np.array(self.circuit.xs), np.array(self.circuit.ys), np.array(self.circuit.z))
             self.signs = self.root.attachNewNode("signs")
@@ -860,14 +885,24 @@ class TrackVisual:
     def height_at(self, s):
         return self.track.height(s)
 
-    def update(self, t):
-        """t: a clock in seconds, for the dash pads' pulse."""
+    def update(self, t, countdown=None):
+        """t: a clock in seconds, for the dash pads' pulse and (ultra) the pond's ripples; countdown: seconds to GO
+        (None when the race isn't counting down), for ultra's start lights (CHANGE 151: kart_scenery.start_lights)."""
         glow = 2.4 + 1.2 * math.sin(t * 5)
         if self.pads_mat is not None:
             self.pads_mat.setEmission((glow, glow * 0.55, glow * 0.07, 1))
         elif self.pads_lines is not None:
             k = 1.0 if int(t * 4) % 2 else 0.45
             self.pads_lines.setColorScale(k, k, k, 1)
+        lit = kart_scenery.start_lights(countdown)
+        if self.lamp_mats and lit != self.lit:  # (each pair its own material: lit from the left, all out at GO)
+            self.lit = lit
+            for k, m in enumerate(self.lamp_mats):
+                m.setEmission((*(kart_scenery.LAMP_LIT if k < lit else kart_scenery.LAMP_DARK), 1))
+        if self.water is not None:  # (the ripples drift: every texture of the water moved alike, simplepbr's one matrix)
+            u, v = kart_scenery.water_offset(t)
+            for stage in self.water_stages:
+                self.water.setTexOffset(stage, u, v)
 
     def destroy(self):
         for key in ("sky", "skids"):  # (ultra: the dome rides on the camera, the marks are on render)
@@ -1001,8 +1036,8 @@ def ultra_circuit(parent, circuit):
     import numpy as np
     shapes = kart_scenery.shapes_once()
     groups = {}
-    for p in circuit.near.all() + circuit.far.all():
-        groups.setdefault((p.material, p.far), []).append(_part_arrays(p))
+    for p in circuit.near.all() + circuit.far.all():  # (a part with a group, each pair of start lights, apart)
+        groups.setdefault((p.material, p.far, p.group), []).append(_part_arrays(p))
     for shape, rows in circuit.inst.items():
         inst = np.array(rows, dtype=np.float64)
         h = np.radians(inst[:, 3])[:, None]
@@ -1016,10 +1051,10 @@ def ultra_circuit(parent, circuit):
                          axis=2).reshape(-1, 3)
             C = (col[None] * inst[:, None, 5:8] if p.tint else np.broadcast_to(col, (n, v, 3))).reshape(-1, 3)
             I = (idx[None, :] + (np.arange(n) * v)[:, None]).reshape(-1)
-            groups.setdefault((p.material, p.far), []).append((P, N, np.tile(uv, (n, 1)), C, I))
+            groups.setdefault((p.material, p.far, getattr(p, "group", "")), []).append((P, N, np.tile(uv, (n, 1)), C, I))
     root = parent.attachNewNode("ultra circuit")
     m = mats()
-    for (material, far), items in sorted(groups.items()):
+    for (material, far, group), items in sorted(groups.items()):
         base, idx = 0, []
         for item in items:
             idx.append(item[4] + base)
@@ -1040,7 +1075,7 @@ def ultra_circuit(parent, circuit):
         tris.modifyVertices().modifyHandle().setData(idx.astype(np.uint32).tobytes())
         geom = Geom(vdata)
         geom.addPrimitive(tris)
-        node = GeomNode(f"{material}{' far' if far else ''}")
+        node = GeomNode(f"{material}{' far' if far else ''}{' ' + group if group else ''}")
         node.addGeom(geom)
         np_ = root.attachNewNode(node)
         look_ = kart_scenery.MATERIALS[material]

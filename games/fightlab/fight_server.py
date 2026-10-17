@@ -77,6 +77,13 @@ T0 = time.perf_counter()  # the server's clock for the stamp on every snapshot
 def server_ms():
     """Milliseconds since the server started: the stamp the windows blend their picture by."""
     return int((time.perf_counter() - T0) * 1000) & 0xFFFFFFFF
+
+
+def step_ms(due):
+    """(CHANGE 155) The stamp for the state a physics step left: when that step was due on the same clock. Stamped
+    when it was sent, a snapshot after one step and the next after three looked the same time apart, and the pages
+    and windows, blending by the stamps, drew everything moving in jerks."""
+    return round((due - T0) * 1000) & 0xFFFFFFFF
 HERE = os.path.dirname(os.path.abspath(__file__))
 CARD_NOTE_FILE = os.path.join(fight_teaching.DATA, "card_note_saved.json")  # the teacher's words on the AI card
 GFX_MAX_FILE = os.path.join(fight_teaching.DATA, "gfx_max_saved.json")  # ...and the class's graphics maximum
@@ -1165,7 +1172,7 @@ class FightServer:
         st, now = self.stage, self.stage.time
         rings = [sim.ring_state(r, now) for r in st.rings]
         fx = st.take_fx()
-        return {"type": "state", "t": round(now, 2), "sm": server_ms(), "rings": rings,
+        return {"type": "state", "t": round(now, 2), "sm": getattr(self, "step_ms", None) or server_ms(), "rings": rings,
                 # the number of each window's last control applied (by its fighter's id): see newer_control
                 "acks": {p.fighter.id: p.ctrl_seq for p in self.players.values()
                          if p.fighter is not None and p.ctrl_seq is not None},
@@ -1368,6 +1375,7 @@ class FightServer:
             next_step += sim.STEP
             if not self.paused:
                 self.stage.step()
+            self.step_ms = step_ms(next_step - sim.STEP)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament
                 self.teaching.tick(self.stage.time)

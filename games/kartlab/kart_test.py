@@ -199,10 +199,15 @@ def ultra_scenery():
     low = {"tuft", "tuft_long", "flowers"}  # (grass: not solid)
     flat = {"asphalt", "patch", "rubber", "tar", "line_paint", "gravel", "turf", "land", "water"}
     shapes = ks.shapes_once()
+    # (CHANGE 151) the start lights: dark until 3 s to GO, one more pair each 0.6 s, all five at the end, out at GO
+    assert [ks.start_lights(c) for c in (None, 4.0, 3.01, 3.0, 2.41, 2.39, 1.5, 0.61, 0.59, 0.01, 0.0, -1.0)] == \
+        [0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 0, 0]
     for name in kart_track.TRACKS:
         t = kart_track.load(name)
         c = ks.circuit(t)
         inner = t.half + ks.BARRIER - 0.05
+        assert c.footbridge, (name, "no footbridge")  # (CHANGE 151: one on every track, checked with the rest below)
+        assert sorted(p.name for p in c.near.all() if p.material == "lamp") == [f"lamp {k}" for k in range(1, 6)], name
         for shape, rows in c.inst.items():
             if shape in low:
                 continue

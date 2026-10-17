@@ -515,6 +515,21 @@ const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const wrap360 = v => ((v % 360) + 360) % 360;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+// (CHANGE 150: fight_camera.INSIDE and inside) where the views that show the lighting rig, the hall's walls and its
+// roof (fight, me, shoulder) may go: inside the stands' back walls, above the platforms and under the roof's lamps. A
+// camera zoomed right out by an outer ring is drawn in along its line to what it looks at, so it never passes the walls
+// or the roof, nor sits behind the stands; the high views hide the rig, walls and roof and go where they like
+export const CAM_INSIDE = [-30.5, 30.5, -14.5, 30.5, 0.3, 15.0];
+export function camInside(want, look, box = CAM_INSIDE) {
+    let t = 1.0;
+    for (let a = 0; a < 3; a++) {
+        const lo = box[a * 2], hi = box[a * 2 + 1], d = want[a] - look[a];
+        if (want[a] > hi && d > 1e-9) t = Math.min(t, Math.max(0, hi - look[a]) / d);
+        else if (want[a] < lo && d < -1e-9) t = Math.min(t, Math.min(0, lo - look[a]) / d);
+    }
+    return t < 1.0 ? add(look, mul(sub(want, look), t)) : want;
+}
+
 export class FightCamera {
     constructor(mode = "fight") {
         this.mode = CAM_MODES.includes(mode) ? mode : "fight";
@@ -643,6 +658,7 @@ export class FightCamera {
             look = add(mid, [0, 1, 0]);
             k = 2.5; fov = 55.0;
         }
+        if (["fight", "me", "shoulder"].includes(mode)) want = camInside(want, look);  // (inside the hall: CHANGE 150)
         if (this.pos === null) { this.pos = want.slice(); this.look = look.slice(); this.fov = fov; }
         const a = Math.min(1.0, dt * k);
         this.pos = add(this.pos, mul(sub(want, this.pos), a));
@@ -651,6 +667,63 @@ export class FightCamera {
         this.lastMode = mode;
         return {pos: this.pos, look: this.look, fov: this.fov, mode};
     }
+}
+
+// ---------- (CHANGE 150) the window's letters ----------
+// fonts/panda_sans.png and .json (make_font.py): Panda3D's own font, which the window's TextNodes write in (the rings'
+// names, the hall's screens, the fighters' numbers), so the page writes them in the same letters. Loaded once, as the
+// page opens (49 kB); null until then (or if it isn't there: the browser's sans then)
+let pandaFont = null, fontAsked = null;
+export function loadPandaFont() {
+    if (!fontAsked) {
+        const image = new Promise(done => {
+            const im = new Image();
+            im.onload = () => done(im);
+            im.onerror = () => done(null);
+            im.src = "fonts/panda_sans.png";
+        });
+        fontAsked = Promise.all([fetch("fonts/panda_sans.json").then(r => r.ok ? r.json() : null), image])
+            .then(([d, im]) => (pandaFont = d && d.version === 1 && d.glyphs && im ? Object.assign(d, {image: im}) : null))
+            .catch(() => null);
+    }
+    return fontAsked;
+}
+export function pandaFontData() { return pandaFont; }
+
+// how text lies out in Panda's font, in units (a TextNode's scale is a unit): {width: the pen's whole travel, lo, hi:
+// the lowest and highest ink about the baseline}, as a TextNode centres it (its pen travel's middle); null without the font
+export function wordsSize(text) {
+    if (!pandaFont) return null;
+    let width = 0, lo = 0, hi = 0.7;
+    for (const ch of String(text)) {
+        const g = pandaFont.glyphs[ch] || pandaFont.glyphs["?"];
+        if (!g) continue;
+        if (g[3] > g[1]) { lo = Math.min(lo, g[1]); hi = Math.max(hi, g[3]); }
+        width += g[8];
+    }
+    return {width, lo, hi};
+}
+
+// text written into a 2D canvas as a centred TextNode writes it: the pen's travel centred on x, the baseline at y (canvas
+// pixels), ppu pixels a unit, in colour (a CSS colour); the canvas should be clear (the letters are coloured in place)
+export function drawWords(ctx, text, x, y, ppu, colour) {
+    const size = wordsSize(text);
+    if (!size) return false;
+    const F = pandaFont, W = F.size[0], H = F.size[1];
+    let pen = x - size.width / 2 * ppu;
+    ctx.save();
+    for (const ch of String(text)) {
+        const g = F.glyphs[ch] || F.glyphs["?"];
+        if (!g) continue;
+        const [l, b, r, t, u0, v0, u1, v1, adv] = g;
+        if (t > b) ctx.drawImage(F.image, u0 * W, (1 - v1) * H, (u1 - u0) * W, (v1 - v0) * H, pen + l * ppu, y - t * ppu, (r - l) * ppu, (t - b) * ppu);
+        pen += adv * ppu;
+    }
+    ctx.globalCompositeOperation = "source-in";  // (the white letters in the colour)
+    ctx.fillStyle = colour;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
+    return true;
 }
 
 // ---------- ultra (CHANGE 147): the window's smooth fighters and hall ----------
@@ -858,13 +931,15 @@ function joined(list) {
 }
 
 // a stage material (stage_models.MATERIALS, as the file has them): rgb overrides its colour (null: the ring's mat
-// colour; "corner", "rope": what the ring gives); far: in the hall's haze (pbr.js's picked fog). Kept in sc.materials
-function stageMaterial(sc, data, name, rgb, variant, far) {
+// colour; "corner", "rope": what the ring gives); far: in the hall's haze (pbr.js's picked fog); shadowless: no shadow
+// looked up (CHANGE 150: what stands beyond the shadow's reach, the stands, screens, walls and roof). Kept in sc.materials
+function stageMaterial(sc, data, name, rgb, variant, far, shadowless = false) {
     const L = data.materials[name] || {colour: [1, 1, 1], rough: 1, metal: 0};
-    const key = `stage ${name}${variant}${far ? " far" : ""}`;
+    const key = `stage ${name}${variant}${shadowless ? " unshadowed" : ""}${far ? " far" : ""}`;
     if (sc.materials[key]) return sc.materials[key];
     const m = sc.lighting.material(key, {rgb: rgb || (Array.isArray(L.colour) ? L.colour : [1, 1, 1]), rough: Number(L.rough ?? 1),
-        metal: Number(L.metal ?? 0), tex: L.texture || "", emission: Array.isArray(L.emission) ? L.emission : null, haze: far});
+        metal: Number(L.metal ?? 0), tex: L.texture || "", emission: Array.isArray(L.emission) ? L.emission : null, haze: far,
+        shadowless});
     m.backFaceCulling = true;
     m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;  // (the front as the file's, turned round by unpackPart)
     sc.materials[key] = m;
@@ -923,11 +998,11 @@ export function makeUltraRing(sc, data, i, R, roped, centre, mat, corner, ropeMa
 
 // The window's ultra hall (fight_gfx.StageVisual.ultra_hall) from models/stage_ultra.json: the floor and walkways, the
 // stands with their seats and fans (the seats alone if the look has no crowd), the big screens; and the lighting rig,
-// the hall's walls and its roof (returned apart: the ring and all rings views hide them). Each part one mesh, each
-// placed shape's part one mesh drawn as thin instances (turned h degrees about the game's z, scaled by s, moved to x,
-// y, z; the tinted parts coloured by each instance's r, g, b, made linear). The far parts are in the hall's haze and
-// cast no shadow, nor the flat ones or the rig (the window's rig is hidden from its shadow camera). Returns {meshes,
-// rig, casters, parts, instances, triangles}
+// the hall's walls and its roof (returned apart: the ring and all rings views hide them). Each part one mesh; the
+// placed shapes (each turned h degrees about the game's z, scaled by s, moved to x, y, z; the tinted parts coloured by
+// its r, g, b, made linear) in twelve pieces of the stands, a mesh a material each (CHANGE 150: they were thin
+// instances, a mesh a shape's part). The far parts are in the hall's haze and cast no shadow, nor the flat ones or the
+// rig (the window's rig is hidden from its shadow camera). Returns {meshes, rig, casters, parts, instances, triangles}
 export function makeUltraHall(sc, data, look) {
     const out = {meshes: [], rig: [], casters: [], parts: 0, instances: 0, triangles: 0};
     const build = (part, name) => {
@@ -939,46 +1014,89 @@ export function makeUltraHall(sc, data, look) {
         out.triangles += a.idx.length / 3;
         return mesh;
     };
-    const own = (part, into, cast = true) => {
+    // (CHANGE 150) rank: when it is drawn among the scene's opaque parts (FightScene.drawOrder: the fighters and rings
+    // first, then the crowd, the stands and the rest of the hall, the floor last, so what they hide isn't lit and then
+    // painted over); what stands far from every ring looks up no shadow
+    const own = (part, into, cast = true, rank = 3, shadowless = true) => {
         const mesh = build(part, "stage " + part.name);
         if (!mesh) return;
-        mesh.material = stageMaterial(sc, data, part.material, null, `:${!!(part.colours || part.alpha)}`, !!part.far);
+        mesh.material = stageMaterial(sc, data, part.material, null, `:${!!(part.colours || part.alpha)}`, !!part.far, shadowless);
         mesh.freezeWorldMatrix();
         if (!cast) mesh.ccCast = false;
+        mesh.ccRank = rank;
         into.push(mesh);
         out.parts++;
     };
     const group = n => (Array.isArray(data.groups[n]) ? data.groups[n] : []);
-    // (made, so drawn, in this order, near to far: the screens, the crowd, then the stands, the floor last)
     for (const p of group("screens")) own(p, out.meshes);
     for (const p of [...group("rig"), ...group("hall"), ...group("roof")]) own(p, out.rig, false);
     const rows = look.crowd === false ? {seat: (data.instances || {}).seat || []} : data.instances || {};
-    for (const [shape, list] of Object.entries(rows).sort(([a], [b]) => (a === "seat") - (b === "seat"))) {  // (the fans before the seats they sit in)
-        const parts = data.shapes[shape];
-        if (!Array.isArray(parts) || !Array.isArray(list) || !list.length) continue;
-        const M = new Float32Array(list.length * 16), C = new Float32Array(list.length * 4);
-        list.forEach((r, i) => {
-            const h = r[3] * DEG, s = r[4], c = Math.cos(h) * s, n = Math.sin(h) * s, o = i * 16;
-            M[o] = c; M[o + 2] = n; M[o + 5] = s; M[o + 8] = -n; M[o + 10] = c;
-            M[o + 12] = r[0]; M[o + 13] = r[2]; M[o + 14] = r[1]; M[o + 15] = 1;
-            C[i * 4] = lin(r[5]); C[i * 4 + 1] = lin(r[6]); C[i * 4 + 2] = lin(r[7]); C[i * 4 + 3] = 1;
-        });
-        for (const part of parts) {
-            const mesh = build(part, `stage ${shape} ${part.name}`);
-            if (!mesh) continue;
-            out.triangles += (list.length - 1) * mesh.getTotalIndices() / 3;
-            mesh.material = stageMaterial(sc, data, part.material, null, `:${!!part.colours}:i${part.tint ? "t" : ""}`, !!part.far);
-            mesh.thinInstanceSetBuffer("matrix", M, 16, true);
-            if (part.tint) mesh.thinInstanceSetBuffer("color", C, 4, true);
-            mesh.thinInstanceRefreshBoundingInfo(false);
-            mesh.ccCast = false;  // (out in the stands: beyond the shadow's reach)
-            mesh.freezeWorldMatrix();
-            mesh.doNotSyncBoundingInfo = true;
-            out.meshes.push(mesh);
+    // (CHANGE 150) the seats and fans in twelve pieces of the stands (each side in three along it), each piece one mesh
+    // a material with every seat and fan in it placed and coloured (their tints and colours in its vertices: no thin
+    // instances), so what is out of the picture is left out a piece at a time and a piece in view is a few draws:
+    // which side, by the shape's place from the middle of them all, as a share of how far they reach each way
+    const all = Object.values(rows).flat().filter(r => Array.isArray(r));
+    const mid = [0, 1].map(k => all.reduce((s, r) => s + r[k], 0) / Math.max(1, all.length));
+    const reach = [0, 1].map(k => Math.max(1e-6, ...all.map(r => Math.abs(r[k] - mid[k]))));
+    const pieceOf = r => {
+        const dx = (r[0] - mid[0]) / reach[0], dy = (r[1] - mid[1]) / reach[1], across = Math.abs(dx) > Math.abs(dy);
+        const side = across ? (dx > 0 ? 0 : 1) : (dy > 0 ? 2 : 3), along = across ? dy : dx;
+        return side * 3 + (along < -1 / 3 ? 0 : along < 1 / 3 ? 1 : 2);
+    };
+    const unpacked = {};
+    for (const [shape, parts] of Object.entries(data.shapes || {})) unpacked[shape] = (Array.isArray(parts) ? parts : []).map(p => [p, unpackPart(p)]);
+    const pieces = new Map();  // piece -> material -> [{a, inst: [rows], tint}]
+    for (const [shape, list] of Object.entries(rows).sort(([x], [y]) => (x === "seat") - (y === "seat"))) {  // (the fans' materials first: drawn before the seats they sit in)
+        if (!Array.isArray(list) || !unpacked[shape]) continue;
+        for (const r of list) {
+            const k = pieceOf(r);
+            if (!pieces.has(k)) pieces.set(k, new Map());
+            for (const [part, a] of unpacked[shape]) {
+                if (!a) continue;
+                const byMat = pieces.get(k);
+                if (!byMat.has(part.material)) byMat.set(part.material, []);
+                byMat.get(part.material).push([part, a, r]);
+            }
         }
         out.instances += list.length;
     }
-    for (const n of ["stands", "floor"]) for (const p of group(n)) own(p, out.meshes);
+    for (const k of [...pieces.keys()].sort((a, b) => a - b)) {
+        for (const [material, items] of pieces.get(k)) {
+            let nv = 0, ni = 0;
+            for (const [, a] of items) { nv += a.pos.length / 3; ni += a.idx.length; }
+            const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), UV = new Float32Array(nv * 2), C = new Float32Array(nv * 4);
+            const I = nv >= 65536 ? new Uint32Array(ni) : new Uint16Array(ni);
+            let ov = 0, oi = 0, far = false;
+            for (const [part, a, r] of items) {
+                // (the shape turned h degrees about the game's z, scaled by s, moved to x, y, z: in Babylon's axes)
+                const h = r[3] * DEG, s = r[4], c = Math.cos(h), n = Math.sin(h), cnt = a.pos.length / 3;
+                const t = part.tint ? [lin(r[5]), lin(r[6]), lin(r[7])] : [1, 1, 1];
+                for (let i = 0; i < cnt; i++) {
+                    const o = i * 3, w = (ov + i) * 3, x = a.pos[o], y = a.pos[o + 2], z = a.pos[o + 1];
+                    P[w] = (c * x - n * y) * s + r[0]; P[w + 2] = (n * x + c * y) * s + r[1]; P[w + 1] = z * s + r[2];
+                    const nx = a.nor[o], ny = a.nor[o + 2];
+                    N[w] = c * nx - n * ny; N[w + 2] = n * nx + c * ny; N[w + 1] = a.nor[o + 1];
+                    UV[(ov + i) * 2] = a.uv[i * 2]; UV[(ov + i) * 2 + 1] = a.uv[i * 2 + 1];
+                    const q = (ov + i) * 4, col = a.col;
+                    C[q] = (col ? col[i * 4] : 1) * t[0]; C[q + 1] = (col ? col[i * 4 + 1] : 1) * t[1]; C[q + 2] = (col ? col[i * 4 + 2] : 1) * t[2]; C[q + 3] = 1;
+                }
+                for (let j = 0; j < a.idx.length; j++) I[oi + j] = a.idx[j] + ov;
+                ov += cnt;
+                oi += a.idx.length;
+                far = far || !!part.far;
+            }
+            const mesh = stageMesh(sc, `stage crowd ${k} ${material}`, {pos: P, nor: N, uv: UV, col: C, idx: I});
+            mesh.material = stageMaterial(sc, data, material, null, ":true", far, true);
+            mesh.ccRank = 2;
+            mesh.ccCrowd = true;
+            mesh.ccCast = false;  // (out in the stands: beyond the shadow's reach)
+            mesh.freezeWorldMatrix();
+            out.meshes.push(mesh);
+            out.triangles += ni / 3;
+        }
+    }
+    for (const p of group("stands")) own(p, out.meshes);
+    for (const p of group("floor")) own(p, out.meshes, true, 4, false);  // (the floor round the rings has their shadows)
     for (const m of [...out.meshes, ...out.rig]) if (m.ccCast) out.casters.push(m);
     return out;
 }

@@ -434,7 +434,8 @@ ATTACKS = ("punch", "kick", "low", "high")      # what a brain or a key can ask 
 PRESSES = ATTACKS + ("special", "throw", "jump", "cartwheel")  # one-off actions (cartwheel: a user mod)
 HOLDS = ("block", "low_block", "crouch")          # actions that last as long as they are asked for
 BLAST_SPEED, BLAST_LIFE = 7.0, 1.4
-INTRO_SECONDS = 1.6  # "ROUND 1" before "FIGHT!"
+ROUND_CALL, COUNT_STEP = 1.6, 0.8  # a round opens: "ROUND 1" (s), then 3, 2, 1 (s each), then "GO!"
+INTRO_SECONDS = ROUND_CALL + 3 * COUNT_STEP
 
 # where the rings are in the stage (the rings are 16 m apart: room for the walkways and lights)
 RING_CENTRES = [(0.0, 0.0), (16.0, 0.0), (-16.0, 0.0), (0.0, 16.0), (16.0, 16.0), (-16.0, 16.0)]
@@ -703,10 +704,12 @@ class Ring:
         self.phase_t += dt
         if self.phase == "intro":
             if self.phase_t > INTRO_SECONDS:
-                self.phase, self.banner = "fight", "FIGHT!"
+                self.phase, self.banner = "fight", "GO!"
                 self.round_started = now
                 self.banner_until = now + 0.8
-        elif self.phase == "fight" and self.banner == "FIGHT!" and now > getattr(self, "banner_until", 0):
+            elif self.phase_t > ROUND_CALL:  # 3, 2, 1 (CHANGE 153: a voice says each, then "Go")
+                self.banner = str(3 - min(2, int((self.phase_t - ROUND_CALL) / COUNT_STEP)))
+        elif self.phase == "fight" and self.banner == "GO!" and now > getattr(self, "banner_until", 0):
             self.banner = ""
         frozen = now < self.hitstop_until
         for f in self.fighters:
@@ -1314,8 +1317,8 @@ class Stage:
 # ---------- what the windows are sent (plain data: the server and the showcase both use it) ----------
 def fighter_state(f, now, ring=None):
     a, k = f.anim()
-    if ring is not None and ring.phase == "intro":  # (they bow as the round is announced)
-        a, k = "intro", min(1.0, ring.phase_t / INTRO_SECONDS)
+    if ring is not None and ring.phase == "intro":  # (they bow as the round is announced, then wait for GO!)
+        a, k = "intro", min(1.0, ring.phase_t / ROUND_CALL)
     return {"id": f.id, "pos": [round(f.x, 3), round(f.y, 3), round(f.z, 3)], "h": round(f.heading, 1),
             "a": a, "k": round(k, 3), "hp": round(max(0.0, f.health), 1), "max": round(f.stats["health"]),
             "en": round(f.energy), "w": f.wins, "hu": round(min(9.0, now - f.last_hurt), 2), "hits": f.hits,

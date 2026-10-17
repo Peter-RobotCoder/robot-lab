@@ -651,17 +651,22 @@ export function robotLayout(weapon, size, house, sh) {
 }
 
 // each piece's parts unpacked once for the page's life (shared by every robot): [{role, pos, nor, idx}], Babylon axes
+// (CHANGE 152) shadow: the piece as the sun's shadow map draws it (the file's "shadow": no bolts or lamps, the wheels
+// plain tyres)
 const pieceCache = new Map();
-function pieceParts(name) {
-    if (!pieceCache.has(name)) {
-        const parts = [];
-        for (const p of (robotModels.pieces[name] || [])) {
+function pieceParts(name, shadow = false) {
+    const key = (shadow ? "shadow:" : "") + name;
+    if (!pieceCache.has(key)) {
+        const parts = [], S = shadow ? robotModels.shadow || {skip: [], pieces: {}} : null;
+        const list = S && S.pieces && S.pieces[name] ? S.pieces[name] : robotModels.pieces[name] || [];
+        for (const p of list) {
+            if (S && (S.skip || []).includes(p.material)) continue;
             const a = unpackPart(p);
             if (a && robotModels.roles[p.material]) parts.push({role: p.material, pos: a.pos, nor: a.nor, idx: a.idx});
         }
-        pieceCache.set(name, parts);
+        pieceCache.set(key, parts);
     }
-    return pieceCache.get(name);
+    return pieceCache.get(key);
 }
 
 const lin = c => Math.pow(Math.max(0, c), 2.2);
@@ -670,11 +675,12 @@ const lin = c => Math.pow(Math.max(0, c), 2.2);
 // (null: the design's colour, "trim": the style's, both screen colours; made linear) and its texture coordinates on
 // its role's texel of the atlas (robotAtlas: roughness, metal and glow). items: [[piece, pos, hpr, scale]] in the
 // node's frame (game coordinates; only headings are used), colour and trim screen colours 0 to 1. Null if empty
-export function robotNodeMesh(sc, name, items, colour, trim) {
+// (CHANGE 152) shadow: the pieces as the sun's shadow map draws them (pieceParts)
+export function robotNodeMesh(sc, name, items, colour, trim, shadow = false) {
     const roles = Object.keys(robotModels.roles), n = roles.length, parts = [];
     let nv = 0, ni = 0;
     for (const [piece, pos, hpr, scale] of items) {
-        for (const p of pieceParts(piece)) { parts.push([p, pos, hpr, scale]); nv += p.pos.length / 3; ni += p.idx.length; }
+        for (const p of pieceParts(piece, shadow)) { parts.push([p, pos, hpr, scale]); nv += p.pos.length / 3; ni += p.idx.length; }
     }
     if (!nv) return null;
     const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), UV = new Float32Array(nv * 2), C = new Float32Array(nv * 4);
@@ -683,7 +689,8 @@ export function robotNodeMesh(sc, name, items, colour, trim) {
     for (const [p, at, hpr, scale] of parts) {
         const h = hpr[0] * DEG, c = Math.cos(h), s = Math.sin(h), [sx, sy, sz] = scale;
         const look = robotModels.roles[p.role], ri = roles.indexOf(p.role);
-        const rgb = (look.colour === null ? colour : look.colour === "trim" ? trim : look.colour).map(lin);
+        // (the garage preview's simple materials take screen colours: sc.screenColours)
+        const rgb = (look.colour === null ? colour : look.colour === "trim" ? trim : look.colour).map(sc.screenColours ? c => c : lin);
         const u = (ri + 0.5) / n, src = p.pos, nor = p.nor, cnt = src.length / 3;
         for (let i = 0; i < cnt; i++) {
             const o = i * 3, w = (ov + i) * 3;
@@ -751,17 +758,55 @@ export function robotAtlas(sc, lights) {
 // wall colour) x vertex colour x tint x texture; decal: drawn a little nearer than the floor it lies on; alpha: see-
 // through by its vertices' alpha, after the solid things, not writing depth; flat and far cast no shadow; far parts
 // are in the hall's haze (pbr.js's picked fog). Returns {meshes, rig, casters, parts, instances, triangles}
+// (CHANGE 152) a material's part bigger than this is cut into the arena's four sides (rw_gfx.SPLIT_TRIS)
+const SPLIT_TRIS = 6000;
+
+// a part's arrays (Babylon axes) cut into the arena's four sides, each triangle by where its middle is (east, west,
+// north or south of the arena's diagonals): rw_gfx.sides. The empty ones left out
+export function arenaSides(a) {
+    const n = a.idx.length / 3, side = new Uint8Array(n), out = [];
+    for (let t = 0; t < n; t++) {
+        let x = 0, y = 0;
+        for (let k = 0; k < 3; k++) { const v = a.idx[t * 3 + k] * 3; x += a.pos[v]; y += a.pos[v + 2]; }
+        side[t] = Math.abs(x) >= Math.abs(y) ? (x >= 0 ? 0 : 1) : (y >= 0 ? 2 : 3);
+    }
+    for (let s = 0; s < 4; s++) {
+        const map = new Map(), idx = [];
+        for (let t = 0; t < n; t++) {
+            if (side[t] !== s) continue;
+            for (let k = 0; k < 3; k++) {
+                const v = a.idx[t * 3 + k];
+                if (!map.has(v)) map.set(v, map.size);
+                idx.push(map.get(v));
+            }
+        }
+        if (!idx.length) continue;
+        const m = map.size, pos = new Float32Array(m * 3), nor = new Float32Array(m * 3), uv = new Float32Array(m * 2);
+        const col = a.col ? new Float32Array(m * 4) : null;
+        for (const [v, j] of map) {
+            pos.set(a.pos.subarray(v * 3, v * 3 + 3), j * 3);
+            nor.set(a.nor.subarray(v * 3, v * 3 + 3), j * 3);
+            uv.set(a.uv.subarray(v * 2, v * 2 + 2), j * 2);
+            if (col) col.set(a.col.subarray(v * 4, v * 4 + 4), j * 4);
+        }
+        out.push({pos, nor, uv, col, idx: m >= 65536 ? Uint32Array.from(idx) : Uint16Array.from(idx)});
+    }
+    return out;
+}
+
 export function makeUltraArena(sc, data, mods, look) {
     const scene = sc.scene, out = {meshes: [], rig: [], casters: [], parts: 0, instances: 0, triangles: 0};
     const wall = (Array.isArray(look.wall_colour) && look.wall_colour.length >= 3 ? look.wall_colour : [155, 25, 20]).map(v => v / 255);
     const mats = {};
-    const material = (name, variant, far) => {
+    // (CHANGE 152) shadowless: out past where any shadow falls (the crowd, the hall, its roof, the big screen): no
+    // shadow looked up, the same picture for less (the soft shadow's twelve looks a pixel)
+    const material = (name, variant, far, shadowless = false) => {
         const L = data.materials[name] || {colour: [1, 1, 1], rough: 1, metal: 0};
-        const key = `arena ${name}${variant}${far ? " far" : ""}`;
+        const key = `arena ${name}${variant}${shadowless ? " lit" : ""}${far ? " far" : ""}`;
         if (mats[key]) return mats[key];
         const m = sc.lighting.material(key, {rgb: L.colour === null ? wall : L.colour || [1, 1, 1], rough: Number(L.rough ?? 1),
             metal: Number(L.metal ?? 0), tex: L.texture || "", emission: Array.isArray(L.emission) ? L.emission : null,
-            blend: !!L.alpha, haze: far});
+            blend: !!L.alpha, haze: far, shadowless});
         m.backFaceCulling = !L.two_sided;
         m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;  // (the front as the file's, turned round by unpackPart)
         if (L.decal) { m.zOffset = -1; m.zOffsetUnits = -4; }  // (Panda's setDepthOffset(1))
@@ -769,9 +814,8 @@ export function makeUltraArena(sc, data, mods, look) {
         sc.materials[key] = m;
         return (mats[key] = m);
     };
-    const build = (part, name) => {
-        const a = unpackPart(part);
-        if (!a) return null;
+    // a mesh from arrays (Babylon axes): its own texture coordinates, its colours if it has them
+    const make = (a, name, alpha) => {
         const mesh = new BABYLON.Mesh(name, scene);
         const vd = new BABYLON.VertexData();
         vd.positions = a.pos;
@@ -780,55 +824,119 @@ export function makeUltraArena(sc, data, mods, look) {
         vd.indices = a.idx;
         if (a.col) vd.colors = a.col;
         vd.applyToMesh(mesh);
-        if (part.alpha) { mesh.hasVertexAlpha = true; mesh.alphaIndex = 0; }  // (the scars before the cage's screens)
+        if (alpha) { mesh.hasVertexAlpha = true; mesh.alphaIndex = 0; }  // (the scars before the cage's screens)
         mesh.ccOwnUV = true;  // (its texture coordinates are the file's: repeats already)
         mesh.isPickable = false;
-        const L = data.materials[part.material] || {};
-        mesh.ccCast = !part.far && !L.flat;
         out.triangles += a.idx.length / 3;
         return mesh;
     };
-    const own = (part, into) => {
-        const mesh = build(part, "arena " + part.name);
-        if (!mesh) return;
-        mesh.material = material(part.material, `:${!!(part.colours || part.alpha)}`, !!part.far);
+    // (CHANGE 152, as the window's rw_gfx.ultra_parts) a big part that doesn't lie flat is one mesh for each side of the
+    // arena, so what is out of view isn't drawn
+    const own = (part, into, shadowless = false) => {
+        const a = unpackPart(part);
+        if (!a) return;
+        const L = data.materials[part.material] || {};
+        const cut = a.idx.length / 3 > SPLIT_TRIS && !L.flat ? arenaSides(a) : [a];
+        for (const piece of cut) {
+            const mesh = make(piece, "arena " + part.name, part.alpha);
+            mesh.ccCast = false;  // (its shadow: the one caster below)
+            mesh.material = material(part.material, `:${!!(part.colours || part.alpha)}`, !!part.far, shadowless && !!part.far);
+            mesh.freezeWorldMatrix();
+            into.push(mesh);
+        }
+        if (!part.far && !L.flat) (casting.get(into) || casting.set(into, []).get(into)).push(a);
+        out.parts++;
+    };
+    // (CHANGE 152, as the window's) the sun's shadow map draws every part that casts a shadow as ONE mesh (it sees every
+    // side: a draw, not a few dozen), never seen by the camera (layerMask 0); the rig's apart, hidden with it
+    const casting = new Map();
+    const caster = (list, into) => {
+        let nv = 0, ni = 0;
+        for (const a of list) { nv += a.pos.length / 3; ni += a.idx.length; }
+        const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), I = nv >= 65536 ? new Uint32Array(ni) : new Uint16Array(ni);
+        let ov = 0, oi = 0;
+        for (const a of list) {
+            pos.set(a.pos, ov * 3);
+            nor.set(a.nor, ov * 3);
+            for (let k = 0; k < a.idx.length; k++) I[oi + k] = a.idx[k] + ov;
+            ov += a.pos.length / 3;
+            oi += a.idx.length;
+        }
+        const mesh = new BABYLON.Mesh("arena shadow", scene);
+        const vd = new BABYLON.VertexData();
+        vd.positions = pos;
+        vd.normals = nor;
+        vd.uvs = new Float32Array(nv * 2);
+        vd.indices = I;
+        vd.applyToMesh(mesh);
+        mesh.material = material("steel", ":false", false);
+        mesh.layerMask = 0;
+        mesh.isPickable = false;
+        mesh.ccCast = true;
+        mesh.ccOwnUV = true;
         mesh.freezeWorldMatrix();
         into.push(mesh);
-        out.parts++;
     };
     const group = n => (Array.isArray(data.groups[n]) ? data.groups[n] : []);
     const floor = "floor" + (mods.spike_pit ? "_spike_pit" : "") + (mods.flame_pit ? "_flame_pit" : "");
     // (made, so drawn, in this order, near to far: the cage and the towers, the crowd, then the stands and the hall
     // behind them, the floors last, so what the nearer parts hide is depth tested, never lit)
-    for (const n of [...(mods.no_cage ? [] : ["cage"]), "towers", "screen"]) for (const p of group(n)) own(p, out.meshes);
-    for (const p of [...group("rig"), ...group("roof")]) own(p, out.rig);
+    for (const n of [...(mods.no_cage ? [] : ["cage"]), "towers", "screen"]) for (const p of group(n)) own(p, out.meshes, n === "screen");
+    for (const p of group("rig")) own(p, out.rig);
+    for (const p of group("roof")) own(p, out.rig, true);
+    // (CHANGE 152) the seats and fans placed into one mesh for each material and side of the arena, as the window merges
+    // them (model_geom.merged): a few draws, and the sides out of view left out (thin instances drew all four always)
     const rows = look.crowd === false ? {seat: (data.instances || {}).seat || []} : data.instances || {};
+    const crowd = new Map();
     for (const [shape, list] of Object.entries(rows).sort(([a], [b]) => (a === "seat") - (b === "seat"))) {  // (the fans before the seats they sit in)
         const parts = data.shapes[shape];
         if (!Array.isArray(parts) || !Array.isArray(list) || !list.length) continue;
-        const M = new Float32Array(list.length * 16), C = new Float32Array(list.length * 4);
-        list.forEach((r, i) => {
-            const h = r[3] * DEG, s = r[4], c = Math.cos(h) * s, n = Math.sin(h) * s, o = i * 16;
-            M[o] = c; M[o + 2] = n; M[o + 5] = s; M[o + 8] = -n; M[o + 10] = c;
-            M[o + 12] = r[0]; M[o + 13] = r[2]; M[o + 14] = r[1]; M[o + 15] = 1;
-            C[i * 4] = lin(r[5]); C[i * 4 + 1] = lin(r[6]); C[i * 4 + 2] = lin(r[7]); C[i * 4 + 3] = 1;
-        });
         for (const part of parts) {
-            const mesh = build(part, `arena ${shape} ${part.name}`);
-            if (!mesh) continue;
-            out.triangles += (list.length - 1) * mesh.getTotalIndices() / 3;
-            mesh.material = material(part.material, `:${!!part.colours}:i${part.tint ? "t" : ""}`, !!part.far);
-            mesh.thinInstanceSetBuffer("matrix", M, 16, true);
-            if (part.tint) mesh.thinInstanceSetBuffer("color", C, 4, true);
-            mesh.thinInstanceRefreshBoundingInfo(false);
-            mesh.ccCast = false;  // (out in the stands, beyond the shadow's 26 m: drawn into it for nothing)
-            mesh.freezeWorldMatrix();
-            mesh.doNotSyncBoundingInfo = true;
-            out.meshes.push(mesh);
+            const a = unpackPart(part);
+            if (!a) continue;
+            for (const r of list) {
+                const side = Math.abs(r[0]) >= Math.abs(r[1]) ? (r[0] >= 0 ? 0 : 1) : (r[1] >= 0 ? 2 : 3);
+                const key = `${part.material}:${!!part.far}:${side}`;
+                if (!crowd.has(key)) crowd.set(key, {material: part.material, far: !!part.far, items: [], nv: 0, ni: 0});
+                const c = crowd.get(key);
+                c.items.push([a, r, !!part.tint]);
+                c.nv += a.pos.length / 3;
+                c.ni += a.idx.length;
+            }
         }
         out.instances += list.length;
     }
-    for (const n of ["stands", "hall", "scars", floor, mods.no_cage ? "venue_floor_open" : "venue_floor"]) for (const p of group(n)) own(p, out.meshes);
+    for (const c of crowd.values()) {
+        const P = new Float32Array(c.nv * 3), N = new Float32Array(c.nv * 3), UV = new Float32Array(c.nv * 2), C = new Float32Array(c.nv * 4);
+        const I = c.nv >= 65536 ? new Uint32Array(c.ni) : new Uint16Array(c.ni);
+        let ov = 0, oi = 0;
+        for (const [a, r, tint] of c.items) {
+            // (turned h degrees about the game's z, scaled by s, moved to x, y, z; Babylon's y is the game's z)
+            const h = r[3] * DEG, s = r[4], cs = Math.cos(h), sn = Math.sin(h), n = a.pos.length / 3;
+            const t = tint ? [lin(r[5]), lin(r[6]), lin(r[7])] : [1, 1, 1];
+            for (let i = 0; i < n; i++) {
+                const o = i * 3, w = (ov + i) * 3, x = a.pos[o], y = a.pos[o + 1], z = a.pos[o + 2];
+                P[w] = (cs * x - sn * z) * s + r[0]; P[w + 1] = y * s + r[2]; P[w + 2] = (sn * x + cs * z) * s + r[1];
+                const nx = a.nor[o], nz = a.nor[o + 2];
+                N[w] = cs * nx - sn * nz; N[w + 1] = a.nor[o + 1]; N[w + 2] = sn * nx + cs * nz;
+                UV[(ov + i) * 2] = a.uv[i * 2]; UV[(ov + i) * 2 + 1] = a.uv[i * 2 + 1];
+                const q = (ov + i) * 4;
+                for (let k = 0; k < 3; k++) C[q + k] = (a.col ? a.col[i * 4 + k] : 1) * t[k];
+                C[q + 3] = a.col ? a.col[i * 4 + 3] : 1;
+            }
+            for (let k = 0; k < a.idx.length; k++) I[oi + k] = a.idx[k] + ov;
+            ov += n;
+            oi += a.idx.length;
+        }
+        const mesh = make({pos: P, nor: N, uv: UV, col: C, idx: I}, `arena crowd ${c.material}`, false);
+        mesh.material = material(c.material, ":true", c.far, true);
+        mesh.ccCast = false;  // (out in the stands, beyond the shadow's 26 m: drawn into it for nothing)
+        mesh.ccCrowd = true;
+        mesh.freezeWorldMatrix();
+        out.meshes.push(mesh);
+    }
+    for (const n of ["stands", "hall", "scars", floor, mods.no_cage ? "venue_floor_open" : "venue_floor"]) for (const p of group(n)) own(p, out.meshes, n === "hall");
+    for (const [into, list] of casting) caster(list, into);
     for (const m of [...out.meshes, ...out.rig]) if (m.ccCast) out.casters.push(m);
     return out;
 }

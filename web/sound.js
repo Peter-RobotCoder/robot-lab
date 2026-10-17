@@ -76,6 +76,7 @@ const SWINGS = {punch: ["whoosh", 0.45, 1.25], kick: ["whoosh", 0.6, 0.9], low: 
                 jump: ["jump", 0.6, 1.0], cartwheel: ["spin", 0.9, 0.8]};
 const ATTACK_ANIMS = new Set(["punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam", "cartwheel"]);
 const REACT_GAP = {ooh: 2.5, cheer: 3.0, applause: 0.0};
+const SPIN_SOUNDS = {spinner: "spin", drum: "spin_drum", vdisc: "spin_disc"};  // rw_sound.SPIN_SOUNDS
 const INTRO = [2.5, 5.0, 8.0];  // lab_client.INTRO: the arena's name, who is fighting, then 3, 2, 1
 const HOUSE_WEAPONS = {BLAZE: "flame", CRUSHER: "hammer", RIPSAW: "chainsaw", VORTEX: "vdisc"};
 const FLAGS_RACE = 1, FLAG_DRIFT = 1 | 2, FLAG_FINISHED = 4, FLAG_BOOSTING = 16;  // kart_sim.py
@@ -129,7 +130,7 @@ export class Sound {
 
     _resetDirectors() {
         this._r = {fireCounts: new Map(), wasKo: new Map(), lastWinner: null, introWas: false, beeped: new Set()};
-        this._f = {lastPhase: new Map(), lastWinner: new Map(), lastAnim: new Map()};
+        this._f = {lastPhase: new Map(), lastWinner: new Map(), lastAnim: new Map(), lastBanner: new Map()};
         this._k = {wasBoosting: false, wasFinished: false, cdLast: null, race: null, raceAt: 0, near: new Set(), bumpAt: 0, me: null};
     }
 
@@ -409,11 +410,19 @@ export class Sound {
         if (name) this.play(name, {volume});
     }
 
-    // a spinning weapon's motor: the pitch follows its speed, so it bogs down on a hit and winds back up
-    spinner(key, rpm, volume) {
-        const p = this._pitch("spin");
+    // a spinning weapon's motor (weapon: spinner, drum or vdisc, each its own: rw_sound.SPIN_SOUNDS): the pitch
+    // follows its speed, so it bogs down on a hit and winds back up
+    spinner(key, rpm, volume, weapon = "spinner") {
+        const name = SPIN_SOUNDS[weapon] || "spin", p = this._pitch(name) || this._pitch("spin");
         if (rpm < p.min_rpm || volume <= 0) { this.stop(key); return; }
-        this.loop(key, "spin", Math.min(p.volume_max, p.volume[0] + rpm * p.volume[1]) * volume, p.rate[0] + rpm * p.rate[1]);
+        this.loop(key, name, Math.min(p.volume_max, p.volume[0] + rpm * p.volume[1]) * volume, p.rate[0] + rpm * p.rate[1]);
+    }
+
+    // the countdown's voice (rw_sound.Sounds.say): word is 3, 2, 1, "activate" or "go", at its own pitch
+    say(word, volume = 1) {
+        const name = `say_${word}`;
+        for (const p of this.playing.get(name) || []) { try { p.src.stop(); } catch (e) { /* stopped */ } }
+        this.play(name, {volume, vary: false});
     }
 
     _pitch(name) {
@@ -488,7 +497,7 @@ export class Sound {
         const near = r => Math.max(0.1, 1 - dist(r.pos, cam) / 25);
         const live = robots.filter(r => !r.ko);
         const spinners = live.filter(r => r.rpm > 30).sort((a, b) => near(b) - near(a)).slice(0, 4);
-        for (const r of spinners) this.spinner(`spin${r.id}`, r.rpm, near(r) * vol);  // the four nearest
+        for (const r of spinners) this.spinner(`spin${r.id}`, r.rpm, near(r) * vol, weapon(r.id));  // the four nearest
         this.keepOnly("spin", new Set(spinners.map(r => `spin${r.id}`)));
         const flames = live.filter(r => r.fl);
         if (vol && flames.length) this.loop("flame", "flame", 0.6 * vol * Math.max(...flames.map(near)));
@@ -519,7 +528,8 @@ export class Sound {
         R.lastWinner = st.winner || null;
     }
 
-    // lab_client.show_intro's sounds: 3, 2, 1 beeps, then GO and a cheer at ACTIVATE! (t: seconds of it gone)
+    // lab_client.show_intro's sounds: a robot's voice says 3, 2, 1, then "Activate" with a cheer at ACTIVATE!
+    // (CHANGE 153; t: seconds of it gone)
     _intro(t, now) {
         const s = this.settings, R = this._r;
         const loud = (this.muted || !s.effects) ? 0 : Math.min(1, s.volume / 0.7);
@@ -530,11 +540,11 @@ export class Sound {
                 const n = Math.max(1, 3 - Math.floor(t - INTRO[1]));
                 if (!R.beeped.has(n)) {
                     R.beeped.add(n);
-                    this.play("beep", {volume: 0.6 * loud});
+                    this.say(n, 0.9 * loud);
                 }
             }
         } else if (R.introWas) {
-            this.play("go", {volume: 0.8 * loud});
+            this.say("activate", 0.9 * loud);
             if (!this.muted) this.react("cheer", now);
         }
         R.introWas = on;
@@ -579,13 +589,16 @@ export class Sound {
         this.play("f_" + name, {volume: volume * loud, rate: speed});
     }
 
-    // fight_client.event_sounds: moves starting, the bell, knockouts and wins, the crowd's reactions
+    // fight_client.event_sounds: moves starting, the count's voice and the bell, knockouts and wins, the crowd's reactions
     _fightEvents(rings, watched, now) {
         const s = this.settings, F = this._f;
         const on = !this.muted && s.effects, vol = s.volume;  // (the state is kept while quiet, so nothing old plays later)
         for (const r of rings) {
             const near = r.i === watched ? 1.0 : 0.25, phase = F.lastPhase.get(r.i);
-            if (on && phase === "intro" && r.ph === "fight" && r.i === watched) this.play("f_bell", {volume: 0.9});
+            const loud = Math.min(1, vol / 0.7);
+            if (on && phase === "intro" && r.ph === "fight" && r.i === watched) { this.play("f_bell", {volume: 0.9}); this.say("go", 0.9 * loud); }
+            else if (on && r.ph === "intro" && ["3", "2", "1"].includes(r.bn) && r.i === watched && F.lastBanner.get(r.i) !== r.bn) this.say(Number(r.bn), 0.9 * loud);
+            F.lastBanner.set(r.i, r.bn);
             if (on && phase === "fight" && r.ph === "ko") {
                 if (r.i === watched) this.play("f_ko", {volume: 1.0});
                 this.react("cheer", now);

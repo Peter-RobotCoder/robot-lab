@@ -165,7 +165,7 @@ class Preview(ShowBase):
         return out
 
     def draw(self, dt, alpha, now):
-        self.track_vis.update(now - self.start)
+        self.track_vis.update(now - self.start, self.race.countdown())  # (ultra's start lights: CHANGE 151)
         states = {i: self.shown(i, alpha) for i in self.race.karts}
         for i, k in states.items():
             z = self.track.height(k["s"])

@@ -2,7 +2,8 @@
 // touching the race (the karts, the track and the timing are the server's; this is only drawn).
 //   the sky      a dome with the sky's colours from the horizon up, the sun's disc and glow, slow clouds
 //   the land     hills all round, far off in the haze, the flat country out to them, and woods (thin instances)
-//   the look     the camera's pictures after the scene: shading in the corners (SSAO), a glow on what is bright
+//   the look     the camera's pictures after the scene: a glow on what is bright (and shading in the corners, SSAO, if a
+//                game asks: since CHANGE 151 none does, Kart Lab's ultra having dropped it for its frame time)
 //                (bloom), a little sharpening; the world round the kart watched as a cube (reflected in the paint)
 //   the karts    skid marks left on the road while drifting, sparks from the exhaust while boosting, and the
 //                curved kart (models/kart_ultra.json, written by make_models.py) when it is there
@@ -223,8 +224,8 @@ export function makeForest(sc, spots) {
 // glow on what is brightest (the sun, the dash pads, a boost's flame) and a little sharpening. The scene's own
 // shader has already applied the app's tone curve, so Babylon's image processing stays off. The scene says which
 // meshes shade each other (gbuffer.renderList: the world's, not the labels, the smoke or the sky). (CHANGE 145) opts:
-// which parts (ssao, sharpen) and how many samples the picture has (samples): Kart Lab's all, 8; Robot Lab's ultra
-// says its own (robot.js)
+// which parts (ssao, sharpen) and how many samples the picture has (samples): each game's ultra says its own
+// (scene.js, robot.js, fight.js: none has SSAO since CHANGE 151)
 export class AfterFx {
     constructor(sc, opts = {}) {
         const scene = sc.scene, cam = sc.camera, o = Object.assign({ssao: true, sharpen: true, samples: 8, bloomWeight: 0.32}, opts);
@@ -455,6 +456,32 @@ export function loadScenery() {
 }
 export function sceneryData() { return scenery; }
 
+// (CHANGE 151) how the circuit is drawn quickly: cells, the placed shapes copied by where they stand for the shadow
+// and the geometry buffer (CELL metres square); treesAO, the trees in the shading in corners (off: as the window)
+export const CIRCUIT_CULL = {cells: true, treesAO: false};
+const CELL = 40;
+
+// (CHANGE 151) The circuit's copies by cell (makeCircuit's) drawn only where they're wanted: into the sun's shadow
+// those whose cells reach into its box (the shadow camera's view), into the geometry buffer (SSAO) those in the
+// camera's view; each list's other meshes as they are. Set on the two render targets (scene.js refreshLists)
+export function cullLists(sc) {
+    const L = sc.lighting, planes = BABYLON.Frustum.GetPlanes(BABYLON.Matrix.Identity());
+    const pick = (list, count, inside) => {
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            const m = list[i];
+            if (!m.ccCell || m.isInFrustum(inside)) out.push(m);
+        }
+        return out;
+    };
+    if (L && L.rtt) L.rtt.getCustomRenderList = (layer, list, count) => {
+        BABYLON.Frustum.GetPlanesToRef(L.shadowMatrix, planes);  // (Lighting.update has placed it round the target)
+        return pick(list, count, planes);
+    };
+    const gb = sc.fx && sc.fx.gbuffer && sc.fx.gbuffer.getGBuffer && sc.fx.gbuffer.getGBuffer();
+    if (gb) gb.getCustomRenderList = (layer, list, count) => pick(list, count, sc.scene.frustumPlanes);
+}
+
 // One track's circuit (data: the file, key: club, oval or straight), as the window's ultra_circuit draws it: each of
 // the track's own parts one mesh (the file has one per material, and far or near), and each part of each shape placed
 // many times one mesh drawn as thin instances (turned h degrees about the game's z, scaled by s, moved to x, y, z;
@@ -466,7 +493,8 @@ export function sceneryData() { return scenery; }
 export function makeCircuit(sc, data, key) {
     const track = data.tracks[key];
     if (!track || !Array.isArray(track.parts)) return null;
-    const scene = sc.scene, out = {meshes: [], casters: [], trees: [], parts: 0, instances: 0, triangles: 0};
+    const scene = sc.scene, out = {meshes: [], casters: [], trees: [], parts: 0, instances: 0, triangles: 0,
+                                   lamps: [], water: [], lights: data.lights || null, lit: -1, cells: 0};
     const mats = {};
     const material = (name, variant) => {  // (one per kind of mesh: a ShaderMaterial is compiled for the attributes it's given)
         const look = data.materials[name] || {colour: [1, 1, 1], rough: 1, metal: 0};
@@ -501,7 +529,14 @@ export function makeCircuit(sc, data, key) {
     const own = part => {  // (one of the track's own parts)
         const mesh = build(part, "circuit " + part.name);
         if (!mesh) return;
-        mesh.material = material(part.material, `:${!!part.colours}`);
+        // (CHANGE 151: a part with a group, each pair of start lights, has a material of its own to light it by)
+        mesh.material = material(part.material, `:${!!part.colours}${part.group ? ":" + part.group : ""}`);
+        if (part.material === "lamp" && part.group) out.lamps[Number(part.group) - 1] = mesh.material;
+        if (part.material === "water") {  // (its ripples drift: circuitFrame moves its texture coordinates)
+            const uv = Float32Array.from(mesh.getVerticesData(BABYLON.VertexBuffer.UVKind));
+            mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uv, true);
+            out.water.push({mesh, uv, now: new Float32Array(uv.length), look: data.materials.water || {}});
+        }
         mesh.ccProbe = true;  // (the reflection cube watches the circuit's own parts, not the thousands of shapes)
         mesh.freezeWorldMatrix();
         out.meshes.push(mesh);
@@ -523,6 +558,13 @@ export function makeCircuit(sc, data, key) {
             M[o + 12] = r[0]; M[o + 13] = r[2]; M[o + 14] = r[1]; M[o + 15] = 1;
             C[i * 4] = Math.pow(r[5], 2.2); C[i * 4 + 1] = Math.pow(r[6], 2.2); C[i * 4 + 2] = Math.pow(r[7], 2.2); C[i * 4 + 3] = 1;
         });
+        // (CHANGE 151) the instances by where they stand, CELL metres square, for the copies below
+        const cells = new Map();
+        rows.forEach((r, i) => {
+            const k = `${Math.floor(r[0] / CELL)},${Math.floor(r[1] / CELL)}`;
+            if (!cells.has(k)) cells.set(k, []);
+            cells.get(k).push(i);
+        });
         for (const part of parts) {
             const mesh = build(part, `circuit ${shape} ${part.name}`);
             if (!mesh) continue;
@@ -532,11 +574,44 @@ export function makeCircuit(sc, data, key) {
             if (part.tint) mesh.thinInstanceSetBuffer("color", C, 4, true);
             mesh.thinInstanceRefreshBoundingInfo(false);
             mesh.ccProbe = false;
-            mesh.ccAO = part.material !== "blades";  // (the shading in corners: not for thousands of blades of grass)
+            const tree = part.material === "needles" || part.material === "leaves" || part.material === "bark";
+            // (the shading in corners: not for thousands of blades of grass; CHANGE 151: nor the trees, which the
+            // window shades with their own pictures alone: the page's SSAO had them darker than the window's)
+            mesh.ccAO = part.material !== "blades" && !(tree && !CIRCUIT_CULL.treesAO);
             mesh.freezeWorldMatrix();
             mesh.doNotSyncBoundingInfo = true;
             out.meshes.push(mesh);
-            if (part.material === "needles" || part.material === "leaves" || part.material === "bark") out.trees.push(mesh);
+            if (tree) out.trees.push(mesh);
+            // (CHANGE 151) the sun's shadow and the shading in corners draw copies of this, one a cell, never seen by
+            // the camera (layerMask 0), and only the cells in the shadow's box or the camera's view (cullLists): one
+            // mesh for the whole circuit drew every tree, tyre and fan into the 4096 shadow and the geometry buffer
+            // every frame, however far off
+            const ao = mesh.ccAO && !!(sc.fx && sc.fx.gbuffer);  // (no copies for a geometry buffer there isn't)
+            if (!CIRCUIT_CULL.cells || (!mesh.ccCast && !ao) || mesh.ccFar) continue;
+            for (const [k, list] of cells) {
+                const copy = new BABYLON.Mesh(`${mesh.name} @${k}`, scene), m = new Float32Array(list.length * 16);
+                mesh.geometry.applyToMesh(copy);
+                list.forEach((i, j) => m.set(M.subarray(i * 16, i * 16 + 16), j * 16));
+                copy.material = mesh.material;
+                copy.thinInstanceSetBuffer("matrix", m, 16, true);
+                if (part.tint) {
+                    const c = new Float32Array(list.length * 4);
+                    list.forEach((i, j) => c.set(C.subarray(i * 4, i * 4 + 4), j * 4));
+                    copy.thinInstanceSetBuffer("color", c, 4, true);
+                }
+                copy.thinInstanceRefreshBoundingInfo(false);
+                copy.layerMask = 0;
+                copy.isPickable = false;
+                copy.ccCell = true;
+                copy.ccCast = mesh.ccCast;
+                copy.ccAO = ao;
+                copy.ccProbe = false;
+                copy.freezeWorldMatrix();
+                copy.doNotSyncBoundingInfo = true;
+                out.meshes.push(copy);
+                out.cells++;
+            }
+            mesh.ccCast = mesh.ccAO = false;  // (its copies do both)
         }
         out.instances += rows.length;
     }
@@ -547,4 +622,36 @@ export function makeCircuit(sc, data, key) {
         if (m.ccCast) out.casters.push(m);
     }
     return out;
+}
+
+// ---------- the circuit while racing (CHANGE 151) ----------
+// How many pairs of the gantry's start lights are lit, countdown seconds before GO (null: not counting down):
+// kart_scenery.start_lights, with the file's "lights" (none, then from the left one pair every step seconds from
+// "from" seconds before GO, all out at GO)
+export function startLights(countdown, lights) {
+    const from = lights ? Number(lights.from) : 3.0, step = lights ? Number(lights.step) : 0.6;
+    if (countdown === null || countdown === undefined || !(countdown > 0) || countdown > from) return 0;
+    return Math.min(5, Math.floor((from - countdown) / step + 1e-9) + 1);
+}
+
+// each frame on ultra: the start lights (each pair's material's glow, the file's dark and lit) and the pond's ripples
+// (kart_scenery.water_offset: the water's texture coordinates moved, as the window moves its texture). t: seconds
+export function circuitFrame(c, t, countdown) {
+    const lit = startLights(countdown, c.lights);
+    if (lit !== c.lit && c.lamps.length) {
+        c.lit = lit;
+        const L = c.lights || {dark: [0.04, 0.002, 0.002], lit: [9.0, 0.015, 0.006]};
+        c.lamps.forEach((m, k) => {
+            const e = k < lit ? L.lit : L.dark;
+            if (m) m.setVector3("emission", new BABYLON.Vector3(e[0], e[1], e[2]));
+        });
+    }
+    for (const w of c.water) {
+        const f = w.look.flows, metres = Number(w.look.metres) || 1;
+        if (!f) continue;
+        const k = Math.sin(2 * Math.PI * t / f.sway_period);
+        const du = ((f.drift[0] * t + f.sway[0] * k) / metres) % 1, dv = ((f.drift[1] * t + f.sway[1] * k) / metres) % 1;  // (it tiles)
+        for (let i = 0; i < w.uv.length; i += 2) { w.now[i] = w.uv[i] + du; w.now[i + 1] = w.uv[i + 1] + dv; }
+        w.mesh.updateVerticesData(BABYLON.VertexBuffer.UVKind, w.now);
+    }
 }

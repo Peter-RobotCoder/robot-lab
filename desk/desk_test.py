@@ -404,6 +404,34 @@ try:
             assert ask(ws, {"type": "teacher", "password": code}).get("ok"), "the teacher code didn't come back"
     check("teacher: changes the teacher password (the old code stops; removing teacher.json brings it back)",
           teacher_password)
+
+    def learner_called_teacher():  # (CHANGE 154) one added before CHANGE 148 refused the name still logs in
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:  # (no such learner here: nothing more to try)
+            m = ask(ws, {"type": "teacher", "password": "not-the-teacher-password"})
+            assert "error" in m and not m.get("try_learner"), m
+        sys.path.insert(0, HERE)
+        import club_desk
+        store = club_desk.Store(os.path.join(TMP, "desk2"))
+        store.add_learner("Tess", "tess-starter")
+        store.set_password("Tess", "tess-own-pass", by_learner=True)
+        store.learners["Teacher"] = store.learners.pop("Tess")  # (as an old learners.json would have them)
+        store.save()
+        port = DESK + 3
+        procs.append(subprocess.Popen([PY, os.path.join(HERE, "club_desk.py"), "--port", str(port), "--games",
+                                       os.path.join(TMP, "games.json")],
+                                      env=dict(env, CLUBCODERS_DESK_DATA=os.path.join(TMP, "desk2")),
+                                      stdout=open(os.path.join(TMP, "desk2.log"), "w"), stderr=subprocess.STDOUT))
+        time.sleep(2)
+        with connect(f"ws://127.0.0.1:{port}") as ws:
+            m = ask(ws, {"type": "teacher", "password": "tess-own-pass"})
+            assert "error" in m and m.get("try_learner"), f"the form wasn't told to try the learner: {m}"
+            m = ask(ws, {"type": "login", "name": "teacher", "password": "tess-own-pass"})
+            assert m.get("ok") and "error" not in m, f"the learner called Teacher wasn't let in: {m}"
+        with connect(f"ws://127.0.0.1:{port}") as ws:  # (the real teacher password is still the teacher's)
+            m = ask(ws, {"type": "teacher", "password": "desk-test-teacher-password"})
+            assert m.get("ok") and "state" in m, m
+    check("a learner called Teacher from before CHANGE 148 is tried as a learner after the teacher password",
+          learner_called_teacher)
     teacher.close()
 finally:
     for p in procs:

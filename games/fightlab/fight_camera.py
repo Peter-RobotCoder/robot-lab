@@ -20,6 +20,25 @@ from panda3d.core import MouseButton, Point3, Vec3
 MODES = ["fight", "me", "shoulder", "ring", "all"]
 NAMES = {"fight": "Fight camera", "me": "My fighter", "shoulder": "Over the shoulder", "ring": "Ring view",
          "all": "All rings"}
+# (CHANGE 150) Where the views that show the lighting rig, the hall's walls and its roof (fight, me, shoulder) may go:
+# inside the stands' back walls (fight_gfx's and stage_models' halls: 6.9 m of stands beyond the hall's edge, which is
+# the rings' ring size + 5 m out, for the smallest ring), above the platforms and under the roof's lamps (stage_models:
+# the walls 42 to 50 m out, the roof at 18 m). A camera zoomed right out by an outer ring is drawn in along its line to
+# what it looks at, so it never passes the walls or the roof, nor sits behind the stands. The high views (ring, all)
+# hide the rig, walls and roof and look down over the stands: they go where they like.
+INSIDE = (-30.5, 30.5, -14.5, 30.5, 0.3, 15.0)  # x from, to; y from, to; z from, to (metres)
+
+
+def inside(want, look, box=INSIDE):
+    """want (a camera's place) drawn in along the line to look (inside box) until it is inside box too."""
+    t = 1.0
+    for a, (lo, hi) in enumerate(((box[0], box[1]), (box[2], box[3]), (box[4], box[5]))):
+        d = want[a] - look[a]
+        if want[a] > hi and d > 1e-9:
+            t = min(t, max(0.0, hi - look[a]) / d)
+        elif want[a] < lo and d < -1e-9:
+            t = min(t, min(0.0, lo - look[a]) / d)
+    return Point3(look + (want - look) * t) if t < 1.0 else want
 
 
 class FightCamera:
@@ -188,6 +207,8 @@ class FightCamera:
             want = mid + self.swing(Vec3(0, -span * 0.75 * z, span * 0.75 * z))
             look = mid + Vec3(0, 1, 0)
             k, fov = 2.5, 55.0
+        if mode in ("fight", "me", "shoulder"):  # (inside the hall: CHANGE 150)
+            want = inside(want, look)
         self.show_rig(mode in ("fight", "me", "shoulder"))
         if self.pos is None:
             self.pos, self.look, self.fov = Point3(want), Point3(look), fov

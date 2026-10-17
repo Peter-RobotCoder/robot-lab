@@ -606,6 +606,11 @@ class Desk:
                     if kind == "teacher":
                         if not self.store.check_teacher(m.get("password", ""), self.teacher_password):
                             BAD_LOGINS.failed(where)
+                            if self.store.find("teacher")[1] is not None:  # (a learner called Teacher, added before
+                                # CHANGE 148 refused the name: the one form tries them as a learner next: CHANGE 154)
+                                await ws.send(json.dumps({"ok": False, "error": "That isn't the teacher password.",
+                                                          "try_learner": True}))
+                                continue
                             raise DeskError("That isn't the teacher password.")
                         role = "teacher"
                         self.teachers.add(ws)

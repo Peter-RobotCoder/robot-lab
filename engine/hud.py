@@ -889,11 +889,12 @@ class HudKit:
                    self.set_gfx_choice, [tier], 0.024, ON if tier == saved else OFF)
         y -= 0.045 * ((len(choices) + 3) // 4)
         now = getattr(self, "gfx_tier", None)
-        label(f, (f"Drawing {now.title()} now. " if now else "") + "A choice here is for the next start (the shaders are\n"
-                 "made as the window opens). Mesh: every triangle's edges. Lines: outlines and a grid, in one\n"
-                 "colour. Ultra: for a gaming PC. The launcher's Graphics button, when it isn't Auto, comes first.",
+        label(f, (f"Drawing {now.title()} now. " if now else "") + "A choice here reopens the window at it (a few seconds)\n"
+                 "and is kept; Auto picks again from the next start. Mesh: every triangle's edges. Lines: outlines\n"
+                 "and a grid, in one colour. Ultra: for a gaming PC. The launcher's Graphics button, when it isn't\n"
+                 "Auto, comes first at the next start.",
               0.82, y, 0.02, GREY)
-        y -= 0.11
+        y -= 0.135
         if self.LINE_COLOURS:
             label(f, "Line colour", 0.82, y, 0.03)
             for i, (name, colour) in enumerate(self.LINE_COLOURS):
@@ -907,14 +908,28 @@ class HudKit:
         return y
 
     def set_gfx_choice(self, tier):
+        """CHANGE 149: a tier chosen here is kept (the monitor never steps from it) and the window reopens at it now,
+        logged in as the same person, as the page changes at once (the shaders and the window's multisampling are
+        made as a window opens). Auto: the game picks again from the next start."""
         from engine import gfx_tiers
         if tier:
-            gfx_tiers.remember(SETTINGS_DIR, gfx_tier=tier)
+            gfx_tiers.remember(SETTINGS_DIR, gfx_tier=tier, gfx_hand=True)
         else:
-            gfx_tiers.forget(SETTINGS_DIR, "gfx_tier")
+            gfx_tiers.forget(SETTINGS_DIR, "gfx_tier", "gfx_hand")
         monitor = getattr(self, "gfx_monitor", None)
         if monitor is not None:
             monitor.chosen(tier)  # (the monitor saves nothing over a choice made by hand)
+        restart = getattr(self, "restart_window", None)
+        if tier and tier != getattr(self, "gfx_tier", None) and restart is not None and "--offscreen" not in sys.argv:
+            argv = []
+            for a in sys.argv[1:]:  # (the launcher's Graphics button's --gfx: this choice comes first now)
+                if argv and argv[-1] == "--gfx":
+                    argv.pop()
+                elif not a.startswith("--gfx="):
+                    argv.append(a)
+            sys.argv[1:] = argv + ["--gfx", tier]  # (restart_window reopens with sys.argv, keeping a try a try)
+            restart()
+            return
         self.rebuild_panels()
 
     def set_line_colour(self, colour):

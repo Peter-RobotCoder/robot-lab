@@ -9,8 +9,10 @@ Layers, mixed together (the teacher picks each one and its volume):
 
 Hit sounds (contacts only): smash (spinner), launch (drum and vertical disc), hammer, flip (the plate's thud and
 clang), saw, spikes, bump (robot into robot), wall, clang (anything else); grind (a floor saw on armour, looped).
-Weapon sounds: spin (an electric motor whine: its pitch follows the weapon's real speed, so it bogs down when it hits
-and winds back up), pneumatic (a flipper firing), swing (a hammer), chainsaw and flame (looped), motor (driving).
+Weapon sounds: spin, spin_drum and spin_disc (each spinning weapon's own motor and air, heavy: their pitch follows the
+weapon's real speed, so it bogs down when it hits and winds back up), pneumatic (a flipper firing), swing (a hammer),
+chainsaw and flame (looped), motor (driving).
+The countdown: a robot announcer's voice (rw_voice.py: "3", "2", "1", "Activate", "Go"); beep, go and horn (Kart Lab).
 """
 import os
 import random
@@ -22,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SFX = os.path.join(HERE, "assets", "sfx")
 MUSIC_DIR = os.path.join(HERE, "music")
 RATE = 44100
-VERSION = "7"
+VERSION = "8"
 MUSIC = {"off": "Off", "chip": "8-bit", "rock": "Rock", "yours": "Your music"}
 BACKGROUNDS = MUSIC  # (older name)
 HITS = {"spinner": "smash", "drum": "launch", "hammer": "hammer", "flip": "flip", "saw": "saw", "spikes": "spikes",
@@ -187,14 +189,7 @@ def make_hits():
 
 
 def make_loops():
-    x = t(3.0)  # spinner: an electric motor whine (the game changes its pitch with the weapon's speed)
-    f0 = 110
-    whine = sum(np.sin(2 * np.pi * f0 * k * x + k * 0.7) * a for k, a in ((1, 1.0), (2, 0.55), (3, 0.3), (4, 0.18),
-                                                                           (6, 0.1)))
-    whine += np.sin(2 * np.pi * f0 * 7.5 * x) * 0.22  # the high whine of the motor drive
-    brushes = np.sign(np.sin(2 * np.pi * f0 * 12 * x)) * 0.03  # a little crackle from the brushes
-    passing = 0.85 + 0.15 * np.sin(2 * np.pi * f0 / 4 * x) ** 2  # the weapon passing by
-    write("spin", (whine + brushes) * passing + band(noise(len(x)), 300, 1500) * 0.02, loop=True)
+    noise(len(t(3.0)))  # (the old spinner whine's noise, still drawn so every sound after it comes out as before)
     x = t(2.0)  # chainsaw: a two-stroke engine and a rattling chain
     engine = np.sign(np.sin(2 * np.pi * 88 * x)) * 0.5 + np.sin(2 * np.pi * 176 * x) * 0.4
     rasp = band(noise(len(x)), 900, 4500) * (0.5 + 0.5 * np.abs(np.sin(2 * np.pi * 88 * x)))
@@ -221,6 +216,63 @@ def make_loops():
         clank = metal(0.9, rng.uniform(250, 400), 0.2, crack=0.3) * 0.25
         drone[k:k + len(clank)] += clank[:len(drone) - k]
     write("arena", drone, loop=True)
+
+
+# ---------- the spinning weapons' motors (CHANGE 22) ----------
+SPIN_SECS = 3.0  # each motor loop is exactly periodic over this: whole cycles of everything in it
+SPIN_SOUNDS = {"spinner": "spin", "drum": "spin_drum", "vdisc": "spin_disc"}  # weapon -> its motor's loop
+SPIN_HZ = {"spin": 40, "spin_drum": 30, "spin_disc": 50}  # at play rate 1: the bar's tips, the teeth passing a second
+
+
+def make_spinners():
+    """Each spinning weapon's sound at play rate 1. The game sets the rate from the weapon's real speed, so as it
+    winds up the whooshes come faster and run together into a hum that climbs, and it bogs down on a hit. Heavy, not
+    a thin whine: the deep hum of the weight going round, the rush of air it throws, the motor and drive under it.
+        spin       a bar spinner: two tips thumping the air ("whum whum" into a roar), a little out of balance
+        spin_drum  a drum: a low, gritty growl close to the floor, its teeth, a belt drive
+        spin_disc  a vertical disc: smooth and singing, a whirr of air off its teeth and the steel ringing
+    Each loop is exactly periodic (every frequency a whole number of cycles in SPIN_SECS, noise filtered round the
+    loop), so it repeats with no join. (Its own random numbers: the other sounds come out as before.)"""
+    r = np.random.default_rng(22)
+    x = t(SPIN_SECS)
+
+    def hiss(lo, hi):  # noise round the loop: the filter wraps, so the end meets the start
+        return band(r.standard_normal(len(x)), lo, hi)
+
+    def tone(f, wander=0.0):  # f: a whole number of cycles in the loop (wander: its pitch drifts slightly, 1 Hz)
+        return np.sin(2 * np.pi * f * x + f * wander * np.sin(2 * np.pi * x) + r.random() * 6.28)
+
+    def passes(f, sharp):  # one push of air each time a tip or tooth goes by (sharp: how short each push is)
+        return ((1 + np.cos(2 * np.pi * f * x)) / 2) ** sharp
+
+    def finish(sig):  # as loud as each other, and a little saturated (heavy machines are never clean)
+        return np.tanh(sig / (np.sqrt(np.mean(sig ** 2)) + 1e-9) * 0.45)
+
+    fb = SPIN_HZ["spin"]  # bar spinner: 2 tips, so 20 turns a second at rate 1
+    hum = sum(tone(fb * k) * a for k, a in ((1, 1.0), (2, 0.8), (3, 0.75), (4, 0.6), (5, 0.5), (6, 0.4), (8, 0.25),
+                                              (10, 0.12))) * (1 + 0.15 * np.cos(2 * np.pi * fb / 2 * x))
+    rush = hiss(120, 1600) * (0.2 + passes(fb, 6)) + hiss(60, 450) * passes(fb, 3) * 1.4
+    motor = tone(fb * 9, 0.002) * 0.05 + tone(fb * 18, 0.002) * 0.025 + hiss(2500, 7000) * passes(fb * 3, 2) * 0.05
+    write("spin", finish(np.tanh(hum * 1.6) * 0.6 + rush * 0.9 + motor))
+
+    fb = SPIN_HZ["spin_drum"]  # drum: 2 teeth, 15 turns a second
+    hum = sum(tone(fb * k) * a for k, a in ((1, 1.0), (2, 0.9), (3, 0.7), (4, 0.5), (5, 0.3), (6, 0.2), (8, 0.1)))
+    growl = np.tanh(hum * 2.6) * (1 + 0.3 * np.cos(2 * np.pi * fb / 2 * x))
+    roar = hiss(70, 900) * (0.45 + 0.55 * passes(fb, 2)) + hiss(30, 160) * 0.5
+    belt = tone(fb * 11, 0.003) * 0.04 + hiss(600, 2500) * passes(fb, 4) * 0.25  # the belt and the teeth biting air
+    write("spin_drum", finish(growl * 0.7 + roar + belt))
+
+    fb = SPIN_HZ["spin_disc"]  # vertical disc: 3 teeth, 50/3 turns a second
+    turn = fb / 3
+    hum = sum(tone(turn * k) * a for k, a in ((1, 0.5), (2, 0.3), (3, 1.0), (6, 0.6), (9, 0.35), (12, 0.2), (15, 0.1)))
+    whirr = hiss(350, 3800) * (0.35 + 0.65 * passes(fb, 2))
+    ring = sum((tone(f) + tone(f + 1 / SPIN_SECS)) * a for f, a in ((640, 0.05), (1530, 0.035), (2710, 0.02)))
+    write("spin_disc", finish(np.tanh(hum * 1.3) * 0.75 + whirr * 0.7 + ring + tone(turn * 21, 0.002) * 0.03))
+
+
+def spinner_rate(rpm):
+    """A spinning weapon's play rate and volume at this speed (rpm): the windows' and the page's numbers."""
+    return max(0.2, 0.3 + rpm / 380), min(0.7, 0.12 + rpm / 900)
 
 
 # ---------- the crowd: many synthetic voices ----------
@@ -458,6 +510,9 @@ def make():
     x = t(1.4)
     write("horn", (np.sign(np.sin(2 * np.pi * 220 * x)) + np.sign(np.sin(2 * np.pi * 277 * x))) * 0.5
           * np.minimum(1, x / 0.02) * np.minimum(1, (1.4 - x) / 0.2))
+    make_spinners()  # (after the rest, with their own random numbers, so nothing above changes)
+    from engine import rw_voice
+    rw_voice.make(write)  # the countdown's voice: say_3, say_2, say_1, say_activate, say_go
 
 
 def ensure():
@@ -511,9 +566,10 @@ def sound_settings(saved=None, change=None):
 
 # ---------- playing ----------
 ONE_SHOTS = ["clang", "smash", "launch", "hammer", "flip", "saw", "spikes", "bump", "wall", "pneumatic", "swing"]
-LOOPS = ["spin", "motor", "grind", "flame", "arena", "crowd", "chainsaw"]
+LOOPS = ["spin", "spin_drum", "spin_disc", "motor", "grind", "flame", "arena", "crowd", "chainsaw"]
 REACTIONS = ["ooh", "cheer", "applause"]
 ALIASES = {"crunch": "hammer"}  # (older names)
+VOICE = ["say_3", "say_2", "say_1", "say_activate", "say_go"]  # (rw_voice.NAMES)
 
 
 class Sounds:
@@ -527,9 +583,9 @@ class Sounds:
         self.pool = {}
         for name in ONE_SHOTS:  # two copies of each variation, so hits can overlap
             self.pool[name] = [self._load(f"{name}_{v}") for v in range(VARIANTS) for _ in range(2)]
-        for name in LOOPS + REACTIONS + ["beep", "go", "horn"]:
+        for name in LOOPS + REACTIONS + ["beep", "go", "horn"] + VOICE:
             self.pool[name] = [self._load(name)]
-        self.loops = {}
+        self.loops, self.loop_names = {}, {}
         self.music, self.music_snd, self.playlist = "off", None, []
         self.crowd_volume = 0.6
         self.last_reaction = -99.0
@@ -562,6 +618,9 @@ class Sounds:
         if not self.on:
             return
         snd = self.loops.get(key)
+        if snd is not None and self.loop_names.get(key) != name:  # (the same key, another sound: a new weapon)
+            self.stop(key)
+            snd = None
         if snd is None:
             snd = self._load(name)  # its own copy, so several of the same loop can play (one per spinner)
             if snd is None:
@@ -569,11 +628,12 @@ class Sounds:
             snd.setLoop(True)
             snd.setVolume(0.0)
             snd.play()
-            self.loops[key] = snd
+            self.loops[key], self.loop_names[key] = snd, name
         snd.setVolume(max(0.0, min(1.0, volume)))
         snd.setPlayRate(max(0.2, rate))
 
     def stop(self, key):
+        self.loop_names.pop(key, None)
         snd = self.loops.pop(key, None)
         if snd is not None:
             snd.stop()
@@ -583,12 +643,23 @@ class Sounds:
         for key in [k for k in self.loops if k.startswith(prefix) and k not in keys]:
             self.stop(key)
 
-    def spinner(self, key, rpm, volume):
-        """A spinning weapon's motor: the pitch follows its speed, so it bogs down on a hit and winds back up."""
+    def spinner(self, key, rpm, volume, weapon="spinner"):
+        """A spinning weapon's motor (spinner, drum or vdisc: each its own): the pitch follows its speed, so it bogs
+        down on a hit and winds back up."""
         if rpm < 30 or volume <= 0:
             self.stop(key)
             return
-        self.loop(key, "spin", min(0.7, 0.12 + rpm / 900) * volume, 0.3 + rpm / 380)
+        rate, loud = spinner_rate(rpm)
+        self.loop(key, SPIN_SOUNDS.get(weapon, "spin"), loud * volume, rate)
+
+    def say(self, word, volume=1.0):
+        """The countdown's voice: word is 3, 2, 1, "activate" or "go" (played at its own pitch)."""
+        sounds = [s for s in self.pool.get(f"say_{word}", []) if s is not None]
+        if self.on and sounds and volume > 0:
+            sounds[0].stop()
+            sounds[0].setVolume(max(0.0, min(1.0, volume)))
+            sounds[0].setPlayRate(1.0)
+            sounds[0].play()
 
     def layers(self, music="off", music_volume=0.5, crowd=True, crowd_volume=0.6, arena=False, arena_volume=0.4):
         """Set the background layers: any mix of music, crowd and arena hum (call every frame)."""
@@ -641,7 +712,66 @@ class Sounds:
     def stop_all(self):
         for snd in self.loops.values():
             snd.stop()
-        self.loops = {}
+        self.loops, self.loop_names = {}, {}
         if self.music_snd is not None:
             self.music_snd.stop()
         self.music, self.music_snd = "off", None
+
+
+# ---------- to listen to (CHANGE 153): python -m engine.rw_sound --listen <folder> ----------
+SPIN_TOP = {"spinner": 305, "drum": 430, "vdisc": 363}  # each weapon's top speed (rpm) on a standard robot
+
+
+def spin_recording(weapon, secs=12.5):
+    """A spinning weapon's motor as a window plays it, over a made-up fight: it winds up from still, runs at top
+    speed, bogs down on a hit and winds back up, then is switched off and runs down until it stops."""
+    with wave.open(os.path.join(SFX, SPIN_SOUNDS[weapon] + ".wav"), "rb") as w:
+        loop = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16) / 32768.0
+    top, x = SPIN_TOP[weapon], t(secs)
+    up = top * (1 - np.exp(-np.clip(x - 0.3, 0, None) / 0.9))
+    hit = np.where(x > 5.5, 1 - 0.65 * np.exp(-np.clip(x - 5.5, 0, None) / 0.7) * np.clip((x - 5.5) / 0.06, 0, 1), 1)
+    rpm = np.where(x < 8.0, up * hit, top * np.exp(-np.clip(x - 8.0, 0, None) / 1.6))
+    rate, loud = np.vectorize(spinner_rate)(rpm)
+    pos = np.cumsum(rate) % len(loop)  # where in the loop each sample is, at the rate the game sets
+    k = pos.astype(int)
+    sig = (loop[k] * (1 - pos % 1) + loop[(k + 1) % len(loop)] * (pos % 1)) * loud
+    on = (rpm >= 30).astype(float)  # (the game stops the loop below 30 rpm)
+    return sig * np.convolve(on, np.ones(1323) / 1323, "same")
+
+
+def listen(folder):
+    """The countdown's voice and each spinner winding up and down, into folder as OGG (ffmpeg) or WAV files."""
+    import shutil
+    import subprocess
+    from engine import rw_voice
+    ensure()
+    os.makedirs(folder, exist_ok=True)
+    ffmpeg = shutil.which("ffmpeg")
+    sounds = {name: sig for name, sig in rw_voice.clips().items()}
+    gap = np.zeros(int(RATE * 0.6))
+    sounds["countdown_robot_lab"] = np.concatenate(sum(([sounds[f"say_{w}"], gap[:RATE - len(sounds[f"say_{w}"])]]
+                                                        for w in (3, 2, 1)), []) + [sounds["say_activate"], gap])
+    sounds["countdown_fight_lab"] = np.concatenate(sum(([sounds[f"say_{w}"], gap[:int(RATE * 0.8) - len(sounds[f"say_{w}"])]]
+                                                        for w in (3, 2, 1)), []) + [sounds["say_go"], gap])
+    for weapon in SPIN_SOUNDS:
+        sounds[f"{weapon}_winding_up_and_down"] = spin_recording(weapon)
+    for name, sig in sounds.items():
+        sig = np.asarray(sig, dtype=float)
+        sig = sig / (np.max(np.abs(sig)) + 1e-9) * 0.9
+        pcm = (sig * 32767).astype("<i2").tobytes()
+        if ffmpeg:
+            subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "s16le", "-ar", str(RATE), "-ac", "1", "-i", "pipe:0",
+                            "-c:a", "libvorbis", "-q:a", "5", os.path.join(folder, name + ".ogg")], input=pcm, check=True)
+        else:
+            with wave.open(os.path.join(folder, name + ".wav"), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(RATE)
+                w.writeframes(pcm)
+        print(f"{name}: {len(sig) / RATE:.1f} s")
+
+
+if __name__ == "__main__":
+    import sys
+    if "--listen" in sys.argv:
+        listen(sys.argv[sys.argv.index("--listen") + 1])

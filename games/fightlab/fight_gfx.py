@@ -552,17 +552,18 @@ class StageVisual:
                         bevel_box(0.09, 0.09, 0.1, 0.04, mesh=crowd, offset=Vec3(x, y, z + tall * 2 + 0.11))
         part(static, stands, "concrete", (0.22, 0.24, 0.3), 1.0, 0.0)
         part(static, crowd, None, (0.5, 0.5, 0.5), 0.9, 0.0)
-        # big screens at both ends, with the hall's name
-        for y, h in ((y1 + 9.0, 180), (y0 - 9.0, 0)):
+        # big screens at both ends, with the hall's name facing the rings (h: the words' heading; a TextNode is read
+        # from its -y side, so the far screen's are unturned: CHANGE 150, they faced away before)
+        for y, h in ((y1 + 9.0, 0), (y0 - 9.0, 180)):
             part(static, bevel_box(6.5, 0.3, 2.0, 0.06), "steel", (0.08, 0.08, 0.1), pos=(cx, y, 6.0))
             glowbox = part(static, bevel_box(6.2, 0.05, 1.75, 0.0), None, (0, 0, 0), 1, 0, emission=(0.05, 0.02, 0.12),
-                           pos=(cx, y - 0.3 if h == 180 else y + 0.3, 6.0))
+                           pos=(cx, y - 0.3 if h == 0 else y + 0.3, 6.0))
             del glowbox
             text = TextNode("screen")
             text.setText(self.name)
             text.setAlign(TextNode.ACenter)
             tn = self.root.attachNewNode(text)
-            tn.setPos(cx, y - 0.4 if h == 180 else y + 0.4, 5.55)
+            tn.setPos(cx, y - 0.4 if h == 0 else y + 0.4, 5.55)
             tn.setH(h)
             tn.setScale(1.6)
             mats().apply(tn, None, (0, 0, 0), 1, 0, emission=(4.0, 1.2, 0.3))
@@ -591,8 +592,24 @@ class StageVisual:
         and its roof under the rig's node (the high views hide it: FightCamera.show_rig)."""
         made = stage_models.made()
         instances = made["instances"] if look.get("crowd", True) else {"seat": made["instances"]["seat"]}
-        ultra_parts(static, made["groups"]["floor"] + made["groups"]["stands"] + made["groups"]["screens"],
-                    made["shapes"], instances)
+        ultra_parts(static, made["groups"]["floor"] + made["groups"]["stands"] + made["groups"]["screens"])
+        # (CHANGE 150) the seats and fans on each of the hall's four sides their own Geoms (not flattened into the
+        # hall's), so the stands behind the camera are culled, as the page's are: which side, by the instance's place
+        # from the middle of them all, as a share of how far they reach each way
+        rows = [r for v in instances.values() for r in v]
+        mid = [sum(r[k] for r in rows) / max(1, len(rows)) for k in (0, 1)]
+        reach = [max([abs(r[k] - mid[k]) for r in rows] + [1e-6]) for k in (0, 1)]
+
+        def side(r):
+            dx, dy = (r[0] - mid[0]) / reach[0], (r[1] - mid[1]) / reach[1]
+            return (0 if dx > 0 else 1) if abs(dx) > abs(dy) else (2 if dy > 0 else 3)
+        crowd = self.root.attachNewNode("crowd")
+        crowd.hide(SHADOW_MASK)
+        for k in range(4):
+            mine = {shape: [r for r in v if side(r) == k] for shape, v in instances.items()}
+            mine = {shape: v for shape, v in mine.items() if v}
+            if mine:
+                ultra_parts(crowd.attachNewNode(f"side{k}"), [], made["shapes"], mine).flattenStrong()
         for x, y, z, h in stage_models.SCREENS:
             text = TextNode("screen")
             text.setText(self.name)
@@ -1368,8 +1385,8 @@ class FighterVisual:
         t.setText(text)
         t.setAlign(TextNode.ACenter)
         tn = self.nodes["waist"].attachNewNode(t)
-        tn.setPos(0, -0.18 if self.robot else -0.14, 0.34)
-        tn.setH(180)
+        tn.setPos(0, -0.18 if self.robot else -0.14, 0.34)  # (on the back, read from behind: a TextNode is read from
+        tn.setH(0)                                          # its -y side, the fighter's back; at 180 it faced in: CHANGE 150)
         tn.setScale(0.07)
         mats().apply(tn, None, self.colours["lights"] if self.robot else self.colours["trim"], 0.5, 0.0)
 

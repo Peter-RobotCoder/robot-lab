@@ -1,5 +1,5 @@
 """The fighting-game screen: two health bars, round wins, the round timer, energy meters, the big banners
-(ROUND 1, FIGHT!, K.O.!), the combo counter and, in practice, the training readout.
+(ROUND 1, 3, 2, 1, GO!, K.O.!), the combo counter and, in practice, the training readout.
 
 Used by the class windows (fight_client.py) and the showcase (beat_em_up.py). Give update() one ring from the
 server's state every frame; it draws the two fighters in that ring.
@@ -140,10 +140,10 @@ class FightHUD:
         self.timer_back.show() if tl is not None else self.timer_back.hide()
         label = ring.get("lb") or ""
         self.label.setText(" - ".join(x for x in (ring_name, label) if x))
-        # the big banner: ROUND 1, FIGHT!, K.O.!, PERFECT!, ... WINS!
+        # the big banner: ROUND 1, 3, 2, 1, GO!, K.O.!, PERFECT!, ... WINS!
         bn = ring.get("bn") or ""
         self.banner.setText(bn)
-        big = bn in ("K.O.!", "PERFECT!", "FIGHT!")
+        big = bn in ("K.O.!", "PERFECT!", "GO!", "3", "2", "1")
         self.banner.setScale(0.2 if big else 0.13 if len(bn) > 10 else 0.16)
         self.banner.setFg(RED if bn in ("K.O.!", "RING OUT!") else YELLOW)
         self.sub_banner.setText(f"ROUND {ring['rd']}" if ring.get("ph") == "ko" and bn not in ("",) and

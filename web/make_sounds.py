@@ -1,8 +1,9 @@
 """sfx/ for Club Coders Live: the games' own sounds, so the page sounds as the app's windows do.
 
 Every sound is made from maths by the games themselves (nothing recorded, nothing anyone else owns):
-- engine/rw_sound.py: Robot Lab's hits (three versions of each), its weapon and motor loops, the arena hum, the
-  crowd and its reactions, the 8-bit and rock music, the countdown beeps, GO and the horn;
+- engine/rw_sound.py: Robot Lab's hits (three versions of each), its weapon and motor loops (each spinning
+  weapon's own), the arena hum, the crowd and its reactions, the 8-bit and rock music, the countdown's robot voice
+  (engine/rw_voice.py: 3, 2, 1, Activate, Go), Kart Lab's beeps, GO and the horn;
 - Kart Lab's kart_sound.py: the tyres' squeal and the boost (k_ files; its engine is Robot Lab's motor loop);
 - Fight Lab's fight_sound.py: punches, kicks, blocks, whooshes, specials, the bell and the K.O. boom (f_ files).
 
@@ -56,7 +57,9 @@ def wanted(rw_variants=3, fight_variants=3):
         games = [R, F, K] if name == "wall" else [R, K] if name == "bump" else [R]
         channel = "weapons" if name in ("pneumatic", "swing") else "effects"
         s[name] = ("rw", rw_variants, False, 0.8 if channel == "weapons" else 1.0, channel, games)
-    s["spin"] = ("rw", 0, True, 0.7, "weapons", [R])          # (rw_sound.LOOPS)
+    s["spin"] = ("rw", 0, True, 0.7, "weapons", [R])          # (rw_sound.LOOPS: rw_sound.SPIN_SOUNDS, a bar spinner's...)
+    s["spin_drum"] = ("rw", 0, True, 0.7, "weapons", [R])     # (...a drum's...)
+    s["spin_disc"] = ("rw", 0, True, 0.7, "weapons", [R])     # (...a vertical disc's)
     s["chainsaw"] = ("rw", 0, True, 0.55, "weapons", [R])
     s["flame"] = ("rw", 0, True, 0.6, "weapons", [R])
     s["grind"] = ("rw", 0, True, 0.5, "effects", [R])
@@ -65,8 +68,12 @@ def wanted(rw_variants=3, fight_variants=3):
     s["crowd"] = ("rw", 0, True, 0.7, "crowd", [R, F, K])
     for name in ("ooh", "cheer", "applause"):                 # (rw_sound.REACTIONS)
         s[name] = ("rw", 0, False, 1.0, "crowd", [R, F] if name == "ooh" else [R, F, K])
-    s["beep"] = ("rw", 0, False, 0.6, "effects", [R, K])
-    s["go"] = ("rw", 0, False, 0.8, "effects", [R, K])
+    s["beep"] = ("rw", 0, False, 0.6, "effects", [K])
+    s["go"] = ("rw", 0, False, 0.8, "effects", [K])
+    for name in ("say_3", "say_2", "say_1"):                  # (rw_sound.VOICE: the countdown's voice, CHANGE 153)
+        s[name] = ("rw", 0, False, 0.9, "effects", [R, F])
+    s["say_activate"] = ("rw", 0, False, 0.9, "effects", [R])
+    s["say_go"] = ("rw", 0, False, 0.9, "effects", [F])
     s["horn"] = ("rw", 0, False, 0.9, "effects", [K])
     s["chip"] = ("rw", 0, True, 0.6, "music", [R, F])         # (rw_sound.MUSIC: "yours" is the teacher's own files)
     s["rock"] = ("rw", 0, True, 0.6, "music", [R, F])
@@ -82,8 +89,12 @@ def wanted(rw_variants=3, fight_variants=3):
 # the windows' numbers for the sounds whose pitch and loudness follow the game (rw_sound.Sounds.spinner,
 # lab_client.machine_sounds, kart_sound.KartSounds.update): rate = a + b * x, volume = c + d * x (clamped)
 PITCH = {
-    "spin": {"hz": 110, "follows": "weapon rpm", "min_rpm": 30, "rate": [0.3, 1 / 380], "volume": [0.12, 1 / 900],
+    "spin": {"hz": 40, "follows": "weapon rpm", "min_rpm": 30, "rate": [0.3, 1 / 380], "volume": [0.12, 1 / 900],
              "volume_max": 0.7, "rate_min": 0.2},
+    "spin_drum": {"hz": 30, "follows": "weapon rpm", "min_rpm": 30, "rate": [0.3, 1 / 380], "volume": [0.12, 1 / 900],
+                  "volume_max": 0.7, "rate_min": 0.2},
+    "spin_disc": {"hz": 50, "follows": "weapon rpm", "min_rpm": 30, "rate": [0.3, 1 / 380], "volume": [0.12, 1 / 900],
+                  "volume_max": 0.7, "rate_min": 0.2},
     "motor": {"hz": 170, "follows": "speed (Robot Lab: m/s; Kart Lab: the fraction of top speed)",
               "robot": {"rate": [0.6, 1 / 8], "volume_per_speed": 1 / 20, "volume_driven": 0.04, "volume_max": 0.25},
               "kart": {"rate": [0.55, 1.3], "volume": [0.18, 0.3], "boost_rate": 0.25, "boost_volume": 0.12}},

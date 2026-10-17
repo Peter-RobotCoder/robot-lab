@@ -51,6 +51,19 @@ SIGNS = [("CLUB CODERS", (0.1, 0.36, 0.86), (1.0, 1.0, 1.0)),
          ("START", (0.06, 0.06, 0.07), (1.0, 1.0, 1.0))]
 START_SIGN = 7
 
+# (CHANGE 151) the pond's ripples: its texture's repeat in metres, and how it drifts (metres a second along x and y,
+# and a slow sway across that): the window moves the texture, the page the water's texture coordinates, the same way
+WATER_METRES = 3.0
+WATER_FLOW = {"drift": [0.05, 0.022], "sway": [0.035, -0.06], "sway_period": 9.0}
+
+
+def water_offset(t):
+    """(CHANGE 151) How far the pond's ripples have moved t seconds on, in repeats of its texture (u, v)."""
+    f, w = WATER_FLOW["drift"], WATER_FLOW["sway"]
+    k = math.sin(2 * math.pi * t / WATER_FLOW["sway_period"])
+    return (((f[0] * t + w[0] * k) / WATER_METRES) % 1.0, ((f[1] * t + w[1] * k) / WATER_METRES) % 1.0)  # (it tiles)
+
+
 # each material: its colour (a screen colour, times the vertex colours and the texture), how rough and metallic,
 # its texture set (kart/assets/tex or engine/assets/tex, the page's tex/: <texture>_albedo, _mr (red: shading in the
 # cracks, green: roughness, blue: metal), _normal) and how many metres one repeat covers, "emission" (linear light),
@@ -75,8 +88,8 @@ MATERIALS = {
     "door": {"colour": [1.0, 1.0, 1.0], "rough": 0.45, "metal": 0.4, "texture": "steel", "metres": 1.0},
     "glass": {"colour": [0.3, 0.38, 0.46], "rough": 0.05, "metal": 0.0, "texture": None, "metres": 1.0},
     "signs": {"colour": [1.0, 1.0, 1.0], "rough": 1.0, "metal": 0.0, "texture": "signs", "metres": 0.0},
-    "lamp": {"colour": [0.3, 0.02, 0.02], "rough": 0.15, "metal": 0.0, "texture": None, "metres": 1.0,
-             "emission": [0.35, 0.01, 0.01]},
+    "lamp": {"colour": [0.16, 0.02, 0.02], "rough": 0.15, "metal": 0.0, "texture": None, "metres": 1.0,
+             "emission": [0.04, 0.002, 0.002]},  # (unlit: LAMP_DARK, CHANGE 151)
     "tyre_wall": {"colour": [1.0, 1.0, 1.0], "rough": 0.85, "metal": 0.0, "texture": "kerb", "metres": 1.0},
     "bark": {"colour": [1.0, 1.0, 1.0], "rough": 1.0, "metal": 0.0, "texture": "bark", "metres": 1.0},
     "needles": {"colour": [1.0, 1.0, 1.0], "rough": 1.0, "metal": 0.0, "texture": "needles", "metres": 2.0},
@@ -85,7 +98,8 @@ MATERIALS = {
     "rock": {"colour": [1.0, 1.0, 1.0], "rough": 0.95, "metal": 0.0, "texture": "concrete", "metres": 1.0},
     "skin": {"colour": [1.0, 1.0, 1.0], "rough": 0.7, "metal": 0.0, "texture": None, "metres": 1.0},
     "cloth": {"colour": [1.0, 1.0, 1.0], "rough": 0.9, "metal": 0.0, "texture": None, "metres": 1.0, "two_sided": True},
-    "water": {"colour": [0.1, 0.16, 0.17], "rough": 0.04, "metal": 0.0, "texture": None, "metres": 1.0, "flat": True},
+    "water": {"colour": [0.1, 0.16, 0.17], "rough": 0.06, "metal": 0.0, "texture": "water", "metres": WATER_METRES,
+              "flat": True, "flows": WATER_FLOW},
 }
 
 # where things go, in metres from the road's edge (lateral half)
@@ -107,6 +121,20 @@ def tv_cameras(track):
         x, y, z = track.point(s, side * (track.half + 6.0))
         out.append((x, y, z + 5.0, side, s))
     return out
+
+
+LIGHTS_FROM, LIGHTS_STEP = 3.0, 0.6  # (CHANGE 151) the start lights: the first pair at 3 s to GO, one more each 0.6 s
+LAMP_DARK = (0.04, 0.002, 0.002)      # ...a pair's glow (linear light, as MATERIALS' emission) unlit and lit: unlit
+LAMP_LIT = (9.0, 0.015, 0.006)         # nearly dark red glass, lit a red that the tone curve keeps red (not orange)
+
+
+def start_lights(countdown):
+    """(CHANGE 151) How many pairs of the gantry's start lights are lit, seconds before GO (None: the race isn't
+    counting down): none, then from the left one pair every LIGHTS_STEP over the countdown's last three seconds (the
+    3, 2, 1 on the screen), all five for the last 0.6 s, and all out at GO, as real start lights go."""
+    if countdown is None or countdown <= 0.0 or countdown > LIGHTS_FROM:
+        return 0
+    return min(5, int((LIGHTS_FROM - countdown) / LIGHTS_STEP + 1e-9) + 1)
 
 
 # ---------- small sums ----------
@@ -191,9 +219,9 @@ class Part(kart_models.Part):
     """kart_models' Part in a material (for its role), with a colour per vertex (screen colours; self.colour is the
     colour given to new vertices) and whether an instance's tint colours it."""
 
-    def __init__(self, name, material, tint=False, far=False):
+    def __init__(self, name, material, tint=False, far=False, group=""):
         super().__init__(name, material)
-        self.material, self.tint, self.far = material, tint, far
+        self.material, self.tint, self.far, self.group = material, tint, far, group
         self.c = []
         self.colour = (1.0, 1.0, 1.0)
 
@@ -238,21 +266,25 @@ class Part(kart_models.Part):
             out["tint"] = True
         if self.far:
             out["far"] = True
+        if self.group:
+            out["group"] = self.group
         return out
 
 
 class Parts:
-    """A set of parts, one per material (and tint and far): get() gives the one to add to."""
+    """A set of parts, one per material (and tint and far): get() gives the one to add to. group: a part of its own
+    in that material, drawn apart because it changes while the race runs (CHANGE 151: each pair of start lights)."""
 
     def __init__(self, far=False):
         self.by = {}
         self.far = far
 
-    def get(self, material, tint=False, far=None):
+    def get(self, material, tint=False, far=None, group=""):
         far = self.far if far is None else far
-        key = (material, tint, far)
+        key = (material, tint, far, group)
         if key not in self.by:
-            self.by[key] = Part(material + (" tinted" if tint else "") + (" far" if far else ""), material, tint, far)
+            self.by[key] = Part(material + (" tinted" if tint else "") + (" far" if far else "") + (f" {group}" if group else ""),
+                                material, tint, far, group)
         return self.by[key]
 
     def all(self):
@@ -647,6 +679,9 @@ FIELDS = [((0.36, 0.5, 0.2), 0.2), ((0.42, 0.56, 0.24), 0.18), ((0.3, 0.44, 0.17
 STAND_D0, STAND_DEPTH = 5.0, 8.2  # the grandstand: its front this far from the road's edge, and how deep it is
 PIT_D0, PIT_DEPTH = 1.5, 13.0     # the pit lane (behind the pit wall) and the garages behind it
 GANTRY_D = 2.2                    # the start gantry's towers, past the road's edge
+BRIDGE_CLEAR = 5.1                # (CHANGE 151) the footbridge's underside over the road's middle
+BRIDGE_IN, BRIDGE_OUT = 2.6, 4.4  # ...its stair towers from (and to) this far past the road's edge
+BRIDGE_RISE, BRIDGE_TREAD = 0.18, 0.28  # ...its steps
 
 
 def runs(mask, st, gap, least):
@@ -709,6 +744,7 @@ class Circuit:
         self.grandstand()
         self.pit_building()
         self.gantry()
+        self.bridge()
         self.boards()
         self.marshals()
         self.camera_towers()
@@ -939,7 +975,8 @@ class Circuit:
         if self.pond:
             px, py, rx, ry, h = self.pond
             water = self.near.get("water")
-            mid = water.vertex((px, py, self.water), (0, 0, 1), (0, 0))
+            uv = lambda x, y: (x / WATER_METRES, y / WATER_METRES)  # noqa: E731  (the ripples to scale: CHANGE 151)
+            mid = water.vertex((px, py, self.water), (0, 0, 1), uv(px, py))
             rim = []
             for k in range(40):
                 a = 2 * math.pi * k / 40
@@ -952,7 +989,7 @@ class Circuit:
                         lo = f
                     else:
                         hi = f
-                rim.append(water.vertex((px + d[0] * lo, py + d[1] * lo, self.water), (0, 0, 1), (0, 0)))
+                rim.append(water.vertex((px + d[0] * lo, py + d[1] * lo, self.water), (0, 0, 1), uv(px + d[0] * lo, py + d[1] * lo)))
             for k in range(40):
                 water.tri(mid, rim[k], rim[(k + 1) % 40])
 
@@ -1437,9 +1474,10 @@ class Circuit:
 
     def gantry(self):
         """The start gantry: two lattice towers past the barriers, a truss across the road with START boards on both
-        sides, and the start lights (five pairs, dark until the page or the window lights them) facing the grid."""
+        sides, and the start lights facing the grid: five pairs, each its own part ("lamp 1" to "lamp 5", from the
+        left as the grid sees them), dark until the window or the page lights them (start_lights: CHANGE 151)."""
         t, H = self.t, self.half
-        steel, paint, lamp, signs = (self.near.get(m) for m in ("steel", "paint", "lamp", "signs"))
+        steel, paint, signs = (self.near.get(m) for m in ("steel", "paint", "signs"))
         a, b, u = frame(math.radians(t.heading(0.0)))
         z0 = t.height(0.0)
         for side in (1, -1):
@@ -1478,6 +1516,7 @@ class Circuit:
         for lat in (-0.9, 0.9):
             rod(steel, G(lat, -0.05, 5.45), G(lat, -0.05, 5.62), 0.02, seg=4)
         for col in range(5):
+            lamp = self.near.get("lamp", group=str(5 - col))  # (col 0 is on the right as the grid looks: lat -1.0)
             for z in (5.0, 5.3):
                 c = G(-1.0 + 0.5 * col, -0.205, z)
                 mid = lamp.vertex(c, mul(a, -1), (0.5, 0.5))
@@ -1485,6 +1524,140 @@ class Circuit:
                                    mul(a, -1), (0, 0)) for k in range(10)]
                 for k in range(10):
                     lamp.tri(mid, rim[k], rim[(k + 1) % 10])
+
+    def bridge_site(self):
+        """(CHANGE 151) Where the footbridge goes: the straightest stretch (scanned every 2 m, never near the start)
+        where a stair tower fits past the barriers on both sides, each with its steps running along the road one way
+        or the other, clear of what's built, the gravel, the walls and the road coming back round, and the whole of it
+        CAMERA_CLEAR from every TV camera. (s, run, {side: the way its steps run along the road}) or None."""
+        t, H = self.t, self.half
+        run = (BRIDGE_CLEAR + 0.75) / BRIDGE_RISE * BRIDGE_TREAD  # (the steps' length, a little over: the ground falls)
+        best = None
+        for step in range(int(self.L / 2)):
+            s = 30.0 + 2.0 * step
+            if s > self.L - 30.0:
+                break
+            bend = max(abs(t.curvature(s + d - 9.0, 18.0)) for d in (-12.0, 0.0, 12.0))
+            if bend > 14.0 or (best and bend >= best[0]):
+                continue
+            a, b, u = frame(math.radians(t.heading(s)))
+            o = t.point(s, 0.0)
+            span = [at(o, (a, b, u), along, lat, 0.0) for along in (-1.4, 1.4)
+                    for lat in [(H + BRIDGE_OUT) * (j / 4.0 - 1.0) for j in range(9)]]
+            if any(math.hypot(p[0] - cx, p[1] - cy) < CAMERA_CLEAR + 1.5 for p in span for cx, cy, *_ in self.cams):
+                continue
+            ways = {}
+            for side in (1, -1):
+                W, in_wall = self.verge[side]
+                for way in (side, -side):
+                    lo, hi = (-2.0, run + 3.0) if way > 0 else (-run - 3.0, 2.0)
+                    if any(W[t.segment_at(s + d)] > 0.0 or in_wall[t.segment_at(s + d)] for d in range(int(lo), int(hi) + 1)):
+                        continue
+                    pts = [at(o, (a, b, u), along, side * (H + lat), 0.0) for lat in (BRIDGE_IN, BRIDGE_OUT)
+                           for along in [x * 0.5 for x in range(-3, 4)] + [way * (1.3 + run * f) for f in (0.25, 0.5, 0.75, 1.0)]]
+                    if all(self.dist(p[0], p[1], H + BRIDGE_IN + 2) >= H + BRIDGE_IN - 0.3 and self.free(p[0], p[1], 0.8)
+                           for p in pts):
+                        ways[side] = way
+                        break
+            if len(ways) == 2:
+                best = (bend, s, run, ways)
+        return best[1:] if best else None
+
+    def bridge(self):
+        """(CHANGE 151) A footbridge over the road (bridge_site): a covered walkway on two steel girders BRIDGE_CLEAR
+        over the road, glazed, with the club's boards along both sides facing the karts coming each way; a stair tower
+        past the barriers on each side, and from each a flight of steps down along the road, the two flights running
+        opposite ways. Nothing of it is within the barrier's line under 4.5 m, nor near a TV camera (kart_test.py)."""
+        site = self.bridge_site()
+        self.footbridge = None
+        if not site:
+            return
+        s, run, ways = site
+        t, H = self.t, self.half
+        steel, concrete, paint, glass, signs = (self.near.get(m) for m in ("steel", "concrete", "paint", "glass", "signs"))
+        a, b, u = frame(math.radians(t.heading(s)))
+        axes = (a, b, u)
+        o = t.point(s, 0.0)
+        P = lambda along, lat, z: at(o, axes, along, lat, z)  # noqa: E731  (z from the road's middle)
+        C, L1, D = BRIDGE_CLEAR, H + BRIDGE_OUT, 1.3  # (the underside, the walkway's ends, half its width along the road)
+        deck = C + 0.45
+        self.footbridge = (s, run, ways)
+        white, grey = (0.93, 0.93, 0.91), (0.38, 0.4, 0.44)
+        # the girders, the floor, the roof
+        for y0, y1 in ((-D, -D + 0.28), (D - 0.28, D)):
+            box(steel, o, axes, y0, y1, -L1, L1, C, C + 0.3, metres=2.0)
+        concrete.colour = (0.8, 0.8, 0.78)
+        box(concrete, o, axes, -D, D, -L1, L1, C + 0.3, deck, metres=3.0, skip=("-z",))
+        paint.colour = grey
+        box(paint, o, axes, -D - 0.15, D + 0.15, -L1 - 0.15, L1 + 0.15, C + 2.45, C + 2.65)
+        # each side: the club's board over the road (one row of the signs texture, read from the karts coming that way),
+        # white panels past it, glazing above on mullions
+        for face in (-1, 1):
+            n = mul(a, face)
+            x = face * (D + 0.004)
+            left, right = (P(x, H + 0.8, 0.0), P(x, -H - 0.8, 0.0)) if face < 0 else (P(x, -H - 0.8, 0.0), P(x, H + 0.8, 0.0))
+            self.sign(signs, left, right, deck, C + 1.5, n, 0 if face < 0 else 1)
+            paint.colour = white
+            for lo, hi in ((-L1, -H - 0.8), (H + 0.8, L1)):
+                paint.quad([P(x, lo, deck), P(x, hi, deck), P(x, hi, C + 1.5), P(x, lo, C + 1.5)], n)
+            paint.quad([P(x * 0.99, -L1, deck), P(x * 0.99, L1, deck), P(x * 0.99, L1, C + 1.5), P(x * 0.99, -L1, C + 1.5)],
+                       mul(n, -1))  # (its back, seen from the walkway)
+            box(steel, o, axes, face * D - 0.05, face * D + 0.05, -L1, L1, C + 1.5, C + 1.58)
+            glass.quad([P(face * D, -L1, C + 1.58), P(face * D, L1, C + 1.58), P(face * D, L1, C + 2.45), P(face * D, -L1, C + 2.45)], n)
+            lat = -L1
+            while lat <= L1 + 0.01:
+                box(steel, o, axes, face * D - 0.05, face * D + 0.05, lat - 0.04, lat + 0.04, C + 1.58, C + 2.45, skip=("-z", "+z"))
+                lat += 1.5
+        # the stair towers and the steps
+        for side in (1, -1):
+            l0, l1 = side * (H + BRIDGE_IN), side * L1
+            lo, hi = min(l0, l1), max(l0, l1)
+            for along in (-D + 0.1, D - 0.1):
+                for lat in (lo + 0.1, hi - 0.1):
+                    foot = P(along, lat, 0.0)
+                    zg = self.ground_z(foot[0], foot[1]) - o[2]
+                    box(steel, o, axes, along - 0.08, along + 0.08, lat - 0.08, lat + 0.08, zg - 0.3, C + 0.3, metres=2.0, skip=("-z", "+z"))
+            for k, h in enumerate((1.2, 2.4, 3.6)):  # (cross braces between the columns)
+                for lat in (lo + 0.1, hi - 0.1):
+                    rod(steel, P(-D + 0.1, lat, h), P(D - 0.1, lat, h + 1.1), 0.03, seg=4)
+            # the steps: treads between two stringers, from the walkway's end down to the ground, along the road
+            way = ways[side]
+            w0, w1 = lo + 0.15, hi - 0.15
+            top, k = deck, 0
+            treads = []
+            while k < 60:
+                along0 = way * (D + BRIDGE_TREAD * k)
+                along1 = way * (D + BRIDGE_TREAD * (k + 1))
+                z = deck - BRIDGE_RISE * (k + 1)
+                mid = P((along0 + along1) / 2, (w0 + w1) / 2, 0.0)
+                if z <= self.ground_z(mid[0], mid[1]) - o[2] + 0.05:
+                    break
+                treads.append((along0, along1, z))
+                k += 1
+            concrete.colour = (0.72, 0.72, 0.7)
+            for along0, along1, z in treads:
+                x0, x1 = min(along0, along1), max(along0, along1)
+                box(concrete, o, axes, x0, x1 + 0.02, w0, w1, z - 0.06, z, metres=1.0, skip=("-z",))
+            if not treads:
+                continue
+            end = treads[-1]
+            last = P(end[1], (w0 + w1) / 2, 0.0)
+            zg = self.ground_z(last[0], last[1]) - o[2]
+            for lat in (w0 - 0.04, w1 + 0.04):
+                rod(steel, P(way * D, lat, deck - 0.12), P(end[1], lat, zg), 0.07, seg=6)  # (the stringer)
+                rod(steel, P(way * D, lat, deck + 0.95), P(end[1], lat, zg + 0.95), 0.025, seg=5)  # (the handrail)
+                for along0, along1, z in treads[::4]:
+                    rod(steel, P(along0, lat, z), P(along0, lat, z + 0.95), 0.018, seg=4)
+            # the landing's rail on the outside, and the tower's sides to the deck
+            rod(steel, P(-D, l1, deck + 1.0), P(D, l1, deck + 1.0), 0.025, seg=5)
+            for along in (-D + 0.1, D - 0.1):
+                rod(steel, P(along, l1, deck), P(along, l1, deck + 1.0), 0.02, seg=4)
+            # (claimed: no board, tree or post goes under the steps or by the tower)
+            for f in [i / 6.0 for i in range(7)]:
+                p = P(way * (D + (abs(end[1]) - D) * f), (w0 + w1) / 2, 0.0)
+                self.keep.append((p[0], p[1], 1.6))
+            p = P(0.0, (lo + hi) / 2, 0.0)
+            self.keep.append((p[0], p[1], 2.2))
 
     # ---------- round the track ----------
     def boards(self):
@@ -1893,6 +2066,7 @@ def scenery():
     return {"version": VERSION, "materials": MATERIALS,
             "shapes": {k: [p.packed() for p in v] for k, v in sh.items()},
             "tracks": tracks,
+            "lights": {"from": LIGHTS_FROM, "step": LIGHTS_STEP, "dark": list(LAMP_DARK), "lit": list(LAMP_LIT)},
             "notes": {"frame": "the game's: x, y on the ground, z up, metres; triangles anticlockwise seen from outside",
                       "placement": "per track, exported here (kart_track.TRACKS are the only tracks): draw each track's "
                                    "parts as they are, and each shape at each of its instances: [x, y, z, h, s, r, g, b] = "
@@ -1907,7 +2081,15 @@ def scenery():
                       "two_sided": "seen from behind too (no back-face culling)",
                       "far": "out in the country: no shadow (the window hides it from the sun's shadow camera)",
                       "signs": "the signs texture is one row per SIGNS entry, top first: " + ", ".join(t for t, _, _ in SIGNS),
-                      "lamp": "the start lights (five pairs on the gantry) are dark red with a faint glow",
+                      "lamp": "the start lights: five pairs on the gantry, parts lamp 1 to lamp 5 (group 1 to 5) from the left "
+                              "as the grid sees them, dark red glass; \"lights\" says when each is lit "
+                              "(kart_scenery.start_lights: from \"from\" seconds before GO one more pair each \"step\" "
+                              "seconds, all out at GO) and their glow unlit and lit (linear light, as emission)",
+                      "water": "the pond's texture coordinates are metres / its material's metres; \"flows\" says how "
+                               "they move (kart_scenery.water_offset): drift metres a second, plus sway times "
+                               "sin(2 pi t / sway_period), divided by metres",
+                      "group": "a part drawn apart from the others of its material, because it changes while racing",
+                      "bridge": "a footbridge over the road (kart_scenery.Circuit.bridge) is in the track's parts",
                       "tv_cameras": "kart_scenery.tv_cameras(track) = kart_gfx.ChaseCamera's six TV cameras: nothing "
                                     "taller than a barrier within 10 m of one",
                       "triangles": tris}}

@@ -421,7 +421,7 @@ class Lab(hud.HudKit, ShowBase):
         self.perf_at = 0.0
         self.fx_waiting = []
         self.reconnect_thread = None
-        self.last_anim, self.last_phase, self.last_winner = {}, {}, {}  # (for sounds)
+        self.last_anim, self.last_phase, self.last_winner, self.last_banner = {}, {}, {}, {}  # (for sounds)
         self.last_send = self.last_ping = 0.0
         self.last_control = None
         self.panel = self.code_panel = None
@@ -629,8 +629,14 @@ class Lab(hud.HudKit, ShowBase):
         log_dir = SETTINGS_DIR if fight_version.FROZEN else HERE
         os.makedirs(log_dir, exist_ok=True)
         with open(os.path.join(log_dir, "window.log"), "a") as log:
-            subprocess.Popen(program + argv, cwd=os.getcwd() if fight_version.FROZEN else HERE, env=env,
-                             stdout=log, stderr=log, creationflags=flags)
+            child = subprocess.Popen(program + argv, cwd=os.getcwd() if fight_version.FROZEN else HERE, env=env,
+                                     stdout=log, stderr=log, creationflags=flags)
+        if os.environ.get("CLUBCODERS_WINDOW_PID_FILE"):  # (the app that opened this window follows the new one:
+            try:                                          # CHANGE 154)
+                with open(os.environ["CLUBCODERS_WINDOW_PID_FILE"], "w", encoding="utf-8") as f:
+                    f.write(str(child.pid))
+            except OSError:
+                pass
         os._exit(0)
 
     def toggle_help(self):
@@ -2849,6 +2855,11 @@ class Lab(hud.HudKit, ShowBase):
             phase = self.last_phase.get(r["i"])
             if phase == "intro" and r["ph"] == "fight" and r["i"] == watched:
                 self.snd.bell()
+                self.snd.say("go", 0.9 * min(1.0, vol / 0.7))
+            elif r["ph"] == "intro" and r["bn"] in ("3", "2", "1") and r["i"] == watched and \
+                    self.last_banner.get(r["i"]) != r["bn"]:  # a robot's voice says the count (CHANGE 153)
+                self.snd.say(int(r["bn"]), 0.9 * min(1.0, vol / 0.7))
+            self.last_banner[r["i"]] = r["bn"]
             if phase == "fight" and r["ph"] == "ko":
                 if r["i"] == watched:
                     self.snd.ko()

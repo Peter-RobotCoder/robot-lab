@@ -5,7 +5,8 @@ tier draws the same kart and the same circuit as the app's (CHANGE 144).
   {"version", "body", "wheel", "wheels", "steering", "notes"}: see kart_models.py for every field.
 - kart_scenery.json: Kart Lab's ultra circuit for every built-in track (kart/kart_scenery.py, the same way): the
   road, kerbs, gravel, barriers, grass, buildings and country as parts, and the trees, tufts, tyre stacks, fans and
-  posts as shapes placed by instances, {"version", "materials", "shapes", "tracks", "notes"}: see kart_scenery.py.
+  posts as shapes placed by instances, {"version", "materials", "shapes", "tracks", "lights", "notes"}: see
+  kart_scenery.py.
 - robot_ultra.json: Robot Lab's ultra robots (shared-world-demo/robot_models.py, CHANGE 145): every piece a robot is
   put together from, {"version", "roles", "pieces", "notes"}; where they go is robot_models.layout().
 - arena_ultra.json: Robot Lab's ultra arena (shared-world-demo/arena_models.py): the floor for each set of holes, the
@@ -122,6 +123,8 @@ def scenery_text():
                       + inst + "}}")
     lines.append(",\n".join(tracks))
     lines.append("},")
+    if "lights" in m:  # (CHANGE 151: when the start lights come on)
+        lines.append(f'"lights": {one(m["lights"])},')
     lines.append(f'"notes": {json.dumps(m["notes"], indent=1)}' + "}")
     return "\n".join(lines) + "\n"
 
@@ -136,6 +139,10 @@ def robot_text():
     lines.append('"pieces": {')
     lines.append(",\n".join(f"{json.dumps(k)}: [\n" + ",\n".join(one(p) for p in v) + "]" for k, v in m["pieces"].items()))
     lines.append("},")
+    if "shadow" in m:  # (CHANGE 152: what the shadow map draws of a robot)
+        lines.append('"shadow": {' + f'"skip": {one(m["shadow"]["skip"])}, "pieces": {{')
+        lines.append(",\n".join(f"{json.dumps(k)}: [\n" + ",\n".join(one(p) for p in v) + "]" for k, v in m["shadow"]["pieces"].items()))
+        lines.append("}},")
     lines.append(f'"notes": {json.dumps(m["notes"], indent=1)}' + "}")
     return "\n".join(lines) + "\n"
 

@@ -13,7 +13,7 @@
 import {BaseScene, TIERS, v3, mulberry, upwardNormals} from "./base3d.js";
 import "./robotfx.js";  // (CHANGE 143: its particle shader, "ccfx", with the app's tone curve, for the drift smoke)
 import {makeSky, makeLand, makeForest, AfterFx, Skids, Sparks, HAZE, loadUltraKart, ultraKartData, partMesh,
-        loadScenery, sceneryData, makeCircuit} from "./kartfx.js";
+        loadScenery, sceneryData, makeCircuit, circuitFrame, cullLists} from "./kartfx.js";
 import {TRACKS} from "./track.js";
 
 export {TIERS};
@@ -89,6 +89,10 @@ class Geo {
 
 export class KartScene extends BaseScene {
     static TIERS = TIERS;  // (every tier, the line tiers and ultra too: CHANGE 144)
+    // (CHANGE 151) ultra's pictures after the scene: the glow and a little sharpening on an 8x MSAA picture, as the
+    // window's ultra; no SSAO, which the window hasn't either: its passes cost 6 ms a frame on this Iris Xe (22 ms to
+    // 16 at 1400 x 850, even at a quarter of the pixels 20), and it darkened the trees more than the window's
+    static ULTRA_FX = {ssao: false, sharpen: true, samples: 8, bloomWeight: 0.32};
 
     constructor(canvas, tier = "low", engine = null) {
         super(canvas, tier, engine, LOOK);
@@ -133,7 +137,7 @@ export class KartScene extends BaseScene {
             this.lighting.setProbe(this.probe.cubeTexture);
             this.skids = new Skids(this);
             this.sparks = new Sparks(this);
-            this.fx = new AfterFx(this);
+            this.fx = new AfterFx(this, KartScene.ULTRA_FX);
             this.camera.maxZ = 3000;  // (the mountains, 1.6 km off)
             const scene = this.scene;
             loadUltraKart().then(d => {  // (it came after the karts were made: made again, curved)
@@ -335,6 +339,7 @@ export class KartScene extends BaseScene {
         if (this.fx && this.fx.gbuffer) this.fx.gbuffer.renderList = [...world.filter(m => m.ccAO !== false), ...karts.map(([, m]) => m)];
         if (this.probe) this.probe.renderList.splice(0, this.probe.renderList.length, this.sky, ...world.filter(m => m.ccProbe !== false),
                                                      ...karts.filter(([id]) => id !== this.probeKart).map(([, m]) => m));
+        if (this.circuit && this.circuit.cells) cullLists(this);  // (CHANGE 151: the circuit's copies by cell, where wanted)
     }
 
     // (the line tiers, CHANGE 144) the track's, the ground's and the scenery's edges as one lines mesh; on lines a
@@ -812,6 +817,8 @@ export class KartScene extends BaseScene {
     ultraFrame(dt) {
         this.skids.update(dt);
         this.sparks.update(dt, this.camera);
+        // (CHANGE 151) the circuit's start lights follow the countdown (kart.js sets it) and its pond's ripples drift
+        if (this.circuit) circuitFrame(this.circuit, performance.now() / 1000, this.countdown ?? null);
         const id = this.camKart !== undefined && this.karts.has(this.camKart) ? this.camKart
             : this.follow !== null && this.karts.has(this.follow) ? this.follow : this.leader;
         const k = this.karts.get(id);

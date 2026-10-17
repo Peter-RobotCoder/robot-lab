@@ -62,7 +62,7 @@ export class DeskLink {
             if (!this.ready) {  // (the login itself was refused)
                 this.ended = true;
                 try { this.ws.close(); } catch (e) { /* closed */ }
-                this.on.closed(m.error || "The desk said no.");
+                this.on.closed(m.error || "The desk said no.", !!m.try_learner);  // (try_learner: CHANGE 154)
                 return;
             }
             const w = this.waiting.shift();

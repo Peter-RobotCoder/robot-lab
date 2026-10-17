@@ -336,29 +336,6 @@ varying float vDist;
 void main(void) {
     gl_FragColor = vec4(color.rgb * (1.0 - smoothstep(fade.x, fade.y, vDist)), 1.0);
 }`;
-// (CHANGE 147) a round shape's outline on lines (line_look.silhouette's part on the page): its back faces drawn in
-// the line colour pushed out along their normals by `width` times their distance (about a pixel and a half at any
-// distance), so where its own black front faces don't cover them, at its outline, they show. Bones too (a skinned
-// model's outline bends with it)
-const HULL_VERT = `
-precision highp float;
-attribute vec3 position;
-attribute vec3 normal;
-#include<instancesDeclaration>
-#include<bonesDeclaration>
-uniform mat4 viewProjection;
-uniform vec3 cameraPosition;
-uniform float width;
-varying float vDist;
-void main(void) {
-#include<instancesVertex>
-#include<bonesVertex>
-    vec4 wp = finalWorld * vec4(position, 1.0);
-    vec3 n = normalize((finalWorld * vec4(normal, 0.0)).xyz);
-    vDist = distance(wp.xyz, cameraPosition);
-    wp.xyz += n * width * vDist;
-    gl_Position = viewProjection * wp;
-}`;
 const COS_CREASE = Math.cos(30 * Math.PI / 180);  // (lines: a crease is drawn where two faces meet at more than 30 degrees)
 
 // A game's scene. Subclasses set this.look in their constructor before calling build(), and implement populate()
@@ -573,43 +550,13 @@ export class BaseScene {
         return m;
     }
 
-    // (CHANGE 147) the outline material (HULL_VERT): the line colour, fading as the lines do, back faces only (mirrored:
-    // for meshes whose faces turn the other way, a glTF model's under its loader's mirrored root)
-    hullMaterial(name, near = 60, far = 380, width = 0.0016, mirrored = false) {
-        const key = "lines:hull" + name;
-        if (this.materials[key]) return this.materials[key];
-        const m = this.materials[key] = new BABYLON.ShaderMaterial("cclineshull" + name, this.scene, {vertexSource: HULL_VERT, fragmentSource: LINES_FRAG}, {
-            attributes: ["position", "normal"], uniforms: ["world", "viewProjection", "cameraPosition", "color", "fade", "width"]});
-        m.backFaceCulling = true;
-        m.cullBackFaces = mirrored;  // (the front faces culled: the back ones drawn)
-        m.ccLine = true;          // (after every black face)
-        m.setVector2("fade", new BABYLON.Vector2(near, far));
-        m.setFloat("width", width);
-        m.ccDim = 1;
-        m.ccPulse = 1;
-        this.lineMats.push(m);
-        this.paintLine(m);
-        return m;
-    }
-
-    // (CHANGE 147: line_look.silhouette) lines: a round mesh's outline, a copy of it (sharing its vertices, and its
-    // skeleton if it has one) under it in the hull material. Returns the copy
-    silhouette(mesh, mat) {
-        const c = mesh.clone(mesh.name + " outline", mesh, true);
-        c.position.setAll(0);
-        c.rotationQuaternion = null;
-        c.rotation.setAll(0);
-        c.scaling.setAll(1);
-        c.material = mat;
-        c.isPickable = false;
-        if (mesh.alwaysSelectAsActiveMesh) c.alwaysSelectAsActiveMesh = true;
-        return c;
-    }
-
     // (CHANGE 147: line_look.skinned and geom_pairs) a skinned mesh's edges as lines that bend with it: the corners
     // within a millimetre merged to find the edges (in its own frame, the rest pose), each drawn with one of its own
     // vertices, on a copy of its vertices (and their bones) under it, in material mat. The pairs are worked out once
-    // a model's piece (kept by its geometry, which every fighter's copy shares). Returns the lines mesh, or null
+    // a model's piece (kept by its geometry, which every fighter's copy shares). Returns the lines mesh, or null.
+    // (CHANGE 150, as geom_pairs picks them) lines keeps an edge with one face or three or more, or whose two faces
+    // meet at over 30 degrees; a mesh made of several pieces (geometry.ccPieces: their vertex counts in order, Fight
+    // Lab's merged model pieces) has each piece's corners merged on their own, as the window finds each Geom's edges
     skinnedLines(mesh, mode, mat) {
         const geo = mesh.geometry;
         if (!geo) return null;
@@ -620,8 +567,10 @@ export class BaseScene {
             const out = [];
             if (p && ix) {
                 const weld = new Map(), ids = new Int32Array(p.length / 3), first = [], wp = [];
-                for (let i = 0, j = 0; i < p.length; i += 3, j++) {
-                    const k = `${Math.round(p[i] * 1000)},${Math.round(p[i + 1] * 1000)},${Math.round(p[i + 2] * 1000)}`;
+                const pieces = geo.ccPieces || [p.length / 3];
+                for (let i = 0, j = 0, piece = 0, end = pieces[0]; i < p.length; i += 3, j++) {
+                    while (j >= end && piece < pieces.length - 1) end += pieces[++piece];
+                    const k = `${piece},${Math.round(p[i] * 1000)},${Math.round(p[i + 1] * 1000)},${Math.round(p[i + 2] * 1000)}`;
                     let id = weld.get(k);
                     if (id === undefined) { id = first.length; weld.set(k, id); first.push(j); wp.push(p[i], p[i + 1], p[i + 2]); }
                     ids[j] = id;
@@ -644,11 +593,11 @@ export class BaseScene {
                         if (!e) { edges.set(ek, mode === "outline" ? {nx, ny, nz, n: 1, sharp: false} : 1); continue; }
                         if (mode !== "outline") continue;
                         e.n++;
-                        if (Math.abs(e.nx * nx + e.ny * ny + e.nz * nz) < COS_CREASE) e.sharp = true;
+                        if (e.n === 2 && e.nx * nx + e.ny * ny + e.nz * nz < COS_CREASE) e.sharp = true;
                     }
                 }
                 for (const [ek, e] of edges) {
-                    if (mode === "outline" && !(e.n === 1 || e.sharp)) continue;
+                    if (mode === "outline" && e.n === 2 && !e.sharp) continue;
                     out.push(first[Math.floor(ek / 4194304)], first[ek % 4194304]);
                 }
             }

@@ -1,7 +1,8 @@
 """Fight Lab sound: punches, kicks, blocks, whooshes, specials, the bell and the K.O. boom, made from maths
 (no recordings needed) and saved in assets/sfx as WAV files the first time the game runs (a few seconds, once).
 
-The crowd, the music (8-bit, rock or your own) and the beeps come from rw_sound.py, the same as Robot Lab.
+The crowd, the music (8-bit, rock or your own), the beeps and the countdown's robot voice ("3", "2", "1", "Go":
+say()) come from rw_sound.py, the same as Robot Lab.
 Every fight sound's file name starts with "f_", so it never clashes with a Robot Lab sound.
 
     FightSounds(base)             everything rw_sound.Sounds does (layers, music, crowd reactions), plus:

@@ -101,30 +101,36 @@ function deskLogin() {
         changed: () => { if (deskShown()) drawDesk(); updateDeskButton(); },
         claude: () => claudeChanged(appApi),  // (Claude for the browser said something: CHANGE 136)
         message: (text, ok) => { state.deskUi.message = {text, ok}; if (deskShown()) drawDesk(); else if (!ok) toast(text); },
-        closed: text => {
+        closed: (text, tryLearner) => {
             state.desk = null;
             updateDeskButton();
             hideDesk();
             dropView();
             showLogin();
+            if (tryLearner) return learnerLogin(text);  // (a learner called Teacher from before CHANGE 148: CHANGE 154)
             setStatus(text);
         },
     });
 }
 
 // A learner's login (CHANGE 134): the desk checks the username and password (a starter one is changed first), then
-// says to wait or gives the game's address and a ticket; the page opens the game, and goes back to waiting after it
-function learnerLogin() {
+// says to wait or gives the game's address and a ticket; the page opens the game, and goes back to waiting after it.
+// teacherError: the teacher password was refused and the desk has a learner called Teacher (CHANGE 154): if they
+// aren't let in either, the teacher's refusal is what shows.
+function learnerLogin(teacherError) {
     const name = $("lname").value.trim(), password = $("lpass").value;
     if (!name || !password) return setStatus("Your username and password are needed.");
     setStatus("Logging in…", true);
     if (state.learnerLink) state.learnerLink.close();
+    let inside = false;
     const link = state.learnerLink = new LearnerLink(deskUrl(), name, password, {
         changePassword: () => {
+            inside = true;
             showLoginPart("newpass");
             setStatus("Choose your own password to go on.", true);
         },
         waiting: text => {
+            inside = true;
             try { localStorage.setItem("lname", link.name); } catch (e) { /* private window */ }
             $("lpass").value = "";
             if (state.ws && state.connected) return;  // (already playing: the desk's word is for later)
@@ -134,6 +140,7 @@ function learnerLogin() {
             setStatus("");
         },
         go: go => {
+            inside = true;
             $("lpass").value = "";
             state.liveId = go.live_id;
             state.ticket = {game: go.game, address: go.address, ticket: go.ticket};
@@ -147,7 +154,7 @@ function learnerLogin() {
             dropView();
             showLogin();
             showLoginPart("form");
-            setStatus(text);
+            setStatus(teacherError && !inside ? teacherError : text);
         },
     });
 }

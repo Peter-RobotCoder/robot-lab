@@ -27,6 +27,7 @@
 
 import {v3} from "./base3d.js";
 import {toneMap} from "./pbr.js";
+import {drawWords} from "./fightfx.js";
 
 export const MODEL_BODIES = ["woman", "man", "robin"];
 const HUMAN_BODIES = ["woman", "man"];
@@ -210,6 +211,27 @@ function sceneModel(scene, model) {
 
 export const loadTimes = [];  // [key, what, ms]: the files fetched and read, a scene's copy loaded, a fighter drawn (the tests)
 
+// (CHANGE 150) A box every pose stays inside: the shown pieces' rest box (their own frame: the model's) grown by 0.6 of
+// its biggest side every way (a lying fighter, a kick, a weapon swung over the head), so a body out of the picture or
+// out of the shadow's reach is left out (they were drawn always: their bounds are the rest pose's). [min, max]
+export function posedBox(meshes) {
+    const lo = new BABYLON.Vector3(Infinity, Infinity, Infinity), hi = lo.scale(-1);
+    for (const m of meshes) {
+        const b = m.getBoundingInfo();
+        lo.minimizeInPlace(b.minimum);
+        hi.maximizeInPlace(b.maximum);
+    }
+    const s = hi.subtract(lo), pad = 0.6 * Math.max(s.x, s.y, s.z);
+    return [lo.subtractFromFloats(pad, pad, pad), hi.add(new BABYLON.Vector3(pad, pad, pad))];
+}
+
+export function withBox(mesh, box) {
+    if (!box || !Number.isFinite(box[0].x)) { mesh.alwaysSelectAsActiveMesh = true; return mesh; }
+    mesh.alwaysSelectAsActiveMesh = false;
+    mesh.setBoundingInfo(new BABYLON.BoundingInfo(box[0], box[1]));
+    return mesh;
+}
+
 // ---------- a fighter ----------
 export class FighterModel {
     // (on the lit tiers, and on mesh and lines since CHANGE 147: black with lines that bend with it, as the window's)
@@ -307,7 +329,11 @@ export class FighterModel {
         // (unlit, but the app's tone pass still curves it, so a paler colour than the light colour itself; on the line
         // tiers white, shown in the line colour: CHANGE 147)
         const colour = this.sc.wire ? [1, 1, 1] : toneMap((style.lights || ROBIN_STYLE.lights).map(c => c / 255), this.sc.lighting ? this.sc.lighting.exposure : 1);
-        tex.drawText(text, null, 49, "48px sans-serif", `rgb(${colour.map(c => Math.round(255 * Math.min(1, c))).join(",")})`, null, true, true);
+        // (CHANGE 150: in the window's letters, 0.045 m a unit: 48 pixels a unit on this 0.24 m picture, the baseline
+        // 0.016 m below its middle; the browser's sans if they haven't come)
+        const css = `rgb(${colour.map(c => Math.round(255 * Math.min(1, c))).join(",")})`;
+        if (!drawWords(tex.getContext(), text, 128, 49, 48, css)) tex.drawText(text, null, 49, "48px sans-serif", css, null, true, true);
+        else tex.update();
         const m = new BABYLON.StandardMaterial("robinnumbermat", scene);
         m.diffuseTexture = tex;
         m.emissiveColor = new BABYLON.Color3(1, 1, 1);
@@ -384,11 +410,12 @@ export class FighterModel {
         for (const [key, list] of groups.values()) {
             const mesh = list.length > 1 ? this.merged(list) : list[0];
             mesh.material = wire ? this.sc.wireFill() : this.mats.get(key)[0];
-            mesh.alwaysSelectAsActiveMesh = true;  // (posed far from the rest pose its bounds were made for)
             mesh.isPickable = false;
             kept.push(mesh);
         }
-        this.lines = wire ? this.sc.modelLines(kept) : null;  // ([[mesh, its material, its hit flash's]])
+        this.box = posedBox(kept);
+        for (const mesh of kept) withBox(mesh, this.box);
+        this.lines = wire ? this.sc.modelLines(kept, this.box) : null;  // ([[mesh, its material, its hit flash's]])
         return kept;
     }
 
@@ -406,6 +433,7 @@ export class FighterModel {
             all.merge(data.slice(1), true);
             made = new BABYLON.Mesh("fightermerged", scene);
             all.applyToMesh(made, false);
+            made.geometry.ccPieces = data.map(d => d.positions.length / 3);  // (the line tiers find each piece's edges apart: CHANGE 150)
             made.setEnabled(false);  // (never drawn itself)
             made.isPickable = false;
             scene.ccMerged.set(key, made);

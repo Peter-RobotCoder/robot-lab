@@ -277,7 +277,7 @@ def detect(base, settings_dir=None):
     if settings_dir:
         old = load_settings(settings_dir).get("gfx_detect") or {}
         if old and (old.get("renderer"), old.get("version")) != (info["renderer"], info["version"]):
-            forget(settings_dir, "gfx_tier", "gfx_benchmarked", "gfx_failed")  # (another driver: judge afresh)
+            forget(settings_dir, "gfx_tier", "gfx_hand", "gfx_benchmarked", "gfx_failed")  # (another driver: judge afresh)
         remember(settings_dir, gfx_detect=info)
     print(f"gfx: {info['renderer']} (GL {info['gl'][0]}.{info['gl'][1]}, GLSL {info['glsl'][0]}.{info['glsl'][1]}, "
           f"{info['ram_gb']} GB): looks {info['heuristic_tier']}", flush=True)
@@ -456,6 +456,8 @@ class Monitor:
         self.heuristic = heuristic or (saved.get("gfx_detect") or {}).get("heuristic_tier")
         self.benchmarked = saved.get("gfx_benchmarked") if saved.get("gfx_benchmarked") in TIERS else None
         self.saved_tier = saved.get("gfx_tier") if saved.get("gfx_tier") in TIERS else None
+        if self.override is None and saved.get("gfx_hand") and self.saved_tier:  # (chosen by hand in the window's
+            self.override = self.saved_tier  # Graphics row: kept as --gfx is, never stepped from: CHANGE 149)
         self.failed = [t for t in (saved.get("gfx_failed") or []) if t in TIERS]  # tiers stepped down from here
         self.class_max = class_max(saved.get("gfx_class_max"))  # the teacher's (CHANGE 139): never stepped up past
         self.capped_knobs = []           # the knobs the class maximum turned down in this run

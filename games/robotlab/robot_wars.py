@@ -241,10 +241,10 @@ class RobotWars(ShowBase):
                 self.small.setText("")
                 if n not in self.beeped:
                     self.beeped.add(n)
-                    self.snd.play("beep", 0.6)
+                    self.snd.say(n, 0.9)  # a robot's voice says the count (CHANGE 153)
             else:
                 self.big.setText("ACTIVATE!")
-                self.snd.play("go", 0.8)
+                self.snd.say("activate", 0.9)
                 self.snd.react("cheer", time.perf_counter())
                 self.activate()
 
@@ -329,7 +329,8 @@ class RobotWars(ShowBase):
         for r in a.robots:  # each spinner's motor: the pitch follows its real speed (it bogs down on a hit)
             if r.weapon in ("spinner", "drum", "vdisc"):
                 self.snd.spinner(f"spin{r.id}", r.weapon_rpm,
-                                 0.0 if r.knocked_out else max(0.15, 1 - (r.pos - self.camera.getPos()).length() / 25))
+                                 0.0 if r.knocked_out else max(0.15, 1 - (r.pos - self.camera.getPos()).length() / 25),
+                                 r.weapon)
             if r.fires > self.fire_counts.get(r.id, 0) and r.weapon in ("wedge", "hammer"):
                 self.snd.play("pneumatic" if r.weapon == "wedge" else "swing",
                               0.8 * max(0.2, 1 - (r.pos - self.camera.getPos()).length() / 25))

@@ -11,7 +11,9 @@ Fight:   Arrow keys move (towards / away, and up / down to SIDESTEP round them)
 Other:   V change view   mouse wheel or + / - zoom   right-drag or Q / E swing round the ring (Home resets)
          R rematch   Enter choose again   P pause
          M music (8-bit, rock, your own, off)   H hide help   Esc quit
-Options: --gfx basic|low|medium|high (use low or basic on old laptops)   --you blaze --cpu kaito   --level expert   --no-sound
+Options: --gfx mesh|lines|basic|low|medium|high|ultra (use low or basic on old laptops; mesh and lines are the vector
+         looks, --lines "#ffb000" their colour: CHANGE 150, as the class window)   --you blaze --cpu kaito
+         --level expert   --no-sound
 """
 import argparse
 import math
@@ -22,7 +24,8 @@ import time
 from panda3d.core import loadPrcFileData
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--gfx", choices=["basic", "low", "medium", "high"], default="high")
+ap.add_argument("--gfx", choices=["mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="high")  # (CHANGE 150)
+ap.add_argument("--lines", default=None, help="mesh and lines: their colour, #rrggbb (else phosphor green)")
 ap.add_argument("--window", default="1600x900", help="the window, as 1920x1080 (CHANGE 126)")
 ap.add_argument("--you", default="blaze", help="which fighter file in mods/fighters you play (or a boss's name)")
 ap.add_argument("--cpu", default="kaito", help="which fighter the computer plays")
@@ -84,8 +87,8 @@ class BeatEmUp(ShowBase):
         names = [d["name"].lower() for d in self.roster]
         self.pick = [names.index(args.you.lower()) if args.you.lower() in names else 0,
                      names.index(args.cpu.lower()) if args.cpu.lower() in names else min(1, len(names) - 1)]
-        fight_gfx.init(self, args.gfx)
-        self.fx = fight_fx.Effects(self.render, args.gfx)
+        fight_gfx.init(self, args.gfx, line_colour=args.lines)
+        self.fx = fight_fx.Effects(self.render, "low" if fight_gfx.tier() in ("basic", "low") else fight_gfx.tier())
         self.snd = fight_sound.FightSounds(self, on=not args.no_sound and not args.offscreen)
         self.stage_vis = fight_gfx.StageVisual(self.render, [0], self.stage_mod["hazards"], self.stage_mod["look"])
         self.cam = FightCamera(self, args.camera)
@@ -341,12 +344,17 @@ class BeatEmUp(ShowBase):
         recent = [e for t, e in self.stage.events if st_now - t < 2.0 and ("COMBO" in e or "COUNTER" in e or
                                                                              "!" in e and ":" in e)][-2:]
         self.ticker.setText("\n".join(recent) if self.mode == "fight" else "")
-        self.cam_text.setText(f"view: {self.cam.name}   {self.clock.getAverageFrameRate():.0f} fps   gfx {args.gfx}")
+        self.cam_text.setText(f"view: {self.cam.name}   {self.clock.getAverageFrameRate():.0f} fps   gfx {fight_gfx.tier()}")
 
     def sounds(self, rs, now):
-        """A whoosh as each move starts, the bell at FIGHT!, a boom at K.O., and the crowd."""
+        """A whoosh as each move starts, a robot's voice counting 3, 2, 1, the bell and "Go" at GO!, a boom at K.O.,
+        and the crowd."""
         if rs["ph"] == "fight" and self.last_phase == "intro":
             self.snd.bell()
+            self.snd.say("go", 0.9)
+        elif rs["ph"] == "intro" and rs["bn"] in ("3", "2", "1") and rs["bn"] != getattr(self, "last_banner", ""):
+            self.snd.say(int(rs["bn"]), 0.9)
+        self.last_banner = rs["bn"]
         if rs["ph"] == "ko" and self.last_phase == "fight":
             self.snd.ko()
             self.snd.react("cheer", now)

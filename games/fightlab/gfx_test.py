@@ -12,6 +12,8 @@ fight_models.py, stage_models.py or fight_textures.py.
 4. the models' files read back to the window's numbers (model_kit's packing) and the textures are made
 5. every tier draws the preview offscreen (mesh and lines with their lines, the skinned fighters' too; ultra with its
    hall and fighters)
+6. (CHANGE 150) every camera that shows the hall's walls and roof (fight, me, shoulder) stays inside them and inside
+   the stands' back walls, at every ring, zoomed right out, swung round and tilted; the page's box is the window's
 Exit code 0 = all fine.
 """
 import math
@@ -194,12 +196,49 @@ def tiers_draw():
         assert "stage built in" in r.stdout and f"at {tier}" in r.stdout, r.stdout[-300:]
 
 
+def cameras_inside():
+    import re
+    from panda3d.core import NodePath, PerspectiveLens, Point3
+    import fight_camera as fc
+
+    class Base:  # (what FightCamera uses of a ShowBase)
+        camera, camLens, mouseWatcherNode, render = NodePath("camera"), PerspectiveLens(), None, NodePath("render")
+    x0, x1, y0, y1, z0, z1 = fc.INSIDE
+    pad = 3.0 + 5 + stm.ROW_DEEP * stm.STAND_ROWS + stm.FRONT  # (the smallest ring: the stands' back walls)
+    assert -x0 <= max(c[0] for c in sim.RING_CENTRES) + pad and x1 <= max(c[0] for c in sim.RING_CENTRES) + pad, fc.INSIDE
+    assert -y0 <= -min(c[1] for c in sim.RING_CENTRES) + pad and y1 <= max(c[1] for c in sim.RING_CENTRES) + pad, fc.INSIDE
+    assert x1 < stm.WALL_X - 1 and y0 > stm.WALL_Y0 + 1 and y1 < stm.WALL_Y1 - 1 and z1 < stm.ROOF_Z - 2, fc.INSIDE
+    # (the page beside the game: club-coders/web in the working folder, web/ two up in the public repository)
+    page = open(next(p for p in (os.path.join(HERE, "..", "club-coders", "web", "fightfx.js"),
+                                 os.path.join(HERE, "..", "..", "web", "fightfx.js")) if os.path.exists(p)),
+                encoding="utf-8").read()
+    box = re.search(r"CAM_INSIDE = \[([^\]]*)\]", page)
+    assert box and tuple(float(v) for v in box.group(1).split(",")) == fc.INSIDE, "the page's camera box isn't the window's"
+    for cx, cy in sim.RING_CENTRES:
+        for gap in (0.6, 4.0, 9.0):
+            for mode in ("fight", "me", "shoulder"):
+                for orbit in range(0, 360, 45):
+                    for tilt in (-12.0, 20.0, 55.0):
+                        cam = fc.FightCamera(Base(), mode)
+                        cam.zoom[mode], cam.orbit, cam.tilt = 2.5, float(orbit), tilt
+                        me, enemy = Point3(cx - gap / 2, cy, 0), Point3(cx + gap / 2, cy, 0)
+                        for _ in range(60):
+                            cam.update(1 / 30, me, enemy, (cx, cy), sim.RING_CENTRES)
+                        p = Base.camera.getPos()
+                        assert x0 - 1e-3 <= p.x <= x1 + 1e-3 and y0 - 1e-3 <= p.y <= y1 + 1e-3 and p.z <= z1 + 1e-3, (cx, cy, mode, orbit, tilt, p)
+    cam = fc.FightCamera(Base(), "fight")  # (the usual view of the first ring isn't drawn in)
+    for _ in range(60):
+        cam.update(1 / 30, Point3(-1, 0, 0), Point3(1, 0, 0), (0, 0), sim.RING_CENTRES)
+    assert abs(Base.camera.getY() + (4.3 + 1.6) - 0.0) < 0.2, Base.camera.getPos()
+
+
 if __name__ == "__main__":
     check("The ultra fighters stay where the lower tiers' fighters are", fighters_in_place)
     check("Nothing of an ultra ring over its canvas inside the ring", rings_clear)
     check("Nothing of the ultra hall on the rings or between them and the stands", hall_clear)
     check("The models' files read back; the textures are made", files_read_back)
     check("Every tier draws the preview offscreen", tiers_draw)
+    check("Every camera that shows the walls stays inside the hall (window and page)", cameras_inside)
     for name, ok, note in results:
         print(("PASS " if ok else "FAIL ") + name + (f" ({note})" if ok else ":\n    " + note))
     sys.exit(0 if all(ok for _, ok, _ in results) else 1)

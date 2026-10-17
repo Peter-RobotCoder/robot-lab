@@ -766,8 +766,14 @@ class Lab(hud.HudKit, ShowBase):
         log_dir = SETTINGS_DIR if lab_version.FROZEN else HERE
         os.makedirs(log_dir, exist_ok=True)
         with open(os.path.join(log_dir, "window.log"), "a") as log:
-            subprocess.Popen(program + argv, cwd=os.getcwd() if lab_version.FROZEN else HERE, env=env,
-                             stdout=log, stderr=log, creationflags=flags)
+            child = subprocess.Popen(program + argv, cwd=os.getcwd() if lab_version.FROZEN else HERE, env=env,
+                                     stdout=log, stderr=log, creationflags=flags)
+        if os.environ.get("CLUBCODERS_WINDOW_PID_FILE"):  # (the app that opened this window follows the new one:
+            try:                                          # CHANGE 154)
+                with open(os.environ["CLUBCODERS_WINDOW_PID_FILE"], "w", encoding="utf-8") as f:
+                    f.write(str(child.pid))
+            except OSError:
+                pass
         os._exit(0)
 
     def toggle_help(self):
@@ -899,6 +905,7 @@ class Lab(hud.HudKit, ShowBase):
             buf = self.win.makeTextureBuffer("robot preview", 256, 256)
             buf.setClearColor((0.46, 0.48, 0.53, 1))  # (a light grey studio: dark parts stand out against it)
             cam = self.makeCamera(buf)
+            cam.node().setCameraMask(rw_gfx.VIEW_MASK)  # (CHANGE 152: never ultra's robots' shadow pieces)
             cam.reparentTo(self.render)
             cam.node().getLens().setFov(34)
             cam.node().getLens().setNearFar(0.3, 40.0)
@@ -3230,7 +3237,7 @@ class Lab(hud.HudKit, ShowBase):
         live = [s for s in st["robots"] if not s["ko"]]
         spinners = sorted((s for s in live if s["rpm"] > 30), key=near, reverse=True)[:4]
         for s in spinners:  # the four nearest spinners each have their own motor sound
-            self.snd.spinner(f"spin{s['id']}", s["rpm"], near(s) * vol)
+            self.snd.spinner(f"spin{s['id']}", s["rpm"], near(s) * vol, self.weapons.get(s["id"], "spinner"))
         self.snd.keep_only("spin", {f"spin{s['id']}" for s in spinners})
         flames = [s for s in live if s.get("fl")]
         if vol and flames:
@@ -3267,8 +3274,8 @@ class Lab(hud.HudKit, ShowBase):
 
     def show_intro(self, t, now):
         """The countdown before a battle, timed by the server so every window shows it together (t: seconds since
-        it began, or None): the arena's name, who is fighting, then 3, 2, 1 with beeps and ACTIVATE! with a cheer.
-        Robots can't drive or fire until ACTIVATE!"""
+        it began, or None): the arena's name, who is fighting, then 3, 2, 1 and ACTIVATE! with a cheer, a robot's
+        voice saying each (CHANGE 153: rw_voice.py). Robots can't drive or fire until ACTIVATE!"""
         snd = self.my_sound()
         loud = 0.0 if (self.muted or not snd["effects"]) else min(1.0, snd["volume"] / 0.7)
         big, small = "", ""
@@ -3285,10 +3292,10 @@ class Lab(hud.HudKit, ShowBase):
                 big = str(n)
                 if n not in self.intro_beeped:
                     self.intro_beeped.add(n)
-                    self.snd.play("beep", 0.6 * loud)
+                    self.snd.say(n, 0.9 * loud)
         elif self.intro_was:  # it has just ended
             self.activate_until = now + 1.2
-            self.snd.play("go", 0.8 * loud)
+            self.snd.say("activate", 0.9 * loud)
             if not self.muted:
                 self.snd.react("cheer", now)
         self.intro_was = t is not None

@@ -198,6 +198,17 @@ def monitor():
         assert mon.steps == []
         feed(mon, clock, 12, 1 / 60, every_nth_slow=4)
         assert g.load_settings(tmp).get("gfx_tier") == "medium"
+        # a tier chosen by hand in the window's Graphics row (CHANGE 149) is kept as --gfx is: never stepped from
+        g.remember(tmp, gfx_tier="high", gfx_hand=True, gfx_failed=[])
+        mon = g.Monitor(tmp, "high", pipeline=None, lights=[], on_note=notes.append, clock=clock)
+        assert mon.override == "high"
+        feed(mon, clock, 12, 1 / 60, every_nth_slow=4)
+        assert g.load_settings(tmp).get("gfx_tier") == "high" and not g.load_settings(tmp).get("gfx_failed")
+        g.remember(tmp, gfx_tier="low")
+        mon = g.Monitor(tmp, "low", pipeline=None, lights=[], on_note=notes.append, clock=clock)
+        feed(mon, clock, 20, 1 / 60)
+        assert g.load_settings(tmp).get("gfx_tier") == "low", g.load_settings(tmp)  # (nor stepped up)
+        g.forget(tmp, "gfx_hand")
         # a machine the heuristic calls low never gets more than medium saved
         g.remember(tmp, gfx_detect={"heuristic_tier": "low"}, gfx_tier="medium", gfx_benchmarked="high")
         before_notes = len(notes)

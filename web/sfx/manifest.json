@@ -1,6 +1,6 @@
 {
  "versions": {
-  "rw_sound": "7",
+  "rw_sound": "8",
   "kart_sound": "1",
   "fight_sound": "1",
   "maker": "1"
@@ -9,8 +9,8 @@
  "encoding": "MP3, mono, 44.1 kHz, LAME VBR -q:a 5 (ffmpeg)",
  "loop_pad": 0.5,
  "onset_threshold": 0.05,
- "bytes": 1477893,
- "seconds": 194.4,
+ "bytes": 1561559,
+ "seconds": 203.8,
  "left_out": {
   "yours": "the teacher's own music files (engine/music): never copied to the page"
  },
@@ -28,6 +28,8 @@
    "pneumatic",
    "swing",
    "spin",
+   "spin_drum",
+   "spin_disc",
    "chainsaw",
    "flame",
    "grind",
@@ -37,8 +39,10 @@
    "ooh",
    "cheer",
    "applause",
-   "beep",
-   "go",
+   "say_3",
+   "say_2",
+   "say_1",
+   "say_activate",
    "chip",
    "rock"
   ],
@@ -48,6 +52,10 @@
    "ooh",
    "cheer",
    "applause",
+   "say_3",
+   "say_2",
+   "say_1",
+   "say_go",
    "chip",
    "rock",
    "f_punch",
@@ -351,9 +359,65 @@
     "robotlab"
    ],
    "loop_start": 0.25,
-   "loop_len": 2.25,
+   "loop_len": 3.0,
    "pitch": {
-    "hz": 110,
+    "hz": 40,
+    "follows": "weapon rpm",
+    "min_rpm": 30,
+    "rate": [
+     0.3,
+     0.002631578947368421
+    ],
+    "volume": [
+     0.12,
+     0.0011111111111111111
+    ],
+    "volume_max": 0.7,
+    "rate_min": 0.2
+   }
+  },
+  "spin_drum": {
+   "files": [
+    "spin_drum.mp3"
+   ],
+   "loop": true,
+   "volume": 0.7,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 3.0,
+   "pitch": {
+    "hz": 30,
+    "follows": "weapon rpm",
+    "min_rpm": 30,
+    "rate": [
+     0.3,
+     0.002631578947368421
+    ],
+    "volume": [
+     0.12,
+     0.0011111111111111111
+    ],
+    "volume_max": 0.7,
+    "rate_min": 0.2
+   }
+  },
+  "spin_disc": {
+   "files": [
+    "spin_disc.mp3"
+   ],
+   "loop": true,
+   "volume": 0.7,
+   "channel": "weapons",
+   "games": [
+    "robotlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 3.0,
+   "pitch": {
+    "hz": 50,
     "follows": "weapon rpm",
     "min_rpm": 30,
     "rate": [
@@ -538,7 +602,6 @@
    "volume": 0.6,
    "channel": "effects",
    "games": [
-    "robotlab",
     "kartlab"
    ],
    "onset": [
@@ -556,7 +619,6 @@
    "volume": 0.8,
    "channel": "effects",
    "games": [
-    "robotlab",
     "kartlab"
    ],
    "onset": [
@@ -564,6 +626,94 @@
    ],
    "seconds": [
     0.6
+   ]
+  },
+  "say_3": {
+   "files": [
+    "say_3.mp3"
+   ],
+   "loop": false,
+   "volume": 0.9,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "fightlab"
+   ],
+   "onset": [
+    0.03356
+   ],
+   "seconds": [
+    0.483
+   ]
+  },
+  "say_2": {
+   "files": [
+    "say_2.mp3"
+   ],
+   "loop": false,
+   "volume": 0.9,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "fightlab"
+   ],
+   "onset": [
+    0.02014
+   ],
+   "seconds": [
+    0.485
+   ]
+  },
+  "say_1": {
+   "files": [
+    "say_1.mp3"
+   ],
+   "loop": false,
+   "volume": 0.9,
+   "channel": "effects",
+   "games": [
+    "robotlab",
+    "fightlab"
+   ],
+   "onset": [
+    0.00063
+   ],
+   "seconds": [
+    0.473
+   ]
+  },
+  "say_activate": {
+   "files": [
+    "say_activate.mp3"
+   ],
+   "loop": false,
+   "volume": 0.9,
+   "channel": "effects",
+   "games": [
+    "robotlab"
+   ],
+   "onset": [
+    0.00057
+   ],
+   "seconds": [
+    0.732
+   ]
+  },
+  "say_go": {
+   "files": [
+    "say_go.mp3"
+   ],
+   "loop": false,
+   "volume": 0.9,
+   "channel": "effects",
+   "games": [
+    "fightlab"
+   ],
+   "onset": [
+    0.02823
+   ],
+   "seconds": [
+    0.48
    ]
   },
   "horn": {

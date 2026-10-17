@@ -39,6 +39,9 @@ export class KartGame {
         this.accum = 0;
         this.sentAt = new Map();
         this.mine = null;
+        this.drawFrom = null;   // the predicted state before the newest tick: the kart is drawn between it and the
+                                // newest, as far as the time since that tick (CHANGE 155)
+        this.predStats = null;  // the stats the prediction steps with (a new design or track: predicted afresh)
     }
 
     welcome(m) {
@@ -139,6 +142,15 @@ export class KartGame {
         this.trackKey = key;
         this.track = new Track(data);
         this.scene.setTrack(this.track);
+        this.predictor = null;  // (its step knows the old track: predicted afresh from the next snapshot, as the window)
+    }
+
+    // the stats of our own kart's design as the server has it: the roster's kart carries it under design (CHANGE
+    // 155: the prediction had read the kart's entry itself, so every kart was predicted as 33, 33, 33 and anyone's
+    // own design was put right several times a second)
+    myStats(id) {
+        const S = this.app.state, kart = (((S.roster || {}).karts) || []).find(k => k.id === id);
+        return statsOf((kart && kart.design) || S.myDesign || {});
     }
 
     // JSON messages the core passes on; true when this game used it (the core has already stored the common parts)
@@ -151,6 +163,8 @@ export class KartGame {
             case "roster":
                 this.scene.setKarts(m.karts || []);
                 this.renderPlaces();
+                // (a new design for our kart, from the Garage or the teacher: predicted afresh, as the window does)
+                if (this.predictor && this.mine !== null && JSON.stringify(this.myStats(this.myId())) !== this.predStats) this.predictor = null;
                 return true;
             case "race":
                 m.at = Date.now();  // (go_in_ms counts from when it came: GO in our own clock)
@@ -193,8 +207,10 @@ export class KartGame {
         if (!this.predicting()) { this.predictor = null; return; }
         const state = fullState(me, this.track);
         if (!this.predictor) {  // (its numbering carries on from ours: the server ignores a number going back)
-            const design = (((this.app.state.roster || {}).karts) || []).find(k => k.id === id) || this.app.state.myDesign || {};
-            this.predictor = new Predictor(makeStep(this.track, statsOf(design)), state, 0.05, new InputLog(this.nextSeq));
+            const stats = this.myStats(id);
+            this.predStats = JSON.stringify(stats);
+            this.predictor = new Predictor(makeStep(this.track, stats), state, 0.05, new InputLog(this.nextSeq));
+            this.drawFrom = state;
             this.smoother.clear();
             this.accum = 0;
             return;
@@ -202,10 +218,13 @@ export class KartGame {
         if (snap.ack === 0) return;  // (the server hasn't applied an input of ours yet)
         const err = this.predictor.correct(state, snap.ack, STEP, compare);
         const moved = this.predictor.movedFrom;
-        if (moved && err !== Infinity) {
+        if (moved) {
             const n = this.predictor.state;
             const dyaw = ((((moved.yaw - n.yaw + 180) % 360) + 360) % 360 - 180) * Math.PI / 180;
-            this.smoother.add([moved.x - n.x, moved.y - n.y, 0], dyaw);
+            if (err !== Infinity) this.smoother.add([moved.x - n.x, moved.y - n.y, 0], dyaw);
+            // (the state before the newest tick moved with the correction, so the picture between them doesn't jump)
+            const f = this.drawFrom;
+            this.drawFrom = err === Infinity || !f ? n : {...f, x: f.x + n.x - moved.x, y: f.y + n.y - moved.y, yaw: f.yaw - dyaw * 180 / Math.PI};
         }
         const sent = this.sentAt.get(snap.ack);
         if (sent !== undefined && this.app.ctrl) {
@@ -233,6 +252,7 @@ export class KartGame {
             if (this.frozen()) inp = [0, 0, 0];
             let seq, prev;
             if (this.predictor) {
+                this.drawFrom = this.predictor.state;
                 seq = this.predictor.apply(inp, STEP, now);
                 prev = this.predictor.log.previous(2);
                 this.nextSeq = this.predictor.log.nextSeq;
@@ -263,9 +283,15 @@ export class KartGame {
             }
         }
         if (this.race && this.race.places && this.race.places.length) this.scene.leader = this.race.places[0];
+        // (CHANGE 151) seconds to GO for ultra's start lights (null when the race isn't counting down)
+        const r = this.race, counting = r && r.phase === FLAGS_RACE && r.go_in_ms !== null && r.go_in_ms !== undefined;
+        this.scene.countdown = counting ? (r.go_in_ms - (Date.now() - (r.at || Date.now()))) / 1000 : null;
         const myId = this.myId();  // (your own kart: the prediction, now, with the correction easing out)
         if (this.predictor && myId !== null && states.has(myId)) {
-            const mine = {...this.predictor.state};
+            // (CHANGE 155) drawn between the last two ticks by the time since the newest: the page's frames don't
+            // keep time with the 1/60 s ticks (a frame with none, the next with two), and whole ticks drew the kart
+            // stopping and jumping
+            const mine = between(this.drawFrom, this.predictor.state, this.accum / STEP);
             const [[ox, oy], oyaw] = this.smoother.offset(dt);
             mine.x += ox; mine.y += oy; mine.yaw += oyaw * 180 / Math.PI;
             states.set(myId, mine);
@@ -467,6 +493,15 @@ export class KartGame {
         $("places").innerHTML = "";
         $("countdown").textContent = $("phase").textContent = "";
     }
+}
+
+// a kart's state a fraction f of the way from a to b (the position, speed and heading; the rest b's)
+function between(a, b, f) {
+    if (!a || !(f > 0)) return {...(a || b)};
+    if (f >= 1) return {...b};
+    const dy = ((b.yaw - a.yaw + 180) % 360 + 360) % 360 - 180;
+    return {...b, x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, yaw: a.yaw + dy * f, v: a.v + (b.v - a.v) * f,
+            u: (a.u || 0) + ((b.u || 0) - (a.u || 0)) * f};
 }
 
 export function fmtTime(t) {

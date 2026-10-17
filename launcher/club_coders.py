@@ -310,9 +310,52 @@ def start_game(game, argv, wait=False, code=None):
     shown = ["***" if i and argv[i - 1] == "--password" else a for i, a in enumerate(argv)]  # (never log a password)
     print(f"Opening {GAMES[game]['title']}: {' '.join(shown)}", flush=True)
     flags = 0 if wait else getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    env = dict(os.environ, CLUBCODERS_CODE=code) if code else None
+    start_game.n = getattr(start_game, "n", 0) + 1
+    pid_file = os.path.join(os.environ.get("TEMP") or os.path.expanduser("~"),
+                            f"clubcoders_window_{os.getpid()}_{start_game.n}.pid")
+    env = dict(os.environ, CLUBCODERS_WINDOW_PID_FILE=pid_file, **({"CLUBCODERS_CODE": code} if code else {}))
     proc = subprocess.Popen(cmd, cwd=cwd, creationflags=flags, env=env)
+    proc.pid_file = pid_file
     return proc.wait() if wait else proc
+
+
+class ReopenedWindow:
+    """A game window that reopened itself (a Graphics choice, new code): the app follows it by its process id."""
+
+    def __init__(self, pid, pid_file):
+        self.pid, self.pid_file = pid, pid_file
+
+    def poll(self):
+        import ctypes
+        try:
+            k = ctypes.windll.kernel32
+            h = k.OpenProcess(0x1000, False, self.pid)  # (PROCESS_QUERY_LIMITED_INFORMATION)
+            if not h:
+                return 0
+            code = ctypes.c_ulong()
+            k.GetExitCodeProcess(h, ctypes.byref(code))
+            k.CloseHandle(h)
+            return None if code.value == 259 else code.value  # (259: still running)
+        except (AttributeError, OSError):
+            return 0
+
+    def terminate(self):
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.pid)], capture_output=True)
+
+
+def follow(proc):
+    """CHANGE 154: the game window a process started by start_game is now: itself while it runs, else the window it
+    reopened itself as (the game writes the new one's process id to CLUBCODERS_WINDOW_PID_FILE), else None."""
+    while proc is not None and proc.poll() is not None:
+        path = getattr(proc, "pid_file", None)
+        try:
+            with open(path, encoding="utf-8") as f:
+                pid = int(f.read().strip())
+            os.remove(path)
+        except (OSError, TypeError, ValueError):
+            return None
+        proc = ReopenedWindow(pid, path)
+    return proc
 
 
 # ---------- the club desk connection ----------
@@ -416,6 +459,7 @@ def launcher(args, passed_on):
             self.state = {}           # the desk's state, for the teacher screen
             self.editing = None       # the group being edited on the teacher screen
             self.trying_password = None  # a teacher password sent to the desk, not yet accepted
+            self.teacher_error = None  # (that password refused, tried as a learner called Teacher: CHANGE 154)
             self.teacher_password = ""   # the one the teacher logged in with (Change password starts from it)
             self.own_password = None     # False while it is still the server setup's teacher code (CHANGE 148)
             self.new_teacher_password = None  # a new teacher password sent to the desk, not yet accepted
@@ -568,7 +612,8 @@ def launcher(args, passed_on):
         def watch_game(self, task):
             if self.game_proc is None:
                 return task.done
-            if self.game_proc.poll() is None:
+            self.game_proc = follow(self.game_proc)  # (still open, or reopened as another process: CHANGE 154)
+            if self.game_proc is not None:
                 return task.cont
             self.game_proc = None  # the game window closed: the teacher stopped it, or the learner closed it
             self.came_back = True
@@ -831,11 +876,21 @@ def launcher(args, passed_on):
                 return
             if "error" in m and not m.get("ok"):
                 if getattr(self, "trying_password", None):
+                    password = self.trying_password
                     self.teacher_refused()
+                    if m.get("try_learner"):  # (a learner called Teacher from before CHANGE 148: CHANGE 154)
+                        self.teacher_error = m["error"]
+                        self.password = password
+                        self.ask_desk({"type": "login", "name": self.field("user") or "Teacher", "password": password})
+                        return
+                if getattr(self, "teacher_error", None):  # (they weren't let in as the learner either)
+                    m = dict(m, error=self.teacher_error)
+                    self.teacher_error = None
                 if self.screen == "waiting":
                     self.screen = "home"
                 self.say(m["error"], red)  # (say redraws the screen with the message; show would wipe it)
                 return
+            self.teacher_error = None
             if m.get("teacher_password_changed"):
                 return self.teacher_password_changed()
             if "own_password" in m:
@@ -859,7 +914,8 @@ def launcher(args, passed_on):
                 self.say(m["done"], green)
             if m.get("teacher_window"):
                 w = m["teacher_window"]
-                if self.teacher_proc is not None and self.teacher_proc.poll() is None:
+                self.teacher_proc = follow(self.teacher_proc)
+                if self.teacher_proc is not None:
                     self.say("Your teacher window is already open.", grey)
                 elif address_ok(w.get("address")):
                     self.teacher_proc = start_game(w["game"], ["--host", w["address"], "--teacher", "--name", "Teacher",
@@ -1083,7 +1139,8 @@ def launcher(args, passed_on):
             self.ask_desk({"type": "teacher_window"})
 
         def stop(self):
-            if self.teacher_proc is not None and self.teacher_proc.poll() is None:  # (the learners' windows close
+            self.teacher_proc = follow(self.teacher_proc)
+            if self.teacher_proc is not None:  # (the learners' windows close
                 self.teacher_proc.terminate()                                       # from the server's side)
             self.teacher_proc = None
             self.ask_desk({"type": "stop"})

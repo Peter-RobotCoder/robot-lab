@@ -3,11 +3,11 @@
 
 - the texture sets the games paint their parts with (engine/rw_textures.py: paint, steel, tyre, diamond, hazard,
   concrete; Kart Lab's kart_gfx.py: tarmac, grass, and for its ultra circuit (CHANGE 144, kart_scenery.MATERIALS)
-  asphalt, kerb, gravel, turf, render, bark, foliage, needles, signs; Robot Lab's lab_textures.py for its ultra arena
+  asphalt, kerb, gravel, turf, render, bark, foliage, needles, signs, water (CHANGE 151); Robot Lab's lab_textures.py for its ultra arena
   (CHANGE 145, arena_models.MATERIALS): lab_floor, lab_signs; Fight Lab's fight_textures.py for its ultra hall
   (CHANGE 147, stage_models.MATERIALS): fight_canvas, fight_signs): albedo, metal-rough and normal maps, at
   512 x 512 as JPEGs (the app's high tier loads them at 1024: the page draws fewer pixels, and a school laptop has
-  less memory);
+  less memory), but for FINE (Kart Lab's boards' lettering at 1024: CHANGE 151);
 - each sky's reflections as simplepbr makes them (its own functions, so the numbers are the app's): the nine
   spherical-harmonic numbers for the light from everywhere, and the sky blurred four ways for shiny to rough
   surfaces, unwrapped into one latitude-longitude picture per sky (the page reads it without cube-map rules);
@@ -29,10 +29,14 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "tex")
 SETS = {"engine": ["paint", "steel", "tyre", "diamond", "hazard", "concrete"],
-        "kart": ["tarmac", "grass", "asphalt", "kerb", "gravel", "turf", "render", "bark", "foliage", "needles", "signs"],
+        "kart": ["tarmac", "grass", "asphalt", "kerb", "gravel", "turf", "render", "bark", "foliage", "needles", "signs",
+                 "water"],
         "lab": ["lab_floor", "lab_signs"], "fight": ["fight_canvas", "fight_signs"]}
 SKIES = {"env": ("engine", "env_#.png", 64, 16), "sky": ("kart", "sky_#.png", 32, 8)}  # name: (folder, files, size, samples)
 SIZE = 512
+# (CHANGE 151) pictures kept finer, where it shows: Kart Lab's advertising boards' lettering at the window's 1024
+# (their albedo alone: the rest of the set is flat; drawn on ultra alone, so only ultra downloads the extra)
+FINE = {"signs_albedo": 1024}
 
 
 def roots():
@@ -77,7 +81,7 @@ def versions():
             "kart": constant(os.path.join(kart, "kart_gfx.py"), "TEX_VERSION"),
             "lab": constant(os.path.join(lab_root(), "lab_textures.py"), "TEX_VERSION"),
             "fight": constant(os.path.join(fight_root(), "fight_textures.py"), "TEX_VERSION"),
-            "size": SIZE, "skies": {k: list(v[2:]) for k, v in SKIES.items()}}
+            "size": SIZE, "fine": FINE, "skies": {k: list(v[2:]) for k, v in SKIES.items()}}
 
 
 def check():
@@ -121,8 +125,9 @@ def build():
         for name in names:
             for kind in ("albedo", "mr", "normal"):
                 im = Image.open(os.path.join(folders[where], f"{name}_{kind}.png")).convert("RGB")
-                if im.size[0] > SIZE:
-                    im = im.resize((SIZE, SIZE), Image.LANCZOS)
+                size = FINE.get(f"{name}_{kind}", SIZE)
+                if im.size[0] > size:
+                    im = im.resize((size, size), Image.LANCZOS)
                 out = f"{name}_{kind}.jpg"
                 im.save(os.path.join(OUT, out), quality=90)
                 files.append(out)

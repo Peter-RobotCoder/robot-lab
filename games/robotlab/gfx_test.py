@@ -138,6 +138,26 @@ def robots_in_place():
                 assert hi[1] < 2 * sh["arm"].y + sh["head"].y + 0.03, (lo, hi)
 
 
+def shadows_inside():
+    """(CHANGE 152) each piece's shadow (what the shadow map draws) is the piece without its smallest roles, or (the
+    wheels) a plain tyre no bigger than the wheel, and robot_ultra.json carries them."""
+    kit, shadow = rm.kit(), rm.shadow_kit()
+    assert set(shadow) == set(kit)
+    for name, parts in shadow.items():
+        if name in rm.SHADOW_PIECES:
+            R, W = rm.HOUSE_WHEEL if name == "house_wheel" else rm.WHEEL
+            pts = [q for part in parts for q in part.p]
+            assert max(math.hypot(q[1], q[2]) for q in pts) <= R + 1e-6 and max(abs(q[0]) for q in pts) <= W + 1e-6, name
+            assert sum(p.tris() for p in parts) < sum(p.tris() for p in kit[name]) / 10, name
+        else:
+            assert all(p.material not in rm.SHADOW_SKIP for p in parts) and all(p in kit[name] for p in parts), name
+    model = rm.robot()
+    assert model["shadow"]["skip"] == list(rm.SHADOW_SKIP) and set(model["shadow"]["pieces"]) == set(rm.SHADOW_PIECES)
+    total = lambda k, names: sum(p.tris() for n in names for p in k[n])  # noqa: E731
+    wedge = ["hull", "eyes", "antenna", "deck", "skirt", "skirt", "rear"] + ["wheel"] * 4 + ["wedge", "wedge_cheeks"]
+    assert total(shadow, wedge) < total(kit, wedge) * 0.5, (total(shadow, wedge), total(kit, wedge))
+
+
 def files_read_back():
     for parts in list(rm.kit().values())[:6] + list(am.made()["groups"].values())[:3]:
         for part in parts[:2]:
@@ -181,6 +201,7 @@ if __name__ == "__main__":
     check("The ultra floor's holes are the physics'", holes)
     check("Nothing of the ultra arena in the cage or in the cameras' views", clear_views)
     check("The ultra robots stay where the lower tiers' robots are", robots_in_place)
+    check("The robots' shadows are their pieces without bolts and lamps, the wheels plain tyres", shadows_inside)
     check("The models' files read back; the textures are made", files_read_back)
     check("Every tier draws the arena offscreen", tiers_draw)
     for name, ok, note in results:

@@ -16,14 +16,16 @@
 
 import {BaseScene, TIERS, v3, rgb255, lerp, lerpDeg, mulberry} from "./base3d.js";
 import {toneMap} from "./pbr.js";
-import {FighterModel} from "./fightmodels.js";
+import {FighterModel, withBox} from "./fightmodels.js";
 import {AfterFx} from "./kartfx.js";
 import {FightFX, FightCamera, CAM_MODES, CAM_NAMES, loadFightModels, fightModelsData, loadStageModels, stageModelsData,
-        fighterLayout, fighterJointMesh, fighterAtlas, FIGHTER_GLOW, makeUltraRing, makeUltraHall} from "./fightfx.js";
+        fighterLayout, fighterJointMesh, fighterAtlas, FIGHTER_GLOW, makeUltraRing, makeUltraHall, loadPandaFont, wordsSize,
+        drawWords} from "./fightfx.js";
 import {FightHud} from "./hud.js";
 import {Sound} from "./sound.js";
 
 const $ = id => document.getElementById(id);
+loadPandaFont();  // (the window's letters, asked for as the page opens: CHANGE 150)
 const D2R = Math.PI / 180;
 const RING_CENTRES = [[0, 0], [16, 0], [-16, 0], [0, 16], [16, 16], [-16, 16]];
 const MAT_COLOURS = [[0.12, 0.13, 0.2], [0.35, 0.06, 0.06], [0.06, 0.2, 0.12], [0.2, 0.08, 0.3], [0.3, 0.2, 0.05], [0.05, 0.18, 0.3]];
@@ -254,6 +256,116 @@ function animPose(a, k) {
     return stance();
 }
 
+// ---------- (CHANGE 150) the rim lines: line_look.silhouette's thick back-face wireframe, on the page ----------
+// Each edge of a shape twice (its ends), with the normals of its two faces (rimA, rimB: the same where it has one) and
+// its other end (rimOther); shown where either face looks away from the camera at its middle (each end tests it with
+// its own bones: where the two disagree, a short edge is half shown), a hidden edge's ends both put at its middle (so
+// it draws nothing: the most of them, the shape's side towards the camera), drawn as two thin instances moved apart
+// across the line in the picture (rimOffset times screen.z pixels, at right angles to the line between its ends'
+// places in the picture, turned the same way at both ends), so a 1-pixel line is the window's 2 pixels thick. Bones too (a skinned model's rim bends
+// with it); the fade into the dark as the other lines'
+const RIM_VERT = `
+precision highp float;
+attribute vec3 position;
+attribute vec3 rimA;
+attribute vec3 rimB;
+attribute vec3 rimOther;
+attribute vec2 rimOffset;
+#include<instancesDeclaration>
+#include<bonesDeclaration>
+uniform mat4 viewProjection;
+uniform vec3 cameraPosition;
+uniform vec3 screen;
+varying float vDist;
+varying float vShow;
+void main(void) {
+#include<instancesVertex>
+#include<bonesVertex>
+    vec4 wp = finalWorld * vec4(position, 1.0);
+    vec3 mid = 0.5 * (wp.xyz + (finalWorld * vec4(rimOther, 1.0)).xyz), v = mid - cameraPosition;
+    vec3 a = (finalWorld * vec4(rimA, 0.0)).xyz, b = (finalWorld * vec4(rimB, 0.0)).xyz;
+    vShow = dot(a, v) > 0.0 || dot(b, v) > 0.0 ? 1.0 : 0.0;
+    if (vShow < 0.5) wp.xyz = mid;
+    vDist = length(wp.xyz - cameraPosition);
+    gl_Position = viewProjection * wp;
+    vec4 other = viewProjection * finalWorld * vec4(rimOther, 1.0);
+    vec2 d = (other.xy / other.w - gl_Position.xy / gl_Position.w) * screen.xy;
+    if (d.x < 0.0 || (d.x == 0.0 && d.y < 0.0)) d = -d;
+    float l = length(d);
+    vec2 across = l > 1e-5 ? vec2(-d.y, d.x) / l : vec2(0.0, 1.0);
+    gl_Position.xy += across * rimOffset.x * screen.z * 2.0 / screen.xy * gl_Position.w;
+}`;
+const RIM_FRAG = `
+precision highp float;
+uniform vec4 color;
+uniform vec2 fade;
+varying float vDist;
+varying float vShow;
+void main(void) {
+    if (vShow < 0.5) discard;
+    gl_FragColor = vec4(color.rgb * (1.0 - smoothstep(fade.x, fade.y, vDist)), 1.0);
+}`;
+const RIM_MATRICES = new Float32Array(32);
+for (let i = 0; i < 2; i++) RIM_MATRICES[i * 16] = RIM_MATRICES[i * 16 + 5] = RIM_MATRICES[i * 16 + 10] = RIM_MATRICES[i * 16 + 15] = 1;
+const RIM_OFFSETS = new Float32Array([1, 0, -1, 0]);  // (times screen.z pixels, across the line)
+
+// a shape's edges for rimLines, in its own frame (the rest pose): the corners within a millimetre merged (line_look's
+// rule), each face's normal from its corners (turned to agree with the shape's own normals there), each edge once with
+// its first two faces' normals, drawn with one of its own vertices at each end (so with that vertex's bones). Null if
+// it has no faces
+function rimEdges(mesh) {
+    const p = mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind), ix = mesh.getIndices();
+    if (!p || !ix || ix.length < 3) return null;
+    const nor = mesh.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+    const weld = new Map(), ids = new Int32Array(p.length / 3), first = [];
+    for (let i = 0, j = 0; i < p.length; i += 3, j++) {
+        const k = `${Math.round(p[i] * 1000)},${Math.round(p[i + 1] * 1000)},${Math.round(p[i + 2] * 1000)}`;
+        let id = weld.get(k);
+        if (id === undefined) { id = first.length; weld.set(k, id); first.push(j); }
+        ids[j] = id;
+    }
+    const edges = new Map(), list = [];
+    for (let t = 0; t < ix.length; t += 3) {
+        const r0 = ix[t], r1 = ix[t + 1], r2 = ix[t + 2], a = ids[r0], b = ids[r1], c = ids[r2];
+        if (a === b || b === c || a === c) continue;
+        const ux = p[r1 * 3] - p[r0 * 3], uy = p[r1 * 3 + 1] - p[r0 * 3 + 1], uz = p[r1 * 3 + 2] - p[r0 * 3 + 2];
+        const vx = p[r2 * 3] - p[r0 * 3], vy = p[r2 * 3 + 1] - p[r0 * 3 + 1], vz = p[r2 * 3 + 2] - p[r0 * 3 + 2];
+        let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        const l = Math.hypot(nx, ny, nz) || 1;
+        nx /= l; ny /= l; nz /= l;
+        if (nor) {  // (the winding's normal turned to the side the shape's normals say is out)
+            const sx = nor[r0 * 3] + nor[r1 * 3] + nor[r2 * 3], sy = nor[r0 * 3 + 1] + nor[r1 * 3 + 1] + nor[r2 * 3 + 1];
+            const sz = nor[r0 * 3 + 2] + nor[r1 * 3 + 2] + nor[r2 * 3 + 2];
+            if (sx * nx + sy * ny + sz * nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        }
+        for (const [e0, e1] of [[a, b], [b, c], [c, a]]) {
+            const ek = e0 < e1 ? e0 * 4194304 + e1 : e1 * 4194304 + e0;
+            const e = edges.get(ek);
+            if (!e) { const n = {r0: first[e0], r1: first[e1], a: [nx, ny, nz], b: null}; edges.set(ek, n); list.push(n); }
+            else if (!e.b) e.b = [nx, ny, nz];
+        }
+    }
+    const n = list.length, pos = new Float32Array(n * 6), A = new Float32Array(n * 6), B = new Float32Array(n * 6), O = new Float32Array(n * 6);
+    const idx = n * 2 >= 65536 ? new Uint32Array(n * 2) : new Uint16Array(n * 2);
+    const kinds = [BABYLON.VertexBuffer.MatricesIndicesKind, BABYLON.VertexBuffer.MatricesWeightsKind,
+                   BABYLON.VertexBuffer.MatricesIndicesExtraKind, BABYLON.VertexBuffer.MatricesWeightsExtraKind];
+    const src = mesh.skeleton ? kinds.map(k => [k, mesh.getVerticesData(k)]).filter(([, d]) => d) : [];
+    const bones = src.map(([k]) => [k, new Float32Array(n * 8)]);
+    list.forEach((e, i) => {
+        const b = e.b || e.a;
+        [e.r0, e.r1].forEach((r, k) => {
+            const o = (i * 2 + k) * 3;
+            pos[o] = p[r * 3]; pos[o + 1] = p[r * 3 + 1]; pos[o + 2] = p[r * 3 + 2];
+            A[o] = e.a[0]; A[o + 1] = e.a[1]; A[o + 2] = e.a[2];
+            B[o] = b[0]; B[o + 1] = b[1]; B[o + 2] = b[2];
+            src.forEach(([, d], s) => bones[s][1].set(d.subarray(r * 4, r * 4 + 4), (i * 2 + k) * 4));
+            idx[i * 2 + k] = i * 2 + k;
+        });
+    });
+    for (let i = 0; i < n * 6; i += 6) for (let k = 0; k < 3; k++) { O[i + k] = pos[i + 3 + k]; O[i + 3 + k] = pos[i + k]; }  // (each end's other end)
+    return {pos, a: A, b: B, o: O, idx, bones: bones.length ? bones : null};
+}
+
 // ---------- the scene ----------
 export class FightScene extends BaseScene {
     static TIERS = TIERS;  // (every tier, the line tiers and ultra too, as the window: CHANGE 147)
@@ -315,7 +427,13 @@ export class FightScene extends BaseScene {
             });
         }
         this.buildStage();
+        this.shadowCulling();
+        this.drawOrder();
         this.after = this.ultra && FightScene.ULTRA_FX ? new AfterFx(this, FightScene.ULTRA_FX) : null;
+        if (this.after) {  // (CHANGE 150: the glow made from a quarter-size picture, blurred as far across: the same glow, cheaper)
+            this.after.pipeline.bloomScale = 0.25;
+            this.after.pipeline.bloomKernel = 24;
+        }
         this.fx = new FightFX(this);
         // the camera is placed by the window's views every frame (drags, the wheel and keys are FightGame's), so it
         // takes no input of its own and may go anywhere they put it
@@ -330,6 +448,41 @@ export class FightScene extends BaseScene {
         const list = this.list;
         this.fighters.clear();
         for (const f of list) this.addFighter(f);
+    }
+
+    // (CHANGE 150) the shadow map draws only the casters inside the key light's view (its 16 m round what the camera
+    // looks at, as the window's shadow camera culls): Babylon's draws its whole list every frame, every ring's and
+    // every fighter's, the far rings' 3D bodies too
+    shadowCulling() {
+        const L = this.lighting, rtt = L && L.rtt;
+        if (!rtt || !L.sunCam) return;
+        const out = [];
+        rtt.getCustomRenderList = (layer, list, n) => {
+            const planes = BABYLON.Frustum.GetPlanes(L.sunCam.getTransformationMatrix(true));
+            out.length = 0;
+            for (let i = 0; i < n; i++) {
+                const m = list[i];
+                if (!m || !m.isEnabled() || !m.isVisible) continue;
+                m.computeWorldMatrix();
+                if (m.alwaysSelectAsActiveMesh || m.isInFrustum(planes)) out.push(m);
+            }
+            return out;
+        };
+    }
+
+    // (CHANGE 150) the lit tiers draw the fighters first, then the rings and the rest, the crowd, the stands and the
+    // hall, and the floor last (a mesh's ccRank, else what its material is), each group by material as Babylon would:
+    // what is hidden behind them isn't lit and then painted over (Babylon's own order is the materials' age, the
+    // hall's first). The line tiers keep base3d's (every black face, then every line)
+    drawOrder() {
+        if (this.wire || this.tier === "blocks") return;
+        const BY_MATERIAL = {hall: 4, walk: 4, stands: 3, crowd: 2, screen: 3, screenglow: 3, truss: 3, lamp: 3};
+        const rank = sub => {  // (worked out once a mesh)
+            const m = sub.getMesh();
+            if (m.ccRank === undefined) m.ccRank = BY_MATERIAL[String((m.material || {}).name).split(":")[0]] ?? 1;
+            return m.ccRank;
+        };
+        this.scene.setRenderingOrder(0, (a, b) => (rank(a) - rank(b)) || BABYLON.RenderingGroup.PainterSortCompare(a, b));
     }
 
     setSetup(setup) {
@@ -369,14 +522,15 @@ export class FightScene extends BaseScene {
                 S(this.cyl(null, platR + 0.08, 0.06, "z", M("platrim", [0.08, 0.08, 0.1], 0.6, 0.5, "paint"), cx, cy, -0.8 + 0.06, null, 48));
                 S(this.cyl(null, platR - 0.02, 0.012, "z", M("mat" + i, MAT_COLOURS[i % 6], 0.95, 0, "concrete", 0.4), cx, cy, -0.01, null, 48));
             }
+            // (each dash along x, as the window's: CHANGE 150, they were turned along the circle)
             if (!hz.slippery) for (let k = 0; k < 40; k++) {
                 const a = k / 40 * Math.PI * 2;
-                const d = S(this.box(null, 0.14, 0.04, 0.003, marks, cx + Math.cos(a) * 0.45 * R, cy + Math.sin(a) * 0.45 * R, 0.004));
-                d.rotation.y = -(a + Math.PI / 2);
+                S(this.box(null, 0.14, 0.04, 0.003, marks, cx + Math.cos(a) * 0.45 * R, cy + Math.sin(a) * 0.45 * R, 0.004));
             }
             for (const sx of [-1.6, 1.6]) S(this.box(null, 0.05, 0.45, 0.003, marks, cx + sx, cy, 0.004));
             // (the line colour on the line tiers: CHANGE 147)
-            const logo = this.floorText(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, cx, cy - 0.25, 0.008, 4.8, this.wire ? "#ffffff" : "#e8d49a", 0.8);
+            // (the window's TextNode: its letters, 0.75 a unit, the baseline 0.25 m below the middle: CHANGE 150)
+            const logo = this.words(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, 0.75, this.wire ? "#ffffff" : "#e8d49a", 0.8, [cx, cy - 0.25, 0.008], [0, -90, 0]);
             if (this.wire) this.lettering(logo);
             const ropeMat = !roped ? null : hz.electric_ropes ? M("eropes" + i, [0.5, 0.8, 1.0], 0.5, 0, null, null, [0.4, 1.2, 3.0]) : M("ropes", [0.85, 0.12, 0.1], 0.5, 0);
             if (roped && hz.electric_ropes) this.glows.set(i, {ropes: ropeMat});
@@ -403,10 +557,8 @@ export class FightScene extends BaseScene {
             }
             if (roped) moving.push([this.ropes.slice(-(ultra ? 1 : 24)), "ropes" + i]);
             else {
-                const band = BABYLON.MeshBuilder.CreateTorus("edge", {diameter: R * 2, thickness: 0.09, tessellation: 64}, this.scene);
+                const band = this.edgeBand(R, cx, cy);
                 band.material = M("edge" + i, [0, 0, 0], 1, 0, null, null, EDGE_GLOW);
-                band.scaling.y = 0.1;
-                band.position = v3(cx, cy, 0.006);
                 this.glows.set(i, {edge: band.material});
                 moving.push([[band], "edge" + i]);
             }
@@ -437,6 +589,22 @@ export class FightScene extends BaseScene {
         }
         const still = this.mergeStatic(statics), hallStill = this.mergeStatic(hall);
         if (this.wire) this.stageLines(still, hallStill, moving);
+    }
+
+    // (CHANGE 150: fight_gfx.build_ring's open edge) a flat glowing band round the ring from R - 0.05 to R + 0.04 m,
+    // 6 mm up, as 64 quads of two triangles each (the window's: so mesh draws the same edges; it was a torus with many
+    // more)
+    edgeBand(R, cx, cy) {
+        const pos = [], idx = [], nor = [], r0 = R - 0.05, r1 = R + 0.04, z = 0.006;
+        for (let k = 0; k < 64; k++) {
+            const a0 = 2 * Math.PI * k / 64, a1 = 2 * Math.PI * (k + 1) / 64, o = pos.length / 3;
+            for (const [a, r] of [[a0, r0], [a1, r0], [a1, r1], [a0, r1]]) { pos.push(cx + Math.cos(a) * r, z, cy + Math.sin(a) * r); nor.push(0, 1, 0); }
+            idx.push(o, o + 2, o + 1, o, o + 3, o + 2);  // (the window's fan from the first corner, wound for Babylon)
+        }
+        const mesh = new BABYLON.Mesh("edge", this.scene), vd = new BABYLON.VertexData();
+        vd.positions = pos; vd.normals = nor; vd.indices = idx;
+        vd.applyToMesh(mesh);
+        return mesh;
     }
 
     lineFade() {  // (where the lines fade out, as the window's dark fog: fight_gfx.LOOK_FADE, CHANGE 147)
@@ -521,9 +689,7 @@ export class FightScene extends BaseScene {
             for (const [x, y, z, h] of (file.notes || {}).screens || [[0, 36.5, 6, 0], [0, -20.5, 6, 180]]) {
                 const front = h === 0 ? -1 : 1;
                 // (the window's glowing orange lettering comes out nearly white through its tone curve)
-                const name = this.floorText(look.name || "FIGHT LAB", x, y + front * 0.34, z + 0.1, 12, "#fff0dc", 1.0);
-                name.rotation.x = 0;
-                name.rotation.y = h === 0 ? 0 : Math.PI;
+                this.words(look.name || "FIGHT LAB", 2.2, "#fff0dc", 1.0, [x, y + front * 0.335, z - 0.45], [h, 0, 0]);
             }
             return;
         }
@@ -565,10 +731,10 @@ export class FightScene extends BaseScene {
         for (const [y, back] of [[y1 + 9, -1], [y0 - 9, 1]]) {
             S(this.box(null, 6.5, 0.3, 2.0, M("screen", [0.08, 0.08, 0.1], 1, 1, "steel"), cx, y, 6.0));
             S(this.box(null, 6.2, 0.05, 1.75, M("screenglow", [0, 0, 0], 1, 0, null, null, [0.05, 0.02, 0.12]), cx, y + 0.3 * back, 6.0));
-            const name = this.floorText(look.name || "FIGHT LAB", cx, y + 0.4 * back, 5.95, 9, this.wire ? "#ffffff" : "#ff8a3d");
+            // (each screen's words face the rings: the window's TextNode, 1.6 a unit; its glowing orange comes out of its tone curve
+            // nearly white, as the ultra screens')
+            const name = this.words(look.name || "FIGHT LAB", 1.6, this.wire ? "#ffffff" : "#f8eabf", 1.0, [cx, y + 0.4 * back, 5.55], [back < 0 ? 0 : 180, 0, 0]);
             if (this.wire) this.lettering(name);
-            name.rotation.x = 0;
-            name.rotation.y = back < 0 ? 0 : Math.PI;  // (each screen's words face the rings)
         }
         // the lighting truss over the rings
         const truss = [], trussM = M("truss", [0.2, 0.2, 0.22], 1, 1, "steel"), lampM = M("lamp", [1, 1, 1], 0.3, 0, null, null, [6, 5.5, 5]);
@@ -737,24 +903,50 @@ export class FightScene extends BaseScene {
     numberPlate(joint, d, robot, rgb) {
         const text = String((d.style || {}).number || d.name || "").slice(0, 8);
         if (!text) return null;
-        const scene = this.scene;
-        const plane = BABYLON.MeshBuilder.CreatePlane("fighternumber", {width: 0.34, height: 0.085}, scene);
-        const tex = new BABYLON.DynamicTexture("fighternumbertex", {width: 512, height: 128}, scene, true);
+        // (CHANGE 150: the window's TextNode, 0.07 a unit, its baseline there, read from behind)
+        const css = `rgb(${rgb.map(c => Math.round(255 * Math.max(0, Math.min(1, c)))).join(",")})`;
+        const plane = this.words(text, 0.07, css, robot ? 1 : 0.6, [0, robot ? -0.18 : -0.14, 0.34], [0, 0, 0], joint);
+        if (!this.lighting) plane.material.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
+        return plane;
+    }
+
+    // (CHANGE 150) words as the window's TextNode writes them (centred, in Panda's own letters: fightfx.js's drawWords):
+    // a flat card in its own x and y (as a TextNode's x and z: read from in front, its -y), its middle on the baseline,
+    // scale metres a unit, at pos turned by hpr (the window's, degrees) under parent; colour a CSS colour, paint how
+    // bright it is unlit on the lit tiers (as floorText). Until the letters are loaded, the browser's sans, and the scene
+    // made again once they are
+    words(text, scale, colour, paint, pos, hpr, parent = null) {
+        const size = wordsSize(text) || {width: 0.6 * String(text).length, lo: -0.2, hi: 0.75};
+        const ppu = 96, pad = 0.1, w = size.width + 2 * pad, lo = size.lo - pad, hi = size.hi + pad;
+        const cw = Math.max(8, Math.ceil(w * ppu)), ch = Math.max(8, Math.ceil((hi - lo) * ppu));
+        const plane = BABYLON.MeshBuilder.CreatePlane("words", {width: w * scale, height: (hi - lo) * scale}, this.scene);
+        plane.bakeTransformIntoVertices(BABYLON.Matrix.Translation(0, (hi + lo) / 2 * scale, 0));  // (its middle on the baseline)
+        const tex = new BABYLON.DynamicTexture("wordstex", {width: cw, height: ch}, this.scene, true);
         tex.hasAlpha = true;
-        tex.getContext().clearRect(0, 0, 512, 128);
-        tex.drawText(text, null, 96, "bold 92px sans-serif", `rgb(${rgb.map(c => Math.round(255 * Math.max(0, Math.min(1, c)))).join(",")})`, null, true, true);
-        const m = new BABYLON.StandardMaterial("fighternumbermat", scene);
+        const ctx = tex.getContext();
+        ctx.clearRect(0, 0, cw, ch);
+        if (!drawWords(ctx, text, cw / 2, hi * ppu, ppu, colour)) {
+            ctx.fillStyle = colour;
+            ctx.textAlign = "center";
+            ctx.font = `${Math.round(0.7 * ppu)}px sans-serif`;
+            ctx.fillText(String(text), cw / 2, hi * ppu);
+            if (!this.fontWait) this.fontWait = loadPandaFont().then(f => { if (f && this.scene) this.build(); });
+        }
+        tex.update();
+        const m = new BABYLON.StandardMaterial("wordsmat", this.scene);
         m.diffuseTexture = tex;
         m.useAlphaFromDiffuseTexture = true;
         m.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
-        if (this.lighting) {  // (as the hall's painted words: not lit by Babylon's brighter lights; a robot's glows)
+        if (this.lighting) {
             m.disableLighting = true;
-            m.emissiveColor = robot ? new BABYLON.Color3(1, 1, 1) : new BABYLON.Color3(0.6, 0.6, 0.6);
+            m.emissiveColor = new BABYLON.Color3(paint, paint, paint);
         }
+        m.backFaceCulling = true;  // (a TextNode is one-sided)
         plane.material = m;
         plane.isPickable = false;
-        plane.parent = joint;
-        plane.position = v3(0, robot ? -0.18 : -0.14, 0.34);  // (a plane faces -z, the game's -y: out of the fighter's back)
+        if (parent) plane.parent = parent;
+        plane.position = v3(...pos);
+        plane.rotation.set(-hpr[1] * D2R, -hpr[0] * D2R, -hpr[2] * D2R);
         return plane;
     }
 
@@ -799,13 +991,12 @@ export class FightScene extends BaseScene {
     // (the line tiers, CHANGE 147: fight_gfx.FighterVisual.finish) a built fighter's lines: each joint's parts (a fist's
     // with its forearm's, as the window joins them; a weapon with its hand's) one black mesh with its edges as lines
     // under the joint, so they move with it; a glowing part's lines apart; on lines each joint's outline too (the round
-    // limbs and head have few folds: base3d's silhouette). Returns [[mesh, its material, its hit flash's]]
+    // limbs and head have few folds: rimLines). Returns [[mesh, its material, its hit flash's]]
     fighterLines(n, parts) {
         const fade = this.lineFade(), mode = this.wire, out = [];
         const mat = this.lineMaterial("fighter", 1, ...fade), flash = this.tintedLines("fighterflash", FLASH, ...fade);
-        const hull = mode === "outline" ? this.hullMaterial("fighter", ...fade) : null;
-        const hullFlash = hull ? this.hullMaterial("fighterflash", ...fade) : null;
-        if (hullFlash && !hullFlash.ccTint) { hullFlash.ccTint = FLASH; this.paintLine(hullFlash); }
+        const rim = mode === "outline" ? this.rimMaterial("fighter", fade) : null;
+        const rimFlash = rim ? this.rimMaterial("fighterflash", fade, FLASH) : null;
         const groups = new Map();
         for (const m of parts) {
             if (!m.parent || m.isDisposed()) continue;
@@ -817,26 +1008,107 @@ export class FightScene extends BaseScene {
             const merged = this.mergeParts(list, joint);
             const lines = this.linesMesh("fighterlines", this.edgeLines(merged, mode, joint), mat, joint);
             if (lines) out.push([lines, mat, flash]);
-            if (hull && !glow) for (const m of merged) out.push([this.silhouette(m, hull), hull, hullFlash]);
+            if (rim && !glow) for (const m of merged) {
+                const r = this.rimLines(m, rim);
+                if (r) out.push([r, rim, rimFlash]);
+            }
         }
         return out;
     }
 
     // (the line tiers, CHANGE 147: fight_model.ModelFighterVisual.looks) a detailed model's lines (its pieces already
     // black): each piece's edges on a copy of its skinned vertices (base3d's skinnedLines), so they bend with every
-    // move; on lines its outline too, bending with it. Returns [[mesh, its material, its hit flash's]]
-    modelLines(meshes) {
+    // move; on lines its outline too, bending with it (rimLines). box: the body's posed box (CHANGE 150). Returns
+    // [[mesh, its material, its hit flash's]]
+    modelLines(meshes, box = null) {
         const fade = this.lineFade(), mode = this.wire, out = [];
         const mat = this.lineMaterial("model", 1, ...fade), flash = this.tintedLines("modelflash", FLASH, ...fade);
-        const hull = mode === "outline" ? this.hullMaterial("model", ...fade, undefined, true) : null;  // (glTF: mirrored)
-        const hullFlash = hull ? this.hullMaterial("modelflash", ...fade, undefined, true) : null;
-        if (hullFlash && !hullFlash.ccTint) { hullFlash.ccTint = FLASH; this.paintLine(hullFlash); }
+        const rim = mode === "outline" ? this.rimMaterial("model", fade) : null;
+        const rimFlash = rim ? this.rimMaterial("modelflash", fade, FLASH) : null;
         for (const m of meshes) {
             const lines = this.skinnedLines(m, mode, mat);
-            if (lines) out.push([lines, mat, flash]);
-            if (hull) out.push([this.silhouette(m, hull), hull, hullFlash]);
+            if (lines) out.push([withBox(lines, box), mat, flash]);
+            const r = rim ? this.rimLines(m, rim) : null;
+            if (r) out.push([withBox(r, box), rim, rimFlash]);
         }
         return out;
+    }
+
+    // (CHANGE 150: line_look.silhouette as the window draws it) lines: a round shape's outline is its back faces drawn
+    // as a wireframe 1.7 times as thick as the lines (about 2 pixels at 720 high), behind its own black front faces,
+    // which are pushed back twice as far as the other black faces (fighterFill: the window's depth offset of 2), so
+    // the back faces' edges show at the outline and, where a round shape turns away steeply, a little inside it. WebGL
+    // draws lines a pixel wide: here each edge of the shape is a line with its two faces' normals, shown where either
+    // face looks away (the shader's test, so the skin can move it), drawn twice a pixel apart (thin instances,
+    // offset in the picture). The edges are worked out once a shape (kept by its geometry: every fighter's copy of a
+    // model shares it). Returns the lines mesh (under mesh, sharing its bones), or null
+    rimLines(mesh, mat) {
+        const geo = mesh.geometry;
+        if (!geo) return null;
+        const cache = this.scene.ccRims || (this.scene.ccRims = new Map());
+        if (!cache.has(geo.uniqueId)) cache.set(geo.uniqueId, rimEdges(mesh));
+        const made = cache.get(geo.uniqueId);
+        if (!made) return null;
+        const r = new BABYLON.Mesh(mesh.name + " rim", this.scene);
+        const vd = new BABYLON.VertexData();
+        vd.positions = made.pos;
+        vd.indices = made.idx;
+        vd.applyToMesh(r);
+        r.setVerticesData("rimA", made.a, false, 3);
+        r.setVerticesData("rimB", made.b, false, 3);
+        r.setVerticesData("rimOther", made.o, false, 3);
+        if (made.bones && mesh.skeleton) {
+            for (const [kind, data] of made.bones) r.setVerticesData(kind, data, false, 4);
+            r.skeleton = mesh.skeleton;
+            r.numBoneInfluencers = mesh.numBoneInfluencers;
+        }
+        r.parent = mesh;
+        r.material = mat;
+        r.isPickable = false;
+        r.thinInstanceSetBuffer("matrix", RIM_MATRICES, 16, true);
+        r.thinInstanceSetBuffer("rimOffset", RIM_OFFSETS, 2, true);
+        const b = mesh.getBoundingInfo();  // (the shape's own box: the offsets are in the picture)
+        r.setBoundingInfo(new BABYLON.BoundingInfo(b.minimum.clone(), b.maximum.clone()));
+        if (mesh.material === this.wireFill()) mesh.material = this.fighterFill();
+        this.lineCount = (this.lineCount || 0) + made.idx.length / 2;
+        return r;
+    }
+
+    // (CHANGE 150) the rim lines' material: the line colour (times tint: the hit flash), fading as the lines do
+    rimMaterial(name, fade, tint = null) {
+        const key = "lines:rim" + name;
+        if (this.materials[key]) return this.materials[key];
+        const m = this.materials[key] = new BABYLON.ShaderMaterial("cclinesrim" + name, this.scene, {vertexSource: RIM_VERT, fragmentSource: RIM_FRAG}, {
+            attributes: ["position", "rimA", "rimB", "rimOther", "rimOffset"], uniforms: ["world", "viewProjection", "cameraPosition", "color", "fade", "screen"]});
+        m.fillMode = BABYLON.Material.LineListDrawMode;
+        m.backFaceCulling = false;
+        m.ccLine = true;
+        m.setVector2("fade", new BABYLON.Vector2(fade[0], fade[1]));
+        m.ccDim = 1;
+        m.ccPulse = 1;
+        if (tint) m.ccTint = tint;
+        this.lineMats.push(m);
+        this.paintLine(m);
+        // (the window's thickness: 1.7 times its lines' 1.2 pixels at 720 high, more on a taller picture)
+        const spread = () => {
+            const e = this.engine, h = e.getRenderHeight(), w = e.getRenderWidth();
+            const half = Math.max(0.25, (1.7 * Math.max(1, Math.round(h / 720 * 12) / 10) - 1) / 2);
+            m.setVector3("screen", new BABYLON.Vector3(Math.max(1, w), Math.max(1, h), half));  // (each copy moved half that)
+        };
+        spread();
+        this.scene.onBeforeRenderObservable.add(spread);
+        return m;
+    }
+
+    // (CHANGE 150) the black faces of a shape drawn with rim lines: pushed back as the window's are (its depth offset
+    // of 2, twice the page's other black faces')
+    fighterFill() {
+        if (this.materials.fighterfill) return this.materials.fighterfill;
+        const m = this.materials.fighterfill = this.wireFill().clone("fighterfill");
+        m.zOffset = 2;
+        m.zOffsetUnits = 2;
+        m.ccTile = 1;
+        return m;
     }
 
     applyPose(f, p) {

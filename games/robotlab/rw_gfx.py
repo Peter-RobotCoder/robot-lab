@@ -18,7 +18,7 @@ import random
 import time
 
 from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, DirectionalLight, Filename, Fog, GeomNode, Material,
-                          PerspectiveLens, Point3, Quat, SamplerState, Spotlight, TextNode, Texture, TextureStage,
+                          PandaNode, PerspectiveLens, Point3, Quat, SamplerState, Spotlight, TextNode, Texture, TextureStage,
                           TransparencyAttrib, Vec3)
 
 import arena_models  # (the ultra arena: numbers only, shared with the page)
@@ -120,6 +120,7 @@ def init(base, quality="high", line_colour=None):
         return None
     base.setBackgroundColor(0.02, 0.02, 0.03)
     render = base.render
+    base.cam.node().setCameraMask(VIEW_MASK)  # (CHANGE 152: ultra's robots' shadow pieces are the sun's alone)
     sun = DirectionalLight("key")
     sun.setColor((1.5, 1.42, 1.3, 1))
     if tier["shadow"]:
@@ -242,33 +243,80 @@ def pulse(lines, k):
 # ---------- the arena ----------
 PAINT_RED, PAINT_YELLOW = (0.6, 0.08, 0.06), (0.95, 0.7, 0.05)
 SHADOW_MASK = BitMask32.bit(5)  # ultra: the sun's shadow camera sees what doesn't hide from this (CHANGE 145)
+VIEW_MASK = PandaNode.getAllCameraMask() & ~SHADOW_MASK  # the cameras' (CHANGE 152): not the robots' shadow pieces
 ULTRA_MSAA = 4                  # ultra: simplepbr's samples (gfx_tiers says 8: see init)
 HAZE = (0.012, 0.014, 0.02)     # ultra: the hall's air, which the stands and walls fade into (linear, as lit)...
 HAZE_DENSITY = 0.012            # ...and how thick (exponential: the far stands four fifths themselves)
 
 
+SPLIT_TRIS = 6000  # ultra: a material's Geom bigger than this is cut into the arena's four sides (CHANGE 152)
+
+
+def sides(pos, nrm, uv, col, alpha, idx):
+    """A merged Geom's arrays cut into the arena's four sides (each triangle by where its middle is: east, west,
+    north or south of the arena's diagonals), so the camera leaves out the sides it doesn't see (the crowd behind it,
+    the stands and cage walls out of view): [(pos, nrm, uv, col, alpha, idx), ...], the empty ones left out."""
+    import numpy as np
+    tri = idx.reshape(-1, 3)
+    mid = pos[tri].mean(axis=1)
+    x, y = mid[:, 0], mid[:, 1]
+    side = np.where(np.abs(x) >= np.abs(y), np.where(x >= 0, 0, 1), np.where(y >= 0, 2, 3))
+    out = []
+    for s in range(4):
+        keep = tri[side == s]
+        if not len(keep):
+            continue
+        used, local = np.unique(keep.reshape(-1), return_inverse=True)
+        out.append((pos[used], nrm[used], uv[used], col[used], alpha[used], local.astype(np.int64)))
+    return out
+
+
 def ultra_parts(parent, parts, shapes, instances, wall_colour):
     """ultra (CHANGE 145): model_kit parts and placed shapes as one Geom per material under parent, each with its
-    look from arena_models.MATERIALS (colour None: the arena's wall colour)."""
-    for (material, far), (pos, nrm, uv, col, alpha, idx) in sorted(model_geom.merged(parts, shapes, instances).items()):
-        node = GeomNode(f"{material}{' far' if far else ''}")
-        node.addGeom(model_geom.geom_of(pos, nrm, uv, idx, col, alpha, material))
-        np_ = parent.attachNewNode(node)
-        look_ = arena_models.MATERIALS[material]
-        mats().apply(np_, look_["texture"], wall_colour if look_["colour"] is None else tuple(look_["colour"]),
-                     look_["rough"], look_["metal"], tuple(look_["emission"]) if look_.get("emission") else None)
-        if look_.get("two_sided"):
-            np_.setTwoSided(True)
-        if look_.get("decal"):
-            np_.setDepthOffset(1)
-        if look_.get("alpha"):
-            np_.setTransparency(TransparencyAttrib.M_alpha)
-            np_.setDepthWrite(False)
-            np_.setBin("transparent", 2)
-        if far or look_.get("flat"):  # (the floor and the hall needn't fill the shadow map: they only have shadows cast on them)
-            np_.hide(SHADOW_MASK)
-        if far and "haze" in _state:
-            np_.setFog(_state["haze"])
+    look from arena_models.MATERIALS (colour None: the arena's wall colour). (CHANGE 152) A big one that doesn't lie
+    flat is one Geom for each side of the arena (sides), so what is out of view isn't drawn; and the sun's shadow map
+    draws every part that casts a shadow as ONE Geom of its own (it sees every side: a draw call, not a few dozen)."""
+    import numpy as np
+    casters = []
+    for (material, far), arrays in sorted(model_geom.merged(parts, shapes, instances).items()):
+        flat = arena_models.MATERIALS[material].get("flat")
+        cut = sides(*arrays) if len(arrays[5]) > SPLIT_TRIS * 3 and not flat else [arrays]
+        for pos, nrm, uv, col, alpha, idx in cut:
+            ultra_part(parent, material, far, pos, nrm, uv, col, alpha, idx, wall_colour)
+        if not far and not flat:
+            casters.append(arrays)
+    if casters:
+        base, idx = 0, []
+        for a in casters:
+            idx.append(a[5] + base)
+            base += len(a[0])
+        pos = np.concatenate([a[0] for a in casters])
+        node = GeomNode("shadow")
+        node.addGeom(model_geom.geom_of(pos, np.concatenate([a[1] for a in casters]), np.zeros((len(pos), 2)),
+                                        np.concatenate(idx), None, None, "shadow", tangents=False))
+        parent.attachNewNode(node).hide(VIEW_MASK)
+
+
+def ultra_part(parent, material, far, pos, nrm, uv, col, alpha, idx, wall_colour):
+    """One Geom of the ultra arena, in its material's look."""
+    node = GeomNode(f"{material}{' far' if far else ''}")
+    node.addGeom(model_geom.geom_of(pos, nrm, uv, idx, col, alpha, material))
+    np_ = parent.attachNewNode(node)
+    look_ = arena_models.MATERIALS[material]
+    mats().apply(np_, look_["texture"], wall_colour if look_["colour"] is None else tuple(look_["colour"]),
+                 look_["rough"], look_["metal"], tuple(look_["emission"]) if look_.get("emission") else None)
+    if look_.get("two_sided"):
+        np_.setTwoSided(True)
+    if look_.get("decal"):
+        np_.setDepthOffset(1)
+    if look_.get("alpha"):
+        np_.setTransparency(TransparencyAttrib.M_alpha)
+        np_.setDepthWrite(False)
+        np_.setBin("transparent", 2)
+    np_.hide(SHADOW_MASK)  # (the floor and the hall needn't fill the shadow map: they only have shadows cast on them; the
+    # rest casts its shadow as ultra_parts' one Geom: CHANGE 152)
+    if far and "haze" in _state:
+        np_.setFog(_state["haze"])
 
 
 class ArenaVisual:
@@ -833,6 +881,20 @@ def ultra_robot_arrays():
     return _state["ultra_robot"]
 
 
+def ultra_shadow_geoms():
+    """ultra (CHANGE 152): each piece's shadow (robot_models.shadow_kit: no bolts or lamps, plain tyres) as one Geom
+    with no colours, made once and shared by every robot: {piece: Geom or None}."""
+    if "ultra_shadow" not in _state:
+        import numpy as np
+        out = {}
+        for name, parts in robot_models.shadow_kit().items():
+            pos, nrm, uv, col, alpha, idx = model_geom.arrays(parts)
+            out[name] = model_geom.geom_of(pos, nrm, np.zeros((len(pos), 2)), idx, None, None, name,
+                                           tangents=False) if len(idx) else None
+        _state["ultra_shadow"] = out
+    return _state["ultra_shadow"]
+
+
 def robot_role_geom(arrays, role, colour, trim):
     """One role of one piece for a robot of these colours: its vertices coloured, its texture coordinates on the
     role's texel of the atlas (robot_atlas)."""
@@ -1245,6 +1307,13 @@ class RobotVisual:
             self.beacon.setMaterial(beacon_mat, 2)
             nodes["beacon"].setMaterial(beacon_mat, 2)
             nodes["beacon"].setTexture(mats().ts_glow, white_texture(), 2)
+        # (CHANGE 152) the sun's shadow map draws each node's coarser shadow (robot_models.shadow_kit) beside it, never
+        # the robot itself; the cameras draw the robot, never its shadow pieces (VIEW_MASK)
+        shadows = {}
+        for name, pieces in nodes.items():
+            pieces.hide(SHADOW_MASK)
+            shadows[name] = pieces.getParent().attachNewNode("shadow")
+            shadows[name].hide(VIEW_MASK)
         for node, piece, pos, hpr, scale in robot_models.layout(weapon, size, self.house, sh):
             holder = nodes[node].attachNewNode(piece)
             holder.setPos(*pos)
@@ -1254,8 +1323,40 @@ class RobotVisual:
                 gn = GeomNode(role)
                 gn.addGeom(robot_role_geom(arrays, role, colour, trim))
                 holder.attachNewNode(gn)
-        for pieces in nodes.values():
+            if ultra_shadow_geoms().get(piece) is not None:
+                gn = GeomNode("shadow")
+                gn.addGeom(ultra_shadow_geoms()[piece])
+                caster = shadows[node].attachNewNode(gn)
+                caster.setPos(*pos)
+                caster.setHpr(*hpr)
+                caster.setScale(*scale)
+        for pieces in list(nodes.values()) + list(shadows.values()):
             pieces.flattenStrong()
+        # (CHANGE 152) while the armour and the wheels are whole, the body and its four panels are drawn as ONE Geom,
+        # and the shadow map draws them and the four wheels' tyres as one more: 6 draw calls a robot where there were
+        # 11, and 2 in the shadow pass (combine: back to every part on its own as soon as one bends, wobbles or comes off)
+        from panda3d.core import TransformState
+        armour = ("chassis", "deck", "skirt_r", "skirt_l", "rear")
+        self.whole = self.chassis.attachNewNode("whole")
+        self.whole.setMaterial(material, 1)
+        self.whole.setTexture(mats().ts_mr, mr, 1)
+        self.whole.setTexture(mats().ts_glow, glow, 1)
+        self.whole.hide(SHADOW_MASK)
+        self.whole_shadow = self.chassis.attachNewNode("whole shadow")
+        self.whole_shadow.hide(VIEW_MASK)
+        for name in armour:
+            for gn in nodes[name].findAllMatches("**/+GeomNode"):
+                gn.copyTo(self.whole).setTransform(gn.getTransform(self.chassis))
+            for gn in shadows[name].findAllMatches("**/+GeomNode"):
+                gn.copyTo(self.whole_shadow).setTransform(gn.getTransform(self.chassis))
+        for i, (w, spin, x, y) in enumerate(self.wheels):  # (where update puts each wheel, as the chassis sees it)
+            for gn in shadows[f"wheel{i}"].findAllMatches("**/+GeomNode"):
+                gn.copyTo(self.whole_shadow).setTransform(TransformState.makePos((x, y, 0.08)).compose(gn.getTransform(w)))
+        self.whole.flattenStrong()
+        self.whole_shadow.flattenStrong()
+        self.parts_apart = ([nodes[n] for n in armour], [shadows[n] for n in armour + tuple(f"wheel{i}" for i in range(4))])
+        self.combined = None
+        self.combine(True)
         # the name across the deck, as the other tiers paint it
         tn = TextNode("name")
         tn.setText(str(style.get("number", design["name"]))[:10].upper())
@@ -1265,6 +1366,20 @@ class RobotVisual:
         tnp.setHpr(0, -90, 0)
         tnp.setScale(min(0.2, 1.2 * h.x / max(3, len(tn.getText()))))
         mats().apply(tnp, None, (1, 1, 1), 0.5, 0, emission=(0.6, 0.6, 0.6))
+
+    def combine(self, whole):
+        """ultra (CHANGE 152): the body, its panels and (in the shadow map) the tyres drawn together (whole), or every
+        part on its own, as soon as one bends, wobbles or comes off. Only the draw masks change."""
+        if getattr(self, "whole", None) is None or whole == self.combined:
+            return
+        self.combined = whole
+        apart, shadows_apart = self.parts_apart
+        for np_ in apart:
+            np_.hide(VIEW_MASK) if whole else np_.show(VIEW_MASK)
+        for np_ in shadows_apart:
+            np_.hide(SHADOW_MASK) if whole else np_.show(SHADOW_MASK)
+        self.whole.show(VIEW_MASK) if whole else self.whole.hide(VIEW_MASK)
+        self.whole_shadow.show(SHADOW_MASK) if whole else self.whole_shadow.hide(SHADOW_MASK)
 
     def looks(self):
         """mesh and lines (CHANGE 145): the robot's faces black and its edges in the line colour. Each part that moves
@@ -1388,6 +1503,7 @@ class RobotVisual:
             self.health[name] = f
             self.weak[name] = 0.0 if f >= 0.6 else (0.6 - f) / 0.6
         self.scorch = self.weak["body"]
+        self.combine(not self.flying and not any(self.weak[n] or n in self.gone for n in sim.PARTS if n != "weapon"))
         rattle = math.sin(now * 37) * (1 if self.weak["armour"] > 0.5 else 0)
         for np_, hinge, bend in self.panels:  # armour panels bend out (and rattle when nearly off)
             if np_.getParent() == self.armour:

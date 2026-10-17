@@ -227,6 +227,11 @@ class Chrome:
                 break
         if not url:
             raise RuntimeError("Chrome didn't say where its DevTools socket is")
+        # (what Chrome writes after that is read and dropped: a full pipe would stall the whole browser)
+        def drain(pipe):
+            for _ in pipe:
+                pass
+        threading.Thread(target=drain, args=(self.proc.stderr,), daemon=True).start()
         self.ws = connect(url, max_size=64 * 1024 * 1024).__enter__()  # (closed by hand in close())
         self.n = 0
         self.session = None
@@ -406,6 +411,18 @@ def main():
             assert chrome.js("document.getElementById('places').children.length") >= 3
         check("The track and the karts are drawn, and the karts move", draws)
 
+        def kart_smooth():  # (CHANGE 155) the page's own kart predicted with its own design; the snapshots stamped by step
+            chrome.wait_for("!!window.__state.game.predictor && window.__state.game.predStats !== null", 15, "the prediction")
+            want = chrome.js("(() => { const g = window.__state.game, k = window.__state.roster.karts.find(k => k.id === g.myId());"
+                             " const d = k.design; return JSON.stringify({top: 17.0 + 0.22 * d.speed, accel: 5.0 + 0.10 * d.acceleration,"
+                             " grip: 6.0 + 0.10 * d.grip, steer: 95.0 + 1.0 * d.grip}); })()")
+            assert chrome.js("window.__state.game.predStats") == want, (chrome.js("window.__state.game.predStats"), want)
+            gaps = chrome.js("(() => { const s = window.__state.snaps; return s.slice(1).map((n, i) => (n.sm - s[i].sm) >>> 0); })()")
+            off = [g for g in gaps if abs(g - round(g / (1000 / 60)) * 1000 / 60) > 1.01]
+            assert len(gaps) > 20 and not off, f"snapshot stamps not on the 1/60 s steps: {off[:10]} of {len(gaps)}"
+        check("Kart Lab: your kart is predicted with its own design, and the snapshots are stamped by the step they show",
+              kart_smooth)
+
         def controls():
             assert chrome.js("window.__state.lesson.mode") == "practice"
             chrome.js("document.getElementById('btn-start').click()")
@@ -485,7 +502,7 @@ def main():
         check("The line tiers (mesh: every triangle's edges; lines: the outlines and a ground grid) draw black with the "
               "lines, the karts' too", line_tiers)
 
-        def ultra():  # (CHANGE 144) ultra: the sky, the land and woods, SSAO and bloom, the reflection cube, skids, sparks
+        def ultra():  # (CHANGE 144) ultra: the sky, the land and woods, bloom, the reflection cube, skids, sparks (no SSAO: CHANGE 151)
             chrome.js("window.__app.setTier('ultra')")
             time.sleep(1.5)
             assert chrome.js("window.__state.scene.tier") == "ultra"
@@ -496,7 +513,7 @@ def main():
                         sparks: !!sc.sparks, forest: sc.forest.length, land: sc.trackMeshes.some(m => m.name.includes('land') || m.name.includes('mountains')),
                         shadow: L.rtt.getRenderSize(), soft: [...L.materials].some(m => m.options.defines.includes('SOFTSHADOW')),
                         coat: [...L.materials].some(m => m.options.defines.includes('CLEARCOAT') && m.options.defines.includes('PROBE'))}; })()""")
-            assert got["sky"] and got["probe"] and got["ssao"] and got["bloom"] and got["skids"] and got["sparks"], got
+            assert got["sky"] and got["probe"] and not got["ssao"] and got["bloom"] and got["skids"] and got["sparks"], got
             assert got["forest"] >= 2 and got["shadow"] == 4096 and got["soft"] and got["coat"], got
             if os.path.exists(os.path.join(HERE, "models", "kart_ultra.json")):  # (the curved kart, make_models.py's)
                 chrome.wait_for("[...window.__state.scene.karts.values()].every(k => k.curved)", 20, "the curved karts")
@@ -515,13 +532,40 @@ def main():
                       f"{got['meshes']} meshes ({got['thin']} as thin instances), {got['casters']} casting shadows")
                 assert got["fetched"] and got["parts"] >= 15 and got["instances"] > 1000 and got["thin"] >= 20 and got["tinted"] >= 5, got
                 assert got["casters"] >= 10 and got["flatCasting"] == 0 and not got["old"] and got["pads"] and got["forest"] >= 2, got
+                # (CHANGE 151) the placed shapes' copies by cell, drawn into the shadow only where it reaches (never by
+                # the camera), no geometry buffer (no SSAO); the start lights follow the
+                # countdown (3 lit at 1.2 to 1.8 s to GO, none when not counting down, the file's timings); the pond's ripples move
+                got = chrome.js("""(async () => { const sc = window.__state.scene, c = sc.circuit, L = sc.lighting;
+                    const cells = c.meshes.filter(m => m.ccCell), rtt = L.rtt;
+                    const inShadow = rtt.getCustomRenderList(0, rtt.renderList, rtt.renderList.length).filter(m => m.ccCell).length;
+                    const em = () => c.lamps.map(m => m._vectors3.emission.x > 1 ? 1 : 0).join('');
+                    const w = c.water[0], uv0 = w ? w.mesh.getVerticesData('uv')[0] : null;
+                    // (a countdown 1.7 s from GO, looked at a quarter second on; the server's race messages held back meanwhile)
+                    const g = window.__state.game, r0 = g.race, take = g.message;
+                    g.message = m => m.type === 'race' ? true : take.call(g, m);
+                    g.race = Object.assign({}, r0 || {}, {phase: 1, go_in_ms: 1700, at: Date.now()});
+                    await new Promise(r => setTimeout(r, 250)); const lit = em();
+                    g.message = take; g.race = r0; await new Promise(r => setTimeout(r, 300)); const out = em();
+                    return {cells: cells.length, seen: cells.filter(m => m.layerMask !== 0).length, castCells: cells.filter(m => rtt.renderList.includes(m)).length,
+                            inShadow, gbuffer: !!sc.fx.gbuffer,
+                            wholeCasting: c.meshes.filter(m => m.hasThinInstances && !m.ccCell && rtt.renderList.includes(m)).length,
+                            lamps: c.lamps.length, lit, out, water: !!w && w.mesh.material.name.includes('water'),
+                            moved: !!w && w.mesh.getVerticesData('uv')[0] !== uv0, lights: !!c.lights,
+                            clubPond: await import('./kartfx.js').then(fx => { const d = fx.sceneryData(), m = d.materials.water;
+                                return d.tracks.club.parts.some(p => p.material === 'water') && m.texture === 'water' && !!m.flows; })}; })()""")
+                print(f"    ultra circuit by cell: {got['cells']} copies, {got['castCells']} casting, {got['inShadow']} in the shadow's box now")
+                assert got["cells"] >= 50 and got["seen"] == 0 and got["castCells"] >= 20 and got["wholeCasting"] == 0, got
+                assert 0 < got["inShadow"] < got["castCells"] and not got["gbuffer"], got
+                assert got["lamps"] == 5 and got["lit"] == "11100" and got["out"] == "00000", got
+                # (the pond: the club's alone, the oval drawn here has none; its ripples moving when there is one)
+                assert got["clubPond"] and got["lights"] and (got["water"] and got["moved"] or not got["water"] and not got["moved"]), got
             time.sleep(2.0)
             print(f"    ultra: {chrome.js('window.__state.fps')} fps here")
             chrome.screenshot(os.path.join(work, "kartlab_ultra.png"))
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
             chrome.js("window.__app.setTier('low')")
-        check("Ultra draws its sky, shading in the corners, glow, soft 4096 shadows, the world reflected in a clear coat, "
+        check("Ultra draws its sky, glow (no SSAO, as the window), soft 4096 shadows, the world reflected in a clear coat, "
               "skid marks and sparks, and the window's circuit (models/kart_scenery.json: its parts, its shapes as thin "
               "instances, the flat and far casting no shadow) in place of the road, grass and woods (and the curved kart, "
               "if models/ has it)", ultra)
@@ -1074,9 +1118,13 @@ def main():
             chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, f"Robot Lab drawn properly on ultra (last: {chrome.js(DRAWN_RIGHT)})")
             got = chrome.js("""(() => { const sc = window.__state.scene, u = sc.ultraParts, L = sc.lighting, list = L.rtt.renderList;
                 const robots = [...sc.robots.values()];
-                const own = robots.map(v => [...v.root.getChildMeshes(false), ...v.weapon.getChildMeshes(false)].filter(m => m.name.startsWith('robot ')).length);
+                const own = robots.map(v => [...v.root.getChildMeshes(false), ...v.weapon.getChildMeshes(false)].filter(m => m.name.startsWith('robot ') && m.layerMask && m.isVisible).length);
+                const robotCast = robots.map(v => [...v.root.getChildMeshes(false), ...v.weapon.getChildMeshes(false)].filter(m => list.includes(m)));
                 return {fetched: %s, parts: u.parts, instances: u.instances, triangles: u.triangles,
-                        thin: u.meshes.filter(m => m.thinInstanceCount > 1).length, tinted: u.meshes.filter(m => m.isVerticesDataPresent('instanceColor')).length,
+                        crowd: u.meshes.filter(m => m.ccCrowd && m.isVerticesDataPresent('color')).length,
+                        robotShadows: robotCast.every(c => c.length && c.every(m => m.layerMask === 0 && m.name.includes('shadow'))),
+                        whole: robots.every(v => v.whole && v.whole.isVisible && v.apart.every(m => !m.isVisible)),
+                        arenaShadow: u.casters.length && u.casters.every(m => m.layerMask === 0),
                         casters: u.casters.filter(m => list.includes(m)).length,
                         flatCasting: [...u.meshes, ...u.rig].filter(m => list.includes(m) && !m.ccCast).length,
                         rig: sc.rig.filter(m => m.name.startsWith('arena ')).length, own: Math.max(...own), fewest: Math.min(...own),
@@ -1089,8 +1137,11 @@ def main():
             print(f"    ultra arena: {got['parts']} parts, {got['instances']} placed shapes, {got['triangles']} triangles; "
                   f"{got['fewest']} to {got['own']} meshes a robot; {got['casters']} arena parts casting shadows")
             assert got["fetched"] == "arena_ultra.json,robot_ultra.json" and got["parts"] >= 20 and got["instances"] > 500, got
-            assert got["thin"] >= 10 and got["tinted"] >= 5 and got["casters"] >= 5 and got["flatCasting"] == 0 and got["rig"] >= 3, got
-            assert 4 <= got["fewest"] and got["own"] <= 12 and not got["boxes"], got
+            # (CHANGE 152) the crowd placed into a mesh a material and side; the shadow map draws the robots' coarser shadows and
+            # the arena's casters as one mesh, never seen by the camera; a whole robot's body and panels one mesh
+            assert got["crowd"] >= 8 and got["casters"] >= 1 and got["arenaShadow"] and got["flatCasting"] == 0 and got["rig"] >= 3, got
+            assert got["robotShadows"] and got["whole"], got
+            assert 4 <= got["fewest"] and got["own"] <= 9 and not got["boxes"], got
             assert got["shadow"] == 4096 and got["soft"] and got["haze"] and not got["hazeNear"] and got["atlas"] and got["bloom"], got
             assert not got["ssao"], got
             time.sleep(2.0)
@@ -1100,7 +1151,7 @@ def main():
             chrome.wait_for(f"window.__state.scene.tier === 'low' && {DRAWN_RIGHT} === 'ok'", 15, "Robot Lab back on low")
             no_errors()
         check("Robot Lab's ultra draws the window's robots (a mesh a moving part, the roles from an atlas) and arena (its "
-              "parts, the crowd and seats as thin instances, the flat and far casting no shadow, the hall in its haze) from "
+              "parts, the crowd and seats a mesh a material and side, the shadows as their own meshes, the hall in its haze) from "
               "models/robot_ultra.json and arena_ultra.json, fetched on ultra alone, with soft 4096 shadows and a glow",
               robot_ultra)
 
@@ -1443,7 +1494,7 @@ def main():
                     return {black: c.r + c.g + c.b === 0, stage: lines.filter(m => m.name === 'stagelines').length,
                             hall: lines.filter(m => m.name === 'halllines').length, edges: lines.some(m => m.name === 'edgelines' || m.name === 'ropelines'),
                             built: built.length, lined: built.filter(f => f.lines && own(f) >= 11).length,
-                            outlines: built.filter(f => f.lines && f.lines.some(([m]) => m.material.name.startsWith('cclineshull'))).length,
+                            outlines: built.filter(f => f.lines && f.lines.some(([m]) => m.material.name.startsWith('cclinesrim'))).length,
                             models: models.length, modelLines: models.filter(f => f.model.lines && f.model.lines.some(([m]) => m.skeleton)).length,
                             segments: sc.lineStats.segments, grid: sc.lineStats.grid, ms: sc.lineStats.ms, smoke: !sc.fx.look,
                             lit: s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name.includes(':'))}; })()""")
@@ -1482,7 +1533,7 @@ def main():
                 const own = built.map(f => f.root.getChildMeshes(false).filter(m => m.name.startsWith('fighter ')).length);
                 const rings = sc.ultraRings.flatMap(r => r.meshes);
                 return {fetched: %s, parts: u.parts, instances: u.instances, triangles: u.triangles, rings: rings.length,
-                        thin: u.meshes.filter(m => m.thinInstanceCount > 1).length, tinted: u.meshes.filter(m => m.isVerticesDataPresent('instanceColor')).length,
+                        crowd: u.meshes.filter(m => m.ccCrowd).length, tinted: u.meshes.filter(m => m.ccCrowd && m.isVerticesDataPresent('color')).length,
                         casters: rings.filter(m => list.includes(m)).length,
                         flatCasting: [...u.meshes, ...u.rig].filter(m => list.includes(m)).length,
                         rig: sc.rig.filter(m => m.name.startsWith('stage ')).length, built: built.length,
@@ -1497,7 +1548,7 @@ def main():
             print(f"    ultra hall: {got['parts']} parts, {got['instances']} placed shapes, {got['triangles']} triangles; "
                   f"{got['rings']} meshes in the rings; {got['fewest']} to {got['own']} meshes a fighter")
             assert got["fetched"] == "fight_ultra.json,stage_ultra.json" and got["parts"] >= 10 and got["instances"] > 1000, got
-            assert got["thin"] >= 10 and got["tinted"] >= 5 and got["rings"] >= 5 and got["casters"] >= 3 and got["flatCasting"] == 0 and got["rig"] >= 3, got
+            assert got["crowd"] >= 24 and got["tinted"] == got["crowd"] and got["rings"] >= 5 and got["casters"] >= 3 and got["flatCasting"] == 0 and got["rig"] >= 3, got
             assert got["built"] >= 1 and 13 <= got["fewest"] and got["own"] <= 16 and not got["boxes"], got
             assert got["shadow"] == 4096 and got["soft"] and got["haze"] and not got["hazeNear"] and got["atlas"] and got["bloom"], got
             assert not got["ssao"], got
@@ -1508,7 +1559,7 @@ def main():
             chrome.wait_for(f"window.__state.scene.tier === 'low' && {DRAWN_RIGHT} === 'ok'", 15, "Fight Lab back on low")
             no_errors()
         check("Fight Lab's ultra draws the window's fighters (a mesh a joint, the roles from an atlas) and hall (its parts, "
-              "the rings for their size, the crowd and seats as thin instances, the flat and far casting no shadow, the hall "
+              "the rings for their size, the crowd and seats in twelve pieces of the stands, the flat and far casting no shadow, the hall "
               "in its haze) from models/fight_ultra.json and stage_ultra.json, fetched on ultra alone, with soft 4096 shadows "
               "and a glow", fight_ultra)
         for key, proc in servers.items():

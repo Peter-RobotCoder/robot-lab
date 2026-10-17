@@ -1,9 +1,12 @@
 {
  "engine": "4",
- "kart": "2",
+ "kart": "3",
  "lab": "3",
  "fight": "1",
  "size": 512,
+ "fine": {
+  "signs_albedo": 1024
+ },
  "skies": {
   "env": [
    64,
@@ -80,7 +83,10 @@
   "turf_normal.jpg",
   "tyre_albedo.jpg",
   "tyre_mr.jpg",
-  "tyre_normal.jpg"
+  "tyre_normal.jpg",
+  "water_albedo.jpg",
+  "water_mr.jpg",
+  "water_normal.jpg"
  ],
  "sh": {
   "env": [

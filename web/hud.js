@@ -1,7 +1,7 @@
 // The games' on-screen displays in the page (CHANGE 134), after the windows' own:
 // - Fight Lab (fight_hud.py): the two fighters' health bars, with a white trail catching up after a hit and shrinking
 //   towards the outside edge; round-win pips; the energy meters ("SPECIAL READY" at 50); the round timer, red under
-//   10; the ring's label; the big banner (ROUND 1, FIGHT!, K.O.!); the combo counter on the attacker's side; in
+//   10; the ring's label; the big banner (ROUND 1, 3, 2, 1, GO!, K.O.!); the combo counter on the attacker's side; in
 //   practice, the training readout of the last hit. You are always on the left.
 // - Kart Lab (kart_gfx.Hud): LAP n/N, your place, km/h, the drift and boost meter with its MINI TURBO and SUPER TURBO
 //   marks, WRONG WAY, and the minimap with every kart; your lap time as you cross the line and the results panel
@@ -74,7 +74,7 @@ export class FightHud {
         const tl = ring.tl;
         const timer = tl === null || tl === undefined ? "" : `<div class="ftimer ${tl < 10 ? "low" : ""}">${Math.max(0, Math.floor(tl + 0.99))}</div>`;
         const bn = ring.bn || "";
-        const big = ["K.O.!", "PERFECT!", "FIGHT!"].includes(bn);
+        const big = ["K.O.!", "PERFECT!", "GO!", "3", "2", "1"].includes(bn);
         const banner = bn ? `<div class="fbanner ${big ? "big" : bn.length > 10 ? "long" : ""} ${["K.O.!", "RING OUT!"].includes(bn) ? "red" : ""}">${esc(bn)}</div>` : "";
         const sub = ring.ph === "ko" && bn && !bn.includes("WINS") ? `<div class="fsub">ROUND ${ring.rd}</div>` : "";
         let training = "";

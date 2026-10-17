@@ -176,6 +176,17 @@ def fmt_lap(t):
     return f"{m}:{t - m * 60:05.2f}" if m else f"{t:05.2f}s"
 
 
+def between(a, b, f):
+    """(CHANGE 155) A kart's state a fraction f of the way from a to b: the position, speed and heading; the rest b's."""
+    if a is None or not f > 0:
+        return dict(a if a is not None else b)
+    if f >= 1:
+        return dict(b)
+    dy = (b["yaw"] - a["yaw"] + 180) % 360 - 180
+    return dict(b, x=a["x"] + (b["x"] - a["x"]) * f, y=a["y"] + (b["y"] - a["y"]) * f, yaw=a["yaw"] + dy * f,
+                v=a["v"] + (b["v"] - a["v"]) * f, u=a.get("u", 0.0) + (b.get("u", 0.0) - a.get("u", 0.0)) * f)
+
+
 def parse_stats(text, design):
     """--stats: the kart's points (offline, and a window's first design before the server's is known)."""
     d = dict(design)
@@ -408,6 +419,7 @@ class Lab(hud.HudKit, ShowBase):
         self.last_ping = self.perf_at = 0.0
         self.local = None
         self.predictor = None
+        self.draw_from = None  # the predicted state before the newest tick: drawn between the two (CHANGE 155)
         self.smoother = predict.ErrorSmoother(remove_up=True)
         self.lead = predict.LeadController()
         self.snaps = interp.Snapshots(SNAP_SPEC)
@@ -722,8 +734,14 @@ class Lab(hud.HudKit, ShowBase):
         log_dir = SETTINGS_DIR if kart_version.FROZEN else HERE
         os.makedirs(log_dir, exist_ok=True)
         with open(os.path.join(log_dir, "window.log"), "a") as log:
-            subprocess.Popen(program + argv, cwd=os.getcwd() if kart_version.FROZEN else HERE, env=env,
-                             stdout=log, stderr=log, creationflags=flags)
+            child = subprocess.Popen(program + argv, cwd=os.getcwd() if kart_version.FROZEN else HERE, env=env,
+                                     stdout=log, stderr=log, creationflags=flags)
+        if os.environ.get("CLUBCODERS_WINDOW_PID_FILE"):  # (the app that opened this window follows the new one:
+            try:                                          # CHANGE 154)
+                with open(os.environ["CLUBCODERS_WINDOW_PID_FILE"], "w", encoding="utf-8") as f:
+                    f.write(str(child.pid))
+            except OSError:
+                pass
         os._exit(0)
 
     def toggle_code(self):
@@ -2504,6 +2522,7 @@ class Lab(hud.HudKit, ShowBase):
         if self.predictor is None:  # (its numbering carries on from ours: the server ignores a number going back)
             self.predictor = predict.Predictor(self.step_fn(), state, ignore=0.05,
                                                log=predict.InputLog(first_seq=self.next_seq))
+            self.draw_from = state
             self.smoother.clear()
             self.accum = 0.0  # (no burst of catch-up ticks from the time spent waiting for this)
             return
@@ -2511,6 +2530,10 @@ class Lab(hud.HudKit, ShowBase):
             return  # (the server hasn't applied any input of ours yet: nothing to compare with)
         err = self.predictor.correct(state, snap["ack"], sim.STEP, sim.compare)
         moved = self.predictor.moved_from
+        if moved is not None:  # (the state before the newest tick moves with the correction: the picture between them holds)
+            new, f = self.predictor.state, self.draw_from
+            self.draw_from = new if err == math.inf or f is None else dict(
+                f, x=f["x"] + new["x"] - moved["x"], y=f["y"] + new["y"] - moved["y"], yaw=f["yaw"] + new["yaw"] - moved["yaw"])
         if moved is not None and err != math.inf:
             new = self.predictor.state
             dyaw = math.radians((moved["yaw"] - new["yaw"] + 180) % 360 - 180)
@@ -2562,6 +2585,7 @@ class Lab(hud.HudKit, ShowBase):
         if self.frozen(now):
             inp = (0.0, 0.0, 0)
         if self.predictor is not None:
+            self.draw_from = self.predictor.state
             seq = self.predictor.apply(inp, sim.STEP, now)
             prev = self.predictor.log.previous(2)
             self.next_seq = self.predictor.log.next_seq
@@ -2623,7 +2647,9 @@ class Lab(hud.HudKit, ShowBase):
             if blended:
                 states = {e["id"]: e for e in blended["entities"]}
             if self.predictor is not None and self.my_id in states:
-                mine = dict(self.predictor.state)
+                # (CHANGE 155) between the last two ticks by the time since the newest: frames don't keep time with
+                # the 1/60 s ticks, and whole ticks drew our kart stopping one frame and jumping the next
+                mine = between(self.draw_from, self.predictor.state, self.accum / sim.STEP)
                 (ox, oy, _), oyaw = self.smoother.offset(dt)
                 mine["x"], mine["y"], mine["yaw"] = mine["x"] + ox, mine["y"] + oy, mine["yaw"] + math.degrees(oyaw)
                 states[self.my_id] = mine
@@ -2662,7 +2688,9 @@ class Lab(hud.HudKit, ShowBase):
 
     def draw(self, states, dt, now):
         me = states.get(self.my_id)
-        self.track_vis.update(now - self.start)  # (the dash pads pulse)
+        go = self.race["go_local"] if self.race["phase"] == sim.FLAGS_RACE else None
+        # (the dash pads pulse; on ultra the pond's ripples move and the start lights follow the countdown: CHANGE 151)
+        self.track_vis.update(now - self.start, None if go is None else go - now)
         for kid, k in states.items():
             vis = self.karts.get(kid)
             if vis is None:

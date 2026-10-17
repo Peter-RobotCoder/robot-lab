@@ -635,6 +635,23 @@ PIECES = {
     "chainsaw_mounts": chainsaw_mounts, "vdisc": vdisc, "vdisc_slot": vdisc_slot,
 }
 
+# ---------- the shadows (CHANGE 152) ----------
+# What the sun's shadow map draws of a robot: its pieces without the roles too small to show in a shadow (bolts and
+# nuts, the lamps, the lenses), each wheel a plain closed tyre (its tread blocks are a few millimetres against the
+# shadow map's 6 mm a texel, softened over 1.6 texels): about 9,000 triangles a robot where it sees 23,000. The robot
+# itself is drawn as ever; the coarser shapes lie inside the round ones, so nothing on the robot shadows itself wrongly.
+SHADOW_SKIP = ("chrome", "lights", "tail", "pilot", "laser", "beacon", "glass")
+
+
+def shadow_wheel(R, W):
+    """A wheel's shadow: a closed tyre as wide and as tall as the wheel's, its axle along x."""
+    p = Parts()
+    mk.cylinder(p.get("rubber"), ALONG_X, R, -W, W, seg=16)
+    return p.all()
+
+
+SHADOW_PIECES = {"wheel": lambda: shadow_wheel(*WHEEL), "house_wheel": lambda: shadow_wheel(*HOUSE_WHEEL)}
+
 
 # ---------- where the pieces go ----------
 def layout(weapon, size, house, sh):
@@ -705,7 +722,8 @@ def robot():
     """Every piece, as models/robot_ultra.json holds it."""
     pieces = {name: [p.packed() for p in parts] for name, parts in kit().items()}
     tris = {name: sum(len(mk.unpack(p)[5]) // 3 for p in parts) for name, parts in pieces.items()}
-    return {"version": VERSION, "roles": ROLES, "pieces": pieces,
+    shadow = {"skip": list(SHADOW_SKIP), "pieces": {name: [p.packed() for p in make()] for name, make in SHADOW_PIECES.items()}}
+    return {"version": VERSION, "roles": ROLES, "pieces": pieces, "shadow": shadow,
             "notes": {"frame": "x to the robot's right, y forward, z up, metres, at the standard size (100%); "
                                "triangles anticlockwise seen from outside",
                       "layout": "where each piece goes: robot_models.layout(weapon, size, house, shapes) in the robot "
@@ -717,6 +735,8 @@ def robot():
                                "along the bar; wheel0-3: the wheels, spinning about x",
                       "roles": "colour None: the design's colour; \"trim\": the style's trim colour; emission "
                                "\"lights\": the style's lights colour (screen colour) times 6",
+                      "shadow": "what the sun's shadow map draws of a robot (CHANGE 152): each piece without the roles "
+                                "in skip, and the pieces named here (the wheels: plain tyres) in place of those",
                       "triangles": tris}}
 
 
@@ -728,6 +748,17 @@ def kit():
     if not _kit:
         _kit.update({name: make() for name, make in PIECES.items()})
     return _kit
+
+
+_shadow_kit = {}
+
+
+def shadow_kit():
+    """Each piece's shadow (CHANGE 152), made once ({name: [model_kit.Part, ...]}), for the window."""
+    if not _shadow_kit:
+        _shadow_kit.update({name: [p for p in parts if p.material not in SHADOW_SKIP] for name, parts in kit().items()})
+        _shadow_kit.update({name: make() for name, make in SHADOW_PIECES.items()})
+    return _shadow_kit
 
 
 if __name__ == "__main__":

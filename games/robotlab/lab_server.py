@@ -112,6 +112,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def server_ms():
     """Milliseconds since the server started: the stamp the windows blend their picture by."""
     return int((time.perf_counter() - T0) * 1000) & 0xFFFFFFFF
+
+
+def step_ms(due):
+    """(CHANGE 155) The stamp for the state a physics step left: when that step was due on the same clock. Stamped
+    when it was sent, a snapshot after one step and the next after three looked the same time apart, and the pages
+    and windows, blending by the stamps, drew everything moving in jerks."""
+    return round((due - T0) * 1000) & 0xFFFFFFFF
 COLOURS = [(220, 60, 50), (60, 130, 230), (60, 190, 90), (240, 190, 40), (180, 90, 230)]
 
 # What learners can see and change. The teacher edits this live from the teacher screen.
@@ -168,6 +175,22 @@ CPU_NAME = "Computer robot"  # the first computer robot's name in the teacher's 
 MAX_CPUS = 4  # CHANGE 140: computer robots 2 to 4 are named CPU_NAME 2 and so on (their robots Sparky 2 to 4)
 CPU_NAMES = [CPU_NAME] + [f"{CPU_NAME} {k}" for k in range(2, MAX_CPUS + 1)]
 CPU_WEAPONS = ["wedge", "spinner", "drum", "hammer"]  # (each one's weapon as it comes)
+
+
+def clean_style(new, d):
+    """A robot's style (CHANGE 152: its trim and lights colours and the number painted on its deck, as a robot's mod
+    file has them) from a design sent in: what is right taken, the rest kept as it was, so the windows and the pages
+    draw it alike."""
+    st = d.get("style")
+    if not isinstance(st, dict):
+        return
+    style = dict(new.get("style") or {})
+    for key in ("trim", "lights"):
+        if key in st and rw_mods.colour_ok(st[key]):
+            style[key] = st[key]
+    if "number" in st:
+        style["number"] = re.sub(r"[^A-Za-z0-9 ]", "", str(st["number"]))[:10]
+    new["style"] = style
 
 
 def clean_cpu_arenas(v):
@@ -630,6 +653,7 @@ class LabServer:
             for key in ("colour", "weapon", "points", "settings"):
                 if key in d:
                     new[key] = d[key]
+            clean_style(new, d)
             if d.get("model") in sim.HOUSE_BY_NAME:
                 new["model"], new["weapon"] = d["model"], sim.HOUSE_BY_NAME[d["model"]][0]
             else:
@@ -762,6 +786,7 @@ class LabServer:
             c = d.get("colour", old["colour"])
             if isinstance(c, list) and len(c) == 3 and all(isinstance(v, int) and 0 <= v <= 255 for v in c):
                 new["colour"] = c
+            clean_style(new, d)
         if tools.get("points_table") and isinstance(d.get("points"), dict):
             new["points"] = {k: d["points"].get(k, old["points"][k]) for k in sim.STATS}
         for k in sim.SETTINGS:
@@ -1382,7 +1407,7 @@ class LabServer:
         A = self.arena
         time_left = self.time_left()
         arenas = [self.arena_state(a) for a in A]
-        return {"type": "state", "t": round(A.time, 2), "sm": server_ms(), "arenas": arenas,
+        return {"type": "state", "t": round(A.time, 2), "sm": getattr(self, "step_ms", None) or server_ms(), "arenas": arenas,
                 # the number of each window's last control applied (by its robot's id): the window measures its
                 # own control delay from it, and the kart game's prediction needs it
                 "acks": {p.robot.id: p.ctrl_seq for p in self.players.values()
@@ -1588,6 +1613,7 @@ class LabServer:
                 self.end_intro()
             if not self.paused:  # (after a win the arena keeps working; the winner stays on screen until Restart)
                 self.arena.step()
+            self.step_ms = step_ms(next_step - sim.STEP)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament
                 self.teaching.tick(self.arena.time)

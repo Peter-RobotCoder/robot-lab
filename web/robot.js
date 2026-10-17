@@ -15,6 +15,7 @@ import {BaseScene, TIERS, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} fro
 import {toneMap} from "./pbr.js";
 import {Sound} from "./sound.js";
 import {AfterFx} from "./kartfx.js";
+import {loadPandaFont, wordsSize, drawWords} from "./fightfx.js";
 import {RobotFX, HitBar, RobotCamera, CAM_MODES, CAM_NAMES, qmul, qrot, hprQuat, quatHpr, fromBabylonQuat, loadRobotModels,
         robotModelsData, loadArenaModels, arenaModelsData, robotShapes, robotLayout, robotNodeMesh, robotAtlas, ROBOT_GLOW,
         makeUltraArena} from "./robotfx.js";
@@ -23,7 +24,7 @@ const $ = id => document.getElementById(id);
 const ARENA = 20;
 const PIT = [3.2, 3.2, 3.0], FF = [-3.5, -3.5], SAWS = [[4.5, -3.5], [-5.0, 3.5]];
 const SPIKE_PIT = [-3.5, 7.0, 2.4], FLAME_PIT = [0, 0, 2.4], BOOST_PAD = [9.0, -3.0, 1.6], REPAIR_BAY = [-9.0, -4.0, 1.6];
-const RAMPS = [[6.7, -2.1, -1], [-6.7, -2.1, 1]];
+const RAMPS = [[6.7, -2.1, -1], [-6.7, -2.1, 1]], RAMP = [2.6, 1.8, 0.7];  // (lab_sim: RAMP_RUN, RAMP_WIDE, RAMP_HIGH)
 const STARTS = [[-7.5, 0], [7.5, 0], [-3.5, -7.5], [0, -7.5], [3.5, 7.5], [0, 7.5]];
 const START_COLOURS = [[0.9, 0.25, 0.2], [0.25, 0.55, 1], [0.3, 0.85, 0.4], [1, 0.8, 0.2], [0.8, 0.4, 1], [1, 0.5, 0.2]];
 const HOUSE_WEAPONS = {BLAZE: "flame", CRUSHER: "hammer", RIPSAW: "chainsaw", VORTEX: "vdisc"};
@@ -43,6 +44,13 @@ function designSize(d) {
     if (d.house) return 1.6;
     const s = ((d.settings || {}).size || 100) / 100;
     return d.model ? 1.6 * s : s;
+}
+
+// what is painted on a robot's deck, as the window paints it (lab_client.painted, CHANGE 152): a class robot's name (a
+// saved robot's style may carry an old "number": the window doesn't paint it), a Resident Robot's style number
+function deckNumber(d) {
+    const style = d.style || {};
+    return String((d.house && style.number !== undefined ? style.number : d.name) || "");
 }
 
 // lab_sim.floor_rects: the floor as rectangles (x0, y0, x1, y1) with the holes cut out (the drop zone, the floor
@@ -69,6 +77,13 @@ function floorRects(mods) {
 
 // (ultra, CHANGE 145) the hall's air the stands and walls fade into (rw_gfx.HAZE, linear) and how thick (per metre)
 const HAZE = [0.012, 0.014, 0.02], HAZE_DENSITY = 0.012, EXPOSURE = 0.7;
+// (CHANGE 152) the colours the window's words come out in, measured from its pictures (screen colours, 0 to 255): its
+// TextNodes have no normals, so the arena's lights never reach them and each is one even colour on a tier (its
+// ambient light, its reflections, its glow): the floor's name a pale grey-beige (its paint is yellow), the score on the
+// big screen a pale yellow, a robot's name on its deck a light grey. blocks: as the window's basic; low: no reflections
+const NAME_PAINT = {blocks: [137, 127, 115], low: [69, 53, 27], lit: [147, 136, 118]};
+const SCORE_GLOW = {blocks: [242, 239, 186], low: [242, 239, 186], lit: [242, 239, 186]};
+const DECK_PAINT = {blocks: [207, 207, 208], low: [207, 208, 208], lit: [213, 213, 213]};
 
 export class RobotScene extends BaseScene {
     static TIERS = TIERS;  // (every tier, the line tiers and ultra too, as the window: CHANGE 145)
@@ -180,8 +195,8 @@ export class RobotScene extends BaseScene {
             const d = S(this.box(null, 0.17, 0.05, 0.004, yellow, Math.cos(a) * 3, Math.sin(a) * 3, 0.005));
             d.rotation.y = -(a + Math.PI / 2);
         }
-        if (!mods.flame_pit) {  // (the window's yellow paint under the spotlights; the line colour on the line tiers)
-            const logo = this.floorText(look.name || "ROBOT LAB", 0, -0.45, 0.012, 7, this.wire ? "#ffffff" : "#e6cf86", 0.75);
+        if (!mods.flame_pit) {  // (the window's yellow paint, lit by the arena's lights; the line colour on the line tiers)
+            const logo = this.words(String(look.name || "ROBOT LAB"), 1.2, NAME_PAINT, [0, -0.45, 0.012], [0, -90, 0]);
             if (this.wire) this.lettering(logo);
         }
         // the drop zone: a dark shaft, a striped rim, the lights round its edge and the lid that drops
@@ -353,8 +368,7 @@ export class RobotScene extends BaseScene {
         statics.push(...people);
         // the big screen with the arena's name (on ultra the window's screen; the line colour on the line tiers)
         if (!ultra) S(this.box(null, 4, 0.3, 1.4, M("screenbox", [0.1, 0.1, 0.12], 1, 1, "steel"), 0, h + 7.5, 6.5));
-        const board = this.floorText(look.name || "ROBOT LAB", 0, h + 7.15, 6.6, 6, this.wire ? "#ffffff" : "#ffcc33");
-        board.rotation.x = 0;
+        const board = this.words(String(look.name || "ROBOT LAB"), 0.9, SCORE_GLOW, [0, h + 7.15, 6.6], [0, 0, 0]);
         if (this.wire) this.lettering(board);
         // the user mods
         if (mods.spike_pit) {
@@ -384,12 +398,25 @@ export class RobotScene extends BaseScene {
         this.repair = mods.repair_bay ? this.box(null, REPAIR_BAY[2] / 2, REPAIR_BAY[2] / 2, 0.008, this.repairMat, REPAIR_BAY[0], REPAIR_BAY[1], 0.008) : null;
         if (this.boost) moving.push([null, [this.boost], "boost"]);
         if (this.repair) moving.push([null, [this.repair], "repair"]);
-        if (mods.ramps) {
+        if (mods.ramps) {  // (CHANGE 152: rw_gfx's ramps on every tier, ultra's too: the physics' wedge, its deck in
+            // diamond plate, hazard stripes down its sides, a lit green speed-burst pad with white arrow bars up its slope)
             const deck = blocks ? M("ramp", [0.75, 0.75, 0.78], 1, 1) : M("ramp", [0.75, 0.75, 0.78], 1, 1, "diamond", 0.6);
+            const body = M("rampbody", [0.3, 0.3, 0.32], 1, 1, "steel", 0.5);
+            const pad = M("ramppad", [0.02, 0.05, 0.02], 0.5, 0, null, null, [0.2, 0.9, 0.3]);
+            const bars = M("rampbars", [0.1, 0.1, 0.1], 0.5, 0, null, null, [1.5, 1.5, 1.6]);
+            const [L, W, H] = RAMP;
             for (const [cx, cy, d] of RAMPS) {
-                const ramp = S(this.box(null, 1.35, 0.9, 0.05, deck, cx, cy, 0.35));
-                ramp.rotation.z = d * Math.atan2(0.7, 2.6);  // (rising towards x = cx + d*1.3)
-                S(this.box(null, 0.05, 0.9, 0.35, M("rampbody", [0.3, 0.3, 0.32], 1, 1, "steel"), cx + d * 1.3, cy, 0.35));
+                const xb = cx - d * L / 2, xt = cx + d * L / 2, y0 = cy - W / 2, y1 = cy + W / 2;
+                const nl = Math.hypot(H, L), n = [-d * H / nl, 0, L / nl];  // (the slope's normal)
+                const on = (t, y, lift = 0) => [xb + d * t * L + n[0] * lift, y, t * H + n[2] * lift];  // (t: from the bottom to the top)
+                const sl = (t0, t1, ya, yb, lift) => [[on(t0, ya, lift), on(t0, yb, lift), on(t1, yb, lift), on(t1, ya, lift)], n];
+                S(this.polyMesh([sl(0, 1, y0, y1, 0)], deck));
+                S(this.polyMesh([[[[xt, y0, 0], [xt, y1, 0], [xt, y1, H], [xt, y0, H]], [d, 0, 0]],
+                                 [[[xb, y0, 0], [xt, y0, 0], [xt, y0, H]], [0, -1, 0]], [[[xb, y1, 0], [xt, y1, 0], [xt, y1, H]], [0, 1, 0]]], body));
+                S(this.polyMesh([sl(0, 1, y0, y0 + 0.15, 0.006), sl(0, 1, y1 - 0.15, y1, 0.006)], hazard));
+                const pw = W * 0.3;
+                S(this.polyMesh([sl(0.2, 0.8, cy - pw, cy + pw, 0.008)], pad));
+                S(this.polyMesh([0.35, 0.5, 0.65].map(t => sl(t - 0.03, t + 0.03, cy - pw * 0.7, cy + pw * 0.7, 0.014)), bars));
             }
         }
         this.lasers = [];
@@ -448,6 +475,68 @@ export class RobotScene extends BaseScene {
             if (saw) { saw.glowLines = lines; if (lines) lines.isVisible = false; }
         }
         this.lineStats = {segments: (this.lineCount || 0) - before, grid, ms: Math.round(performance.now() - t0)};
+    }
+
+    // (CHANGE 152) words as the window's TextNode writes them (centred on its pen's travel, the baseline at pos, in Panda's
+    // own letters: fightfx.js's drawWords; scale metres a unit; turned by the window's hpr, degrees) and in the colour
+    // the window shows them in on this tier (look: NAME_PAINT and the rest), unlit as the window's are; the line colour
+    // on the line tiers. Until the letters are loaded, the browser's sans, and the scene made again once they are
+    words(text, scale, look, pos, hpr, parent = null) {
+        const size = wordsSize(text) || {width: 0.6 * String(text).length, lo: -0.2, hi: 0.75};
+        const ppu = 128, pad = 0.1, w = size.width + 2 * pad, lo = size.lo - pad, hi = size.hi + pad;
+        const cw = Math.max(8, Math.ceil(w * ppu)), ch = Math.max(8, Math.ceil((hi - lo) * ppu));
+        const plane = BABYLON.MeshBuilder.CreatePlane("words", {width: w * scale, height: (hi - lo) * scale}, this.scene);
+        plane.bakeTransformIntoVertices(BABYLON.Matrix.Translation(0, (hi + lo) / 2 * scale, 0));  // (its middle on the baseline)
+        plane.ccOwnUV = true;
+        const tex = new BABYLON.DynamicTexture("wordstex", {width: cw, height: ch}, this.scene, true);
+        tex.hasAlpha = true;
+        const ctx = tex.getContext();
+        ctx.clearRect(0, 0, cw, ch);
+        if (!drawWords(ctx, text, cw / 2, hi * ppu, ppu, "#ffffff")) {
+            ctx.fillStyle = "#ffffff";
+            ctx.textAlign = "center";
+            ctx.font = `${Math.round(0.7 * ppu)}px sans-serif`;
+            ctx.fillText(String(text), cw / 2, hi * ppu);
+            if (!this.fontWait) { const scene = this.scene; this.fontWait = loadPandaFont().then(f => { if (f && this.scene === scene) this.build(); }); }
+        }
+        tex.update();
+        const m = new BABYLON.StandardMaterial("wordsmat", this.scene);
+        m.diffuseTexture = tex;
+        m.useAlphaFromDiffuseTexture = true;
+        m.specularColor = new BABYLON.Color3(0, 0, 0);
+        m.disableLighting = true;
+        const c = look[this.tier === "blocks" ? "blocks" : this.tier === "low" ? "low" : "lit"];
+        m.emissiveColor = this.wire ? new BABYLON.Color3(1, 1, 1) : new BABYLON.Color3(c[0] / 255, c[1] / 255, c[2] / 255);
+        m.backFaceCulling = true;  // (a TextNode is one-sided)
+        plane.material = m;
+        plane.isPickable = false;
+        if (parent) plane.parent = parent;
+        plane.position = v3(...pos);
+        plane.rotation.set(-hpr[1] * Math.PI / 180, -hpr[0] * Math.PI / 180, -hpr[2] * Math.PI / 180);
+        return plane;
+    }
+
+    // (CHANGE 152) flat convex polygons as one mesh (engine/rw_mesh.py's Mesh.poly): polys [[points, normal], ...] in
+    // game coordinates, each facing along its normal (its texture coordinates are base3d's metres)
+    polyMesh(polys, mat, name = "poly") {
+        const pos = [], nor = [], uv = [], idx = [];
+        for (const [pts, n] of polys) {
+            const p = pts.map(q => v3(...q)), nb = v3(...n), b = pos.length / 3;
+            // (a front face of Babylon's own boxes turns so that (b - a) x (c - a) points away from its normal)
+            const face = BABYLON.Vector3.Cross(p[1].subtract(p[0]), p[2].subtract(p[0]));
+            const order = BABYLON.Vector3.Dot(face, nb) > 0 ? p.map((_, i) => i).reverse() : p.map((_, i) => i);
+            for (const i of order) { pos.push(p[i].x, p[i].y, p[i].z); nor.push(nb.x, nb.y, nb.z); uv.push(0, 0); }
+            for (let k = 1; k < p.length - 1; k++) idx.push(b, b + k, b + k + 1);
+        }
+        const mesh = new BABYLON.Mesh(name, this.scene);
+        const vd = new BABYLON.VertexData();
+        vd.positions = pos;
+        vd.normals = nor;
+        vd.uvs = uv;
+        vd.indices = idx;
+        vd.applyToMesh(mesh);
+        mesh.material = mat;
+        return mesh;
     }
 
     // a box in its own colour (a person in the crowd): vertex colours, so a whole crowd is one mesh
@@ -675,16 +764,17 @@ export class RobotScene extends BaseScene {
         }
         this.shadowCast(all);
         // its name (or number) painted on the deck, as rw_gfx does (not on the line tiers: CHANGE 145)
-        const painted = this.wire ? "" : String(style.number || d.name || "").slice(0, 10).toUpperCase();
-        if (painted) {
-            const deckName = this.floorText(painted, 0, 0, 0, 2.3 * hx, "#ffffff", 0.85);  // (letters about 0.2 m, as the window paints them)
-            deckName.parent = deck;
-            deckName.position = v3(0, 0.72 * hy, 0.047);
+        const painted = this.wire ? "" : deckNumber(d).slice(0, 10).toUpperCase();
+        let deckName = null;
+        if (painted) {  // (where the window paints it, its size: a standard robot's, made k times bigger with the robot)
+            const kk = robotShapes(weaponType, s, big).k;
+            deckName = this.words(painted, Math.min(0.2, 1.2 * hx / kk / Math.max(3, painted.length)) * kk, DECK_PAINT,
+                                  [0, 0.68 * hy, 0.048 * kk], [0, -90, 0], deck);
         }
         const owner = info.owner || "";
         const house = owner === "Resident Robot";
         const label = this.makeLabel(house ? `${d.name || ""}\nResident Robot` : owner || d.name || "", house ? "#ffbf4d" : "#ffffff", 1.1, false);
-        const vis = {key: JSON.stringify([info.design || {}, owner]), deckName: painted ? deck.getChildMeshes(true).find(m => m.name === "floortext") : null, root, armour, panels, weapon, spin, blur, chain, chainBase, chainPos: 0, wheels, wr, ww, label, design: d, owner, weaponType, s, top,
+        const vis = {key: JSON.stringify([info.design || {}, owner]), deckName, root, armour, panels, weapon, spin, blur, chain, chainBase, chainPos: 0, wheels, wr, ww, label, design: d, owner, weaponType, s, top,
                      angle: 0, roll: 0, hp: null, flash: 0, groups, tints: {}, trimM, hazardM, trim, hx, rear: null, beacon,
                      health: {}, weak: {}, gone: new Set(), flying: [], bars: {}, barUntil: {}, scorch: 0, fresh: true};
         if (this.wire) this.robotLines(vis);
@@ -781,25 +871,62 @@ export class RobotScene extends BaseScene {
             mesh.material = mesh.ccBase = base;
             groups[groupOf(n)].push(mesh);
         }
-        this.shadowCast(all);
-        const painted = String(style.number || d.name || "").slice(0, 10).toUpperCase();
+        // (CHANGE 152, as the window's) the sun's shadow map draws each node's coarser shadow (the file's "shadow": no
+        // bolts or lamps, plain tyres), never the robot (layerMask 0: no camera draws them); and while the armour and
+        // wheels are whole, the body and its panels are ONE mesh, and their shadow and the tyres' one more (combine)
+        const ARMOUR = ["chassis", "deck", "skirt_r", "skirt_l", "rear"], apart = [], shadowsApart = [], casters = [];
+        const caster = (mesh, parent) => {
+            mesh.parent = parent;
+            mesh.material = base;
+            mesh.layerMask = 0;
+            casters.push(mesh);
+            return mesh;
+        };
+        for (const [n, items] of Object.entries(byNode)) {
+            const m = nodes[n] ? robotNodeMesh(this, "robot shadow " + n, items, colour, trim, true) : null;
+            if (!m) continue;
+            caster(m, nodes[n]);
+            if (ARMOUR.includes(n) || n.startsWith("wheel")) shadowsApart.push(m);
+        }
+        const hingeOf = n => (n === "chassis" ? [0, 0, 0] : panels[["deck", "skirt_r", "skirt_l", "rear"].indexOf(n)].hinge);
+        const inBody = ARMOUR.flatMap(n => (byNode[n] || []).map(([piece, pos, hpr, scale]) => [piece, pos.map((c, i) => c + hingeOf(n)[i]), hpr, scale]));
+        const tyres = WHEELS.flatMap(([x, y], i) => (byNode["wheel" + i] || []).map(([piece, pos, hpr, scale]) =>
+            [piece, [pos[0] + x * s / k, pos[1] + y * s / k, pos[2] + 0.08 / k], hpr, scale]));
+        const whole = robotNodeMesh(this, "robot whole", inBody, colour, trim);
+        whole.parent = body;
+        whole.material = whole.ccBase = base;
+        groups.chassis.push(whole);
+        for (const n of ARMOUR) apart.push(...all.filter(m => m.parent === nodes[n] && m !== whole));
+        const wholeShadow = caster(robotNodeMesh(this, "robot whole shadow", [...inBody, ...tyres], colour, trim, true), body);
+        this.shadowCast(casters.filter(m => m !== wholeShadow).concat([wholeShadow]));
+        const painted = deckNumber(d).slice(0, 10).toUpperCase();
         let deckName = null;
-        if (painted) {  // (across the deck just above its plate, the letters the window's size: its text scale, over the
-            // capitals' share of floorText's picture)
-            deckName = this.floorText(painted, 0, 0, 0, Math.min(0.2, 1.2 * hx / Math.max(3, painted.length)) * 6.67, "#ffffff", 0.85);
-            deckName.parent = nodes.deck;
-            deckName.position = v3(0, hy * 0.68, 0.045 * size + 0.002);
+        if (painted) {  // (across the deck just above its plate, at the window's height and letter size)
+            deckName = this.words(painted, Math.min(0.2, 1.2 * hx / Math.max(3, painted.length)), DECK_PAINT,
+                                  [0, hy * 0.68, 0.045 * size + 0.002], [0, -90, 0], nodes.deck);
         }
         const owner = info.owner || "", house = owner === "Resident Robot";
         const label = this.makeLabel(house ? `${d.name || ""}\nResident Robot` : owner || d.name || "", house ? "#ffbf4d" : "#ffffff", 1.1, false);
         const vis = {key: JSON.stringify([info.design || {}, owner]), deckName, root, armour, panels, weapon, spin, blur, chain, chainBase,
                      chainPos: 0, chainStep: 0.06 * size, wheels, wr, ww, label, design: d, owner, weaponType, s, top: top * k, k,
                      angle: 0, roll: 0, hp: null, flash: 0, groups, tints: {}, trimM: base, hazardM: base, trim, hx: hx * k, rear: null, beacon,
-                     ultraWeapon: groups.weapon.filter(m => m.parent === nodes.weapon),
+                     ultraWeapon: groups.weapon.filter(m => m.parent === nodes.weapon), whole, wholeShadow, apart, shadowsApart, combined: null,
                      health: {}, weak: {}, gone: new Set(), flying: [], bars: {}, barUntil: {}, scorch: 0, fresh: true};
         this.ultraRobots = true;
+        this.combine(vis, true);
         this.robots.set(info.id, vis);
         return vis;
+    }
+
+    // (ultra, CHANGE 152: rw_gfx.RobotVisual.combine) the body, its panels and (in the shadow map) the tyres drawn
+    // together (whole), or every part on its own, as soon as one bends, wobbles or comes off
+    combine(v, whole) {
+        if (!v.whole || v.combined === whole) return;
+        v.combined = whole;
+        for (const m of v.apart) m.isVisible = !whole;
+        for (const m of v.shadowsApart) m.isVisible = !whole;
+        v.whole.isVisible = whole;
+        if (v.wholeShadow) v.wholeShadow.isVisible = whole;
     }
 
     // (ultra) a robot's material: white times its colour scale q (linear: rw_gfx's colour scales), the vertices' colours,
@@ -843,6 +970,7 @@ export class RobotScene extends BaseScene {
         });
         v.fresh = false;
         v.scorch = v.weak.body;
+        this.combine(v, !v.flying.length && !PARTS.some(n => n !== "weapon" && (v.weak[n] || v.gone.has(n))));
         const rattle = Math.sin(now * 37) * (v.weak.armour > 0.5 ? 1 : 0);
         if (!v.gone.has("armour")) {  // armour panels bend out (and rattle when nearly off)
             const k = v.weak.armour + 0.15 * rattle;
@@ -1322,7 +1450,11 @@ function weaponPivot(weapon, size) {
 class PreviewScene extends RobotScene {
     populate() {
         const scene = this.scene;
-        this.ultra = false;  // (Babylon's simple materials: high's robot on ultra; CHANGE 145)
+        // (CHANGE 152) ultra's robot on ultra, as the window's preview: the file asked for (on ultra alone), high's robot
+        // until it has come, then made again (show)
+        this.ultra = !!this.settings.ultra;
+        this.screenColours = true;
+        if (this.ultra) loadRobotModels().then(d => { if (d && this.scene === scene) this.key = null; });
         this.wheelLines = {};
         this.glowLines = {};
         this.lineCount = 0;
@@ -1365,6 +1497,33 @@ class PreviewScene extends RobotScene {
             m.specularColor = new BABYLON.Color3(s, s, s);
             m.specularPower = 24;
         }
+        return m;
+    }
+
+    // (ultra, CHANGE 152) the smooth robot in Babylon's simple materials: the vertices' screen colours, a little shine
+    // where a role is smooth metal (the preview's own rule, above), its glow from the atlas
+    ultraRobotMaterial(lights) {
+        const key = `rultra:${lights.map(v => v.toFixed(3)).join(",")}`;
+        if (this.materials[key]) return this.materials[key];
+        const atlas = robotAtlas(this, lights), roles = robotModelsData().roles, names = Object.keys(roles);
+        if (!this.specAtlas) {
+            const data = new Uint8Array(names.length * 4);
+            names.forEach((r, i) => {
+                const L = roles[r], s = L.metal ? 0.3 * (1.2 - Math.min(1, L.rough)) : 0.04;
+                data.set([Math.round(s * 255), Math.round(s * 255), Math.round(s * 255), 255], i * 4);
+            });
+            this.specAtlas = BABYLON.RawTexture.CreateRGBATexture(data, names.length, 1, this.scene, false, false, BABYLON.Texture.NEAREST_SAMPLINGMODE);
+        }
+        const m = new BABYLON.StandardMaterial(key, this.scene);
+        m.diffuseColor = new BABYLON.Color3(1, 1, 1);
+        m.specularColor = new BABYLON.Color3(1, 1, 1);
+        m.specularTexture = this.specAtlas;
+        m.specularPower = 24;
+        m.emissiveTexture = atlas.glow;
+        m.emissiveTexture.level = ROBOT_GLOW;
+        m.backFaceCulling = true;
+        m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;
+        this.materials[key] = m;
         return m;
     }
 

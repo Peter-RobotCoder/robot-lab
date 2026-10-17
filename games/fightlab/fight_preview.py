@@ -10,6 +10,7 @@ the art and timing the graphics tiers (CHANGE 147, as shared-world-demo/lab_prev
     python fight_preview.py --offscreen --screenshot s.png --closeup 0   fighter 0 close up, from the front (two to
                                                    a ring: 0 and 1 in ring 1, 2 and 3 in ring 2...)
     python fight_preview.py --hazards ropes,electric_ropes,fire_jets   with ropes and hazards (else ring-outs)
+    python fight_preview.py --ring 2 --zoom 2.5 --orbit 90   the fight camera zoomed right out, swung round
 
 The rings: 1 a built robot and a martial artist (BLAZE, KAITO), 2 the detailed 3D woman and man (Penthesilea,
 Achilles), 3 two bosses (GOLIATH, SHADE), then Robin and KRAGG, VOLTRIX and Kaito (--rings up to 5). Practice
@@ -33,6 +34,10 @@ ap.add_argument("--camera", choices=["fight", "me", "shoulder", "ring", "all"], 
 ap.add_argument("--ring", type=int, default=1, help="the ring the camera watches (1 to --rings)")
 ap.add_argument("--rings", type=int, default=3, choices=[1, 2, 3, 4, 5])
 ap.add_argument("--closeup", type=int, default=None, help="the camera close to this fighter, from the front")
+ap.add_argument("--behind", action="store_true", help="--closeup from behind (the number on the back: CHANGE 150)")
+ap.add_argument("--zoom", type=float, default=None, help="the camera's zoom, 0.4 (close) to 2.5 (far)")
+ap.add_argument("--orbit", type=float, default=0.0, help="the camera swung round this many degrees")
+ap.add_argument("--tilt", type=float, default=0.0, help="the camera tilted up this many degrees (-12 to 55)")
 ap.add_argument("--view", default=None, help="a fixed camera: x,y,z,look x,look y,look z[,fov]")
 ap.add_argument("--hazards", default="", help="ropes (no ring-outs), electric_ropes, fire_jets, slippery, spikes")
 ap.add_argument("--window", default="1280x720")
@@ -89,6 +94,9 @@ class Preview(ShowBase):
         print(f"stage built in {time.perf_counter() - started:.2f} s at {fight_gfx.tier()}", flush=True)
         self.fx = fight_fx.Effects(self.render, "low" if fight_gfx.tier() in ("basic", "low") else fight_gfx.tier())
         self.cam = FightCamera(self, args.camera)
+        if args.zoom is not None:
+            self.cam.zoom[self.cam.mode] = max(0.4, min(2.5, args.zoom))
+        self.cam.orbit, self.cam.tilt = args.orbit % 360, max(-12.0, min(55.0, args.tilt))
         self.fixed = bool(args.offscreen and args.screenshot)  # (one tick a frame: the same moment on every tier)
         self.watch = max(0, min(args.rings, args.ring) - 1)
         self.vis = {}
@@ -188,6 +196,8 @@ class Preview(ShowBase):
             v = self.vis[f.id]
             q = v.root.getQuat(self.render)
             fwd, right = q.getForward(), q.getRight()
+            if args.behind:
+                fwd, right = -fwd, -right
             fwd.z = right.z = 0
             fwd.normalize()
             right.normalize()

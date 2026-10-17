@@ -106,6 +106,13 @@ def server_ms():
     return int((time.perf_counter() - T0) * 1000) & 0xFFFFFFFF
 
 
+def step_ms(due):
+    """(CHANGE 155) The stamp for the state a physics step left: when that step was due on the same clock. Stamped
+    when it was sent, a snapshot after one step and the next after three looked the same time apart, and the pages
+    and windows, blending by the stamps, drew everything moving in jerks."""
+    return round((due - T0) * 1000) & 0xFFFFFFFF
+
+
 class KartUnit:
     """A player's kart as the teaching layer sees it: its id in the race, its brain while autopilot is on, and how
     many bumps it has had (the engine's Record counts hits)."""
@@ -1012,11 +1019,12 @@ class KartServer:
         while True:
             next_step += sim.STEP
             now = time.perf_counter()
-            if next_step < now - 4 * sim.STEP:  # (a long stall: don't try to catch up)
-                next_step = now
+            if next_step < now - 4 * sim.STEP:  # (a long stall: don't try to catch up; whole steps are skipped, so the
+                next_step += (now - next_step) // sim.STEP * sim.STEP  # steps' stamps stay 1/60 s apart: CHANGE 155)
             await asyncio.sleep(max(0.0, next_step - now))
             if not self.paused:
                 self.step()
+            self.step_ms = step_ms(next_step)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the league
                 self.teaching.tick(self.race.tick * sim.STEP)  # (seconds: a brain's running time is in seconds)
@@ -1085,7 +1093,7 @@ class KartServer:
             if ticks % 30 == 0:  # once a second: missions and the teacher's outcome grid
                 await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
             self.snap_seq = (self.snap_seq + 1) & 0xFFFF
-            sm = server_ms()
+            sm = getattr(self, "step_ms", None) or server_ms()
             entities = list(self.race.karts.values())
             race_msg = None
             version = (self.race.phase, self.race.go_tick, len(self.race.finish), len(self.race.events))
