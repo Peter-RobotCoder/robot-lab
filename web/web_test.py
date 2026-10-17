@@ -10,7 +10,8 @@ snapshots with no JavaScript errors;
 the line tiers (mesh, lines: black, the edges as lines in the line colour) and ultra (its sky, after-effects and
 reflections, and the window's circuit from models/kart_scenery.json, fetched on ultra alone) draw with no errors
 (CHANGE 144); Robot Lab's line tiers and ultra too (the window's robots and arena from models/robot_ultra.json and
-arena_ultra.json, fetched on ultra alone), Fight Lab still its four (CHANGE 145);
+arena_ultra.json, fetched on ultra alone: CHANGE 145), and Fight Lab's (its fighters, the detailed model's lines
+bending with it, and hall from models/fight_ultra.json and stage_ultra.json, fetched on ultra alone: CHANGE 147);
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
 a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
@@ -88,6 +89,9 @@ SCENERY_FETCHED = "performance.getEntriesByType('resource').some(e => e.name.inc
 # (CHANGE 145) which of Robot Lab's ultra models it has asked for (1 MB and 4.8 MB, ultra's alone)
 ROBOT_MODELS_FETCHED = ("performance.getEntriesByType('resource').map(e => e.name.split('/').pop())"
                         ".filter(n => n === 'robot_ultra.json' || n === 'arena_ultra.json').sort().join(',')")
+# (CHANGE 147) which of Fight Lab's ultra models it has asked for (0.7 MB and 1.4 MB, ultra's alone)
+FIGHT_MODELS_FETCHED = ("performance.getEntriesByType('resource').map(e => e.name.split('/').pop())"
+                        ".filter(n => n === 'fight_ultra.json' || n === 'stage_ultra.json').sort().join(',')")
 
 
 class StaticServer:
@@ -311,9 +315,16 @@ def main():
 
         def wrong_password():
             chrome.open(base)
-            chrome.wait_for("!!window.__state && !!window.__state.engine && !document.getElementById('deskform').hidden",
-                            20, "the page's script and the teacher password box")
-            chrome.js("document.getElementById('deskpass').value = 'not-the-password'; document.getElementById('connect').click()")
+            chrome.wait_for("!!window.__state && !!window.__state.engine && !document.getElementById('loginform').hidden",
+                            20, "the page's script and the login form")
+            # (CHANGE 148) one form for everyone: the username and the password, nothing else (no learner/teacher
+            # tabs, no class codes); the username teacher is the teacher's
+            shown = chrome.js("[...document.querySelectorAll('#login input, #login select')].filter(e => e.offsetParent)"
+                              ".map(e => e.id).join(',')")
+            assert shown == "lname,lpass", f"the login card shows more than the username and password: {shown}"
+            assert not chrome.js("!!document.getElementById('modetabs')"), "the learner and teacher tabs are still there"
+            chrome.js("document.getElementById('lname').value = 'teacher'; document.getElementById('lpass').value = 'not-the-password';"
+                      "document.getElementById('connect').click()")
             text = chrome.wait_for("document.getElementById('status').textContent.includes('teacher password') && "
                                    "document.getElementById('status').textContent", 10, "the desk refusing")
             assert "isn't the teacher password" in text, text
@@ -321,14 +332,19 @@ def main():
         check("The desk refuses a wrong teacher password", wrong_password)
 
         def desk_login():  # (typed into the box, as the teacher does: never in the page's address)
-            chrome.js(f"document.getElementById('deskpass').value = {json.dumps(DESK_PASSWORD)}; "
+            chrome.js(f"document.getElementById('lname').value = 'Teacher'; document.getElementById('lpass').value = {json.dumps(DESK_PASSWORD)}; "
                       "document.getElementById('connect').click()")
             chrome.wait_for("!document.getElementById('desk').hidden && window.__state.desk && window.__state.desk.ready",
                             20, "the Teacher screen")
-            assert chrome.js("document.getElementById('deskpass').value") == "", "the password box wasn't emptied"
+            assert chrome.js("document.getElementById('lpass').value") == "", "the password box wasn't emptied"
             assert chrome.js("window.__state.desk.state.live") is None
             assert "TEACHER DESK" in chrome.js("document.getElementById('deskbody').textContent")
-        check("The teacher password opens the Teacher screen (the desk)", desk_login)
+            # (CHANGE 148) still the server setup's teacher code: the desk opens on Teacher password, saying so
+            assert chrome.js("!!document.querySelector('button[data-dtab=\"password\"].on')"), "not on the Teacher password tab"
+            assert "setup code" in chrome.js("document.getElementById('dk-msg').textContent")
+            chrome.js("document.querySelector('button[data-dtab=\"people\"]').click()")
+        check("Username teacher and the teacher password open the Teacher screen (the desk), on Teacher password while "
+              "it is the setup's code", desk_login)
 
         def people():
             for name, starter in (("amy", "starter-amy"), ("ben", "")):
@@ -586,13 +602,14 @@ def main():
         def learner_login():  # a learner's own page (another browser): the desk login, a starter password changed, waiting
             pupil["chrome"] = lc = Chrome(exe, os.path.join(work, "profile-amy"))
             lc.open(f"http://127.0.0.1:{http_port}/index.html?mode=learner&desk=ws://127.0.0.1:{desk_port}&auto=0&tier=blocks")
-            lc.wait_for("!!window.__state && !document.getElementById('learnerform').hidden", 20, "the learner's login form")
-            # (CHANGE 141) on a phone-sized screen the login card scrolls, so LOG IN can be reached; no class codes
+            lc.wait_for("!!window.__state && !document.getElementById('loginform').hidden", 20, "the learner's login form")
+            # (CHANGE 141) on a phone-sized screen LOG IN can be reached (scrolled to, or since CHANGE 148's one short
+            # form, already there); no class codes
             lc.call("Emulation.setDeviceMetricsOverride", width=360, height=420, deviceScaleFactor=1, mobile=True)
             time.sleep(0.5)
-            assert lc.js("(() => { const l = document.getElementById('login'), b = document.getElementById('connect');"
+            assert lc.js("(() => { const b = document.getElementById('connect');"
                          " b.scrollIntoView(); const r = b.getBoundingClientRect();"
-                         " return l.scrollHeight > l.clientHeight && r.top >= 0 && r.bottom <= innerHeight; })()"), \
+                         " return r.top >= 0 && r.bottom <= innerHeight; })()"), \
                 "LOG IN can't be reached on a small screen"
             assert not lc.js("!!document.getElementById('switchmode')"), "the class-code link is still there"
             lc.call("Emulation.clearDeviceMetricsOverride")
@@ -691,7 +708,7 @@ def main():
                 return out.join(','); })()""")
             assert steps == "up:high,down:medium,up:high,down:medium,|,up:medium", steps
             # (CHANGE 144) never down out of blocks or into the line tiers, never out of them; up into ultra after a clean
-            # high run, never past the game's best tier (Robot Lab's and Fight Lab's: high)
+            # high run, never past the game's best tier (a game whose best is high: none since CHANGE 147, kept for one)
             steps = lc.js("""(async () => { const {AutoTier} = await import('./base3d.js'); const out = [];
                 let a, t, now = 0, wall = 1e12;
                 const run = (secs, fps, missed, top = 'ultra') => { for (let s = 0; s < secs; s++) { now += 1000; wall += 1000;
@@ -917,11 +934,14 @@ def main():
             chrome.wait_for("document.getElementById('dk-msg').textContent.includes('is changed')", 10, "the password changed")
             chrome.js("document.getElementById('dk-logout').click()")
             chrome.wait_for("document.getElementById('login').style.display === 'flex'", 5, "the login screen")
-            chrome.js(f"document.getElementById('deskpass').value = {json.dumps(DESK_PASSWORD)}; document.getElementById('connect').click()")
+            assert chrome.js("document.getElementById('lname').value").lower() == "teacher", "the username wasn't kept"
+            chrome.js(f"document.getElementById('lpass').value = {json.dumps(DESK_PASSWORD)}; document.getElementById('connect').click()")
             chrome.wait_for("document.getElementById('status').textContent.includes('teacher password')", 10, "the old password refused")
-            chrome.js(f"document.getElementById('deskpass').value = {json.dumps(new)}; document.getElementById('connect').click()")
+            chrome.js(f"document.getElementById('lpass').value = {json.dumps(new)}; document.getElementById('connect').click()")
             chrome.wait_for("!document.getElementById('desk').hidden && window.__state.desk && window.__state.desk.ready", 10,
                             "the new password logging in")
+            assert not chrome.js("!!document.querySelector('button[data-dtab=\"password\"].on')"), \
+                "the teacher's own password still sent them to choose one"
         check("The teacher password is changed from the page; the old one stops working", change_password)
 
         def code_login():  # the other way in: a class server's own code (a laptop test server)
@@ -1328,18 +1348,14 @@ def main():
                 time.sleep(0.8)
                 assert chrome.js("window.__state.scene.fighters.size") >= 2, f"fighters lost on {tier}"
                 chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, f"Fight Lab drawn properly on {tier}")
-            # (CHANGE 144, 145) Fight Lab draws blocks to high: the page's lines is drawn as blocks (and kept), ultra as
-            # high; its Graphics tab shows its own four
-            chrome.js("window.__app.setTier('lines')")
-            chrome.wait_for(f"window.__state.scene.tier === 'blocks' && window.__state.tier === 'lines' && {DRAWN_RIGHT} === 'ok'", 15,
-                            "Fight Lab drawing blocks for lines")
+            # (CHANGE 147) Fight Lab draws all seven, as its window (no nearest tier): its Graphics tab shows the seven and
+            # the line colours; blocks to high never ask for ultra's models
+            assert chrome.js(FIGHT_MODELS_FETCHED) == "", "Fight Lab's ultra models were fetched below ultra"
             tab("graphics")
-            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == "blocks,low,medium,high"
-            assert chrome.js("document.querySelector('button[data-tier=\"blocks\"]').classList.contains('on')")
-            chrome.js("window.__app.setTier('ultra')")
-            chrome.wait_for(f"window.__state.scene.tier === 'high' && {DRAWN_RIGHT} === 'ok'", 15, "Fight Lab drawing high for ultra")
-            chrome.js("window.__app.setTier('low')")
-            chrome.wait_for("window.__state.scene.tier === 'low'", 10, "Fight Lab back on low")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == \
+                "mesh,lines,blocks,low,medium,high,ultra"
+            assert chrome.js("!!document.querySelector('button[data-linecol]')"), "no line colours on Fight Lab's Graphics tab"
+            assert chrome.js("document.querySelector('button[data-tier=\"low\"]').classList.contains('on')")
             # the detailed bodies (woman, man, Robin): the app's own skinned model and moves (fightmodels.js, the files
             # from models/fightlab/) on the lit tiers, posed every frame; the primitive stand-in on blocks
             chrome.js("window.__app.send({type: 'cpu_robot', design: {name: 'Ava', body: 'woman', colour: [200, 40, 40], "
@@ -1404,10 +1420,97 @@ def main():
             chrome.js("document.getElementById('fb-time-up').click()")
             chrome.wait_for(f"window.__state.lesson.round_time === {min(300, rt + 10)}", 10, "the round time 10 s longer")
             chrome.js(f"window.__app.send({{type: 'lesson', lesson: {{round_time: {rt}}}}})")
+            assert chrome.js(FIGHT_MODELS_FETCHED) == "", "Fight Lab's ultra models were fetched below ultra"
             no_errors()
-        check("Fight Lab: the rings and the posed fighters are drawn (a woman with the app's own model) on its four tiers "
-              "(lines drawn as blocks, ultra as high), and its controls reach the server (winner stays on: the rings and the "
-              "queue); the rings box with its mode line, small with B; the round time in tens", fight_lab)
+        check("Fight Lab: the rings and the posed fighters are drawn (a woman with the app's own model) on blocks to high "
+              "(the Graphics tab's seven), and its controls reach the server (winner stays on: the rings and the queue); the "
+              "rings box with its mode line, small with B; the round time in tens", fight_lab)
+
+        def fight_line_tiers():  # (CHANGE 147) mesh and lines as the window's: black, the rings', the hall's, the ropes'
+            if "ben" not in servers:  # or open edge's and every fighter's edges as lines (each joint's own, the detailed
+                return                # model's bending with it), the grids on lines only
+            for tier in ("mesh", "lines"):
+                chrome.js(f"window.__app.setTier('{tier}')")
+                chrome.wait_for(f"window.__state.scene.tier === '{tier}' && window.__state.scene.fighters.size >= 2 && {DRAWN_RIGHT} === 'ok'",
+                                20, f"Fight Lab drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                chrome.wait_for("[...window.__state.scene.fighters.values()].some(f => f.design.body === 'woman' && f.model && f.model.ready)",
+                                60, f"the woman's model on {tier}")
+                time.sleep(1.0)  # (frames drawn: the glowing parts' lines pulsed)
+                got = chrome.js("""(() => { const sc = window.__state.scene, s = sc.scene, c = s.clearColor;
+                    const lines = s.meshes.filter(m => m.material && m.material.name.startsWith('cclines') && m.getTotalVertices() > 0);
+                    const fs = [...sc.fighters.values()], built = fs.filter(f => !f.model), models = fs.filter(f => f.model);
+                    const own = f => f.lines.filter(([m]) => m.name === 'fighterlines' && m.parent && f.n[m.parent.name] === m.parent).length;
+                    return {black: c.r + c.g + c.b === 0, stage: lines.filter(m => m.name === 'stagelines').length,
+                            hall: lines.filter(m => m.name === 'halllines').length, edges: lines.some(m => m.name === 'edgelines' || m.name === 'ropelines'),
+                            built: built.length, lined: built.filter(f => f.lines && own(f) >= 11).length,
+                            outlines: built.filter(f => f.lines && f.lines.some(([m]) => m.material.name.startsWith('cclineshull'))).length,
+                            models: models.length, modelLines: models.filter(f => f.model.lines && f.model.lines.some(([m]) => m.skeleton)).length,
+                            segments: sc.lineStats.segments, grid: sc.lineStats.grid, ms: sc.lineStats.ms, smoke: !sc.fx.look,
+                            lit: s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name.includes(':'))}; })()""")
+                print(f"    {tier}: {got['segments']} line segments for the hall and rings ({got['grid']} the grids), built in {got['ms']} ms")
+                assert got["black"] and got["stage"] >= 1 and got["hall"] >= 1 and got["edges"] and not got["lit"] and not got["smoke"], got
+                assert got["built"] >= 1 and got["lined"] == got["built"] and got["models"] >= 1 and got["modelLines"] == got["models"], got
+                assert got["outlines"] == (got["built"] if tier == "lines" else 0), got
+                assert (got["grid"] > 50) == (tier == "lines"), got
+                chrome.screenshot(os.path.join(work, f"fightlab_{tier}.png"))
+            # the line colour: at once on the hall's, the rings' and the fighters' lines
+            chrome.js("window.__app.lineColour('#ffb000')")
+            got = chrome.js("window.__state.scene.lineMats.filter(m => m._colors4 && !m.ccTint).map(m => [m._colors4.color.r, m._colors4.color.g])")
+            assert got and any(r > 0.99 for r, g in got) and all(abs(g / r - 0.69) < 0.02 for r, g in got if r > 0.01), got
+            chrome.js("window.__app.lineColour('#33ff66')")
+            assert chrome.js(FIGHT_MODELS_FETCHED) == "", "Fight Lab's ultra models were fetched on the line tiers"
+            no_errors()
+        check("Fight Lab's line tiers (mesh: every triangle's edges; lines: the outlines, the round fighters' too, and grids on "
+              "the rings and the hall's floor) draw black with the hall's, the rings' and every fighter's lines (the detailed "
+              "model's bending with it), and change colour at once", fight_line_tiers)
+
+        def fight_ultra():  # (CHANGE 147) ultra: the window's fighters and hall, fetched now (and not before)
+            if "ben" not in servers:
+                return
+            chrome.js("window.__app.setTier('ultra')")
+            chrome.wait_for("window.__state.scene.tier === 'ultra'", 10, "Fight Lab on ultra")
+            have = [n for n in ("fight_ultra.json", "stage_ultra.json") if os.path.exists(os.path.join(HERE, "models", n))]
+            if len(have) < 2:
+                print("    (models/ hasn't Fight Lab's ultra models: high's fighters and hall drawn)")
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, "Fight Lab drawn properly on ultra without its models")
+                return
+            chrome.wait_for("window.__state.scene.ultraStage && window.__state.scene.ultraFighters && window.__state.scene.fighters.size >= 2", 40,
+                            "the window's fighters and hall (models/fight_ultra.json, stage_ultra.json)")
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, f"Fight Lab drawn properly on ultra (last: {chrome.js(DRAWN_RIGHT)})")
+            got = chrome.js("""(() => { const sc = window.__state.scene, u = sc.ultraParts, L = sc.lighting, list = L.rtt.renderList;
+                const built = [...sc.fighters.values()].filter(f => f.ultra);
+                const own = built.map(f => f.root.getChildMeshes(false).filter(m => m.name.startsWith('fighter ')).length);
+                const rings = sc.ultraRings.flatMap(r => r.meshes);
+                return {fetched: %s, parts: u.parts, instances: u.instances, triangles: u.triangles, rings: rings.length,
+                        thin: u.meshes.filter(m => m.thinInstanceCount > 1).length, tinted: u.meshes.filter(m => m.isVerticesDataPresent('instanceColor')).length,
+                        casters: rings.filter(m => list.includes(m)).length,
+                        flatCasting: [...u.meshes, ...u.rig].filter(m => list.includes(m)).length,
+                        rig: sc.rig.filter(m => m.name.startsWith('stage ')).length, built: built.length,
+                        own: Math.max(...own), fewest: Math.min(...own),
+                        boxes: built.some(f => f.root.getChildMeshes(false).some(m => ['box', 'cyl', 'capsule'].includes(m.name)
+                            && !['blade', 'wood', 'shield'].some(k => m.material.name.startsWith(k)))),
+                        shadow: L.rtt.getRenderSize(), soft: [...L.materials].some(m => m.options.defines.includes('SOFTSHADOW')),
+                        haze: [...L.materials].some(m => m.options.defines.includes('FOG')),
+                        hazeNear: [...L.materials].some(m => m.options.defines.includes('FOG') && !m.name.endsWith(' far')),
+                        atlas: [...L.materials].some(m => m.options.defines.includes('GLOWMAP') && m.options.defines.includes('MRMAP')),
+                        bloom: !!(sc.after && sc.after.pipeline.bloomEnabled), ssao: !!(sc.after && sc.after.ssao)}; })()""" % FIGHT_MODELS_FETCHED)
+            print(f"    ultra hall: {got['parts']} parts, {got['instances']} placed shapes, {got['triangles']} triangles; "
+                  f"{got['rings']} meshes in the rings; {got['fewest']} to {got['own']} meshes a fighter")
+            assert got["fetched"] == "fight_ultra.json,stage_ultra.json" and got["parts"] >= 10 and got["instances"] > 1000, got
+            assert got["thin"] >= 10 and got["tinted"] >= 5 and got["rings"] >= 5 and got["casters"] >= 3 and got["flatCasting"] == 0 and got["rig"] >= 3, got
+            assert got["built"] >= 1 and 13 <= got["fewest"] and got["own"] <= 16 and not got["boxes"], got
+            assert got["shadow"] == 4096 and got["soft"] and got["haze"] and not got["hazeNear"] and got["atlas"] and got["bloom"], got
+            assert not got["ssao"], got
+            time.sleep(2.0)
+            print(f"    ultra: {chrome.js('window.__state.fps')} fps here")
+            chrome.screenshot(os.path.join(work, "fightlab_ultra.png"))
+            chrome.js("window.__app.setTier('low')")
+            chrome.wait_for(f"window.__state.scene.tier === 'low' && {DRAWN_RIGHT} === 'ok'", 15, "Fight Lab back on low")
+            no_errors()
+        check("Fight Lab's ultra draws the window's fighters (a mesh a joint, the roles from an atlas) and hall (its parts, "
+              "the rings for their size, the crowd and seats as thin instances, the flat and far casting no shadow, the hall "
+              "in its haze) from models/fight_ultra.json and stage_ultra.json, fetched on ultra alone, with soft 4096 shadows "
+              "and a glow", fight_ultra)
         for key, proc in servers.items():
             proc.close() if isinstance(proc, Learner) else stop(proc)
 
@@ -1425,8 +1528,9 @@ def main():
             # (CHANGE 145) Robot Lab's ultra robots and arena (robot_models.py, arena_models.py)
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_models.py"), "--check"], capture_output=True, text=True)
             assert r.returncode == 0, r.stdout + r.stderr
-        check("models/ (Kart Lab's curved ultra kart and ultra circuit, Robot Lab's ultra robots and arena) is up to date "
-              "with kart/kart_models.py, kart/kart_scenery.py, robot_models.py and arena_models.py", models_current)
+        check("models/ (Kart Lab's curved ultra kart and ultra circuit, Robot Lab's ultra robots and arena, Fight Lab's "
+              "ultra fighters and hall) is up to date with kart/kart_models.py, kart/kart_scenery.py, robot_models.py, "
+              "arena_models.py, fight_models.py and stage_models.py", models_current)
 
         def schemas_current():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_schemas.py"), "--check"], capture_output=True, text=True)

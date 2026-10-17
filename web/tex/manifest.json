@@ -2,6 +2,7 @@
  "engine": "4",
  "kart": "2",
  "lab": "3",
+ "fight": "1",
  "size": 512,
  "skies": {
   "env": [
@@ -28,6 +29,12 @@
   "diamond_mr.jpg",
   "diamond_normal.jpg",
   "env_reflect.png",
+  "fight_canvas_albedo.jpg",
+  "fight_canvas_mr.jpg",
+  "fight_canvas_normal.jpg",
+  "fight_signs_albedo.jpg",
+  "fight_signs_mr.jpg",
+  "fight_signs_normal.jpg",
   "foliage_albedo.jpg",
   "foliage_mr.jpg",
   "foliage_normal.jpg",

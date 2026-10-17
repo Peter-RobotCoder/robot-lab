@@ -13,7 +13,8 @@ learner's data", which the game server carries out), reports/<game>.json (what t
 happening in the live session) and sessions/ (one record per session: the group, game, lesson, who was there,
 what each learner completed, the AI cards handled and the teacher's notes).
 
-The teacher logs in with the teacher password and manages learners and groups, launches a group and stops it.
+The teacher logs in with the teacher password (the username "teacher" on the app's and the page's one login form:
+CHANGE 148, so no learner may be called Teacher) and manages learners and groups, launches a group and stops it.
 A learner logs in with username and password: if their group is live they get a ticket (club_ticket.py) and the
 game's address, otherwise they wait, connected, and are sent on the moment their group is launched. A starter
 password works once: the learner must choose their own before going on.
@@ -156,6 +157,11 @@ class Store:
             return hmac.compare_digest(self._hash(str(own["salt"]), str(password or "")), str(own["hash"]))
         return hmac.compare_digest(str(password or "").encode(), code.encode())
 
+    def teacher_has_own(self):
+        """Has the teacher chosen their own password (or is it still the server setup's teacher code)?"""
+        own = self._read("teacher.json", None)
+        return isinstance(own, dict) and bool(own.get("salt") and own.get("hash"))
+
     def set_teacher_password(self, new):
         new = str(new or "")
         if len(new) < MIN_TEACHER_PASSWORD:
@@ -226,6 +232,8 @@ class Store:
         name = clean_name(username)
         if not name:
             raise DeskError("Usernames need letters or numbers (up to 12).")
+        if slug(name) == "teacher":  # (CHANGE 148: the login form's teacher)
+            raise DeskError("Teacher is the teacher's username: choose another for the learner.")
         if self.find(name)[0] is not None:
             raise DeskError(f"There is already a learner called {name}.")
         if len(self.learners) >= MAX_LEARNERS:
@@ -601,7 +609,9 @@ class Desk:
                             raise DeskError("That isn't the teacher password.")
                         role = "teacher"
                         self.teachers.add(ws)
-                        reply = {"ok": True, "state": self.state()}
+                        # own_password: False while it's still the setup's teacher code (the app and the page then
+                        # ask the teacher to choose their own: CHANGE 148)
+                        reply = {"ok": True, "state": self.state(), "own_password": self.store.teacher_has_own()}
                         if m.get("claude"):  # (a browser page: it shows Claude for the browser's cards)
                             self.claude_watchers.add(ws)
                             reply["claude"] = self.claude_info()

@@ -18,16 +18,16 @@
 // at 300% has 7.7 million at full sharpness; the app's 1280 x 720 window draws 0.9 million). The canvas's own
 // multisampling smooths the edges on every tier.
 // Each game says which tiers it draws (its scene's TIERS: Kart Lab and Robot Lab all seven since CHANGE 145, Fight
-// Lab blocks to high); a tier it doesn't have is drawn as its nearest (gameTier: mesh and lines as blocks, ultra as
-// high), so the page's choice can stay "lines" while Fight Lab draws blocks. mesh and lines are a look chosen by hand
-// (or by the teacher), not a fallback: they need no WebGL 2 and Auto never steps into them or out of them.
+// Lab too since CHANGE 147); a tier a game doesn't have is drawn as its nearest (gameTier: mesh and lines as blocks,
+// ultra as high), so the page's choice can stay "lines" while such a game draws blocks. mesh and lines are a look
+// chosen by hand (or by the teacher), not a fallback: they need no WebGL 2 and Auto never steps into them or out of them.
 
 /* global BABYLON */
 
 import {Lighting} from "./pbr.js";
 
 export const TIERS = ["mesh", "lines", "blocks", "low", "medium", "high", "ultra"];
-export const GAME_TIERS = ["blocks", "low", "medium", "high"];  // (a game that doesn't say: Fight Lab)
+export const GAME_TIERS = ["blocks", "low", "medium", "high"];  // (a game that doesn't say: none since CHANGE 147)
 export const LINE_TIERS = ["mesh", "lines"];
 export const TIER_SETTINGS = {
     mesh: {pbr: false, shadow: 0, normal: false, ibl: false, occlusion: false, aniso: 1, pixels: 1.0e6, wire: "all"},
@@ -311,16 +311,19 @@ const PBR_LOOK = {background: [0.3, 0.5, 0.9], exposure: 0.55, ambient: [0.22, 0
 
 // the line tiers' shader (CHANGE 144): one colour, faded to the black behind between two distances (as the window's
 // black fog: mesh from 15 m to 140 m, lines and the grid from 60 m to 380 m), as on an old vector screen. (CHANGE
-// 145: thin instances too, Robot Lab's flying debris)
+// 145: thin instances too, Robot Lab's flying debris; CHANGE 147: a skeleton's bones too, Fight Lab's skinned models,
+// whose lines bend with the skin)
 const LINES_VERT = `
 precision highp float;
 attribute vec3 position;
 #include<instancesDeclaration>
+#include<bonesDeclaration>
 uniform mat4 viewProjection;
 uniform vec3 cameraPosition;
 varying float vDist;
 void main(void) {
 #include<instancesVertex>
+#include<bonesVertex>
     vec4 wp = finalWorld * vec4(position, 1.0);
     vDist = distance(wp.xyz, cameraPosition);
     gl_Position = viewProjection * wp;
@@ -332,6 +335,29 @@ uniform vec2 fade;
 varying float vDist;
 void main(void) {
     gl_FragColor = vec4(color.rgb * (1.0 - smoothstep(fade.x, fade.y, vDist)), 1.0);
+}`;
+// (CHANGE 147) a round shape's outline on lines (line_look.silhouette's part on the page): its back faces drawn in
+// the line colour pushed out along their normals by `width` times their distance (about a pixel and a half at any
+// distance), so where its own black front faces don't cover them, at its outline, they show. Bones too (a skinned
+// model's outline bends with it)
+const HULL_VERT = `
+precision highp float;
+attribute vec3 position;
+attribute vec3 normal;
+#include<instancesDeclaration>
+#include<bonesDeclaration>
+uniform mat4 viewProjection;
+uniform vec3 cameraPosition;
+uniform float width;
+varying float vDist;
+void main(void) {
+#include<instancesVertex>
+#include<bonesVertex>
+    vec4 wp = finalWorld * vec4(position, 1.0);
+    vec3 n = normalize((finalWorld * vec4(normal, 0.0)).xyz);
+    vDist = distance(wp.xyz, cameraPosition);
+    wp.xyz += n * width * vDist;
+    gl_Position = viewProjection * wp;
 }`;
 const COS_CREASE = Math.cos(30 * Math.PI / 180);  // (lines: a crease is drawn where two faces meet at more than 30 degrees)
 
@@ -532,8 +558,116 @@ export class BaseScene {
 
     paintLine(m) {
         const c = BABYLON.Color3.FromHexString(lineColour), k = (m.ccDim ?? 1) * (m.ccPulse ?? 1);
+        if (m.ccTint) {  // (CHANGE 147: a colour scale, Fight Lab's hit flash whitening a fighter's lines, as the window's)
+            const t = m.ccTint;
+            c.r = Math.min(1, c.r * t[0]); c.g = Math.min(1, c.g * t[1]); c.b = Math.min(1, c.b * t[2]);
+        }
         if (m.setColor4) m.setColor4("color", new BABYLON.Color4(c.r * k, c.g * k, c.b * k, 1));
         else m.emissiveColor = c.scale(k);  // (lettering: lineInk)
+    }
+
+    // (CHANGE 147) a line material whose colour is the line colour times tint (per channel, at most 1)
+    tintedLines(name, tint, near, far) {
+        const m = this.lineMaterial(name, 1, near, far);
+        if (!m.ccTint) { m.ccTint = tint; this.paintLine(m); }
+        return m;
+    }
+
+    // (CHANGE 147) the outline material (HULL_VERT): the line colour, fading as the lines do, back faces only (mirrored:
+    // for meshes whose faces turn the other way, a glTF model's under its loader's mirrored root)
+    hullMaterial(name, near = 60, far = 380, width = 0.0016, mirrored = false) {
+        const key = "lines:hull" + name;
+        if (this.materials[key]) return this.materials[key];
+        const m = this.materials[key] = new BABYLON.ShaderMaterial("cclineshull" + name, this.scene, {vertexSource: HULL_VERT, fragmentSource: LINES_FRAG}, {
+            attributes: ["position", "normal"], uniforms: ["world", "viewProjection", "cameraPosition", "color", "fade", "width"]});
+        m.backFaceCulling = true;
+        m.cullBackFaces = mirrored;  // (the front faces culled: the back ones drawn)
+        m.ccLine = true;          // (after every black face)
+        m.setVector2("fade", new BABYLON.Vector2(near, far));
+        m.setFloat("width", width);
+        m.ccDim = 1;
+        m.ccPulse = 1;
+        this.lineMats.push(m);
+        this.paintLine(m);
+        return m;
+    }
+
+    // (CHANGE 147: line_look.silhouette) lines: a round mesh's outline, a copy of it (sharing its vertices, and its
+    // skeleton if it has one) under it in the hull material. Returns the copy
+    silhouette(mesh, mat) {
+        const c = mesh.clone(mesh.name + " outline", mesh, true);
+        c.position.setAll(0);
+        c.rotationQuaternion = null;
+        c.rotation.setAll(0);
+        c.scaling.setAll(1);
+        c.material = mat;
+        c.isPickable = false;
+        if (mesh.alwaysSelectAsActiveMesh) c.alwaysSelectAsActiveMesh = true;
+        return c;
+    }
+
+    // (CHANGE 147: line_look.skinned and geom_pairs) a skinned mesh's edges as lines that bend with it: the corners
+    // within a millimetre merged to find the edges (in its own frame, the rest pose), each drawn with one of its own
+    // vertices, on a copy of its vertices (and their bones) under it, in material mat. The pairs are worked out once
+    // a model's piece (kept by its geometry, which every fighter's copy shares). Returns the lines mesh, or null
+    skinnedLines(mesh, mode, mat) {
+        const geo = mesh.geometry;
+        if (!geo) return null;
+        const cache = this.scene.ccEdges || (this.scene.ccEdges = new Map()), key = `${geo.uniqueId}:${mode}`;
+        let pairs = cache.get(key);
+        if (!pairs) {
+            const p = mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind), ix = mesh.getIndices();
+            const out = [];
+            if (p && ix) {
+                const weld = new Map(), ids = new Int32Array(p.length / 3), first = [], wp = [];
+                for (let i = 0, j = 0; i < p.length; i += 3, j++) {
+                    const k = `${Math.round(p[i] * 1000)},${Math.round(p[i + 1] * 1000)},${Math.round(p[i + 2] * 1000)}`;
+                    let id = weld.get(k);
+                    if (id === undefined) { id = first.length; weld.set(k, id); first.push(j); wp.push(p[i], p[i + 1], p[i + 2]); }
+                    ids[j] = id;
+                }
+                const edges = new Map();
+                for (let t = 0; t < ix.length; t += 3) {
+                    const a = ids[ix[t]], b = ids[ix[t + 1]], c = ids[ix[t + 2]];
+                    if (a === b || b === c || a === c) continue;
+                    let nx = 0, ny = 0, nz = 0;
+                    if (mode === "outline") {
+                        const ux = wp[b * 3] - wp[a * 3], uy = wp[b * 3 + 1] - wp[a * 3 + 1], uz = wp[b * 3 + 2] - wp[a * 3 + 2];
+                        const vx = wp[c * 3] - wp[a * 3], vy = wp[c * 3 + 1] - wp[a * 3 + 1], vz = wp[c * 3 + 2] - wp[a * 3 + 2];
+                        nx = uy * vz - uz * vy; ny = uz * vx - ux * vz; nz = ux * vy - uy * vx;
+                        const l = Math.hypot(nx, ny, nz) || 1;
+                        nx /= l; ny /= l; nz /= l;
+                    }
+                    for (const [e0, e1] of [[a, b], [b, c], [c, a]]) {
+                        const ek = e0 < e1 ? e0 * 4194304 + e1 : e1 * 4194304 + e0;
+                        const e = edges.get(ek);
+                        if (!e) { edges.set(ek, mode === "outline" ? {nx, ny, nz, n: 1, sharp: false} : 1); continue; }
+                        if (mode !== "outline") continue;
+                        e.n++;
+                        if (Math.abs(e.nx * nx + e.ny * ny + e.nz * nz) < COS_CREASE) e.sharp = true;
+                    }
+                }
+                for (const [ek, e] of edges) {
+                    if (mode === "outline" && !(e.n === 1 || e.sharp)) continue;
+                    out.push(first[Math.floor(ek / 4194304)], first[ek % 4194304]);
+                }
+            }
+            pairs = Uint32Array.from(out);
+            cache.set(key, pairs);
+        }
+        if (!pairs.length) return null;
+        const c = mesh.clone(mesh.name + " lines", mesh, true);
+        c.makeGeometryUnique();
+        c.setIndices(pairs);
+        c.position.setAll(0);
+        c.rotationQuaternion = null;
+        c.rotation.setAll(0);
+        c.scaling.setAll(1);
+        c.material = mat;
+        c.isPickable = false;
+        c.alwaysSelectAsActiveMesh = true;  // (posed far from the rest pose its bounds were made for)
+        this.lineCount = (this.lineCount || 0) + pairs.length / 2;
+        return c;
     }
 
     // (CHANGE 145) a glowing part's lines brighter or dimmer (k from 0 to 1), as its glow would be (Robot Lab's pit

@@ -70,6 +70,7 @@ export class DeskLink {
             else this.on.message(m.error || "The desk said no.", false);
             return;
         }
+        if ("own_password" in m) this.ownPassword = m.own_password;  // (false: the setup's teacher code: CHANGE 148)
         if (m.sessions) this.sessions = m.sessions;
         if (m.session_record) this.record = m.session_record;
         const i = this.waiting.findIndex(w => w.key in m);
@@ -260,7 +261,7 @@ const DESK_TABS = {
           <div class="formrow"><label for="new-user">Username</label><input id="new-user" maxlength="12" autocomplete="off"></div>
           <div class="formrow"><label for="new-starter">Starter password</label><input id="new-starter" autocomplete="off" placeholder="blank: made up for you"></div>
           <div class="formrow"><span></span><button id="dk-add" class="go">Add</button></div>
-          <p class="note">A starter password works once: the learner chooses their own when they first log in.</p>
+          <p class="note">A starter password works once: the learner chooses their own when they first log in, and again after Reset.</p>
           ${learners.some(L => !L.changed) ? `<button id="dk-slips">Print login slips (learners with a starter password)</button>` : ""}`;
         let right;
         if (ui.editing) {
@@ -437,6 +438,7 @@ const DESK_WIRE = {
             if (fresh === now) return say(ctx, "That is the password now: choose a different one.");
             ctx.desk.ask({type: "change_teacher_password", password: now, new: fresh}, "teacher_password_changed").then(() => {
                 ctx.desk.password = fresh;  // (so the page logs in again with the new one if the connection drops)
+                ctx.desk.ownPassword = true;
                 try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({id: "teacher", password: fresh})); } catch (e) { /* not offered */ }
                 ["pw-now", "pw-new", "pw-again"].forEach(id => { $r(id).value = ""; });
                 say(ctx, "The teacher password is changed: use the new one here and in the app from now on.", true);

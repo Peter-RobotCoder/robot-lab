@@ -15,13 +15,20 @@
 // and is laid on with a screen blend: exact over the dark hall, and over a lit fighter it adds less, as the curve's
 // shoulder does in the app. Drawn after the scene without writing depth; the flashes and rings with no depth test.
 //
+// On mesh and lines (CHANGE 147, as the window's fight_fx since its CHANGE 147) the sparks and the shock rings of big
+// hits are the line colour, bits of armour are their edges, the blasts are balls of lines, and there is no smoke,
+// dust, fire or soft flash.
+//
 // The camera (fight_camera.FightCamera): the five views, each with its own zoom, swung round and tilted by dragging,
 // the moves eased as the app eases them. Plain numbers here (game coordinates, z up), so it can be checked against
 // the Python in node; fight.js puts the Babylon camera where it says.
+//
+// (CHANGE 147) Fight Lab's ultra tier too: the window's smooth fighters and hall (fight_models.py and stage_models.py,
+// written by make_models.py to models/fight_ultra.json and stage_ultra.json, fetched on ultra alone), see the end.
 
 /* global BABYLON */
 
-import {gameQuat} from "./base3d.js";
+import {gameQuat, unpackPart, getLineColour} from "./base3d.js";
 import {hprQuat} from "./robotfx.js";
 
 const U = (a, b) => a + Math.random() * (b - a);
@@ -175,6 +182,39 @@ class Pool {
     }
 }
 
+// (mesh and lines, CHANGE 147) a pool of balls of lines (the blasts): one lines mesh (lists: base3d's edgeLines) in
+// the line colour, drawn as thin instances placed each frame
+class LinePool {
+    constructor(sc, name, lists, cap) {
+        const m = this.mesh = sc.linesMesh(name, lists, sc.lineMaterial("shot", 1, ...sc.lineFade()));
+        m.alwaysSelectAsActiveMesh = true;
+        m.doNotSyncBoundingInfo = true;
+        this.mats = new Float32Array(16 * cap);
+        m.thinInstanceSetBuffer("matrix", this.mats, 16, false);
+        m.thinInstanceCount = 0;
+        m.isVisible = false;
+        this.cap = cap;
+        this.n = 0;
+    }
+
+    put(p, s) {  // (a game position, a size)
+        if (this.n >= this.cap) return;
+        const o = this.n * 16, M = this.mats;
+        M.fill(0, o, o + 16);
+        M[o] = M[o + 5] = M[o + 10] = s;
+        M[o + 12] = p[0]; M[o + 13] = p[2]; M[o + 14] = p[1]; M[o + 15] = 1;
+        this.n++;
+    }
+
+    flush() {
+        const m = this.mesh;
+        m.thinInstanceCount = this.n;
+        m.isVisible = this.n > 0;
+        if (this.n) m.thinInstanceBufferUpdated("matrix");
+        this.n = 0;
+    }
+}
+
 const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];  // (Babylon's axes: unturned)
 
 export class FightFX {
@@ -182,8 +222,10 @@ export class FightFX {
     constructor(sc) {
         this.sc = sc;
         const scene = sc.scene, size = ["blocks", "low"].includes(sc.tier) ? POOLS.low : POOLS.full;
-        // (the app's tone curve at its exposure on every tier: its basic tier has it too, as a pass after the scene)
-        const exposure = sc.lighting ? sc.lighting.exposure : Math.pow(2, ((sc.look || {}).pbr || {}).exposure || 0.8);
+        this.look = !!sc.wire;  // (mesh and lines: the line colour, read each frame, so a new one at once: CHANGE 147)
+        // (the app's tone curve at its exposure on every tier: its basic tier has it too, as a pass after the scene;
+        // none on the looks, whose line colour is shown as it is)
+        const exposure = this.look ? 0 : sc.lighting ? sc.lighting.exposure : Math.pow(2, ((sc.look || {}).pbr || {}).exposure || 0.8);
         scene.setRenderingAutoClearDepthStencil(1, false, false, false);
         // sparks: tiny glowing streaks, 2.4 cm across and 16 long (along Babylon's z: the way they fly), added on
         const streak = BABYLON.MeshBuilder.CreateBox("ffxspark", {width: 0.024, height: 0.024, depth: 0.16}, scene);
@@ -202,6 +244,8 @@ export class FightFX {
         this.balls = new Pool(scene, "shot", ball, SHOTS, "add", "", 22, exposure);
         const halo = BABYLON.MeshBuilder.CreateSphere("ffxhalo", {diameter: 2, segments: 8}, scene);
         this.halos = new Pool(scene, "halo", halo, SHOTS, "add", "", 22, exposure);
+        // (mesh and lines: a blast is a ball of lines, no halo, as the window's: its edges with thin instances)
+        this.lineBalls = this.look ? new LinePool(sc, "ffxshotlines", sc.lineSphere(0.2), SHOTS) : null;
         // debris: little chunks of armour, lit, in the victim's paint: one mesh of thin instances for each colour (made
         // when first needed), at most 30 chunks in all
         this.debris = [];
@@ -242,6 +286,7 @@ export class FightFX {
     }
 
     flash(pos, colour, size, ring = false, life = 0.12) {
+        if (this.look && !ring) return;  // (mesh and lines: only the shock ring, in the line colour: update)
         const f = (ring ? this.rings : this.dots).free();
         if (!f) return;
         f.p[0] = pos[0]; f.p[1] = pos[1]; f.p[2] = pos[2];
@@ -251,6 +296,7 @@ export class FightFX {
     }
 
     dust(pos, amount = 6) {
+        if (this.look) return;  // (mesh and lines: no dust, fire or smoke)
         for (let i = 0; i < amount; i++) {
             const p = this.puffs.free();
             if (!p) return;
@@ -263,6 +309,7 @@ export class FightFX {
     }
 
     flame(pos, d, amount = 3) {
+        if (this.look) return;
         for (let i = 0; i < amount; i++) {
             const f = this.flames.free();
             if (!f) return;
@@ -275,7 +322,7 @@ export class FightFX {
 
     // (fight_fx.smoke: for a knocked-out robot, amount 0..1, each frame; the window doesn't call it at present)
     smoke(pos, amount) {
-        if (Math.random() > amount * 0.4) return;
+        if (this.look || Math.random() > amount * 0.4) return;
         const p = this.puffs.free();
         if (!p) return;
         p.p[0] = pos[0] + U(-0.2, 0.2); p.p[1] = pos[1] + U(-0.2, 0.2); p.p[2] = pos[2] + 0.2;
@@ -286,12 +333,18 @@ export class FightFX {
     }
 
     debrisMesh(colour) {
-        const key = colour.map(c => c.toFixed(3)).join(",");
+        const key = this.look ? "lines" : colour.map(c => c.toFixed(3)).join(",");
         let d = this.debrisMeshes.get(key);
         if (!d) {
-            const m = BABYLON.MeshBuilder.CreateBox("ffxdebris", {size: 1}, this.sc.scene);
-            // (fight_gfx.part's defaults: the paint texture set, rough 1, metal 1)
-            m.material = this.sc.material("debris", colour, 1, 1, 0, {tex: this.sc.tier === "blocks" ? "" : "paint"});
+            let m = BABYLON.MeshBuilder.CreateBox("ffxdebris", {size: 1}, this.sc.scene);
+            if (this.look) {  // (mesh and lines: a chunk's edges, every chunk in the line colour: CHANGE 147)
+                const box = m, sc = this.sc;
+                m = sc.linesMesh("ffxdebris", sc.edgeLines([box], sc.wire), sc.lineMaterial("debris", 1, ...sc.lineFade()));
+                box.dispose();
+            } else {
+                // (fight_gfx.part's defaults: the paint texture set, rough 1, metal 1)
+                m.material = this.sc.material("debris", colour, 1, 1, 0, {tex: this.sc.tier === "blocks" ? "" : "paint"});
+            }
             m.isPickable = false;
             m.alwaysSelectAsActiveMesh = true;
             m.doNotSyncBoundingInfo = true;
@@ -326,6 +379,7 @@ export class FightFX {
 
     // a blast in flight: a glowing ball and its flickering halo
     shot(pos, t) {
+        if (this.lineBalls) { this.lineBalls.put(pos, 1); return; }
         this.balls.put(pos, X, Y, Z, 0.2, 0.2, 0.2, 0.4, 0.9, 1.6, 1);
         const h = 0.34 * (1 + 0.25 * Math.sin(t * 40));
         this.halos.put(pos, X, Y, Z, h, h, h, 0.08, 0.25, 0.5, 1);
@@ -344,7 +398,7 @@ export class FightFX {
         if (!this.R) this.begin();
         const R = this.R, Up = this.Up, F = this.F;
         const g = 9.81 * dt;
-        const S = this.sparks;
+        const S = this.sparks, ink = this.look ? BABYLON.Color3.FromHexString(getLineColour()) : null;
         for (const s of S.items) {
             if (s.life <= 0) continue;
             s.life -= dt;
@@ -360,7 +414,8 @@ export class FightFX {
             const la = Math.hypot(ax[0], ax[1], ax[2]) || 1;
             ax = [ax[0] / la, ax[1] / la, ax[2] / la];
             const ay = [az[1] * ax[2] - az[2] * ax[1], az[2] * ax[0] - az[0] * ax[2], az[0] * ax[1] - az[1] * ax[0]];
-            S.put(s.p, ax, ay, az, 1, 1, 0.5 + f, b[0] + (a[0] - b[0]) * f, b[1] + (a[1] - b[1]) * f, b[2] + (a[2] - b[2]) * f, 1);
+            if (ink) S.put(s.p, ax, ay, az, 1, 1, 0.5 + f, ink.r * (0.4 + 0.6 * f), ink.g * (0.4 + 0.6 * f), ink.b * (0.4 + 0.6 * f), 1);
+            else S.put(s.p, ax, ay, az, 1, 1, 0.5 + f, b[0] + (a[0] - b[0]) * f, b[1] + (a[1] - b[1]) * f, b[2] + (a[2] - b[2]) * f, 1);
             if (s.p[2] < 0.01 && s.v[2] < 0) {  // bounce off the floor
                 s.v[0] *= 0.6; s.v[1] *= 0.6; s.v[2] *= -0.35;
             }
@@ -373,7 +428,8 @@ export class FightFX {
                 if (fl.life <= 0) continue;
                 const t = 1 - fl.life / fl.max;  // 0 at the start, 1 at the end
                 const s = fl.size * (ring ? 0.4 + 1.0 * t : 1.0 + 0.5 * t);
-                P.put(fl.p, R, Up, F, s, s, s, fl.rgb[0], fl.rgb[1], fl.rgb[2], 1 - t);
+                if (ink) P.put(fl.p, R, Up, F, s, s, s, ink.r, ink.g, ink.b, 1 - t);
+                else P.put(fl.p, R, Up, F, s, s, s, fl.rgb[0], fl.rgb[1], fl.rgb[2], 1 - t);
             }
             P.flush();
         }
@@ -405,6 +461,7 @@ export class FightFX {
         this.jets.flush();
         this.balls.flush();
         this.halos.flush();
+        if (this.lineBalls) this.lineBalls.flush();
         for (const d of this.debris) {
             if (d.life <= 0) continue;
             d.life -= dt;
@@ -594,4 +651,334 @@ export class FightCamera {
         this.lastMode = mode;
         return {pos: this.pos, look: this.look, fov: this.fov, mode};
     }
+}
+
+// ---------- ultra (CHANGE 147): the window's smooth fighters and hall ----------
+// models/fight_ultra.json (0.7 MB) and models/stage_ultra.json (1.4 MB), written by make_models.py from the window's
+// fight_models.py and stage_models.py. Fetched only on ultra (a school laptop on low never asks for them); null until
+// loaded (or when they aren't there or are broken), and the scene draws high's fighters and hall till then.
+const DEG = Math.PI / 180;
+const lin = c => Math.pow(Math.max(0, c), 2.2);
+let fightModels = null, fightAsked = null, stageModels = null, stageAsked = null;
+export function loadFightModels() {
+    if (!fightAsked) {
+        fightAsked = fetch("models/fight_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+            fightModels = d && d.version === 1 && d.roles && d.pieces && d.pieces.robot_torso && d.pieces.human_torso ? d : null;
+            return fightModels;
+        }).catch(() => null);
+    }
+    return fightAsked;
+}
+export function fightModelsData() { return fightModels; }
+
+export function loadStageModels() {
+    if (!stageAsked) {
+        stageAsked = fetch("models/stage_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+            stageModels = d && d.version === 1 && d.materials && d.ring && d.groups && d.groups.floor ? d : null;
+            return stageModels;
+        }).catch(() => null);
+    }
+    return stageAsked;
+}
+export function stageModelsData() { return stageModels; }
+
+// fight_models.layout: where each piece goes for a fighter of this body ("robot", or anything else built as a human,
+// as the lower tiers build it) and model (a boss's name, or null): [[joint, piece, pos, hpr, scale]] in each joint's
+// frame (game coordinates, degrees). A boss is wider (BIG), with its own extras
+const BIG = 1.15;
+export function fighterLayout(body, model = null) {
+    const big = model ? BIG : 1, one = [1, 1, 1], wide = [big, 1, 1], O = [0, 0, 0], out = [];
+    if (body === "robot") {
+        out.push(["hips", "robot_hips", O, O, wide], ["waist", "robot_torso", O, O, wide], ["neck", "robot_head", O, O, one]);
+        for (const s of ["l", "r"]) {
+            out.push([s + "s", `robot_shoulder_${s}`, O, O, wide], [s + "e", `robot_forearm_${s}`, O, O, wide],
+                     [s + "h", "robot_thigh", O, O, wide], [s + "k", "robot_shin", O, O, wide], [s + "a", "robot_foot", O, O, wide]);
+        }
+        if (model) out.push(["waist", "robot_collar_spikes", O, O, one], ["neck", "robot_horns", O, O, one]);
+        return out;
+    }
+    const limb = [big, big, 1];
+    out.push(["hips", "human_hips", O, O, wide], ["waist", "human_torso", O, O, wide], ["neck", "human_head", O, O, one],
+             ["neck", "human_headband", O, O, one]);
+    for (const s of ["l", "r"]) {
+        out.push([s + "s", "human_shoulder", O, O, limb], [s + "e", `human_forearm_${s}`, O, O, limb],
+                 [s + "h", "human_thigh", O, O, limb], [s + "k", "human_shin", O, O, limb], [s + "a", "human_foot", O, O, one]);
+    }
+    out.push(["neck", model === "SHADE" ? "shade_mask" : model === "KRAGG" ? "kragg_mohawk" : "human_hair", O, O, one]);
+    if (model) out.push(["waist", "human_chest", O, O, wide]);
+    return out;
+}
+
+// each piece's parts unpacked once for the page's life (shared by every fighter): [{role, pos, nor, idx}], Babylon axes
+const pieceCache = new Map();
+function pieceParts(name) {
+    if (!pieceCache.has(name)) {
+        const parts = [];
+        for (const p of (fightModels.pieces[name] || [])) {
+            const a = unpackPart(p);
+            if (a && fightModels.roles[p.material]) parts.push({role: p.material, pos: a.pos, nor: a.nor, idx: a.idx});
+        }
+        pieceCache.set(name, parts);
+    }
+    return pieceCache.get(name);
+}
+
+// One joint's pieces as ONE mesh (the window's: a Geom a joint), in the fighter's colours: each vertex its role's
+// colour (null: the design's colour; a name: colours[name], "trim", "skin", "hair", "pants", "shade", "lips"; all
+// screen colours, made linear) and its texture coordinates on its role's texel of the atlas (fighterAtlas: roughness,
+// metal and glow). items: [[piece, pos, hpr, scale]] in the joint's frame (game coordinates; only headings are used).
+// Null if empty
+export function fighterJointMesh(sc, name, items, colours) {
+    const roles = Object.keys(fightModels.roles), n = roles.length, parts = [];
+    let nv = 0, ni = 0;
+    for (const [piece, pos, hpr, scale] of items) {
+        for (const p of pieceParts(piece)) { parts.push([p, pos, hpr, scale]); nv += p.pos.length / 3; ni += p.idx.length; }
+    }
+    if (!nv) return null;
+    const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), UV = new Float32Array(nv * 2), C = new Float32Array(nv * 4);
+    const I = nv >= 65536 ? new Uint32Array(ni) : new Uint16Array(ni);
+    let ov = 0, oi = 0;
+    for (const [p, at, hpr, scale] of parts) {
+        const h = hpr[0] * DEG, c = Math.cos(h), s = Math.sin(h), [sx, sy, sz] = scale;
+        const look = fightModels.roles[p.role], ri = roles.indexOf(p.role);
+        const want = look.colour === null ? colours.main : typeof look.colour === "string" ? colours[look.colour] : look.colour;
+        const rgb = (want || [1, 1, 1]).map(lin);
+        const u = (ri + 0.5) / n, src = p.pos, nor = p.nor, cnt = src.length / 3;
+        for (let i = 0; i < cnt; i++) {
+            const o = i * 3, w = (ov + i) * 3;
+            // (Babylon's x, y, z are the game's x, z, y: scaled, turned about the game's z, moved)
+            const gx = src[o] * sx, gy = src[o + 2] * sy, gz = src[o + 1] * sz;
+            P[w] = c * gx - s * gy + at[0]; P[w + 2] = s * gx + c * gy + at[1]; P[w + 1] = gz + at[2];
+            const nx = nor[o] / sx, ny = nor[o + 2] / sy, nz = nor[o + 1] / sz, l = Math.hypot(nx, ny, nz) || 1;
+            N[w] = (c * nx - s * ny) / l; N[w + 2] = (s * nx + c * ny) / l; N[w + 1] = nz / l;
+            const t = (ov + i) * 2, q = (ov + i) * 4;
+            UV[t] = u; UV[t + 1] = 0.5;
+            C[q] = rgb[0]; C[q + 1] = rgb[1]; C[q + 2] = rgb[2]; C[q + 3] = 1;
+        }
+        for (let k = 0; k < p.idx.length; k++) I[oi + k] = p.idx[k] + ov;
+        ov += cnt;
+        oi += p.idx.length;
+    }
+    const mesh = new BABYLON.Mesh(name, sc.scene);
+    const vd = new BABYLON.VertexData();
+    vd.positions = P;
+    vd.normals = N;
+    vd.uvs = UV;
+    vd.colors = C;
+    vd.indices = I;
+    vd.applyToMesh(mesh);
+    mesh.ccOwnUV = true;  // (its texture coordinates are the atlas's: not the metres base3d gives a mesh)
+    mesh.isPickable = false;
+    return mesh;
+}
+
+// a fighter's two little pictures, a texel a role (the window's fight_gfx.fighter_atlas): (1, roughness, metal), and
+// its glow over FIGHTER_GLOW ("lights": the fighter's lights colour times 5, as the lower tiers' glowing parts). Made
+// once per scene and lights colour
+export const FIGHTER_GLOW = 8.0;
+export function fighterAtlas(sc, lights) {
+    if (!sc.ultraAtlas || sc.ultraAtlas.scene !== sc.scene) sc.ultraAtlas = {scene: sc.scene};  // (a scene's own: gone with it)
+    const cache = sc.ultraAtlas;
+    const roles = Object.keys(fightModels.roles), n = roles.length, key = lights.map(v => v.toFixed(3)).join(",");
+    const make = data => {
+        const t = BABYLON.RawTexture.CreateRGBATexture(data, n, 1, sc.scene, false, false, BABYLON.Texture.NEAREST_SAMPLINGMODE);
+        t.wrapU = t.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        return t;
+    };
+    if (!cache.mr) {
+        const mr = new Uint8Array(n * 4);
+        roles.forEach((r, i) => { const L = fightModels.roles[r]; mr.set([255, Math.round(L.rough * 255), Math.round(L.metal * 255), 255], i * 4); });
+        cache.mr = make(mr);
+    }
+    if (!cache[key]) {
+        const glow = new Uint8Array(n * 4);
+        roles.forEach((r, i) => {
+            const e = fightModels.roles[r].emission, v = e === "lights" ? lights : Array.isArray(e) ? e : [0, 0, 0];
+            glow.set([...v.map(c => Math.round(Math.min(1, c / FIGHTER_GLOW) * 255)), 255], i * 4);
+        });
+        cache[key] = make(glow);
+    }
+    return {mr: cache.mr, glow: cache[key]};
+}
+
+// stage_models.ring_layout: where a ring's pieces go for a ring of radius R (the roster's rs) with ropes (roped) or an
+// open edge: [[piece, pos, hpr, scale, grow]] about the ring's centre (game coordinates, degrees)
+const R0 = 4.5, ROPE_HEIGHTS = [0.45, 0.85, 1.25];
+export function ringLayout(R, roped) {
+    const edge = roped ? 0.7 : 0.1, round = (v, k) => Math.round(v * 10 ** k) / 10 ** k;
+    const out = [["canvas", [0, 0, 0], [0, 0, 0], [R / R0, R / R0, 1], 0],
+                 [roped ? "platform" : "platform_open", [0, 0, 0], [0, 0, 0], [1, 1, 1], R - R0],
+                 ["steps", [0, -(R + edge + 0.03), 0], [0, 0, 0], [1, 1, 1], 0]];
+    if (roped) {
+        const postR = (R + 0.08) / Math.cos(Math.PI / 8);
+        const corners = Array.from({length: 8}, (_, k) => [Math.cos(Math.PI / 8 + k * Math.PI / 4) * postR, Math.sin(Math.PI / 8 + k * Math.PI / 4) * postR]);
+        for (const [x, y] of corners) out.push(["post", [round(x, 4), round(y, 4), 0], [round(Math.atan2(-y, -x) / DEG, 3), 0, 0], [1, 1, 1], 0]);
+        for (const z of ROPE_HEIGHTS) for (let k = 0; k < 8; k++) {
+            const [xa, ya] = corners[k], [xb, yb] = corners[(k + 1) % 8];
+            out.push(["rope", [round(xa, 4), round(ya, 4), z], [round(Math.atan2(yb - ya, xb - xa) / DEG, 3), 0, 0], [round(Math.hypot(xb - xa, yb - ya), 4), 1, 1], 0]);
+        }
+    }
+    return out;
+}
+
+// a part (unpackPart's arrays, Babylon axes) where ring_layout puts it: each point pushed out from the piece's z axis
+// by grow (x, y times (r + grow) / r), then scaled, turned about the game's z and moved (fight_gfx.placed's few lines)
+function placed(a, pos, hpr, scale, grow) {
+    const n = a.pos.length / 3, P = new Float32Array(n * 3), N = new Float32Array(n * 3);
+    const h = hpr[0] * DEG, c = Math.cos(h), s = Math.sin(h), [sx, sy, sz] = scale;
+    for (let i = 0, o = 0; i < n; i++, o += 3) {
+        let x = a.pos[o], y = a.pos[o + 2];
+        const z = a.pos[o + 1], r = Math.hypot(x, y);
+        if (grow && r > 1e-9) { x *= (r + grow) / r; y *= (r + grow) / r; }
+        const gx = x * sx, gy = y * sy;
+        P[o] = pos[0] + c * gx - s * gy; P[o + 2] = pos[1] + s * gx + c * gy; P[o + 1] = pos[2] + z * sz;
+        const nx = a.nor[o] / sx, ny = a.nor[o + 2] / sy, nz = a.nor[o + 1] / sz, l = Math.hypot(nx, ny, nz) || 1;
+        N[o] = (c * nx - s * ny) / l; N[o + 2] = (s * nx + c * ny) / l; N[o + 1] = nz / l;
+    }
+    return {pos: P, nor: N, uv: a.uv, col: a.col, idx: a.idx};
+}
+
+// several placed parts as one set of arrays (white where a part has no colours)
+function joined(list) {
+    let nv = 0, ni = 0;
+    const colours = list.some(a => a.col);
+    for (const a of list) { nv += a.pos.length / 3; ni += a.idx.length; }
+    const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), UV = new Float32Array(nv * 2);
+    const C = colours ? new Float32Array(nv * 4).fill(1) : null, I = nv >= 65536 ? new Uint32Array(ni) : new Uint16Array(ni);
+    let ov = 0, oi = 0;
+    for (const a of list) {
+        const cnt = a.pos.length / 3;
+        P.set(a.pos, ov * 3); N.set(a.nor, ov * 3); UV.set(a.uv, ov * 2);
+        if (C && a.col) C.set(a.col, ov * 4);
+        for (let k = 0; k < a.idx.length; k++) I[oi + k] = a.idx[k] + ov;
+        ov += cnt;
+        oi += a.idx.length;
+    }
+    return {pos: P, nor: N, uv: UV, col: C, idx: I};
+}
+
+// a stage material (stage_models.MATERIALS, as the file has them): rgb overrides its colour (null: the ring's mat
+// colour; "corner", "rope": what the ring gives); far: in the hall's haze (pbr.js's picked fog). Kept in sc.materials
+function stageMaterial(sc, data, name, rgb, variant, far) {
+    const L = data.materials[name] || {colour: [1, 1, 1], rough: 1, metal: 0};
+    const key = `stage ${name}${variant}${far ? " far" : ""}`;
+    if (sc.materials[key]) return sc.materials[key];
+    const m = sc.lighting.material(key, {rgb: rgb || (Array.isArray(L.colour) ? L.colour : [1, 1, 1]), rough: Number(L.rough ?? 1),
+        metal: Number(L.metal ?? 0), tex: L.texture || "", emission: Array.isArray(L.emission) ? L.emission : null, haze: far});
+    m.backFaceCulling = true;
+    m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;  // (the front as the file's, turned round by unpackPart)
+    sc.materials[key] = m;
+    return m;
+}
+
+function stageMesh(sc, name, a) {
+    const mesh = new BABYLON.Mesh(name, sc.scene);
+    const vd = new BABYLON.VertexData();
+    vd.positions = a.pos;
+    vd.normals = a.nor;
+    vd.uvs = a.uv;
+    vd.indices = a.idx;
+    if (a.col) vd.colors = a.col;
+    vd.applyToMesh(mesh);
+    mesh.ccOwnUV = true;  // (its texture coordinates are the file's: repeats already)
+    mesh.isPickable = false;
+    return mesh;
+}
+
+// The window's ultra ring (fight_gfx.StageVisual.ultra_ring) for ring i at centre [cx, cy]: the file's ring pieces
+// placed by ringLayout, one mesh per material (the canvas in the ring's mat colour, the corner pads in its corner
+// colour), and the ropes their own mesh in ropeMat (electric ropes glow and flash: their own material a ring). The
+// canvas casts no shadow (flat). Returns {meshes, ropes, casters, triangles}
+export function makeUltraRing(sc, data, i, R, roped, centre, mat, corner, ropeMat) {
+    const out = {meshes: [], ropes: null, casters: [], triangles: 0}, groups = new Map(), ropes = [];
+    for (const [piece, pos, hpr, scale, grow] of ringLayout(R, roped)) {
+        const at = [centre[0] + pos[0], centre[1] + pos[1], pos[2]];
+        for (const part of data.ring[piece] || []) {
+            const a = unpackPart(part);
+            if (!a) continue;
+            const p = placed(a, at, hpr, scale, grow);
+            if (piece === "rope") { ropes.push(p); continue; }
+            if (!groups.has(part.material)) groups.set(part.material, []);
+            groups.get(part.material).push(p);
+        }
+    }
+    for (const [name, list] of groups) {
+        const a = joined(list), L = data.materials[name] || {}, colour = L.colour === null ? mat : L.colour === "corner" ? corner : null;
+        const mesh = stageMesh(sc, `stage ring ${name}`, a);
+        mesh.material = stageMaterial(sc, data, name, colour, `:${colour ? colour.join(",") : ""}:${!!a.col}`, false);
+        mesh.freezeWorldMatrix();
+        if (!L.flat) out.casters.push(mesh);
+        out.meshes.push(mesh);
+        out.triangles += a.idx.length / 3;
+    }
+    if (ropes.length) {
+        const a = joined(ropes), mesh = out.ropes = stageMesh(sc, "stage ropes", a);
+        mesh.material = ropeMat;
+        mesh.freezeWorldMatrix();
+        out.casters.push(mesh);
+        out.triangles += a.idx.length / 3;
+    }
+    return out;
+}
+
+// The window's ultra hall (fight_gfx.StageVisual.ultra_hall) from models/stage_ultra.json: the floor and walkways, the
+// stands with their seats and fans (the seats alone if the look has no crowd), the big screens; and the lighting rig,
+// the hall's walls and its roof (returned apart: the ring and all rings views hide them). Each part one mesh, each
+// placed shape's part one mesh drawn as thin instances (turned h degrees about the game's z, scaled by s, moved to x,
+// y, z; the tinted parts coloured by each instance's r, g, b, made linear). The far parts are in the hall's haze and
+// cast no shadow, nor the flat ones or the rig (the window's rig is hidden from its shadow camera). Returns {meshes,
+// rig, casters, parts, instances, triangles}
+export function makeUltraHall(sc, data, look) {
+    const out = {meshes: [], rig: [], casters: [], parts: 0, instances: 0, triangles: 0};
+    const build = (part, name) => {
+        const a = unpackPart(part);
+        if (!a) return null;
+        const mesh = stageMesh(sc, name, a);
+        const L = data.materials[part.material] || {};
+        mesh.ccCast = !part.far && !L.flat;
+        out.triangles += a.idx.length / 3;
+        return mesh;
+    };
+    const own = (part, into, cast = true) => {
+        const mesh = build(part, "stage " + part.name);
+        if (!mesh) return;
+        mesh.material = stageMaterial(sc, data, part.material, null, `:${!!(part.colours || part.alpha)}`, !!part.far);
+        mesh.freezeWorldMatrix();
+        if (!cast) mesh.ccCast = false;
+        into.push(mesh);
+        out.parts++;
+    };
+    const group = n => (Array.isArray(data.groups[n]) ? data.groups[n] : []);
+    // (made, so drawn, in this order, near to far: the screens, the crowd, then the stands, the floor last)
+    for (const p of group("screens")) own(p, out.meshes);
+    for (const p of [...group("rig"), ...group("hall"), ...group("roof")]) own(p, out.rig, false);
+    const rows = look.crowd === false ? {seat: (data.instances || {}).seat || []} : data.instances || {};
+    for (const [shape, list] of Object.entries(rows).sort(([a], [b]) => (a === "seat") - (b === "seat"))) {  // (the fans before the seats they sit in)
+        const parts = data.shapes[shape];
+        if (!Array.isArray(parts) || !Array.isArray(list) || !list.length) continue;
+        const M = new Float32Array(list.length * 16), C = new Float32Array(list.length * 4);
+        list.forEach((r, i) => {
+            const h = r[3] * DEG, s = r[4], c = Math.cos(h) * s, n = Math.sin(h) * s, o = i * 16;
+            M[o] = c; M[o + 2] = n; M[o + 5] = s; M[o + 8] = -n; M[o + 10] = c;
+            M[o + 12] = r[0]; M[o + 13] = r[2]; M[o + 14] = r[1]; M[o + 15] = 1;
+            C[i * 4] = lin(r[5]); C[i * 4 + 1] = lin(r[6]); C[i * 4 + 2] = lin(r[7]); C[i * 4 + 3] = 1;
+        });
+        for (const part of parts) {
+            const mesh = build(part, `stage ${shape} ${part.name}`);
+            if (!mesh) continue;
+            out.triangles += (list.length - 1) * mesh.getTotalIndices() / 3;
+            mesh.material = stageMaterial(sc, data, part.material, null, `:${!!part.colours}:i${part.tint ? "t" : ""}`, !!part.far);
+            mesh.thinInstanceSetBuffer("matrix", M, 16, true);
+            if (part.tint) mesh.thinInstanceSetBuffer("color", C, 4, true);
+            mesh.thinInstanceRefreshBoundingInfo(false);
+            mesh.ccCast = false;  // (out in the stands: beyond the shadow's reach)
+            mesh.freezeWorldMatrix();
+            mesh.doNotSyncBoundingInfo = true;
+            out.meshes.push(mesh);
+        }
+        out.instances += list.length;
+    }
+    for (const n of ["stands", "floor"]) for (const p of group(n)) own(p, out.meshes);
+    for (const m of [...out.meshes, ...out.rig]) if (m.ccCast) out.casters.push(m);
+    return out;
 }

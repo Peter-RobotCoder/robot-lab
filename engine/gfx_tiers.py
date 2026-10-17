@@ -6,8 +6,8 @@ are simplepbr with fewer or more of the costly things: shadows, MSAA, the number
 occlusion maps, the reflection map.
 
 CHANGE 144: the whole ladder (TIERS) is mesh < lines < basic < low < medium < high < ultra, and each game says
-which of them it draws (tiers=; CORE when it says nothing, as Robot Lab and Fight Lab do; Kart Lab draws all
-seven). "mesh" (every triangle's edges) and "lines" (the shapes' outlines and a ground grid) are a look in one
+which of them it draws (tiers=; CORE when it says nothing; Kart Lab draws all seven, Robot Lab too since CHANGE 145
+and Fight Lab since CHANGE 147). "mesh" (every triangle's edges) and "lines" (the shapes' outlines and a ground grid) are a look in one
 colour on black, chosen by hand or by the teacher, never by the monitor (LOOKS). "ultra" is the best a gaming PC
 can draw, chosen by hand or stepped back up into once it has run cleanly here; the heuristic never picks it. A
 tier a game doesn't draw is drawn as its nearest (nearest(): mesh and lines as basic, ultra as high).
@@ -36,7 +36,7 @@ import sys
 import time
 
 TIERS = ("mesh", "lines", "basic", "low", "medium", "high", "ultra")  # the whole ladder, lowest first (CHANGE 144)
-CORE = ("basic", "low", "medium", "high")  # what a game draws when it doesn't say (Robot Lab, Fight Lab)
+CORE = ("basic", "low", "medium", "high")  # what a game draws when it doesn't say (the showcases' tiers)
 LOOKS = ("mesh", "lines")                  # a look, not a performance step: the monitor never goes into or out of them
 
 # Each tier's knobs. pbr: simplepbr's keyword arguments (enable_shadows is compiled in, so it can't change in a

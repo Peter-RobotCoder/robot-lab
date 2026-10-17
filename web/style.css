@@ -162,9 +162,9 @@ a { color: var(--blue); }
 #places .bhead b.teacher { color: var(--blue); }
 #places .bhead button { margin-left: auto; padding: 1px 8px; font-size: 12px; }
 
-/* the learner's login and tabs (CHANGE 134) */
-#login #modetabs { grid-template-columns: 1fr 1fr; }
-#login #modetabs button.on { background: var(--yellow); color: #111; }
+/* the login: one username and password for everyone (CHANGE 148) */
+#login [hidden] { display: none !important; }  /* (the rows' display: grid had shown every hidden form: the class
+   code, Name, the new password boxes) */
 #login .row > p { grid-column: 1 / -1; margin: 0; }
 #waitbox p.big { font-size: 18px; color: var(--text); }
 #waitbox h2.lobby { margin: 10px 0 4px; color: var(--yellow); letter-spacing: 0.06em; font-size: 20px; }

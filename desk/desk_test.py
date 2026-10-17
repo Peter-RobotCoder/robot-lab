@@ -109,6 +109,7 @@ try:
     def teacher_login():
         m = ask(teacher, {"type": "teacher", "password": "desk-test-teacher-password"})
         assert m.get("ok") and "state" in m, m
+        assert m.get("own_password") is False, "the setup's teacher code wasn't said to be the setup's"  # (CHANGE 148)
         state.update(m["state"])
         assert state["games"]["robotlab"]["title"] == "Robot Lab"
     check("teacher: logs in and gets the desk's state", teacher_login)
@@ -129,9 +130,13 @@ try:
             assert m.get("ok"), m
         m = ask(teacher, {"type": "add_learner", "name": "Sam", "starter": "again"})
         assert not m.get("ok"), "a second Sam was allowed"
+        for name in ("Teacher", "teacher", " TEACHER "):  # (CHANGE 148: the one login form's teacher)
+            m = ask(teacher, {"type": "add_learner", "name": name, "starter": "teacher-starter"})
+            assert not m.get("ok"), f"a learner called {name!r} was allowed"
         m = ask(teacher, {"type": "state"})
         names = [l["name"] for l in m.get("state", state)["learners"]] if "state" in m else None
-    check("teacher: adds learners (a starter password is made when none is given; no duplicates)", add_learners)
+    check("teacher: adds learners (a starter password is made when none is given; no duplicates; nobody called Teacher)",
+          add_learners)
 
     def make_group():
         m = ask(teacher, {"type": "set_group", "name": "Tuesday", "game": "robotlab", "learners": ["Sam", "Alex"]})
@@ -152,6 +157,23 @@ try:
             m = json.loads(ws.recv(timeout=10))
             assert m.get("waiting"), m
     check("learner: wrong password refused; starter must be changed; then waits for the group", learner_before_launch)
+
+    def reset_then_change():  # (CHANGE 148) after the teacher's Reset the learner chooses their own again
+        m = ask(teacher, {"type": "add_learner", "name": "Kim", "starter": "kim-starter"})
+        assert m.get("ok"), m
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            ask(ws, {"type": "login", "name": "Kim", "password": "kim-starter"})
+            m = ask(ws, {"type": "set_password", "name": "Kim", "password": "kim-starter", "new": "kim-own-pass"},
+                    want="changed")
+            assert m.get("ok"), m
+        m = ask(teacher, {"type": "reset_password", "name": "Kim", "starter": "kim-reset"})
+        assert m.get("ok"), m
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            assert "error" in ask(ws, {"type": "login", "name": "Kim", "password": "kim-own-pass"}), "the old one works"
+            m = ask(ws, {"type": "login", "name": "Kim", "password": "kim-reset"})
+            assert m.get("change_password"), f"a reset password didn't have to be changed: {m}"
+        assert ask(teacher, {"type": "remove_learner", "name": "Kim"}).get("ok")
+    check("learner: after the teacher resets their password, they choose their own again", reset_then_change)
 
     launched = {}
 
@@ -372,7 +394,9 @@ try:
             m = ask(ws, {"type": "change_teacher_password", "password": code, "new": new})
             assert m.get("teacher_password_changed"), m
             assert "error" in ask(ws, {"type": "teacher", "password": code}), "the old teacher code still works"
-            assert ask(ws, {"type": "teacher", "password": new}).get("ok"), "the new password doesn't work"
+            m = ask(ws, {"type": "teacher", "password": new})
+            assert m.get("ok"), "the new password doesn't work"
+            assert m.get("own_password") is True, "the teacher's own password was said to be the setup's"
         with open(os.path.join(desk_data, "teacher.json"), encoding="utf-8") as f:
             assert new not in f.read(), "the new password is kept as it was typed"
         os.remove(os.path.join(desk_data, "teacher.json"))  # (forgotten: the server's teacher code comes back)

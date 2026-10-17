@@ -11,11 +11,15 @@ pipeline: the cheapest drawing there is), then gives each static or moving piece
 is built (or blacken() and wire() with a line node from line_node(*edges(...)) worked out once and shared). The
 line colour is a learner's choice (settings.json and their profile prefs, line_colour "#rrggbb"): set_line_colour
 changes it at once on everything drawn. Nothing here changes a game: the sims never read a picture.
+
+CHANGE 147 (Fight Lab): skinned() gives a model that bends with a skeleton (an Actor) lines that share its vertex
+tables, so they bend with it; silhouette() draws the outline of round shapes (bodies, heads, limbs), which have
+too few folds for lines to show them.
 """
 import math
 
-from panda3d.core import (AntialiasAttrib, Fog, Geom, GeomLines, GeomNode, GeomVertexData, GeomVertexFormat,
-                          InternalName, TransparencyAttrib)
+from panda3d.core import (AntialiasAttrib, CullFaceAttrib, Fog, Geom, GeomLines, GeomNode, GeomVertexData,
+                          GeomVertexFormat, InternalName, TransparencyAttrib)
 
 from engine import gfx_tiers
 
@@ -172,6 +176,12 @@ def edges(root, mode, crease=CREASE):
     good = (t[:, 0] != t[:, 1]) & (t[:, 1] != t[:, 2]) & (t[:, 0] != t[:, 2])
     t, keys = t[good], keys[good]
     pts = uniq / 1000.0
+    return pts, _pick(pts, t, keys, mode, crease)
+
+
+def _pick(pts, t, keys, mode, crease):
+    """edges' choice for triangles t (indices into pts, no slivers) with their keys: the (m, 2) pairs to draw."""
+    import numpy as np
     e = np.sort(np.stack([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]], axis=1).reshape(-1, 2), axis=1)
     ekey = e[:, 0] * len(pts) + e[:, 1]
     order = np.argsort(ekey, kind="stable")
@@ -180,7 +190,7 @@ def edges(root, mode, crease=CREASE):
     counts = np.diff(np.r_[starts, len(ekey)])
     first = e[order[starts]]
     if mode == "mesh":
-        return pts, first
+        return first
     face = order // 3  # (each edge's triangle)
     n = np.cross(pts[t[:, 1]] - pts[t[:, 0]], pts[t[:, 2]] - pts[t[:, 0]])
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
@@ -189,7 +199,100 @@ def edges(root, mode, crease=CREASE):
     f1, f2 = face[starts[two]], face[starts[two] + 1]
     fold = np.einsum("ij,ij->i", n[f1], n[f2]) < math.cos(math.radians(crease))
     keep[two] = fold | (keys[f1] != keys[f2])
-    return pts, first[keep]
+    return first[keep]
+
+
+def geom_pairs(geom, mode, crease=CREASE):
+    """edges for one Geom, as pairs of rows of its OWN vertex table (CHANGE 147: Fight Lab's skinned fighters): the
+    corners within a millimetre are merged to find the edges, as edges() does, and each merged corner is drawn with
+    one of its rows. A GeomLines on these rows, sharing the Geom's vertex table, moves with whatever moves those
+    rows (an Actor's joints: Panda animates the table once a frame for the faces and the lines together)."""
+    import numpy as np
+    vdata = geom.getVertexData()
+    fmt = vdata.getFormat()
+    ai = fmt.getArrayWith(InternalName.getVertex())
+    col = fmt.getColumn(InternalName.getVertex())
+    stride = fmt.getArray(ai).getStride()
+    raw = np.frombuffer(vdata.getArray(ai).getHandle().getData(), dtype=np.uint8).reshape(-1, stride)
+    pos = raw[:, col.getStart():col.getStart() + 12].copy().view(np.float32).reshape(-1, 3).astype(np.float64)
+    tris = _triangles(geom)
+    if not tris:
+        return np.zeros((0, 2), dtype=np.int64)
+    tris = np.concatenate(tris)
+    used = np.unique(tris)
+    uniq, inv = np.unique(np.round(pos[used] * 1000).astype(np.int64), axis=0, return_inverse=True)
+    inv = inv.reshape(-1)
+    row = np.zeros(len(uniq), dtype=np.int64)
+    row[inv[::-1]] = used[::-1]  # (each merged corner's first row)
+    merged = np.zeros(len(pos), dtype=np.int64)
+    merged[used] = inv
+    t = merged[tris]
+    t = t[(t[:, 0] != t[:, 1]) & (t[:, 1] != t[:, 2]) & (t[:, 0] != t[:, 2])]
+    if not len(t):
+        return np.zeros((0, 2), dtype=np.int64)
+    return row[_pick(uniq / 1000.0, t, np.zeros(len(t), dtype=np.int64), mode, crease)]
+
+
+def skinned(np_, mode=None, cache=None, key=""):
+    """mesh and lines for a model whose vertices move with a skeleton (CHANGE 147: Fight Lab's detailed fighters,
+    Actors): every GeomNode under np_ that is shown gets a lines node under it whose Geoms share its Geoms' vertex
+    tables (geom_pairs), so the lines bend with the skin for nothing more than drawing them; its faces go black; on
+    lines it gets its outline too (silhouette: the round body has few folds). cache: a dict that keeps each Geom's
+    pairs under (key, the node's name, the Geom's number, mode), for the next fighter with the same model. Returns
+    the line nodes."""
+    import numpy as np
+    mode = mode or look()
+    out = []
+    for gnp in list(np_.findAllMatches("**/+GeomNode")):
+        if gnp.hasNetTag("no_lines"):
+            continue
+        gn = gnp.node()
+        node = GeomNode(f"{gnp.getName()} {mode}")
+        for gi in range(gn.getNumGeoms()):
+            geom = gn.getGeom(gi)
+            pairs = cache.get((key, gnp.getName(), gi, mode)) if cache is not None else None
+            if pairs is None:
+                pairs = geom_pairs(geom, mode)
+                if cache is not None:
+                    cache[(key, gnp.getName(), gi, mode)] = pairs
+            if not len(pairs):
+                continue
+            lines = GeomLines(Geom.UH_static)
+            lines.setIndexType(Geom.NT_uint32)
+            lines.modifyVertices().modifyHandle().setData(pairs.astype(np.uint32).tobytes())
+            g = Geom(geom.getVertexData())
+            g.addPrimitive(lines)
+            node.addGeom(g)
+        blacken(gnp)
+        if node.getNumGeoms():
+            out.append(wire(gnp, gnp.attachNewNode(node)))
+        if mode == "lines":
+            out += silhouette(gnp)
+    return out
+
+
+def silhouette(np_):
+    """lines: the outlines of round shapes (CHANGE 147), which have no folds for edges() to find: each GeomNode under
+    np_ (itself included) drawn again from its back faces, as thick lines in the line colour; where they are not
+    behind its own black front faces, at its outline, they show. The Geoms are shared (an Actor's skin moves them).
+    Returns the outline nodes."""
+    nodes = list(np_.findAllMatches("**/+GeomNode"))
+    if np_.node().isGeomNode():
+        nodes.insert(0, np_)
+    out = []
+    for gnp in nodes:
+        gn = gnp.node()
+        node = GeomNode(f"{gnp.getName()} outline")
+        for gi in range(gn.getNumGeoms()):
+            node.addGeom(gn.getGeom(gi).makeCopy())
+        if not node.getNumGeoms():
+            continue
+        sil = wire(gnp, gnp.attachNewNode(node))
+        sil.setRenderModeWireframe()
+        sil.setRenderModeThickness(_state.get("line_px", 1.0) * 1.7)
+        sil.setAttrib(CullFaceAttrib.makeReverse())
+        out.append(sil)
+    return out
 
 
 def line_node(name, pts, pairs, extra=None):

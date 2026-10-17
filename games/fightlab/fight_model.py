@@ -9,6 +9,9 @@ Each model file holds every outfit, hairstyle and weapon; the design's "look" sa
 colour, and the height, and its weapon which weapon is held. The design's colour is the colour of the outfit's
 main pieces. A fighting style's own moves are named "<style>.<move>" (for example "boxer.punch"); a style without
 its own version of a move uses the sword-and-shield one.
+
+On mesh and lines (CHANGE 147) the model's faces are black and its edges are lines that share its skin's vertex tables
+(engine.line_look.skinned), so they bend with every move; on ultra it is drawn as on high (it is already detailed).
 """
 import json
 import math
@@ -17,7 +20,9 @@ import os
 from direct.actor.Actor import Actor
 from panda3d.core import Filename, LColor, Material, Point3, TextNode, Vec3
 
+import fight_gfx
 import fight_sim as sim
+from engine import line_look
 from fight_gfx import cartwheel_turn, ease
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +55,7 @@ WEAPON_PIECES = {"knife": ("knife",), "dagger": ("dagger",), "sword_shield": ("s
                  "glaive": ("glaive",)}
 
 _moves = None
+LINES = {}  # mesh and lines: each model piece's edges, worked out once (CHANGE 147: looks)
 
 
 def model_file(body, shape):
@@ -106,6 +112,20 @@ class ModelFighterVisual:
         self.chest = self.actor.exposeJoint(None, "modelRoot", "mixamorig:Spine2")
         if body == "robin":
             self.number_plate(design)
+        self.lines = []
+        if fight_gfx.look():  # (mesh and lines: CHANGE 147)
+            self.looks(path)
+
+    def looks(self, path):
+        """mesh and lines (CHANGE 147): the model's faces black and its edges in the line colour. The lines share the
+        skin's vertex tables (engine.line_look.skinned), so they bend with every move for nothing more than drawing
+        them; on lines the round body's outline is drawn too. Each piece's edges are worked out once a model file
+        (LINES) for every fighter with that model."""
+        self.lines = line_look.skinned(self.actor, cache=LINES, key=path)
+        for lines in self.lines:
+            lines.setColorScaleOff(1)  # (the clothes' and hair's tints are colour scales: never on the lines)
+        for tn in self.actor.findAllMatches("**/+TextNode"):  # (Robin's number: in the line colour)
+            fight_gfx.lettering(tn)
 
     def dress(self, look, colour, weapon, style):
         """Show the chosen outfit, hairstyle and weapon (hide the rest), and colour the clothes and the hair (or
@@ -242,6 +262,8 @@ class ModelFighterVisual:
         if hurt != self.flashing:
             self.flashing = hurt
             self.actor.setColorScale((2.6, 2.3, 2.1, 1) if hurt else (1, 1, 1, 1))
+            for lines in self.lines:  # (mesh and lines: the lines flash too, whitening)
+                lines.setColorScale((2.6, 2.3, 2.1, 1), 2) if hurt else lines.setColorScaleOff(1)
 
     def star_pose(self, on):
         """Hold the arms and legs in the cartwheel's star (see STAR), or let the clips have them back."""
@@ -296,6 +318,7 @@ class ModelFighterVisual:
             self.tag.setDepthTest(False)
             self.tag.setDepthWrite(False)
             self.tag.setBin("fixed", 60)
+            self.tag.setFogOff(1)  # (mesh and lines: the dark fog never fades who is who: CHANGE 147)
             self.tag.setZ(2.05 * self.size + 0.2)
         self.tag.node().setText(text)
         self.tag.node().setTextColor(*colour)
@@ -315,5 +338,4 @@ def make(parent, design):
     """The right visual for a design: a detailed model for the woman and man bodies, otherwise the built fighter."""
     if available(design.get("body")):
         return ModelFighterVisual(parent, design)
-    import fight_gfx
     return fight_gfx.FighterVisual(parent, design)

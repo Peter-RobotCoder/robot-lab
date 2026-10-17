@@ -77,7 +77,7 @@ function deskUrl() {
 // The teacher desk (CHANGE 129): the page stays connected to the desk while logged in, and shows the Teacher screen
 // (desk.js); watching a class asks the desk for a teacher ticket for it.
 function deskLogin() {
-    const password = $("deskpass").value;
+    const password = $("lpass").value;
     if (!password) return setStatus("The teacher password is needed.");
     setStatus("Logging in to the desk…", true);
     if (state.desk) state.desk.close();
@@ -85,10 +85,14 @@ function deskLogin() {
     state.desk = new DeskLink(deskUrl(), password, {
         ready: first => {
             if (first) {
-                $("deskpass").value = "";
+                $("lpass").value = "";
                 try { if (window.PasswordCredential) navigator.credentials.store(new PasswordCredential({id: "teacher", password})); } catch (e) { /* not offered */ }
-                try { localStorage.setItem("mode", "teacher"); } catch (e) { /* private window */ }
+                try { localStorage.setItem("lname", "teacher"); } catch (e) { /* private window */ }
                 setStatus("");
+                if (state.desk.ownPassword === false) {  // (still the server setup's teacher code: CHANGE 148)
+                    state.deskUi.tab = "password";
+                    state.deskUi.message = {text: "You logged in with the server's setup code: choose your own teacher password now.", ok: true};
+                }
                 showDesk();
                 if (params.get("game")) watch(params.get("game"));
             }
@@ -121,7 +125,7 @@ function learnerLogin() {
             setStatus("Choose your own password to go on.", true);
         },
         waiting: text => {
-            try { localStorage.setItem("mode", "learner"); localStorage.setItem("lname", link.name); } catch (e) { /* private window */ }
+            try { localStorage.setItem("lname", link.name); } catch (e) { /* private window */ }
             $("lpass").value = "";
             if (state.ws && state.connected) return;  // (already playing: the desk's word is for later)
             showLogin();
@@ -157,26 +161,21 @@ function setNewPassword() {
     setStatus("Saving your password…", true);
 }
 
-// which part of the login card shows: the learner's form, the new password, waiting, or the teacher's forms
+// which part of the login card shows: the username and password, a learner's new password, or waiting (the laptop
+// test servers' class code form only with ?host= or ?code=)
 function showLoginPart(part) {
-    const learner = state.mode === "learner";
-    $("learnerform").hidden = !(learner && !state.codeMode && part === "form");
+    $("loginform").hidden = !(!state.codeMode && part === "form");
     $("newpassform").hidden = part !== "newpass";
     $("waitbox").hidden = part !== "wait";
-    $("deskform").hidden = !(!learner && !state.codeMode && part === "form");
     $("codeform").hidden = !(state.codeMode && part === "form");
     $("connect").hidden = part === "wait";
     $("connect").textContent = part === "newpass" ? "SAVE MY PASSWORD" : "LOG IN";
-    $("modetabs").hidden = part !== "form";
+    $("loginnote").hidden = part !== "form";
     state.loginPart = part;
 }
 
-function setMode(mode) {
-    state.mode = mode;
-    $("modetabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
-    showLoginPart("form");
-    setStatus("");
-}
+// (CHANGE 148) the one login form: the username teacher is the teacher (the desk lets no learner have it)
+function isTeacher() { return $("lname").value.trim().toLowerCase() === "teacher"; }
 
 const DRAWN = new Set(["kartlab", "robotlab", "fightlab"]);  // the games this page draws
 
@@ -251,8 +250,7 @@ function deskLogout() {
 function login() {
     if (state.loginPart === "newpass") return setNewPassword();
     if (state.codeMode) return connect();
-    if (state.mode === "learner") return learnerLogin();
-    return deskLogin();
+    return isTeacher() ? deskLogin() : learnerLogin();
 }
 
 function setCodeMode(on) {
@@ -322,7 +320,6 @@ function connect(address = null, how = null) {
     ws.onerror = () => { /* onclose follows with the reason */ };
     try {
         if (!how) { sessionStorage.setItem("code", code); localStorage.setItem("class", $("class").value); localStorage.setItem("name", name); }
-        localStorage.setItem("mode", state.codeMode ? "code" : state.mode === "learner" ? "learner" : "teacher");
     } catch (e) { /* private window */ }
 }
 
@@ -711,7 +708,7 @@ const partText = (part, v) => v === true ? "on" : v === false ? "off" : part ===
     : part === "aniso" ? `${v}x` : v >= SCREEN ? "as the screen" : `${(v / 1e6).toFixed(1)} million`;
 
 // what each tier draws, for the Graphics tab (only the game's own are shown: CHANGE 144; a game's scene may say it
-// its own way, its TIER_TEXT: Robot Lab's ultra, CHANGE 145)
+// its own way, its TIER_TEXT: Robot Lab's ultra, CHANGE 145; Fight Lab's lines and ultra, CHANGE 147)
 const TIER_TEXT = {
     mesh: "mesh: black, and every triangle's edges in one colour (the basic mesh), the lines behind hidden.",
     lines: "lines: black, the outlines in one colour and a grid on the ground (an old vector arcade game).",
@@ -1230,10 +1227,8 @@ function setupUi() {
         $("host").hidden = $("hostlabel").hidden = !other;
     };
     $("connect").onclick = () => login();
-    $("modetabs").querySelectorAll("button").forEach(b => b.onclick = () => { setMode(b.dataset.mode); try { localStorage.setItem("mode", b.dataset.mode); } catch (e) { /* private */ } });
     for (const id of ["lname", "lpass", "npass", "npass2"]) $(id).onkeydown = e => { if (e.key === "Enter") login(); };
     $("code").onkeydown = e => { if (e.key === "Enter") connect(); };
-    $("deskpass").onkeydown = e => { if (e.key === "Enter") deskLogin(); };
     $("lobby-logout").onclick = () => {  // (a learner leaves the lobby: logged out at the desk)
         if (state.learnerLink) state.learnerLink.close();
         state.learnerLink = null;
@@ -1259,11 +1254,10 @@ function setupUi() {
     } catch (e) { /* storage blocked */ }
     if (params.get("host")) { $("class").value = "other"; $("host").value = params.get("host"); $("host").hidden = $("hostlabel").hidden = false; }
     if (params.get("code")) $("code").value = params.get("code");
-    let mode = null;
-    try { mode = localStorage.getItem("mode"); if (localStorage.getItem("lname")) $("lname").value = localStorage.getItem("lname"); } catch (e) { /* storage blocked */ }
-    // learner or teacher: ?mode=, else as last time on this computer ("desk" was the teacher's before CHANGE 134), else a learner
-    state.mode = params.get("mode") || (mode === "desk" || mode === "teacher" ? "teacher" : "learner");
-    $("modetabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.mode === state.mode));
+    // the username as last time on this computer (teacher, if the teacher logged in here before CHANGE 148's one form)
+    let was = "";
+    try { was = localStorage.getItem("lname") || (/^(desk|teacher)$/.test(localStorage.getItem("mode") || "") ? "teacher" : ""); } catch (e) { /* storage blocked */ }
+    $("lname").value = params.get("mode") === "teacher" ? "teacher" : was;
     setCodeMode(!!(params.get("host") || params.get("code")));  // (no class codes on the page: CHANGE 141)
     if (params.get("name")) $("name").value = params.get("name");
 }

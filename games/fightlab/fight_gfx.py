@@ -2,7 +2,15 @@
 
 Call init(base, quality) once, then build a StageVisual and a FighterVisual for each fighter.
 quality: a graphics tier from engine.gfx_tiers: "basic" (Panda's own shaders, the paint texture only: the oldest
-laptops), "low" (simplepbr without shadows or surface detail), "medium", "high".
+laptops), "low" (simplepbr without shadows or surface detail), "medium", "high". Fight Lab draws all seven (CHANGE 147,
+as Kart Lab and Robot Lab do since CHANGE 144 and 145):
+    mesh    every triangle's edges in one colour on black (engine.line_look: hidden lines), no lights or textures
+    lines   only the shapes' outlines (the round fighters' too: line_look.silhouette), a grid on the rings' canvas and
+            the hall's floor, in one colour, fading into the dark
+    ultra   high with a 4096 shadow map and 16x anisotropy (4x MSAA, as high), and the smooth fighters and hall of
+            fight_models.py and stage_models.py (pure Python: the page draws the same from models/fight_ultra.json and
+            stage_ultra.json)
+Nothing here changes the fight: the sim never reads a picture.
 
 The fighters are built from simple shapes (boxes and cylinders) joined like a skeleton:
     root (feet, heading) > hips > waist (chest) > neck (head)
@@ -16,17 +24,31 @@ negative pitch. Everything faces +y, like the rest of Panda3D.
 import math
 import os
 import random
+import time
 
 from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, ColorBlendAttrib, DirectionalLight, Filename,
-                          Material, PerspectiveLens, Point3, SamplerState, Spotlight, TextNode, Texture,
-                          TextureStage, Vec3)
+                          Fog, GeomNode, Material, NodePath, PerspectiveLens, Point3, SamplerState, Spotlight, TextNode,
+                          Texture, TextureStage, Vec3)
 
+import fight_models  # (the ultra fighters: numbers only, shared with the page)
 import fight_sim as sim
-from engine import gfx_tiers, rw_textures
+import fight_textures
+import stage_models  # (the ultra hall: numbers only, shared with the page)
+from engine import gfx_tiers, line_look, model_geom, rw_textures
 from engine.rw_mesh import Mesh, bevel_box, cylinder
 
 _state = {}
 SHADOW_MASK = BitMask32.bit(5)  # what the key light's shadow camera draws (the hall and crowd are left out: faster)
+# mesh and lines (CHANGE 147): the line colour (a learner's choice, as Kart Lab's and Robot Lab's), how far away the
+# lines fade into the dark (metres from the camera: the fight camera is 5 to 10 m from its fighters, the all rings
+# view 40 to 70 m from the rings) and the grids on lines: every GRID metres on the hall's floor, every MAT_GRID on a
+# ring's canvas
+LINE_COLOURS = line_look.LINE_COLOURS
+LOOK_FADE = {"mesh": (18, 75), "lines": (25, 110)}
+GRID, MAT_GRID = 2.0, 1.0
+ULTRA_MSAA = 4                  # ultra: simplepbr's samples (gfx_tiers says 8: see init)
+HAZE = (0.01, 0.01, 0.018)      # ultra: the hall's air, which the stands and walls fade into (linear, as lit)...
+HAZE_DENSITY = 0.01             # ...and how thick (exponential)
 
 
 # ---------- materials ----------
@@ -40,11 +62,15 @@ class Materials:
         self.ts_normal.setMode(TextureStage.M_normal)
         self.ts_mr = TextureStage("metal_rough")
         self.ts_mr.setMode(TextureStage.M_selector)
+        self.ts_glow = TextureStage("emission")  # (ultra's fighters: CHANGE 147)
+        self.ts_glow.setMode(TextureStage.M_emission)
+        self.share, self.shared = False, {}  # (ultra's hall: see apply)
 
     def tex(self, name, kind):
         key = (name, kind)
         if key not in self.cache:
-            t = self.loader.loadTexture(Filename.fromOsSpecific(os.path.join(rw_textures.TEX, f"{name}_{kind}.png")))
+            folder = fight_textures.ensure() if name in fight_textures.SETS else rw_textures.TEX  # (CHANGE 147: ultra's own)
+            t = self.loader.loadTexture(Filename.fromOsSpecific(os.path.join(folder, f"{name}_{kind}.png")))
             if kind == "albedo":
                 t.setFormat(Texture.F_srgb)
             t.setMinfilter(SamplerState.FT_linear_mipmap_linear)
@@ -56,20 +82,25 @@ class Materials:
         return self.cache[key]
 
     def apply(self, np_, name=None, colour=(1, 1, 1), rough=1.0, metal=1.0, emission=None):
-        """Give a part a PBR look: a texture set (paint, steel, concrete...) tinted by colour."""
+        """Give a part a PBR look: a texture set (paint, steel, concrete...) tinted by colour. (mesh and lines: the
+        material only, which nothing lights, so the glowing parts can still be set; no textures loaded: CHANGE 147.)
+        While share is on (ultra's hall), parts that look the same and glow the same share one Material, so flattening
+        merges them."""
         key = (tuple(colour), rough, metal, tuple(emission) if emission else None)
-        m = self.materials.get(key) if not emission else None  # (glowing ones are changed while running)
-        if m is None:
+        m = self.materials.get(key) if not emission else self.shared.get(key) if self.share else None
+        if m is None:  # (glowing ones are changed while running: each its own, but ultra's hall's lamps never are)
             m = Material()
             m.setBaseColor((*(c ** 2.2 for c in colour), 1))  # screen colours (sRGB) to the linear colours lighting uses
             m.setRoughness(rough)
             m.setMetallic(metal)
             if emission:
                 m.setEmission((*emission, 1))
+                if self.share:
+                    self.shared[key] = m
             else:
                 self.materials[key] = m  # the same material is shared, so parts can be drawn together
         np_.setMaterial(m, 1)
-        if name:
+        if name and self.quality not in gfx_tiers.LOOKS:
             np_.setTexture(TextureStage.getDefault(), self.tex(name, "albedo"), 1)
             if gfx_tiers.SETTINGS[self.quality]["simplepbr"]:  # (basic: Panda's shaders know nothing of these)
                 np_.setTexture(self.ts_mr, self.tex(name, "mr"), 1)
@@ -150,13 +181,20 @@ def capsule(r, length, mesh=None, offset=Vec3(0), down=True, seg=14):
 
 
 # ---------- lighting ----------
-def init(base, quality="high"):
+def init(base, quality="high", line_colour=None):
     """Lights, reflections and the PBR pipeline for a graphics tier (engine.gfx_tiers). Returns the simplepbr
-    pipeline, or None when the tier used is "basic" (asked for, or because the driver couldn't run the others)."""
+    pipeline, or None when the tier used is "basic" (asked for, or because the driver couldn't run the others), mesh
+    or lines (CHANGE 147: line_colour "#rrggbb", else phosphor green)."""
     quality = quality if quality in gfx_tiers.TIERS else gfx_tiers.DEFAULT
     tier = gfx_tiers.SETTINGS[quality]
+    _state.clear()
+    line_look.reset()
     _state["mats"] = Materials(base.loader, quality)
     _state["render"] = base.render
+    if quality in gfx_tiers.LOOKS:  # black, no lights or shaders: the faces black, their edges in the line colour
+        line_look.init(base, quality, line_colour, fade=LOOK_FADE[quality], far=400.0)
+        _state.update(quality=quality, pipeline=None, sun=None)
+        return None
     base.setBackgroundColor(0.01, 0.01, 0.02)
     render = base.render
     sun = DirectionalLight("key")
@@ -181,7 +219,9 @@ def init(base, quality="high"):
             return simplepbr.EnvMap(cube, prefiltered_size=64, prefiltered_samples=16, blocking_prepare=True)
         except Exception:
             return None
-    pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.8)
+    def extra(t):  # ultra: the hall's haze is compiled into simplepbr's shader (CHANGE 147, as Robot Lab's)
+        return {"enable_fog": True} if t == "ultra" else {}
+    pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.8, extra=extra)
     if used != quality:  # the driver couldn't run the tier asked for: the lights and materials follow the one used
         print(f"gfx: {quality} graphics don't run here, using {used}", flush=True)
         _state["mats"].quality = used
@@ -191,6 +231,13 @@ def init(base, quality="high"):
         _state["tone"] = gfx_tiers.basic_look(base, exposure=0.8)  # (Panda's shaders: the lights come down, the tone curve is a post pass)
     if gfx_tiers.SETTINGS[used]["msaa"]:
         render.setAntialias(AntialiasAttrib.MMultisample)
+    if used == "ultra":  # (CHANGE 147)
+        if pipeline is not None:  # Fight Lab's ultra keeps high's 4x MSAA, as Robot Lab's (the 4096 shadow map is
+            pipeline.msaa_samples = ULTRA_MSAA  # worth more to the picture than 8x on a school's best laptop)
+        fog = Fog("haze")  # a faint haze over the hall alone (ultra_parts' far parts): simplepbr's fog everywhere
+        fog.setColor(*HAZE)  # would make see-through things (lettering, the name tags' cards) more solid with distance
+        fog.setExpDensity(HAZE_DENSITY)
+        _state["haze"] = fog
     _state.update(quality=used, pipeline=pipeline)
     return pipeline
 
@@ -200,11 +247,159 @@ def tier():
     return _state.get("quality", gfx_tiers.DEFAULT)
 
 
+def look():
+    """"mesh" or "lines" when the tier in use is one of those looks (CHANGE 147), else None."""
+    return line_look.look()
+
+
+def set_line_colour(text):
+    """mesh and lines: the learner's line colour, at once on everything drawn (CHANGE 147)."""
+    line_look.set_line_colour(text)
+
+
 def start_monitor(base, settings_dir, override=None, on_note=None, judge=True):
     """Watch the frame times from now on (engine.gfx_tiers.Monitor): call it once play has started. judge=False
-    when the server runs on this same computer (a test): the knobs still turn, but no tier is saved."""
+    when the server runs on this same computer (a test): the knobs still turn, but no tier is saved. Fight Lab
+    draws all seven tiers (CHANGE 147)."""
+    sun = _state.get("sun")
     return gfx_tiers.Monitor(settings_dir, tier(), override=override, pipeline=_state.get("pipeline"),
-                             lights=[_state["sun"]], render=base.render, on_note=on_note, judge=judge).start(base)
+                             lights=[sun] if sun is not None else [], render=base.render, on_note=on_note, judge=judge,
+                             tiers=gfx_tiers.TIERS).start(base)
+
+
+# ---------- mesh and lines (CHANGE 147: engine.line_look, as Kart Lab's and Robot Lab's) ----------
+def outline(np_, extra=None, round_=False):
+    """mesh and lines: np_'s faces black, its edges in the line colour (worked out once, now). Returns the lines.
+    round_: on lines, its outline too (line_look.silhouette: a fighter's round limbs and head have no folds). (Its
+    material is kept as a tag: the glowing parts' update still sets it, glow_material.)"""
+    if np_.getMaterial() is not None:
+        np_.setPythonTag("material", np_.getMaterial())
+    lines = line_look.outline(np_, extra=extra)
+    if round_ and look() == "lines":
+        line_look.silhouette(np_)
+    return lines
+
+
+def glow_material(np_):
+    """A glowing part's material (on mesh and lines, the one it had before its faces went black)."""
+    return np_.getMaterial() or np_.getPythonTag("material")
+
+
+def wire_only(parent, mesh, name):
+    """mesh and lines: a glowing ball or flame (a shot, the energy in a hand, a fire jet) as its edges alone, no black
+    faces (they would hide the fighters behind a see-through glow). Returns the node, under parent."""
+    holder = NodePath(name)
+    holder.attachNewNode(mesh.node() if isinstance(mesh, Mesh) else mesh)
+    node = parent.attachNewNode(line_look.line_node(name, *line_look.edges(holder, look())))
+    return line_look.wire(node, node)
+
+
+def lettering(np_):
+    """mesh and lines: words (the hall's name, a ring's name, a fighter's number) in the line colour."""
+    np_.setColor(*line_look.colour(), 1, 2)
+    np_.setLightOff(2)
+    np_.setMaterialOff(2)
+    line_look.keep(np_)
+    return np_
+
+
+def pulse(lines, k):
+    """mesh and lines: a glowing part's lines brighter or dimmer (k from 0 to 1, or a little over for a flash)."""
+    if lines is not None:
+        lines.setColorScale(k, k, k, 1)
+
+
+def ring_grid(cx, cy, r, step, z=0.006):
+    """lines: a grid on a ring's canvas, every step metres each way, cut at the ring's edge: (m, 2, 3) segment ends."""
+    import numpy as np
+    segs = []
+    for c in np.arange(-math.floor(r / step) * step, r + 1e-9, step):
+        half = math.sqrt(max(0.0, r * r - c * c))
+        if half < 0.05:
+            continue
+        segs.append(((cx + c, cy - half, z), (cx + c, cy + half, z)))
+        segs.append(((cx - half, cy + c, z), (cx + half, cy + c, z)))
+    return np.array(segs, dtype=np.float64).reshape(-1, 2, 3)
+
+
+# ---------- ultra (CHANGE 147) ----------
+def ultra_parts(parent, parts, shapes=None, instances=None, colours=None):
+    """ultra: model_kit parts and placed shapes as one Geom per material under parent, each with its look from
+    stage_models.MATERIALS (colours: what a material's colour names mean here, e.g. {None: the ring's mat colour})."""
+    for (material, far), (pos, nrm, uv, col, alpha, idx) in sorted(model_geom.merged(parts, shapes, instances).items()):
+        node = GeomNode(f"{material}{' far' if far else ''}")
+        node.addGeom(model_geom.geom_of(pos, nrm, uv, idx, col, alpha, material))
+        np_ = parent.attachNewNode(node)
+        look_ = stage_models.MATERIALS[material]
+        colour = look_["colour"]
+        colour = tuple((colours or {}).get(colour, (1, 1, 1))) if colour is None or isinstance(colour, str) else tuple(colour)
+        mats().apply(np_, look_["texture"], colour, look_["rough"], look_["metal"],
+                     tuple(look_["emission"]) if look_.get("emission") else None)
+        if far or look_.get("flat"):  # (the floor and the hall needn't fill the shadow map: they only have shadows cast on them)
+            np_.hide(SHADOW_MASK)
+        if far and "haze" in _state:
+            np_.setFog(_state["haze"])
+    return parent
+
+
+def placed(part, pos, hpr, scale, grow):
+    """A stage_models piece's part where ring_layout puts it (pushed out by grow, scaled, turned, moved), as a new
+    model_kit Part (the window's side of the page's same few lines)."""
+    from engine import model_kit as mk
+    q = mk.Part(part.name, part.material, part.tint, part.far)
+    h = math.radians(hpr[0])
+    c, s = math.cos(h), math.sin(h)
+    for (x, y, z), (nx, ny, nz) in zip(part.p, part.n):
+        r = math.hypot(x, y)
+        if grow and r > 1e-9:
+            x, y = x * (r + grow) / r, y * (r + grow) / r
+        x, y, z = x * scale[0], y * scale[1], z * scale[2]
+        nx, ny, nz = nx / scale[0], ny / scale[1], nz / scale[2]
+        q.p.append((pos[0] + c * x - s * y, pos[1] + s * x + c * y, pos[2] + z))
+        q.n.append(mk.norm((c * nx - s * ny, s * nx + c * ny, nz)))
+    q.uv, q.c, q.a, q.idx = list(part.uv), list(part.c), list(part.a), list(part.idx)
+    return q
+
+
+ROLE_INDEX = {role: i for i, role in enumerate(fight_models.ROLES)}  # ultra: each role's texel in a fighter's atlas
+ATLAS_GLOW = 8.0  # ultra: the atlas's glow texels are a role's emission over this (the material's emission is this)
+
+
+def ultra_fighter_arrays():
+    """ultra: fight_models' pieces as numpy arrays, made once: {piece: [(role, (pos, nrm, idx)), ...]}."""
+    if "ultra_fighter" not in _state:
+        out = {}
+        for name, parts in fight_models.kit().items():
+            out[name] = []
+            for p in parts:
+                pos, nrm, uv, col, alpha, idx = model_geom.arrays([p])
+                out[name].append((p.material, (pos, nrm, idx)))
+        _state["ultra_fighter"] = out
+    return _state["ultra_fighter"]
+
+
+def fighter_atlas(lights):
+    """ultra: a fighter's two little pictures, a texel a role: (ambient 1, roughness, metal) and its glow (emission
+    over ATLAS_GLOW; "lights" is the fighter's own lights colour, linear)."""
+    from panda3d.core import PNMImage
+    n = len(ROLE_INDEX)
+    mr, glow = PNMImage(n, 1, 3), PNMImage(n, 1, 3)
+    for role, i in ROLE_INDEX.items():
+        look_ = fight_models.ROLES[role]
+        mr.setXel(i, 0, 1.0, look_["rough"], look_["metal"])
+        e = look_.get("emission")
+        e = lights if e == "lights" else e or (0, 0, 0)
+        glow.setXel(i, 0, *(min(1.0, v / ATLAS_GLOW) for v in e))
+    out = []
+    for img, name in ((mr, "fighter roles"), (glow, "fighter glow")):
+        t = Texture(name)
+        t.load(img)
+        t.setMinfilter(SamplerState.FT_nearest)
+        t.setMagfilter(SamplerState.FT_nearest)
+        t.setWrapU(SamplerState.WM_clamp)
+        t.setWrapV(SamplerState.WM_clamp)
+        out.append(t)
+    return out
 
 
 def aim_sun(centres):
@@ -244,30 +439,72 @@ class StageVisual:
         self.card = CardMaker("puff")
         self.card.setFrame(-0.5, 0.5, -0.5, 0.5)
         self.dot = soft_dot()
-        static = self.root.attachNewNode("static")
+        static = self.static = self.root.attachNewNode("static")
         indices = [i for i in ring_indices if 0 <= i < sim.MAX_RINGS] or [0]
         centres = [sim.RING_CENTRES[i] for i in indices]
-        hall = self.root.attachNewNode("hall")
+        self.ultra = tier() == "ultra"  # (CHANGE 147: stage_models' rings and hall)
+        mats().share = self.ultra
+        hall = self.hall = self.root.attachNewNode("hall")
         self.build_hall(hall, look)
         hall.flattenStrong()
         hall.hide(SHADOW_MASK)  # the hall gets shadows but doesn't cast any
         for i in indices:
             self.rings[i] = self.build_ring(static, i)
+        mats().share = False
         static.flattenStrong()  # one draw call per material: fast on old laptops
         self.build_lights(parent, centres)
         aim_sun(centres)
         # blasts (energy shots): a small pool of glowing balls
         self.shots = []
         for _ in range(12):
-            ball = glow_node(self.root.attachNewNode(sphere(0.2, seg=12, rings=8).node()), (0.4, 0.9, 1.6))
-            halo = glow_node(self.root.attachNewNode(sphere(0.34, seg=12, rings=8).node()), (0.08, 0.25, 0.5))
+            if line_look.look():  # (mesh and lines: a ball of lines, no halo)
+                ball = wire_only(self.root, sphere(0.2, seg=10, rings=6), "shot")
+                halo = self.root.attachNewNode("no halo")
+            else:
+                ball = glow_node(self.root.attachNewNode(sphere(0.2, seg=12, rings=8).node()), (0.4, 0.9, 1.6))
+                halo = glow_node(self.root.attachNewNode(sphere(0.34, seg=12, rings=8).node()), (0.08, 0.25, 0.5))
             ball.hide()
             halo.hide()
             self.shots.append((ball, halo))
         self.t = 0.0
+        if line_look.look():
+            self.looks(indices)
+
+    def looks(self, indices):
+        """mesh and lines (CHANGE 147): the hall's and rings' faces black and their edges in the line colour, worked
+        out once: the rings' still parts as one set (with a grid on each canvas on lines), the hall as another (with a
+        grid on its floor), the lighting rig, and each part that glows or moves its own: the ropes (electric ropes'
+        lines pulse and flash as their glow does), an open edge's glowing line (it pulses), the fire jets (a flame of
+        lines while they burn: no puffs of fire)."""
+        started = time.perf_counter()
+        R = sim.RULES["ring_size"]
+        grids = None
+        if look() == "lines":
+            import numpy as np
+            grids = np.concatenate([ring_grid(*self.rings[i]["centre"], R - 0.05, MAT_GRID) for i in indices])
+        outline(self.static, extra=grids)
+        hall_grid = None
+        if look() == "lines":  # (the floor under the rings' platforms and the walkways is hidden by their black faces)
+            hall_grid = line_look.grid([(-32.0, -16.0, 32.0, 32.0)], GRID, z=-0.8 + 0.002)
+        outline(self.hall, extra=hall_grid)
+        outline(self.rig)
+        for i in indices:
+            ring = self.rings[i]
+            ring["rope_lines"] = outline(ring["ropes"]) if ring["ropes"] is not None else None
+            ring["edge_lines"] = outline(ring["edge"]) if ring["edge"] is not None else None
+            for flame in ring["jets"]:
+                for card in flame.getPythonTag("puffs"):
+                    card.removeNode()
+                flame.setPythonTag("puffs", [])
+                lines = wire_only(flame, cylinder(0.2, 0.5, seg=8, r_top=0.03, offset=Vec3(0, 0, 0.5)), "flame lines")
+                flame.setPythonTag("lines", lines)
+        self.lines_secs = time.perf_counter() - started
 
     # ---- the hall around the rings: floor, stands, crowd, big screens, a lighting rig ----
     def build_hall(self, static, look):
+        if self.ultra:
+            self.ultra_hall(static, look)
+            return
         xs = [c[0] for c in sim.RING_CENTRES]
         ys = [c[1] for c in sim.RING_CENTRES]
         pad = sim.RULES["ring_size"] + 5
@@ -329,6 +566,8 @@ class StageVisual:
             tn.setH(h)
             tn.setScale(1.6)
             mats().apply(tn, None, (0, 0, 0), 1, 0, emission=(4.0, 1.2, 0.3))
+            if line_look.look():  # (mesh and lines: in the line colour: CHANGE 147)
+                lettering(tn)
         # a lighting truss over the rings
         truss, lamps = Mesh(), Mesh()
         for y in (0, 16):
@@ -339,10 +578,34 @@ class StageVisual:
         for x in (x0, x1):
             bevel_box(0.2, 0.2, 4.8, 0.02, mesh=truss, offset=Vec3(x, 0, floor_z + 4.8))
             bevel_box(0.2, 0.2, 4.8, 0.02, mesh=truss, offset=Vec3(x, 16, floor_z + 4.8))
-        rig = self.root.attachNewNode("lighting_rig")
+        rig = self.rig = self.root.attachNewNode("lighting_rig")
         rig.hide(SHADOW_MASK)
         part(rig, truss, "steel", (0.2, 0.2, 0.22), 1.0, 1.0)
         part(rig, lamps, None, (1, 1, 1), 0.3, 0.0, emission=(6, 5.5, 5))
+        rig.flattenStrong()
+
+    def ultra_hall(self, static, look):
+        """ultra (CHANGE 147): stage_models' hall, as models/stage_ultra.json has it for the page: the floor and
+        walkways, the stands with their seats and fans (no fans if the hall's look says so) and the big screens (the
+        hall's name written on them, as the lower tiers'), one Geom per material; the lighting rig, the hall's walls
+        and its roof under the rig's node (the high views hide it: FightCamera.show_rig)."""
+        made = stage_models.made()
+        instances = made["instances"] if look.get("crowd", True) else {"seat": made["instances"]["seat"]}
+        ultra_parts(static, made["groups"]["floor"] + made["groups"]["stands"] + made["groups"]["screens"],
+                    made["shapes"], instances)
+        for x, y, z, h in stage_models.SCREENS:
+            text = TextNode("screen")
+            text.setText(self.name)
+            text.setAlign(TextNode.ACenter)
+            tn = self.root.attachNewNode(text)
+            front = -1 if h == 0 else 1  # (the screen's face is towards the hall's middle)
+            tn.setPos(x, y + front * 0.335, z - 0.45)
+            tn.setH(h)
+            tn.setScale(2.2)
+            mats().apply(tn, None, (0, 0, 0), 1, 0, emission=(4.0, 1.2, 0.3))
+        rig = self.rig = self.root.attachNewNode("lighting_rig")
+        rig.hide(SHADOW_MASK)
+        ultra_parts(rig, made["groups"]["rig"] + made["groups"]["hall"] + made["groups"]["roof"])
         rig.flattenStrong()
 
     # ---- one ring ----
@@ -353,13 +616,14 @@ class StageVisual:
         roped = not hz.get("ring_out", True)
         plat_r = R + (0.7 if roped else 0.1)
         mat = MAT_COLOURS[i % len(MAT_COLOURS)]
-        # the platform (top at z 0) and the mat
-        part(static, cylinder(plat_r, 0.4, seg=48, tile=0.6), "steel", (0.2, 0.2, 0.23), 1.0, 1.0,
-             pos=(cx, cy, -0.42))
-        part(static, cylinder(plat_r + 0.08, 0.06, seg=48), "paint", (0.08, 0.08, 0.1), 0.6, 0.5,
-             pos=(cx, cy, -0.8 + 0.06))
-        part(static, cylinder(plat_r - 0.02, 0.012, seg=48, tile=0.4), "concrete", mat, 0.95, 0.0,
-             pos=(cx, cy, -0.01))
+        # the platform (top at z 0) and the mat (ultra: stage_models' platform, canvas, posts and ropes, placed below)
+        if not self.ultra:
+            part(static, cylinder(plat_r, 0.4, seg=48, tile=0.6), "steel", (0.2, 0.2, 0.23), 1.0, 1.0,
+                 pos=(cx, cy, -0.42))
+            part(static, cylinder(plat_r + 0.08, 0.06, seg=48), "paint", (0.08, 0.08, 0.1), 0.6, 0.5,
+                 pos=(cx, cy, -0.8 + 0.06))
+            part(static, cylinder(plat_r - 0.02, 0.012, seg=48, tile=0.4), "concrete", mat, 0.95, 0.0,
+                 pos=(cx, cy, -0.01))
         # markings: a circle, the start lines, and the name painted in the middle
         marks = Mesh()
         for k in range(40 if not self.hazards.get("slippery") else 0):  # (the ice patch has its own edge)
@@ -372,13 +636,17 @@ class StageVisual:
         logo = TextNode("logo")
         logo.setText(self.name if i == 0 else f"RING {i + 1}")
         logo.setAlign(TextNode.ACenter)
-        logo_np = static.attachNewNode(logo)
-        logo_np.setPos(cx, cy - 0.25, 0.008)
+        logo_np = (self.root if line_look.look() else static).attachNewNode(logo)  # (mesh and lines: kept out of
+        logo_np.setPos(cx, cy - 0.25, 0.008)                                      # the outlined parts: lettering)
         logo_np.setHpr(0, -90, 0)
         logo_np.setScale(0.75)
         mats().apply(logo_np, None, (0.95, 0.75, 0.1), 0.5, 0.0)
+        if line_look.look():
+            lettering(logo_np)
         ring = {"centre": (cx, cy), "ropes": None, "edge": None, "jets": [], "ice": None}
-        if roped:
+        if self.ultra:
+            self.ultra_ring(static, ring, i, R, roped)
+        elif roped:
             posts = Mesh(tile=0.8)
             post_r = (R + 0.08) / math.cos(math.pi / 8)  # the ropes' middles sit just outside the fighting circle
             corners = [(cx + math.cos(math.pi / 8 + k * math.pi / 4) * post_r,
@@ -406,7 +674,7 @@ class StageVisual:
             part(static, pads, "paint", ROPE_COLOURS[i % 3], 0.6, 0.2)
             ring["ropes"] = rope_root
             ring["electric"] = bool(electric)
-        else:
+        if not roped:
             # an open edge: a glowing line, and a drop to the hall floor
             edge = self.root.attachNewNode(f"edge{i}")
             ring_mesh = Mesh()
@@ -468,6 +736,30 @@ class StageVisual:
             part(static, shine, None, (1, 1, 1), 0.02, 0.0, emission=(0.6, 0.8, 1.0))
         return ring
 
+    def ultra_ring(self, static, ring, i, R, roped):
+        """ultra (CHANGE 147): stage_models' ring for this ring's size, as stage_models.ring_layout places its pieces
+        (and the page does): the canvas in the ring's mat colour, the platform with its bumper, skirt and boards, the
+        steps, and with ropes the posts with their pads in the ring's corner colour and the ropes, which are their own
+        node as on the lower tiers (electric ropes glow and flash: update)."""
+        cx, cy = ring["centre"]
+        made = stage_models.made()["ring"]
+        colours = {None: MAT_COLOURS[i % len(MAT_COLOURS)], "corner": ROPE_COLOURS[i % 3]}
+        parts, ropes = [], []
+        for piece, pos, hpr, scale, grow in stage_models.ring_layout(R, roped):
+            at_ = (cx + pos[0], cy + pos[1], pos[2])
+            (ropes if piece == "rope" else parts).extend(placed(p, at_, hpr, scale, grow) for p in made[piece])
+        ultra_parts(static, parts, colours=colours)
+        if roped:
+            rope_root = self.root.attachNewNode(f"ropes{i}")
+            electric = self.hazards.get("electric_ropes")
+            rope_root.attachNewNode(model_geom.node(ropes, name="ropes"))
+            share, mats().share = mats().share, False  # (each ring's ropes their own material: one ring's zap flashes)
+            mats().apply(rope_root, None, (0.5, 0.8, 1.0) if electric else (0.85, 0.12, 0.1), 0.5, 0.0,
+                         emission=(0.4, 1.2, 3.0) if electric else None)
+            mats().share = share
+            ring["ropes"] = rope_root
+            ring["electric"] = bool(electric)
+
     def build_lights(self, parent, centres):
         """A spotlight over each ring in use (at most 6: simplepbr lights 8 things at once)."""
         render = _state.get("render", parent)
@@ -499,7 +791,12 @@ class StageVisual:
             rs = by_index.get(i)
             jets = (rs or {}).get("hz", {}).get("jets", [0, 0, 0, 0])
             for flame, power in zip(ring["jets"], jets):
-                if power > 0.05:
+                lines = flame.getPythonTag("lines")  # (mesh and lines: a flame of lines, flickering: CHANGE 147)
+                if power > 0.05 and lines is not None:
+                    flame.show()
+                    lines.setScale(0.8 + 0.4 * power, 0.8 + 0.4 * power, 0.4 + 1.5 * power)
+                    pulse(lines, 0.65 + 0.35 * abs(math.sin(self.t * 17 + i)))
+                elif power > 0.05:
                     flame.show()
                     height = 0.4 + 1.5 * power
                     for k, card in enumerate(flame.getPythonTag("puffs")):
@@ -511,17 +808,20 @@ class StageVisual:
                 else:
                     flame.hide()
             if ring["ropes"] is not None and ring.get("electric"):
-                m = ring["ropes"].getMaterial()
+                m = glow_material(ring["ropes"])
                 if self.zap_until.get(i, -1) > self.t:
                     f = 6 if int(self.t * 30) % 2 else 2
                     m.setEmission((f * 0.6, f * 0.9, f * 1.6, 1))
+                    pulse(ring.get("rope_lines"), 1.0 if f == 6 else 0.3)
                 else:
-                    pulse = 0.8 + 0.4 * math.sin(self.t * 6 + i)
-                    m.setEmission((0.3 * pulse, 0.9 * pulse, 2.6 * pulse, 1))
+                    k = 0.8 + 0.4 * math.sin(self.t * 6 + i)
+                    m.setEmission((0.3 * k, 0.9 * k, 2.6 * k, 1))
+                    pulse(ring.get("rope_lines"), 0.5 + 0.4 * k)
             if ring["edge"] is not None:
-                pulse = 0.75 + 0.25 * math.sin(self.t * 3 + i)
+                k = 0.75 + 0.25 * math.sin(self.t * 3 + i)
                 ring["edge"].getChild(0).getMaterial().setEmission(
-                    (EDGE_GLOW[0] * pulse, EDGE_GLOW[1] * pulse, EDGE_GLOW[2] * pulse, 1))
+                    (EDGE_GLOW[0] * k, EDGE_GLOW[1] * k, EDGE_GLOW[2] * k, 1))
+                pulse(ring.get("edge_lines"), k)
             for sh in (rs or {}).get("sh", []):
                 if n_shot >= len(self.shots):
                     break
@@ -869,7 +1169,9 @@ class FighterVisual:
         self.glow_parts = []
         self.build_skeleton()
         self.pending = {}
-        if self.robot:
+        if tier() == "ultra":  # (CHANGE 147: the smooth fighter of fight_models.py, on the same joints)
+            self.ultra()
+        elif self.robot:
             self.build_robot()
         else:
             self.build_human()
@@ -883,8 +1185,11 @@ class FighterVisual:
         self.wheel = None  # how far over the cartwheel kick is (degrees), while there is one
         self.hand_glow = []
         for side in ("l", "r"):
-            g = glow_node(self.nodes[side + "fist"].attachNewNode(sphere(0.13, seg=10, rings=6).node()),
-                          (0.3, 0.8, 1.5) if self.robot else (1.4, 0.8, 0.2))
+            if look():  # (mesh and lines: a ball of lines: CHANGE 147)
+                g = wire_only(self.nodes[side + "fist"], sphere(0.13, seg=10, rings=6), "hand glow")
+            else:
+                g = glow_node(self.nodes[side + "fist"].attachNewNode(sphere(0.13, seg=10, rings=6).node()),
+                              (0.3, 0.8, 1.5) if self.robot else (1.4, 0.8, 0.2))
             g.hide()
             self.hand_glow.append(g)
 
@@ -949,12 +1254,61 @@ class FighterVisual:
                 glow.flattenStrong()
                 mats().apply(glow, None, (0, 0, 0), 1.0, 0.0, emission=tuple(v * 5 for v in c["lights"]))
                 self.glow_parts.append(glow)
+            if look():  # (CHANGE 147: each joint's lines under it, so they move with it; on lines its outline too)
+                outline(holder, round_=True)
+                if glow is not None:
+                    outline(glow)
         self.pending = {}
+        if look():
+            for tn in self.body.findAllMatches("**/+TextNode"):  # (the number: in the line colour)
+                lettering(tn)
 
     def hair_colour(self):
         name = str(self.design.get("name", ""))
         choices = [(0.08, 0.06, 0.05), (0.3, 0.18, 0.08), (0.55, 0.35, 0.15), (0.12, 0.1, 0.1), (0.7, 0.55, 0.3)]
         return choices[sum(ord(ch) for ch in name) % len(choices)]
+
+    def ultra(self):
+        """ultra (CHANGE 147): the fighter from fight_models' pieces (made once, shared by every fighter), placed by
+        fight_models.layout on the joints the other tiers pose. Each joint's pieces are one Geom in the fighter's own
+        colours (its roles' colours in the vertices; their roughness, metal and glow from a little picture with a
+        texel a role), about 13 draw calls a fighter, as the lower tiers'."""
+        import numpy as np
+        c = self.colours
+        skin = c["skin"]
+        colours = {None: c["main"], "trim": c["trim"], "skin": skin, "hair": self.hair_colour(),
+                   "pants": tuple(v * 0.55 for v in c["main"]), "shade": tuple(v * 0.78 for v in c["main"]),
+                   "lips": (skin[0] * 0.85, skin[1] * 0.62, skin[2] * 0.6)}
+        mr, glow = fighter_atlas(tuple(v * 5 for v in c["lights"]))  # (the lower tiers' glow)
+        material = Material()
+        material.setBaseColor((1, 1, 1, 1))
+        material.setRoughness(1.0)
+        material.setMetallic(1.0)
+        material.setEmission((ATLAS_GLOW, ATLAS_GLOW, ATLAS_GLOW, 1))
+        holders = {}
+        arrays = ultra_fighter_arrays()
+        model = self.design.get("model") if self.boss else None
+        for joint, piece, pos, hpr, scale in fight_models.layout("robot" if self.robot else "human", model):
+            if joint not in holders:
+                holders[joint] = self.nodes[joint].attachNewNode("geo")
+            holder = holders[joint].attachNewNode(piece)
+            holder.setPos(*pos)
+            holder.setHpr(*hpr)
+            holder.setScale(*scale)
+            for role, (p, n, idx) in arrays[piece]:
+                look_ = fight_models.ROLES[role]
+                col = look_["colour"]
+                col = colours[col] if col is None or isinstance(col, str) else tuple(col)
+                uv = np.tile([(ROLE_INDEX[role] + 0.5) / len(ROLE_INDEX), 0.5], (len(p), 1))
+                gn = GeomNode(role)
+                gn.addGeom(model_geom.geom_of(p, n, uv, idx, np.tile(col, (len(p), 1)), None, role, tangents=False))
+                holder.attachNewNode(gn)
+        for holder in holders.values():
+            holder.setMaterial(material, 1)
+            holder.setTexture(mats().ts_mr, mr, 1)
+            holder.setTexture(mats().ts_glow, glow, 1)
+            holder.flattenStrong()
+        self.number_plate()
 
     def build_robot(self):
         V = Vec3
@@ -1103,6 +1457,7 @@ class FighterVisual:
             self.tag.setDepthTest(False)
             self.tag.setDepthWrite(False)
             self.tag.setBin("fixed", 60)
+            self.tag.setFogOff(1)  # (mesh and lines: the dark fog never fades who is who: CHANGE 147)
             self.tag.setZ(2.05 * self.size + 0.2)
         self.tag.node().setText(text)
         self.tag.node().setTextColor(*colour)

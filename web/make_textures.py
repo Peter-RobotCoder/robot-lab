@@ -4,7 +4,8 @@
 - the texture sets the games paint their parts with (engine/rw_textures.py: paint, steel, tyre, diamond, hazard,
   concrete; Kart Lab's kart_gfx.py: tarmac, grass, and for its ultra circuit (CHANGE 144, kart_scenery.MATERIALS)
   asphalt, kerb, gravel, turf, render, bark, foliage, needles, signs; Robot Lab's lab_textures.py for its ultra arena
-  (CHANGE 145, arena_models.MATERIALS): lab_floor, lab_signs): albedo, metal-rough and normal maps, at
+  (CHANGE 145, arena_models.MATERIALS): lab_floor, lab_signs; Fight Lab's fight_textures.py for its ultra hall
+  (CHANGE 147, stage_models.MATERIALS): fight_canvas, fight_signs): albedo, metal-rough and normal maps, at
   512 x 512 as JPEGs (the app's high tier loads them at 1024: the page draws fewer pixels, and a school laptop has
   less memory);
 - each sky's reflections as simplepbr makes them (its own functions, so the numbers are the app's): the nine
@@ -29,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "tex")
 SETS = {"engine": ["paint", "steel", "tyre", "diamond", "hazard", "concrete"],
         "kart": ["tarmac", "grass", "asphalt", "kerb", "gravel", "turf", "render", "bark", "foliage", "needles", "signs"],
-        "lab": ["lab_floor", "lab_signs"]}
+        "lab": ["lab_floor", "lab_signs"], "fight": ["fight_canvas", "fight_signs"]}
 SKIES = {"env": ("engine", "env_#.png", 64, 16), "sky": ("kart", "sky_#.png", 32, 8)}  # name: (folder, files, size, samples)
 SIZE = 512
 
@@ -52,6 +53,15 @@ def lab_root():
     return None
 
 
+def fight_root():
+    """Fight Lab's folder: the public repository's games/fightlab or the working one's BeatEmUp (CHANGE 147)."""
+    for top, game in ((os.path.dirname(HERE), os.path.join("games", "fightlab")),
+                      (os.path.dirname(os.path.dirname(HERE)), "BeatEmUp")):
+        if os.path.exists(os.path.join(top, game, "fight_textures.py")):
+            return os.path.join(top, game)
+    return None
+
+
 def constant(path, name):
     """A module-level string constant read without importing the file."""
     with open(path, encoding="utf-8") as f:
@@ -66,6 +76,7 @@ def versions():
     return {"engine": constant(os.path.join(engine, "rw_textures.py"), "VERSION"),
             "kart": constant(os.path.join(kart, "kart_gfx.py"), "TEX_VERSION"),
             "lab": constant(os.path.join(lab_root(), "lab_textures.py"), "TEX_VERSION"),
+            "fight": constant(os.path.join(fight_root(), "fight_textures.py"), "TEX_VERSION"),
             "size": SIZE, "skies": {k: list(v[2:]) for k, v in SKIES.items()}}
 
 
@@ -91,14 +102,16 @@ def build():
     import numpy as np
     from PIL import Image
     engine, kart = roots()
-    sys.path[:0] = [os.path.dirname(engine), kart, lab_root()]
+    sys.path[:0] = [os.path.dirname(engine), kart, lab_root(), fight_root()]
     from engine import rw_textures
+    import fight_textures
     import kart_gfx
     import lab_textures
     import panda3d.core as p3d
     from simplepbr import _ibl_funcs_cpu as ibl
     import simplepbr
-    folders = {"engine": rw_textures.ensure(), "kart": kart_gfx.TEX, "lab": lab_textures.ensure()}
+    folders = {"engine": rw_textures.ensure(), "kart": kart_gfx.TEX, "lab": lab_textures.ensure(),
+               "fight": fight_textures.ensure()}
     kart_gfx._textures()
     os.makedirs(OUT, exist_ok=True)
     for f in os.listdir(OUT):

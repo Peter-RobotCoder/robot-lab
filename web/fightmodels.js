@@ -10,7 +10,9 @@
 //
 // Kept light: a body and shape is fetched once for the page (only when a fighter with it appears), its moves read
 // straight from the file's numbers, and loaded once into each scene; each fighter is a copy of it. The primitive
-// stand-in (fight.js) is drawn until a fighter's model and pictures are ready, and on the blocks tier.
+// stand-in (fight.js) is drawn until a fighter's model and pictures are ready, and on the blocks tier. (CHANGE 147) On
+// mesh and lines too, as the window's: every piece black, its edges as lines on a copy of its skinned vertices (so they
+// bend with every move) and on lines its outline, both bending with it (fight.js's modelLines); on ultra as on high.
 //
 // Where the models are: ?models=<url> if given, else models/fightlab/ beside the page (the VPS: Caddy serves the
 // release's games/fightlab/models there; web_test.py's server does too), else the public repository's or the
@@ -210,8 +212,9 @@ export const loadTimes = [];  // [key, what, ms]: the files fetched and read, a 
 
 // ---------- a fighter ----------
 export class FighterModel {
+    // (on the lit tiers, and on mesh and lines since CHANGE 147: black with lines that bend with it, as the window's)
     static wanted(scene, design) {
-        return !!scene.lighting && MODEL_BODIES.includes(design.body);
+        return (!!scene.lighting || !!scene.wire) && MODEL_BODIES.includes(design.body);
     }
 
     // sc: the FightScene, f: fight.js's fighter (its stand-in, pos and h), design: the fighter's design
@@ -301,8 +304,9 @@ export class FighterModel {
         const tex = new BABYLON.DynamicTexture("robinnumbertex", {width: 256, height: 64}, scene, true);
         tex.hasAlpha = true;
         tex.getContext().clearRect(0, 0, 256, 64);
-        // (unlit, but the app's tone pass still curves it, so a paler colour than the light colour itself)
-        const colour = toneMap((style.lights || ROBIN_STYLE.lights).map(c => c / 255), this.sc.lighting ? this.sc.lighting.exposure : 1);
+        // (unlit, but the app's tone pass still curves it, so a paler colour than the light colour itself; on the line
+        // tiers white, shown in the line colour: CHANGE 147)
+        const colour = this.sc.wire ? [1, 1, 1] : toneMap((style.lights || ROBIN_STYLE.lights).map(c => c / 255), this.sc.lighting ? this.sc.lighting.exposure : 1);
         tex.drawText(text, null, 49, "48px sans-serif", `rgb(${colour.map(c => Math.round(255 * Math.min(1, c))).join(",")})`, null, true, true);
         const m = new BABYLON.StandardMaterial("robinnumbermat", scene);
         m.diffuseTexture = tex;
@@ -319,6 +323,7 @@ export class FighterModel {
         plane.position.set(0, 0.0271 * k, 0.2307 * k);
         plane.rotation.set(-19.3 * D2R, 0, 0);  // (the loader mirrors x: the plane reads from its back, here the front)
         plane.scaling.setAll(k);
+        if (this.sc.wire) this.sc.lettering(plane);
         this.plate = plane;
     }
 
@@ -341,6 +346,7 @@ export class FighterModel {
         const picture = info => info && json.textures[info.index] ? images[json.textures[info.index].source] : null;
         this.mats = new Map();  // "<material>:<tint>" -> [material, its glTF base colour, its tint]
         const groups = new Map();  // "<material>:<tint>" -> the pieces drawn with it
+        const wire = !!this.sc.wire;  // (mesh and lines: every piece black, its lines made below: CHANGE 147)
         for (const mesh of meshes) {
             const m = /^(.*)_primitive(\d+)$/.exec(mesh.name);
             const name = m && !nodeByName.has(mesh.name) ? m[1] : mesh.name, prim = m && !nodeByName.has(mesh.name) ? Number(m[2]) : 0;
@@ -356,8 +362,8 @@ export class FighterModel {
             const kind = name.includes(".main_") ? "main" : name.includes(".trim_") ? "trim" : name.includes(".light_") ? "light"
                        : name.startsWith("hair.") ? "hair" : "";
             const tint = {main, trim, hair}[kind] || [1, 1, 1];
-            const index = primitive.material ?? -1, key = `${index}:${kind}`;
-            if (!this.mats.has(key)) {
+            const index = primitive.material ?? -1, key = wire ? "wire" : `${index}:${kind}`;
+            if (!wire && !this.mats.has(key)) {
                 const g = json.materials[index] || {}, pbr = g.pbrMetallicRoughness || {};
                 const factor = pbr.baseColorFactor || [1, 1, 1, 1];
                 const mat = this.sc.lighting.material(`fightermodel${this.id}:${g.name || index}:${kind}`, {
@@ -377,11 +383,12 @@ export class FighterModel {
         const kept = [];
         for (const [key, list] of groups.values()) {
             const mesh = list.length > 1 ? this.merged(list) : list[0];
-            mesh.material = this.mats.get(key)[0];
+            mesh.material = wire ? this.sc.wireFill() : this.mats.get(key)[0];
             mesh.alwaysSelectAsActiveMesh = true;  // (posed far from the rest pose its bounds were made for)
             mesh.isPickable = false;
             kept.push(mesh);
         }
+        this.lines = wire ? this.sc.modelLines(kept) : null;  // ([[mesh, its material, its hit flash's]])
         return kept;
     }
 
@@ -503,6 +510,7 @@ export class FighterModel {
         const hurt = (s.hu ?? 9) < 0.12;  // a hit flash: bright for a moment
         if (hurt !== this.flashing) {
             this.flashing = hurt;
+            for (const [m, base, white] of this.lines || []) m.material = hurt ? white : base;  // (the line tiers: CHANGE 147)
             const scale = hurt ? [2.6, 2.3, 2.1] : [1, 1, 1];
             for (const [mat, factor, tint] of this.mats.values()) {
                 mat.setColor4("baseColor", new BABYLON.Color4(factor[0] * tint[0] * scale[0], factor[1] * tint[1] * scale[1], factor[2] * tint[2] * scale[2], factor[3]));

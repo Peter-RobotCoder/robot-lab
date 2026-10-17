@@ -7,12 +7,19 @@
 // colours, with its weapon. The effects and the camera are the window's (fightfx.js: fight_fx.py, the stage's jets,
 // blasts and glowing ropes and edges from fight_gfx.StageVisual, and fight_camera.py's five views).
 // Panda joint angles (h, p, r) are Babylon rotation (-p, -h, -r); positions game (x, y, z) -> Babylon (x, z, y).
+// (CHANGE 147) Every tier, as the window's since its CHANGE 147: mesh and lines draw the meshes black with their edges
+// as lines (base3d.js), each moving part's own (each joint of a fighter, a skinned model's bending with it), a grid on
+// the rings' canvas and the hall's floor on lines, the glowing parts' lines pulsing; ultra draws the window's smooth
+// fighters and hall (fightfx.js, from models/fight_ultra.json and stage_ultra.json) once loaded.
 
 /* global BABYLON */
 
-import {BaseScene, v3, rgb255, lerp, lerpDeg, mulberry} from "./base3d.js";
+import {BaseScene, TIERS, v3, rgb255, lerp, lerpDeg, mulberry} from "./base3d.js";
+import {toneMap} from "./pbr.js";
 import {FighterModel} from "./fightmodels.js";
-import {FightFX, FightCamera, CAM_MODES, CAM_NAMES} from "./fightfx.js";
+import {AfterFx} from "./kartfx.js";
+import {FightFX, FightCamera, CAM_MODES, CAM_NAMES, loadFightModels, fightModelsData, loadStageModels, stageModelsData,
+        fighterLayout, fighterJointMesh, fighterAtlas, FIGHTER_GLOW, makeUltraRing, makeUltraHall} from "./fightfx.js";
 import {FightHud} from "./hud.js";
 import {Sound} from "./sound.js";
 
@@ -24,6 +31,11 @@ const PAD_COLOURS = [[0.85, 0.1, 0.1], [0.95, 0.95, 0.95], [0.1, 0.25, 0.85]];
 const JET_ANGLES = [45, 135, 225, 315];
 const EDGE_GLOW = [4.0, 1.2, 0.2];  // (fight_gfx.py)
 const MOVES = new Set(["punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam", "cartwheel"]);
+// (CHANGE 147) mesh and lines: where the lines fade into the dark (fight_gfx.LOOK_FADE) and the grids on lines (every
+// GRID m on the hall's floor, every MAT_GRID m on a ring's canvas); ultra: the hall's air the stands and walls fade
+// into (fight_gfx.HAZE, linear) and how thick (per metre); the hit flash's colour scale (the window's body's)
+const LOOK_FADE = {all: [18, 75], outline: [25, 110]}, GRID = 2.0, MAT_GRID = 1.0;
+const HAZE = [0.01, 0.01, 0.018], HAZE_DENSITY = 0.01, EXPOSURE = 0.8, FLASH = [3.0, 2.6, 2.4];
 
 // ---------- the poses (fight_gfx.py, verbatim in meaning) ----------
 const THIGH = 0.42, SHIN = 0.42, ANKLE = 0.08, HIP_H = THIGH + SHIN + ANKLE, UPPER = 0.29, FORE = 0.26;
@@ -244,12 +256,22 @@ function animPose(a, k) {
 
 // ---------- the scene ----------
 export class FightScene extends BaseScene {
+    static TIERS = TIERS;  // (every tier, the line tiers and ultra too, as the window: CHANGE 147)
+    // (ultra's after-effects, kartfx.js's AfterFx, as Robot Lab's: a gentle glow on the lamps, visors, cores and
+    // ropes and a little sharpening, 4x MSAA on that picture as the window's ultra; no SSAO, no reflection probe)
+    static ULTRA_FX = {ssao: false, sharpen: true, samples: 4, bloomWeight: 0.25};
+    // (the Graphics tab: what this game's lines and ultra draw)
+    static TIER_TEXT = {lines: "lines: black, the outlines in one colour (the round fighters' too) and a grid on the rings and the hall's floor (an old vector arcade game).",
+                        ultra: "ultra: for a strong graphics card: the window's smooth fighters (armour, visors and lights, a gi, a face and hair) and hall (padded rings with the club's boards, posts and ropes, the stands and their crowd, the screens, the lighting rig, walls and roof), soft 4096 shadows, glow, sharper textures at a slant."};
+
     constructor(canvas, tier, engine) {
         // fight_gfx.init's lights: a key light high over the hall, a dim blue fill, the arena's reflections, and a
-        // spotlight over each ring in use (setSetup)
+        // spotlight over each ring in use (setSetup); on ultra a haze over the hall's far parts alone (fog.picked, as
+        // the window's), given as the colour the tone curve makes of its light
         super(canvas, tier, engine, {sky: [0.02, 0.02, 0.04], radius: 9, target: [0, 0, 1], ground: [0.1, 0.1, 0.14], hemi: 0.45, sun: 1.5,
                                      sunDir: [-0.25, -0.9, 0.45],
-                                     pbr: {background: [0.01, 0.01, 0.02], exposure: 0.8, ambient: [0.07, 0.07, 0.1], sky: "env",
+                                     pbr: {background: [0.01, 0.01, 0.02], exposure: EXPOSURE, ambient: [0.07, 0.07, 0.1], sky: "env",
+                                           fog: {colour: toneMap(HAZE, Math.pow(2, EXPOSURE)), density: HAZE_DENSITY, picked: true},
                                            sun: {colour: [1.1, 1.05, 1.0], offset: [6, -12, 26], film: 16, near: 5, far: 60, bias: 0.005},
                                            spots: FightScene.spots([0])}});
         this.setup = {rings: [0], rs: 4.5, hazards: {}, look: {}};
@@ -272,8 +294,28 @@ export class FightScene extends BaseScene {
         });
     }
 
+    build() {  // (ultra's after-effects let go before the scene they were made for: CHANGE 147)
+        if (this.after) { this.after.dispose(); this.after = null; }
+        super.build();
+    }
+
     populate() {
+        // (ultra, CHANGE 147) the window's fighters and hall once both files are here (asked for on ultra alone): high's
+        // until then, or if they don't come; then everything is made again with them
+        this.ultra = !!(this.settings.ultra && this.lighting);
+        this.ultraFighters = this.ultra && !!fightModelsData();
+        this.ultraStage = false;
+        this.lineCount = 0;
+        this.lineStats = null;
+        this.glowLines = {};  // (the line tiers: the glowing parts' line materials, pulsed in frame())
+        if (this.ultra) {
+            const scene = this.scene;
+            Promise.all([loadFightModels(), loadStageModels()]).then(([f, s]) => {
+                if (this.scene === scene && ((f && !this.ultraFighters) || (s && !this.ultraStage))) this.build();
+            });
+        }
         this.buildStage();
+        this.after = this.ultra && FightScene.ULTRA_FX ? new AfterFx(this, FightScene.ULTRA_FX) : null;
         this.fx = new FightFX(this);
         // the camera is placed by the window's views every frame (drags, the wheel and keys are FightGame's), so it
         // takes no input of its own and may go anywhere they put it
@@ -299,34 +341,51 @@ export class FightScene extends BaseScene {
         this.build();
     }
 
+    // (CHANGE 147) mesh and lines: the rings' still parts' edges as lines (with a grid on each canvas on lines), the
+    // hall's (with a grid on its floor on lines), the rig's, and each part that glows or moves its own (stageLines);
+    // ultra: the window's rings (fightfx.js's makeUltraRing) in place of the platform, base, mat, posts, pads and ropes,
+    // and its hall (makeUltraHall); the markings, logo, open edge's glow, jets, spikes and ice kept
     buildStage() {
         const {rings, rs: R, hazards: hz, look} = this.setup;
         const roped = !hz.ring_out, blocks = this.tier === "blocks";
+        const file = this.ultra ? stageModelsData() : null, ultra = !!file;
+        this.ultraStage = ultra;
         const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
-        const statics = [];
+        const statics = [], hall = [];
         const S = m => { statics.push(m); return m; };
-        this.buildHall(statics, look);
-        const platM = M("platform", [0.2, 0.2, 0.23], 1, 1, "steel", 0.6);
-        const rimM = M("platrim", [0.08, 0.08, 0.1], 0.6, 0.5, "paint");
+        this.buildHall(hall, look, file);
         const marks = M("marks", [0.9, 0.9, 0.95], 0.6, 0);
         const hazard = blocks ? M("hazard", [0.95, 0.75, 0.08], 1, 0) : M("hazard", [1, 1, 1], 1, 0, "hazard", 0.8);
         this.jets = new Map();
         this.ropes = [];
         this.glows = new Map();  // ring -> {ropes, edge}: the materials that pulse (fight_gfx.StageVisual.update)
+        this.ultraRings = [];
+        const moving = [];  // (the line tiers: [meshes, glow]: the ropes' and an open edge's lines, pulsing as they glow)
         for (const i of rings || [0]) {
             const [cx, cy] = RING_CENTRES[i] || [0, 0];
             const platR = roped ? R + 0.7 : R + 0.1;
-            S(this.cyl(null, platR, 0.4, "z", platM, cx, cy, -0.42, null, 48));
-            S(this.cyl(null, platR + 0.08, 0.06, "z", rimM, cx, cy, -0.8 + 0.06, null, 48));
-            S(this.cyl(null, platR - 0.02, 0.012, "z", M("mat" + i, MAT_COLOURS[i % 6], 0.95, 0, "concrete", 0.4), cx, cy, -0.01, null, 48));
+            if (!ultra) {
+                S(this.cyl(null, platR, 0.4, "z", M("platform", [0.2, 0.2, 0.23], 1, 1, "steel", 0.6), cx, cy, -0.42, null, 48));
+                S(this.cyl(null, platR + 0.08, 0.06, "z", M("platrim", [0.08, 0.08, 0.1], 0.6, 0.5, "paint"), cx, cy, -0.8 + 0.06, null, 48));
+                S(this.cyl(null, platR - 0.02, 0.012, "z", M("mat" + i, MAT_COLOURS[i % 6], 0.95, 0, "concrete", 0.4), cx, cy, -0.01, null, 48));
+            }
             if (!hz.slippery) for (let k = 0; k < 40; k++) {
                 const a = k / 40 * Math.PI * 2;
                 const d = S(this.box(null, 0.14, 0.04, 0.003, marks, cx + Math.cos(a) * 0.45 * R, cy + Math.sin(a) * 0.45 * R, 0.004));
                 d.rotation.y = -(a + Math.PI / 2);
             }
             for (const sx of [-1.6, 1.6]) S(this.box(null, 0.05, 0.45, 0.003, marks, cx + sx, cy, 0.004));
-            this.floorText(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, cx, cy - 0.25, 0.008, 4.8, "#e8d49a", 0.8);
-            if (roped) {
+            // (the line colour on the line tiers: CHANGE 147)
+            const logo = this.floorText(i === 0 ? (look.name || "FIGHT LAB") : `RING ${i + 1}`, cx, cy - 0.25, 0.008, 4.8, this.wire ? "#ffffff" : "#e8d49a", 0.8);
+            if (this.wire) this.lettering(logo);
+            const ropeMat = !roped ? null : hz.electric_ropes ? M("eropes" + i, [0.5, 0.8, 1.0], 0.5, 0, null, null, [0.4, 1.2, 3.0]) : M("ropes", [0.85, 0.12, 0.1], 0.5, 0);
+            if (roped && hz.electric_ropes) this.glows.set(i, {ropes: ropeMat});
+            if (ultra) {  // (the window's ring for this size: the ropes their own mesh, glowing as the lower tiers' do)
+                const u = makeUltraRing(this, file, i, R, roped, [cx, cy], MAT_COLOURS[i % 6], PAD_COLOURS[i % 3], ropeMat);
+                this.ultraRings.push(u);
+                if (u.ropes) this.ropes.push(u.ropes);
+                this.shadowCast(u.casters);
+            } else if (roped) {
                 const postR = (R + 0.08) / Math.cos(22.5 * D2R);
                 const posts = [];
                 for (let k = 0; k < 8; k++) {
@@ -335,27 +394,29 @@ export class FightScene extends BaseScene {
                     S(this.cyl(null, 0.08, 0.7, "z", M("post", [0.75, 0.75, 0.8], 1, 1, "steel", 0.8), px, py, 0.7, null, 12));
                     S(this.box(null, 0.12, 0.12, 0.45, M("pad" + (i % 3), PAD_COLOURS[i % 3], 0.6, 0.2, "paint"), px, py, 0.85));
                 }
-                const ropeMat = hz.electric_ropes ? M("eropes" + i, [0.5, 0.8, 1.0], 0.5, 0, null, null, [0.4, 1.2, 3.0]) : M("ropes", [0.85, 0.12, 0.1], 0.5, 0);
-                if (hz.electric_ropes) this.glows.set(i, {ropes: ropeMat});
                 for (const z of [0.45, 0.85, 1.25]) for (let k = 0; k < 8; k++) {
                     const [ax, ay] = posts[k], [bx, by] = posts[(k + 1) % 8];
                     const rope = BABYLON.MeshBuilder.CreateTube("rope", {path: [v3(ax, ay, z), v3(bx, by, z)], radius: 0.035, tessellation: 8}, this.scene);
                     rope.material = ropeMat;
                     this.ropes.push(rope);
                 }
-            } else {
+            }
+            if (roped) moving.push([this.ropes.slice(-(ultra ? 1 : 24)), "ropes" + i]);
+            else {
                 const band = BABYLON.MeshBuilder.CreateTorus("edge", {diameter: R * 2, thickness: 0.09, tessellation: 64}, this.scene);
                 band.material = M("edge" + i, [0, 0, 0], 1, 0, null, null, EDGE_GLOW);
                 band.scaling.y = 0.1;
                 band.position = v3(cx, cy, 0.006);
                 this.glows.set(i, {edge: band.material});
+                moving.push([[band], "edge" + i]);
             }
             if (hz.fire_jets) {  // the striped plates and nozzles; the flames are soft puffs rising up each jet (fightfx.js)
+                // (the line tiers: a flame of lines on each, flickering and growing with the jet, no puffs: CHANGE 147)
                 const jets = JET_ANGLES.map(a => {
                     const x = cx + Math.cos(a * D2R) * 0.55 * R, y = cy + Math.sin(a * D2R) * 0.55 * R;
                     S(this.cyl(null, 0.32, 0.01, "z", hazard, x, y, 0.005, null, 20));
                     S(this.cyl(null, 0.16, 0.02, "z", M("nozzle", [0.15, 0.15, 0.16], 1, 1, "steel"), x, y, 0.01, null, 16));
-                    return [x, y];
+                    return [x, y, this.wire ? this.flameLines(x, y, "jet" + i) : null];
                 });
                 this.jets.set(i, jets);
             }
@@ -374,14 +435,98 @@ export class FightScene extends BaseScene {
                 for (let k = 0; k < 6; k++) S(this.box(null, 0.3 * R, 0.012, 0.002, shine, cx + Math.cos(k * 1.05) * 0.12 * R, cy + Math.sin(k * 1.05) * 0.15 * R, 0.01));
             }
         }
-        this.mergeStatic(statics);
+        const still = this.mergeStatic(statics), hallStill = this.mergeStatic(hall);
+        if (this.wire) this.stageLines(still, hallStill, moving);
+    }
+
+    lineFade() {  // (where the lines fade out, as the window's dark fog: fight_gfx.LOOK_FADE, CHANGE 147)
+        return LOOK_FADE[this.wire] || LOOK_FADE.outline;
+    }
+
+    // (the line tiers, CHANGE 147: fight_gfx.StageVisual.looks) the rings' still parts' edges as lines in tiles (with
+    // on lines a grid every MAT_GRID m on each canvas, cut at the ring's edge: fight_gfx.ring_grid), the hall's (with on
+    // lines a grid every GRID m on its floor, hidden where the platforms and walkways stand), the rig's (hidden with
+    // it), and the ropes' and an open edge's own, their material pulsed in frame() as they glow
+    stageLines(still, hallStill, moving) {
+        const t0 = performance.now(), before = this.lineCount || 0, fade = this.lineFade(), fill = this.wireFill();
+        const mat = this.lineMaterial("stage", 1, ...fade), outline = this.wire === "outline";
+        const seg = (L, a, b) => { const k = L.pos.length / 3; L.pos.push(a[0], a[2], a[1], b[0], b[2], b[1]); L.idx.push(k, k + 1); };
+        const lists = this.edgeLines(still.filter(m => m.material === fill), this.wire);
+        let grid = lists.idx.length / 2;
+        if (outline) {
+            const r = (this.setup.rs || 4.5) - 0.05, z = 0.006;
+            for (const i of this.setup.rings || [0]) {
+                const [cx, cy] = RING_CENTRES[i] || [0, 0];
+                for (let c = -Math.floor(r / MAT_GRID) * MAT_GRID; c <= r + 1e-9; c += MAT_GRID) {
+                    const half = Math.sqrt(Math.max(0, r * r - c * c));
+                    if (half < 0.05) continue;
+                    seg(lists, [cx + c, cy - half, z], [cx + c, cy + half, z]);
+                    seg(lists, [cx - half, cy + c, z], [cx + half, cy + c, z]);
+                }
+            }
+        }
+        grid = lists.idx.length / 2 - grid;
+        this.staticLines("stagelines", lists, mat);
+        const hl = this.edgeLines(hallStill.filter(m => m.material === fill), this.wire), edges = hl.idx.length / 2;
+        if (outline) {  // (line_look.grid: each line cut at the rectangle's edges, not along them)
+            const [x0, y0, x1, y1] = [-32, -16, 32, 32], z = -0.8 + 0.002;
+            for (let x = Math.ceil(x0 / GRID) * GRID; x < x1 - 1e-6; x += GRID) if (x > x0 + 1e-6) seg(hl, [x, y0, z], [x, y1, z]);
+            for (let y = Math.ceil(y0 / GRID) * GRID; y < y1 - 1e-6; y += GRID) if (y > y0 + 1e-6) seg(hl, [x0, y, z], [x1, y, z]);
+        }
+        grid += hl.idx.length / 2 - edges;
+        this.staticLines("halllines", hl, mat);
+        const rigLines = this.rig.length ? this.linesMesh("riglines", this.edgeLines(this.rig, this.wire), mat) : null;
+        if (rigLines) this.rig.push(rigLines);
+        for (const [meshes, glow] of moving) {
+            const m = this.glowLines[glow] = this.glowLines[glow] || this.lineMaterial(glow, 1, ...fade);
+            this.linesMesh(glow.startsWith("edge") ? "edgelines" : "ropelines", this.edgeLines(meshes, this.wire), m);
+        }
+        this.lineStats = {segments: (this.lineCount || 0) - before, grid, ms: Math.round(performance.now() - t0)};
+    }
+
+    // (the line tiers, CHANGE 147) a fire jet's flame of lines (fight_gfx: a cone 0.2 m across its foot, 1 m high, its
+    // edges alone: no black faces, a glow is see-through), on a node at the nozzle that frame() grows and shows
+    flameLines(x, y, glow) {
+        const node = new BABYLON.TransformNode("jetlines", this.scene);
+        node.position = v3(x, y, 0.03);
+        const cone = this.cyl(node, 0.2, 0.5, "z", this.wireFill(), 0, 0, 0.5, 0.03, 8);
+        const m = this.glowLines[glow] = this.glowLines[glow] || this.lineMaterial(glow, 1, ...this.lineFade());
+        this.linesMesh("jetlines", this.edgeLines([cone], this.wire, node), m, node);
+        cone.dispose();
+        node.setEnabled(false);
+        return node;
+    }
+
+    // (the line tiers, CHANGE 147) a ball's edges, in its own frame (a blast, the energy in a hand): every edge on both
+    // looks (the window's ball of 10 sides turns 36 degrees an edge, past the crease that lines draws)
+    lineSphere(r) {
+        const s = BABYLON.MeshBuilder.CreateSphere("ball", {diameter: r * 2, segments: 5}, this.scene);
+        const lists = this.edgeLines([s], "all");
+        s.dispose();
+        return lists;
     }
 
     // the hall round the rings: a concrete floor, walkways, tiered stands with a crowd, big screens and a lighting
-    // truss (fight_gfx.build_hall)
-    buildHall(statics, look) {
+    // truss (fight_gfx.build_hall); (ultra, CHANGE 147) the window's hall (fightfx.js's makeUltraHall), the screens'
+    // lettering kept; (the line tiers) the name on the screens in the line colour
+    buildHall(statics, look, file = null) {
         const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
         const S = m => { statics.push(m); return m; };
+        this.ultraParts = null;
+        if (file) {
+            const u = this.ultraParts = makeUltraHall(this, file, look);
+            this.rig = u.rig;
+            this.shadowCast(u.casters);
+            // (the hall's name on each screen, facing the hall's middle, as the window's ultra writes it)
+            for (const [x, y, z, h] of (file.notes || {}).screens || [[0, 36.5, 6, 0], [0, -20.5, 6, 180]]) {
+                const front = h === 0 ? -1 : 1;
+                // (the window's glowing orange lettering comes out nearly white through its tone curve)
+                const name = this.floorText(look.name || "FIGHT LAB", x, y + front * 0.34, z + 0.1, 12, "#fff0dc", 1.0);
+                name.rotation.x = 0;
+                name.rotation.y = h === 0 ? 0 : Math.PI;
+            }
+            return;
+        }
         const xs = RING_CENTRES.map(c => c[0]), ys = RING_CENTRES.map(c => c[1]);
         const pad = (this.setup.rs || 4.5) + 5;
         const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
@@ -420,7 +565,8 @@ export class FightScene extends BaseScene {
         for (const [y, back] of [[y1 + 9, -1], [y0 - 9, 1]]) {
             S(this.box(null, 6.5, 0.3, 2.0, M("screen", [0.08, 0.08, 0.1], 1, 1, "steel"), cx, y, 6.0));
             S(this.box(null, 6.2, 0.05, 1.75, M("screenglow", [0, 0, 0], 1, 0, null, null, [0.05, 0.02, 0.12]), cx, y + 0.3 * back, 6.0));
-            const name = this.floorText(look.name || "FIGHT LAB", cx, y + 0.4 * back, 5.95, 9, "#ff8a3d");
+            const name = this.floorText(look.name || "FIGHT LAB", cx, y + 0.4 * back, 5.95, 9, this.wire ? "#ffffff" : "#ff8a3d");
+            if (this.wire) this.lettering(name);
             name.rotation.x = 0;
             name.rotation.y = back < 0 ? 0 : Math.PI;  // (each screen's words face the rings)
         }
@@ -488,9 +634,10 @@ export class FightScene extends BaseScene {
             node(s + "a", n[s + "k"], 0, 0, -SHIN);
         }
         const parts = [];
-        const B = (j, hx, hy, hz, key, x, y, z) => parts.push(this.box(n[j], hx, hy, hz, M[key], x, y, z));
-        const C = (j, r, h, key, x, y, z, rTop = null, axis = "z") => parts.push(this.cyl(n[j], r, h, axis, M[key], x, y, z, rTop, 10));
-        const S = (j, r, key, x, y, z, sx = 1, sy = 1, sz = 1) => parts.push(this.sphere(n[j], r, M[key], x, y, z, sx, sy, sz, 10));
+        const G = (m, key) => { if (key === "glow") m.ccGlow = true; parts.push(m); };  // (the line tiers: a glowing part's lines apart)
+        const B = (j, hx, hy, hz, key, x, y, z) => G(this.box(n[j], hx, hy, hz, M[key], x, y, z), key);
+        const C = (j, r, h, key, x, y, z, rTop = null, axis = "z") => G(this.cyl(n[j], r, h, axis, M[key], x, y, z, rTop, 10), key);
+        const S = (j, r, key, x, y, z, sx = 1, sy = 1, sz = 1) => G(this.sphere(n[j], r, M[key], x, y, z, sx, sy, sz, 10), key);
         const P = (j, r, len, key, x = 0, y = 0, z = 0) => {  // a capsule hanging down from (x, y, z)
             const c = BABYLON.MeshBuilder.CreateCapsule("capsule", {radius: r, height: len + 2 * r, tessellation: 10, subdivisions: 2}, scene);
             c.material = M[key];
@@ -499,7 +646,10 @@ export class FightScene extends BaseScene {
             parts.push(c);
         };
         const big = boss ? 1.15 : 1;
-        if (robot) {
+        let ultra = null;  // (ultra, CHANGE 147: the fighter's material and its hit flash's)
+        if (this.ultraFighters) {
+            ultra = this.ultraFighter(n, d, robot, boss, parts, {main, trim, skin, hair, lights});
+        } else if (robot) {
             B("hips", 0.2 * big, 0.13, 0.1, "dark", 0, 0, 0.02); B("hips", 0.22 * big, 0.15, 0.05, "main", 0, 0, 0.1);
             for (const s of ["l", "r"]) {
                 C(s + "h", 0.07, THIGH / 2, "dark", 0, 0, -THIGH / 2); B(s + "h", 0.1 * big, 0.11, 0.15, "main", 0, 0.01, -0.18); S(s + "h", 0.085, "trim", 0, 0, 0);
@@ -544,7 +694,8 @@ export class FightScene extends BaseScene {
                 S(s + "fist", 0.06 * big, "skin", 0, 0.01, -0.04, 0.9, 1.1, 1.0);
             }
         }
-        const plate = this.numberPlate(n.waist, d, robot, robot ? lights : trim);
+        const plate = this.numberPlate(n.waist, d, robot, this.wire ? [1, 1, 1] : robot ? lights : trim);
+        if (plate && this.wire) this.lettering(plate);  // (the line colour on the line tiers: CHANGE 147)
         // the weapon (the window's skinned models carry one; here a plain shape in the right fist, a shield on the left arm)
         const w = d.weapon;
         if (w) {
@@ -561,11 +712,19 @@ export class FightScene extends BaseScene {
                 if (w === "glaive") parts.push(this.box(n.rfist, 0.01, 0.05, 0.14, blade, 0, 0.02, -0.04 - len - 0.12));
             }
         }
-        const glows = ["l", "r"].map(s => { const g = this.sphere(n[s + "fist"], 0.13, this.material(robot ? "blastblue" : "blastorange", robot ? [0.3, 0.8, 1] : [1, 0.6, 0.15], 0.5, 0, 2)); g.isVisible = false; return g; });
+        // the energy in the hands while a blast charges (the line tiers: a ball of lines, no black faces: CHANGE 147)
+        const glows = ["l", "r"].map(s => {
+            const g = this.wire ? this.linesMesh("handglow", this.lineSphere(0.13), this.lineMaterial("handglow", 1, ...this.lineFade()), n[s + "fist"])
+                : this.sphere(n[s + "fist"], 0.13, this.material(robot ? "blastblue" : "blastorange", robot ? [0.3, 0.8, 1] : [1, 0.6, 0.15], 0.5, 0, 2));
+            g.isVisible = false;
+            return g;
+        });
         this.shadowCast(parts);
+        const lines = this.wire ? this.fighterLines(n, parts) : null;
         const computer = info.owner === "Computer";
         const label = this.makeLabel(`${d.name || ""}\n${computer && boss ? "Boss" : info.owner || ""}`, computer ? "#ffbf4d" : "#ffffff", 0.9);
-        const f = {root, body, n, size, design: d, label, glows, plate, cur: stance(), pos: null, h: 0, wheel: null, owner: info.owner, ring: info.ring, robot, main: M.main};
+        const f = {root, body, n, size, design: d, label, glows, plate, cur: stance(), pos: null, h: 0, wheel: null, owner: info.owner, ring: info.ring, robot,
+                   main: ultra ? ultra.base : M.main, flashMat: ultra ? ultra.flash : undefined, lines, ultra: !!ultra};
         this.applyPose(f, f.cur);
         if (FighterModel.wanted(this, d)) f.model = new FighterModel(this, f, d, info.id);  // (the app's own model, once loaded)
         this.fighters.set(info.id, f);
@@ -597,6 +756,87 @@ export class FightScene extends BaseScene {
         plane.parent = joint;
         plane.position = v3(0, robot ? -0.18 : -0.14, 0.34);  // (a plane faces -z, the game's -y: out of the fighter's back)
         return plane;
+    }
+
+    // (ultra, CHANGE 147: fight_gfx.FighterVisual.ultra) the window's smooth fighter from models/fight_ultra.json: its
+    // pieces placed by fighterLayout (fight_models.layout) on the joints the other tiers pose (the fists in the
+    // forearms' pieces), each joint's pieces ONE mesh in the fighter's colours (a texel a role for roughness, metal and
+    // glow, as the window's atlas: 13 meshes a fighter, its shadow's too). Returns its material and its hit flash's
+    ultraFighter(n, d, robot, boss, parts, c) {
+        const colours = {main: c.main, trim: c.trim, skin: c.skin, hair: c.hair, pants: c.main.map(v => v * 0.55),
+                         shade: c.main.map(v => v * 0.78), lips: [c.skin[0] * 0.85, c.skin[1] * 0.62, c.skin[2] * 0.6]};
+        const glow = c.lights.map(v => v * 5);  // (the lower tiers' glow)
+        const byJoint = {};
+        for (const [j, piece, pos, hpr, scale] of fighterLayout(robot ? "robot" : "human", boss ? d.model : null)) {
+            (byJoint[j] = byJoint[j] || []).push([piece, pos, hpr, scale]);
+        }
+        const base = this.ultraFighterMaterial(glow, [1, 1, 1]);
+        for (const [j, items] of Object.entries(byJoint)) {
+            const mesh = n[j] ? fighterJointMesh(this, "fighter " + j, items, colours) : null;
+            if (!mesh) continue;
+            mesh.parent = n[j];
+            mesh.material = base;
+            parts.push(mesh);
+        }
+        return {base, flash: this.ultraFighterMaterial(glow, FLASH)};
+    }
+
+    // (ultra) a fighter's material: white times its colour scale q (linear: the window's colour scales), the vertices'
+    // colours, the roles' roughness, metal and glow from the atlas (fightfx.js's fighterAtlas, its lights colour's), the
+    // backs of its faces culled as the window's
+    ultraFighterMaterial(lights, q) {
+        const key = `fultra:${lights.map(v => v.toFixed(3)).join(",")}:${q.join(",")}`;
+        if (this.materials[key]) return this.materials[key];
+        const atlas = fighterAtlas(this, lights);
+        const m = this.lighting.material(key, {rgb: q.map(v => Math.pow(v, 1 / 2.2)), rough: 1, metal: 1,
+                                               emission: [FIGHTER_GLOW, FIGHTER_GLOW, FIGHTER_GLOW], mrMap: atlas.mr, glowMap: atlas.glow});
+        m.backFaceCulling = true;
+        m.sideOrientation = BABYLON.Material.ClockWiseSideOrientation;  // (the front as the file's, turned round by unpackPart)
+        this.materials[key] = m;
+        return m;
+    }
+
+    // (the line tiers, CHANGE 147: fight_gfx.FighterVisual.finish) a built fighter's lines: each joint's parts (a fist's
+    // with its forearm's, as the window joins them; a weapon with its hand's) one black mesh with its edges as lines
+    // under the joint, so they move with it; a glowing part's lines apart; on lines each joint's outline too (the round
+    // limbs and head have few folds: base3d's silhouette). Returns [[mesh, its material, its hit flash's]]
+    fighterLines(n, parts) {
+        const fade = this.lineFade(), mode = this.wire, out = [];
+        const mat = this.lineMaterial("fighter", 1, ...fade), flash = this.tintedLines("fighterflash", FLASH, ...fade);
+        const hull = mode === "outline" ? this.hullMaterial("fighter", ...fade) : null;
+        const hullFlash = hull ? this.hullMaterial("fighterflash", ...fade) : null;
+        if (hullFlash && !hullFlash.ccTint) { hullFlash.ccTint = FLASH; this.paintLine(hullFlash); }
+        const groups = new Map();
+        for (const m of parts) {
+            if (!m.parent || m.isDisposed()) continue;
+            const joint = m.parent === n.lfist ? n.le : m.parent === n.rfist ? n.re : m.parent, key = joint.uniqueId + (m.ccGlow ? "g" : "");
+            if (!groups.has(key)) groups.set(key, [joint, !!m.ccGlow, []]);
+            groups.get(key)[2].push(m);
+        }
+        for (const [joint, glow, list] of groups.values()) {
+            const merged = this.mergeParts(list, joint);
+            const lines = this.linesMesh("fighterlines", this.edgeLines(merged, mode, joint), mat, joint);
+            if (lines) out.push([lines, mat, flash]);
+            if (hull && !glow) for (const m of merged) out.push([this.silhouette(m, hull), hull, hullFlash]);
+        }
+        return out;
+    }
+
+    // (the line tiers, CHANGE 147: fight_model.ModelFighterVisual.looks) a detailed model's lines (its pieces already
+    // black): each piece's edges on a copy of its skinned vertices (base3d's skinnedLines), so they bend with every
+    // move; on lines its outline too, bending with it. Returns [[mesh, its material, its hit flash's]]
+    modelLines(meshes) {
+        const fade = this.lineFade(), mode = this.wire, out = [];
+        const mat = this.lineMaterial("model", 1, ...fade), flash = this.tintedLines("modelflash", FLASH, ...fade);
+        const hull = mode === "outline" ? this.hullMaterial("model", ...fade, undefined, true) : null;  // (glTF: mirrored)
+        const hullFlash = hull ? this.hullMaterial("modelflash", ...fade, undefined, true) : null;
+        if (hullFlash && !hullFlash.ccTint) { hullFlash.ccTint = FLASH; this.paintLine(hullFlash); }
+        for (const m of meshes) {
+            const lines = this.skinnedLines(m, mode, mat);
+            if (lines) out.push([lines, mat, flash]);
+            if (hull) out.push([this.silhouette(m, hull), hull, hullFlash]);
+        }
+        return out;
     }
 
     applyPose(f, p) {
@@ -645,7 +885,10 @@ export class FightScene extends BaseScene {
             const flash = (s.hu ?? 9) < 0.12;
             if (flash !== f.flashing) {
                 f.flashing = flash;
-                f.root.getChildMeshes(false).forEach(m => { if (m.material === f.main || m.material === f.flashMat) m.material = flash ? (f.flashMat = f.flashMat || this.material("flash", [1, 0.95, 0.9], 0.5, 0, 0.8)) : f.main; });
+                // (the line tiers: the lines whitened, as the window's colour scale on the body does: CHANGE 147; ultra:
+                // the whole fighter's colours scaled, as the window's)
+                if (f.lines) for (const [m, base, white] of f.lines) m.material = flash ? white : base;
+                else f.root.getChildMeshes(false).forEach(m => { if (m.material === f.main || m.material === f.flashMat) m.material = flash ? (f.flashMat = f.flashMat || this.material("flash", [1, 0.95, 0.9], 0.5, 0, 0.8)) : f.main; });
             }
             f.label.position = v3(f.pos[0], f.pos[1], f.pos[2] + 2.05 * f.size + (f.labelLift ?? 0.1));
         }
@@ -657,23 +900,34 @@ export class FightScene extends BaseScene {
         const T = this.stageT, fx = this.fx;
         fx.begin();
         const byIndex = new Map(rings.map(r => [r.i, r]));
+        const G = this.glowLines || {};  // (the line tiers: the glowing parts' lines pulse as they glow: CHANGE 147)
         for (const [i, jets] of this.jets) {
             const powers = ((byIndex.get(i) || {}).hz || {}).jets || [];
-            jets.forEach(([x, y], k) => { if ((powers[k] || 0) > 0.05) fx.jet(x, y, powers[k], T); });
+            jets.forEach(([x, y, lines], k) => {
+                const p = powers[k] || 0;
+                if (lines) {  // (a flame of lines, growing with the jet and flickering)
+                    lines.setEnabled(p > 0.05);
+                    if (p > 0.05) lines.scaling.set(0.8 + 0.4 * p, 0.4 + 1.5 * p, 0.8 + 0.4 * p);
+                } else if (p > 0.05) fx.jet(x, y, p, T);
+            });
+            this.pulseLine(G["jet" + i], 0.65 + 0.35 * Math.abs(Math.sin(T * 17 + i)));
         }
         for (const [i, g] of this.glows) {
             if (g.ropes) {  // electric ropes: a steady blue pulse, a white-blue flicker for a moment after a zap
                 if ((this.zapUntil[i] ?? -1) > T) {
                     const f = Math.floor(T * 30) % 2 ? 6 : 2;
                     this.setGlow(g.ropes, [f * 0.6, f * 0.9, f * 1.6]);
+                    this.pulseLine(G["ropes" + i], f === 6 ? 1 : 0.3);
                 } else {
                     const pulse = 0.8 + 0.4 * Math.sin(T * 6 + i);
                     this.setGlow(g.ropes, [0.3 * pulse, 0.9 * pulse, 2.6 * pulse]);
+                    this.pulseLine(G["ropes" + i], 0.5 + 0.4 * pulse);
                 }
             }
             if (g.edge) {  // an open edge's glowing line breathes
                 const pulse = 0.75 + 0.25 * Math.sin(T * 3 + i);
                 this.setGlow(g.edge, EDGE_GLOW.map(c => c * pulse));
+                this.pulseLine(G["edge" + i], pulse);
             }
         }
         let shots = 0;

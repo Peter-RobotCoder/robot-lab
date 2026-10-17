@@ -5,13 +5,15 @@ them and says which game their launched group is playing and where; this app ope
 logged in (a signed ticket). If their group hasn't been launched, the app waits and opens the game the moment it
 is. A starter password works once: the learner chooses their own first.
 
-The teacher logs in with the teacher password and gets the teacher desk: learners (add, reset a password,
-remove), groups (name, game, learners) and Launch / Stop. Launch opens the teacher window in that game.
+The teacher logs in on the same form with the username teacher and the teacher password, and gets the teacher
+desk: learners (add, reset a password, remove), groups (name, game, learners), Launch / Stop and Change password.
+Launch opens the teacher window in that game. While the teacher password is still the server setup's teacher
+code, logging in asks the teacher to choose their own (CHANGE 148).
 
     Club Coders.exe                          the downloaded app: this window
     Club Coders.exe --game robotlab ...      the app running one game (how this window starts a game)
-    python launcher/club_coders.py           from the source files; "This computer (test)" opens a game on the
-                                             laptop test servers (Robot Lab ws://127.0.0.1:8780, Fight Lab 8781)
+    python launcher/club_coders.py           from the source files; "Play on: This computer (test)" opens a game on
+                                             the laptop test servers (Robot Lab ws://127.0.0.1:8780, Fight Lab 8781)
 
 Live updates: the teacher can put new game code on the class server without a new download (live/make_live.py).
 A class running one says which (its id). The app downloads it once from https://<server>/code/<game>/<id>.zip and
@@ -414,6 +416,8 @@ def launcher(args, passed_on):
             self.state = {}           # the desk's state, for the teacher screen
             self.editing = None       # the group being edited on the teacher screen
             self.trying_password = None  # a teacher password sent to the desk, not yet accepted
+            self.teacher_password = ""   # the one the teacher logged in with (Change password starts from it)
+            self.own_password = None     # False while it is still the server setup's teacher code (CHANGE 148)
             self.new_teacher_password = None  # a new teacher password sent to the desk, not yet accepted
             self.newer, self.newer_shown = args.test_newer, False  # a newer release of the app is out (its version)
             if FROZEN:  # (asked in the background: the window doesn't wait for GitHub)
@@ -492,25 +496,27 @@ def launcher(args, passed_on):
                 self.toggle_fullscreen()
 
         def draw_home(self, f, keep):
-            label(f, "CLUB CODERS", 0, 0.7, 0.11, yellow)
-            label(f, "Play on", -0.62, 0.5, 0.04, grey)
-            for i, (local, text) in enumerate(((False, "Online class"), (True, "This computer (test)"))):
-                button(f, text, -0.2 + i * 0.5, 0.505, self.set_where, [local], 0.042, on if self.local == local else off)
+            """(CHANGE 148) One form for everyone: a learner's username, or teacher, and the password."""
+            label(f, "CLUB CODERS", 0, 0.62, 0.11, yellow)
             if self.local:
                 label(f, "Open a game on this computer's test server:", 0, 0.25, 0.045)
                 for i, (game, g) in enumerate(GAMES.items()):
-                    button(f, g["title"], -0.3 + i * 0.6, 0.08, self.open_local, [game], 0.07, (0.15, 0.45, 0.65, 1))
+                    button(f, g["title"], -0.6 + i * 0.6, 0.08, self.open_local, [game], 0.07, (0.15, 0.45, 0.65, 1))
             else:
+                username = keep.get("user", saved.get("username", ""))
                 label(f, "Username", -0.55, 0.27, 0.05)
-                self.fields["user"] = entry(f, -0.25, 0.27, 12, keep.get("user", saved.get("username", "")),
+                self.fields["user"] = entry(f, -0.25, 0.27, 12, username,
                                             command=lambda t: self.fields["pass"].setFocus())
                 label(f, "Password", -0.55, 0.12, 0.05)
-                self.fields["pass"] = entry(f, -0.25, 0.12, 12, keep.get("pass", ""), secret=True,
+                remembered = (load_json(teacher_file).get("password", "") if username.lower() == "teacher" and test_build()
+                              else "")
+                self.fields["pass"] = entry(f, -0.25, 0.12, 12, keep.get("pass", remembered), secret=True,
                                             command=lambda t: self.log_in())
                 button(f, "LOG IN", 0, -0.08, self.log_in, (), 0.07, go_col)
-                label(f, "Use the username and password from your welcome letter. Your class's game opens by itself.",
-                      0, -0.25, 0.033, grey, wrap=55)
-            button(f, "Teacher", 1.3, -0.72, self.show, ["teacher_login"], 0.035)
+                label(f, "Teachers: your username is teacher.", 0, -0.25, 0.033, grey)
+            if test_build() or self.local:  # (the laptop test servers: the club's own test builds and the source files)
+                button(f, "Play on: " + ("This computer (test)" if self.local else "Online class"), 1.22, -0.72,
+                       self.set_where, [not self.local], 0.035)
             button(f, f"Graphics: {self.gfx.title()}", -1.22, -0.72, self.cycle_gfx, (), 0.035)
             button(f, f"Window: {WINDOW_TEXT.get(self.window) or self.window.replace('x', ' x ')}", -0.8,
                    -0.72, self.cycle_window, (), 0.035)
@@ -520,7 +526,7 @@ def launcher(args, passed_on):
                          "your class.", 0, -0.43, 0.04, yellow, wrap=50)
                 button(f, "Download the new Club Coders", 0, -0.58, webbrowser.open, [DOWNLOAD_PAGE], 0.045, go_col)
             if "user" in self.fields and not keep.get("user"):
-                self.fields["user"].setFocus()
+                self.fields["pass" if self.field("user") else "user"].setFocus()
 
         def draw_change_password(self, f, keep):
             label(f, "CHOOSE YOUR OWN PASSWORD", 0, 0.6, 0.07, yellow)
@@ -575,30 +581,17 @@ def launcher(args, passed_on):
                 self.say("The game has closed. Log in again, and the next game will open by itself.", grey)
             return task.done
 
-        def draw_teacher_login(self, f, keep):
-            label(f, "TEACHER", 0, 0.6, 0.09, yellow)
-            label(f, "Teacher password", -0.62, 0.25, 0.05)
-            label(f, "(the password you chose; or, until you choose one, the teacher code the server setup printed)",
-                  0, 0.42, 0.035, grey)
-            remembered = load_json(teacher_file).get("password", "")
-            self.fields["tpass"] = entry(f, -0.2, 0.25, 14, keep.get("tpass", remembered), secret=True,
-                                         command=lambda t: self.teacher_login())
-            self.remember_teacher = check(f, " Remember it on this computer", -0.62, 0.1,
-                                          bool(remembered) or getattr(self, "_remember", True),
-                                          lambda v: setattr(self, "_remember", bool(v)))
-            button(f, "LOG IN", 0, -0.1, self.teacher_login, (), 0.07, go_col)
-            button(f, "Change teacher password", 0.75, -0.1, self.show, ["teacher_password"], 0.04)
-            button(f, "Back", -1.3, -0.72, self.show, ["home"], 0.035)
-            self.fields["tpass"].setFocus()
-
         def draw_teacher_password(self, f, keep):
+            """(From the teacher desk's Change password; and straight after logging in while the teacher password
+            is still the server setup's teacher code: CHANGE 148.)"""
             label(f, "CHANGE THE TEACHER PASSWORD", 0, 0.62, 0.075, yellow)
-            label(f, f"Choose one you'll remember: at least {MIN_TEACHER_PASSWORD} characters (three words is good). "
-                     "Once it is changed, only the new password opens the Teacher screen: the old one, and the "
-                     "server's teacher code, stop working.", 0, 0.47, 0.034, grey, wrap=62)
-            remembered = load_json(teacher_file).get("password", "")
+            label(f, ("You logged in with the server's setup code: choose your own teacher password now. "
+                      if self.own_password is False else "") +
+                     f"Choose one you'll remember: at least {MIN_TEACHER_PASSWORD} characters (three words is good). "
+                     "Once it is changed, only the new password logs in as teacher, here and on the page: the old "
+                     "one, and the server's teacher code, stop working.", 0, 0.47, 0.034, grey, wrap=62)
             label(f, "Password now", -0.62, 0.2, 0.05)
-            self.fields["tnow"] = entry(f, -0.2, 0.2, 16, keep.get("tnow", keep.get("tpass", remembered)), secret=True,
+            self.fields["tnow"] = entry(f, -0.2, 0.2, 16, keep.get("tnow", self.teacher_password), secret=True,
                                         command=lambda t: self.fields["tnew1"].setFocus())
             label(f, "New password", -0.62, 0.06, 0.05)
             self.fields["tnew1"] = entry(f, -0.2, 0.06, 16, keep.get("tnew1", ""), secret=True,
@@ -607,7 +600,8 @@ def launcher(args, passed_on):
             self.fields["tnew2"] = entry(f, -0.2, -0.08, 16, keep.get("tnew2", ""), secret=True,
                                          command=lambda t: self.change_teacher_password())
             button(f, "CHANGE IT", -0.2, -0.3, self.change_teacher_password, (), 0.06, go_col)
-            button(f, "Cancel", 0.4, -0.3, self.show, ["teacher_login"], 0.045)
+            button(f, "Later" if self.own_password is False else "Cancel", 0.4, -0.3, self.show,
+                   ["teacher"], 0.045)
             self.fields["tnew1" if self.fields["tnow"].get() else "tnow"].setFocus()
 
         def draw_teacher(self, f, keep):
@@ -626,6 +620,7 @@ def launcher(args, passed_on):
                       TextNode.ALeft)
             button(f, "Log out", 1.32, 0.82, self.teacher_logout, (), 0.032)
             button(f, "Records", 1.1, 0.82, self.open_records, (), 0.032)
+            button(f, "Change password", 0.78, 0.82, self.show, ["teacher_password"], 0.032)
             if live:  # (the session, or the learners and groups, e.g. to reset a password mid-session)
                 chosen, other = (0.2, 0.5, 0.75, 1), (0.16, 0.2, 0.28, 1)
                 button(f, "This session", -0.27, 0.735, self.set_view, ["session"], 0.032,
@@ -835,7 +830,7 @@ def launcher(args, passed_on):
                 self.link = None
                 return
             if "error" in m and not m.get("ok"):
-                if self.screen == "teacher_login" and getattr(self, "trying_password", None):
+                if getattr(self, "trying_password", None):
                     self.teacher_refused()
                 if self.screen == "waiting":
                     self.screen = "home"
@@ -843,6 +838,8 @@ def launcher(args, passed_on):
                 return
             if m.get("teacher_password_changed"):
                 return self.teacher_password_changed()
+            if "own_password" in m:
+                self.own_password = m["own_password"]
             if "state" in m:
                 self.state = m["state"]
                 if getattr(self, "trying_password", None):
@@ -940,8 +937,10 @@ def launcher(args, passed_on):
             password = password or self.field("pass")
             if not user or not password:
                 return self.say("Type your username and your password.", red)
-            self.password = password
             remember("username", user)
+            if user.lower() == "teacher":  # (CHANGE 148: the one form; the desk lets no learner be called Teacher)
+                return self.teacher_login(password)
+            self.password = password
             self.say("Logging in...", grey)
             self.ask_desk({"type": "login", "name": user, "password": password})
 
@@ -961,12 +960,9 @@ def launcher(args, passed_on):
             self.show("home")
 
         # ---------- the teacher ----------
-        def teacher_login(self, password=None):
-            password = password or self.field("tpass")
-            if not password:
-                return self.say("Type the teacher password.", red)
+        def teacher_login(self, password):
             self.trying_password = password  # (remembered, and the Teacher screen shown, once the desk says yes)
-            self.screen = "teacher_login"
+            self.screen = "home"
             self.say("Logging in...", grey)
             self.ask_desk({"type": "teacher", "password": password})
 
@@ -986,8 +982,10 @@ def launcher(args, passed_on):
             self.ask_desk({"type": "change_teacher_password", "password": now_, "new": new})
 
         def teacher_password_changed(self):
-            """The desk has changed it. If this computer remembers the teacher password, it now remembers the new one."""
+            """The desk has changed it (the teacher stays logged in). If this computer remembers the teacher password,
+            it now remembers the new one."""
             new, self.new_teacher_password = self.new_teacher_password, None
+            self.teacher_password, self.own_password = new or self.teacher_password, True
             try:
                 if new and load_json(teacher_file).get("password"):
                     with open(teacher_file, "w", encoding="utf-8") as fh:
@@ -996,19 +994,25 @@ def launcher(args, passed_on):
                 pass
             for e in self.fields.values():  # (nothing typed on that screen is carried to the next)
                 e.enterText("")
-            self.screen = "teacher_login"
-            self.say("The teacher password is changed. Log in with the new one.", green)
+            self.screen = "teacher"
+            self.say("The teacher password is changed: log in with the new one from now on, here and on the page.",
+                     green)
 
         def teacher_accepted(self):
             password, self.trying_password = self.trying_password, None
-            try:
-                if getattr(self, "_remember", True):
+            self.teacher_password = password
+            try:  # remembered (offered again when the username is teacher) only by the teacher laptop's app, run from
+                # the project folders: the downloaded app may be on a shared school laptop, so it forgets it (CHANGE 148)
+                if test_build():
                     os.makedirs(SETTINGS_DIR, exist_ok=True)
                     with open(teacher_file, "w", encoding="utf-8") as fh:
                         json.dump({"password": password}, fh)
+                elif os.path.exists(teacher_file):
+                    os.remove(teacher_file)
             except OSError:
                 pass
-            self.show("teacher")
+            # still the server setup's teacher code: choose their own first (Later goes on to the desk)
+            self.show("teacher_password" if self.own_password is False else "teacher")
 
         def teacher_refused(self):
             self.trying_password = None
@@ -1020,7 +1024,7 @@ def launcher(args, passed_on):
         def teacher_logout(self):
             if self.link:
                 self.link.close()
-            self.link, self.state = None, {}
+            self.link, self.state, self.teacher_password, self.own_password = None, {}, "", None
             self.show("home")
 
         def add_learner(self):

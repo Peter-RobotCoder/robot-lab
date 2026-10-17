@@ -1,7 +1,9 @@
 """Fight Lab effects: sparks and flashes where hits land, guard flashes on blocks, electric sparks, flames,
 dust when a fighter hits the floor, bits of armour flying off robots, and camera shake.
 
-Kept cheap for low-spec laptops: a fixed pool of small pieces, reused.
+Kept cheap for low-spec laptops: a fixed pool of small pieces, reused. On mesh and lines (CHANGE 147, as Robot Lab's)
+the sparks and the shock rings of big hits are the line colour, bits of armour are drawn as their edges, and there is
+no smoke, dust, fire or soft flash.
 """
 import math
 import random
@@ -73,6 +75,7 @@ class Effects:
     def __init__(self, render, quality="high"):
         self.render = render
         self.rnd = random.Random()
+        self.look = fight_gfx.look()  # (mesh or lines: CHANGE 147)
         low = quality in ("low", "basic")
         cm = CardMaker("card")
         cm.setFrame(-0.5, 0.5, -0.5, 0.5)
@@ -168,6 +171,10 @@ class Effects:
         self.shake = max(self.shake, min(0.3, damage / (90 if kind not in ("block", "land") else 250)))
 
     def flash(self, pos, colour, size, ring=False, life=0.12):
+        if self.look:  # (mesh and lines: only the shock ring, in the line colour)
+            if not ring:
+                return
+            colour = fight_gfx.line_look.colour()
         f = next((f for f in self.flashes if f[1] <= 0 and f[4] == ring), None)
         if f is None:
             return
@@ -177,6 +184,8 @@ class Effects:
         f[0].show()
 
     def dust(self, pos, amount=6):
+        if self.look:
+            return
         for _ in range(amount):
             p = self._free(self.puffs)
             if p is None:
@@ -189,6 +198,8 @@ class Effects:
             p[0].show()
 
     def flame(self, pos, direction, amount=3):
+        if self.look:
+            return
         d = Vec3(*direction)
         for _ in range(amount):
             f = self._free(self.flames)
@@ -201,7 +212,7 @@ class Effects:
 
     def smoke(self, pos, amount):
         """Call each frame for a knocked-out robot: amount 0..1."""
-        if self.rnd.random() > amount * 0.4:
+        if self.look or self.rnd.random() > amount * 0.4:
             return
         p = self._free(self.puffs)
         if p is None:
@@ -217,6 +228,8 @@ class Effects:
         node = fight_gfx.part(self.render, bevel_box(self.rnd.uniform(0.02, 0.05), self.rnd.uniform(0.02, 0.05), 0.01,
                                                      0.003), "paint", colour)
         node.setPos(*pos)
+        if self.look:
+            fight_gfx.outline(node)
         v = Vec3(self.rnd.uniform(-3, 3), self.rnd.uniform(-3, 3), self.rnd.uniform(2, 5))
         spin = Vec3(self.rnd.uniform(-700, 700), self.rnd.uniform(-700, 700), 0)
         self.debris.append([node, v, 3.0, spin])
@@ -238,8 +251,11 @@ class Effects:
             node.setPos(node.getPos() + s[1] * dt)
             node.lookAt(node.getPos() + s[1])
             f = s[2] / s[3]
-            a, b = SPARKS[s[4]]
-            node.setColor(*(y + (x - y) * f for x, y in zip(a, b)), 1)
+            if self.look:
+                node.setColor(*(c * (0.4 + 0.6 * f) for c in fight_gfx.line_look.colour()), 1)
+            else:
+                a, b = SPARKS[s[4]]
+                node.setColor(*(y + (x - y) * f for x, y in zip(a, b)), 1)
             node.setScale(1, 0.5 + f, 1)
             if node.getZ() < 0.01 and s[1].z < 0:  # bounce off the floor
                 s[1] = Vec3(s[1].x * 0.6, s[1].y * 0.6, -s[1].z * 0.35)

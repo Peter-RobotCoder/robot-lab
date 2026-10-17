@@ -11,20 +11,16 @@
 
 <div id="login">
   <div class="card">
-    <h1>CLUB CODERS LIVE</h1>
-    <p>The club's games in the browser: play in your class, or run it as the teacher. Nothing to install.</p>
-    <div class="row" id="modetabs">
-      <button data-mode="learner" class="on">I'm a learner</button>
-      <button data-mode="teacher">I'm the teacher</button>
-    </div>
-    <form id="learnerform" class="row" autocomplete="on" onsubmit="return false">
+    <h1>CLUB CODERS</h1>
+    <!-- (CHANGE 148) one form for everyone: a learner's username, or teacher, and the password -->
+    <form id="loginform" class="row" autocomplete="on" onsubmit="return false">
       <label for="lname">Username</label>
-      <input id="lname" autocomplete="username" maxlength="20" placeholder="the username your teacher gave you">
+      <input id="lname" autocomplete="username" maxlength="20" autocapitalize="off" spellcheck="false">
       <label for="lpass">Password</label>
       <input id="lpass" type="password" autocomplete="current-password">
     </form>
     <form id="newpassform" class="row" autocomplete="off" onsubmit="return false" hidden>
-      <p class="note">Choose your own password now (at least 6 characters). Keep it to yourself.</p>
+      <p class="note">Your password was a starter one (new, or reset by your teacher): choose your own now, at least 6 characters. Keep it to yourself.</p>
       <label for="npass">New password</label>
       <input id="npass" type="password" autocomplete="new-password">
       <label for="npass2">Again</label>
@@ -37,12 +33,6 @@
         here when it ends.</p>
       <button id="lobby-logout">Log out</button>
     </div>
-    <form id="deskform" class="row" autocomplete="on" onsubmit="return false" hidden>
-      <input type="text" name="username" value="teacher" autocomplete="username" hidden>
-      <label for="deskpass">Teacher password</label>
-      <input id="deskpass" type="password" autocomplete="current-password"
-             placeholder="the one you use on the app's Teacher screen">
-    </form>
     <div id="codeform" class="row" hidden>
       <label for="class">Class</label>
       <select id="class">
@@ -64,9 +54,7 @@
       <button id="connect" class="go">LOG IN</button>
       <span id="status"></span>
     </div>
-    <div class="note" id="loginnote">This page is Club Coders <span id="pageversion">?</span>. Only one teacher window
-      can be open on a class at a time: close the teacher window on your laptop first, or this page is turned
-      away.</div>
+    <div class="note" id="loginnote">Teachers: your username is <b>teacher</b>. Club Coders <span id="pageversion">?</span></div>
   </div>
 </div>
 

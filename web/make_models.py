@@ -11,12 +11,18 @@ tier draws the same kart and the same circuit as the app's (CHANGE 144).
 - arena_ultra.json: Robot Lab's ultra arena (shared-world-demo/arena_models.py): the floor for each set of holes, the
   cage, rig, towers, stands, screen, hall and battle scars as groups, and the fans and seats as shapes placed by
   instances, {"version", "materials", "groups", "shapes", "instances", "notes"}.
+- fight_ultra.json: Fight Lab's ultra fighters (BeatEmUp/fight_models.py, CHANGE 147): every piece the built robot and
+  martial artist (and the bosses) are put together from, {"version", "roles", "pieces", "notes"}; where they go is
+  fight_models.layout(), on the joints the lower tiers pose.
+- stage_ultra.json: Fight Lab's ultra hall (BeatEmUp/stage_models.py): a ring's pieces (placed for each ring's size by
+  stage_models.ring_layout()), the floor, stands, screens, rig, walls and roof as groups, and the fans and seats as
+  shapes placed by instances, {"version", "materials", "ring", "groups", "shapes", "instances", "notes"}.
 
     python make_models.py           write models/ beside this file (run after any of those modules changes)
     python make_models.py --check   exit 1 if models/ is out of date with them (web_test.py)
 
-It needs nothing but Python: those modules (and the engine's model_kit, which Robot Lab's use) import no Panda3D, and
---check builds the models again and compares.
+It needs nothing but Python: those modules (and the engine's model_kit, which Robot Lab's and Fight Lab's use) import
+no Panda3D, and --check builds the models again and compares.
 """
 import importlib.util
 import json
@@ -26,7 +32,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "models")
 FILES = {"kart_ultra.json": "kart_models", "kart_scenery.json": "kart_scenery",  # file: the module that makes it
-         "robot_ultra.json": "robot_models", "arena_ultra.json": "arena_models"}
+         "robot_ultra.json": "robot_models", "arena_ultra.json": "arena_models",
+         "fight_ultra.json": "fight_models", "stage_ultra.json": "stage_models"}
 
 
 def kart_folder():
@@ -48,13 +55,25 @@ def lab_folder():
     return None, None
 
 
+def fight_folder():
+    """Fight Lab's folder: the public repository's games/fightlab or the working one's BeatEmUp, and the folder the
+    engine package is in (CHANGE 147)."""
+    for top, game in ((os.path.dirname(HERE), os.path.join("games", "fightlab")),
+                      (os.path.dirname(os.path.dirname(HERE)), "BeatEmUp")):
+        if os.path.exists(os.path.join(top, game, "fight_models.py")) and os.path.isdir(os.path.join(top, "engine")):
+            return os.path.join(top, game), top
+    return None, None
+
+
 def module(name):
     """kart_models or kart_scenery, loaded from Kart Lab's folder (kart_scenery imports kart_models and kart_track
-    from beside it); robot_models or arena_models from Robot Lab's (they import the engine's model_kit)."""
-    if name in ("robot_models", "arena_models"):
-        folder, top = lab_folder()
+    from beside it); robot_models or arena_models from Robot Lab's, fight_models or stage_models from Fight Lab's
+    (they import the engine's model_kit)."""
+    if name in ("robot_models", "arena_models", "fight_models", "stage_models"):
+        folder, top = lab_folder() if name in ("robot_models", "arena_models") else fight_folder()
         if folder is None:
-            raise SystemExit("robot_models.py isn't beside the web folder (shared-world-demo/ or games/robotlab/)")
+            raise SystemExit(f"{name}.py isn't beside the web folder (shared-world-demo/ or BeatEmUp/, games/robotlab/ "
+                             "or games/fightlab/)")
         for path in (top, folder):
             if path not in sys.path:
                 sys.path.insert(0, path)
@@ -139,8 +158,40 @@ def arena_text():
     return "\n".join(lines) + "\n"
 
 
+def fight_text():
+    """fight_ultra.json's text as fight_models.py makes it today (a line per role, piece and part)."""
+    m = module("fight_models").fighter()
+    one = lambda v: json.dumps(v, separators=(",", ":"))  # noqa: E731
+    lines = ["{" + f'"version": {json.dumps(m["version"])},', '"roles": {']
+    lines.append(",\n".join(f"{json.dumps(k)}: {one(v)}" for k, v in m["roles"].items()))
+    lines.append("},")
+    lines.append('"pieces": {')
+    lines.append(",\n".join(f"{json.dumps(k)}: [\n" + ",\n".join(one(p) for p in v) + "]" for k, v in m["pieces"].items()))
+    lines.append("},")
+    lines.append(f'"notes": {json.dumps(m["notes"], indent=1)}' + "}")
+    return "\n".join(lines) + "\n"
+
+
+def stage_text():
+    """stage_ultra.json's text as stage_models.py makes it today (a line per material, part and shape)."""
+    m = module("stage_models").stage()
+    one = lambda v: json.dumps(v, separators=(",", ":"))  # noqa: E731
+    lines = ["{" + f'"version": {json.dumps(m["version"])},', '"materials": {']
+    lines.append(",\n".join(f"{json.dumps(k)}: {one(v)}" for k, v in m["materials"].items()))
+    lines.append("},")
+    for key in ("ring", "groups", "shapes"):
+        lines.append(f'"{key}": {{')
+        lines.append(",\n".join(f"{json.dumps(k)}: [\n" + ",\n".join(one(p) for p in v) + "]" for k, v in m[key].items()))
+        lines.append("},")
+    lines.append('"instances": {')
+    lines.append(",\n".join(f"{json.dumps(k)}: {one(v)}" for k, v in m["instances"].items()))
+    lines.append("},")
+    lines.append(f'"notes": {json.dumps(m["notes"], indent=1)}' + "}")
+    return "\n".join(lines) + "\n"
+
+
 TEXT = {"kart_ultra.json": kart_text, "kart_scenery.json": scenery_text, "robot_ultra.json": robot_text,
-        "arena_ultra.json": arena_text}
+        "arena_ultra.json": arena_text, "fight_ultra.json": fight_text, "stage_ultra.json": stage_text}
 
 
 def check():
@@ -168,7 +219,7 @@ def build():
             f.write(text)
         if name == "kart_ultra.json":
             print(f"wrote models/{name} ({len(text) / 1e6:.2f} MB, {data['notes']['triangles']} triangles for the whole kart)")
-        elif name in ("robot_ultra.json", "arena_ultra.json"):
+        elif name in ("robot_ultra.json", "arena_ultra.json", "fight_ultra.json", "stage_ultra.json"):
             tris = data["notes"]["triangles"]
             print(f"wrote models/{name} ({len(text) / 1e6:.2f} MB, {len(tris)} pieces or groups, {sum(tris.values())} triangles)")
         else:

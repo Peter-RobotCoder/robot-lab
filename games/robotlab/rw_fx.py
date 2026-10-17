@@ -192,8 +192,8 @@ class Effects:
             node.lookAt(node.getPos() + s[1])
             f = s[2] / s[3]
             if self.look:
-                r, g, b = rw_gfx.line_look.colour()
-                node.setColor(r * (0.4 + 0.6 * f), g * (0.4 + 0.6 * f), b * (0.4 + 0.6 * f), 1)
+                r, gr, b = rw_gfx.line_look.colour()  # (not g: that is gravity, for the next spark: CHANGE 147)
+                node.setColor(r * (0.4 + 0.6 * f), gr * (0.4 + 0.6 * f), b * (0.4 + 0.6 * f), 1)
             else:
                 node.setColor(1.0, 0.55 + 0.4 * f, 0.15 + 0.5 * f * f, 1)
             node.setScale(1, 0.5 + f, 1)

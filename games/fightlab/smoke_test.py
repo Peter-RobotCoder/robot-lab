@@ -8,6 +8,7 @@
 4. a learner's brain loads in its sandbox and fights
 5. the showcase (beat_em_up.py) draws a frame, with the detailed 3D fighters (Penthesilea v Achilles)
 6. a real server with a learner window and a teacher window, logged in and drawing
+7. a learner's window draws at mesh, lines and ultra (CHANGE 147: Fight Lab draws all seven tiers)
 Test data goes to a temporary folder, never to the real profiles or evidence. Exit code 0 = all fine.
 """
 import os
@@ -142,6 +143,33 @@ def windows():
         server.kill()
 
 
+def tiers():
+    """A learner's window at mesh, lines and ultra: it logs in and draws, in the tier asked for (CHANGE 147)."""
+    import numpy as np
+    from PIL import Image
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = subprocess.Popen([PY, "fight_server.py", "--port", str(port)], cwd=HERE, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE, env=dict(os.environ, FIGHTLAB_DATA=TMP))
+    try:
+        time.sleep(4)
+        if server.poll() is not None:
+            raise RuntimeError("the server stopped: " + server.stderr.read().decode()[-400:])
+        for tier in ("mesh", "lines", "ultra"):
+            shot = os.path.join(TMP, f"learner_{tier}.png")
+            run([PY, "fight_client.py", "--host", f"ws://127.0.0.1:{port}", "--offscreen", "--after", "6",
+                 "--screenshot", shot, "--gfx", tier, "--name", "smoketest", "--password", "smoke123"], timeout=180)
+            if not os.path.exists(shot):
+                raise RuntimeError(f"the {tier} window didn't draw")
+            px = np.asarray(Image.open(shot).convert("RGB")).astype(int)
+            green = ((px[..., 1] > 120) & (px[..., 1] > px[..., 0] + 50)).mean()  # (the lines: phosphor green)
+            if tier != "ultra" and green < 0.01:
+                raise RuntimeError(f"no lines in the {tier} window ({green:.4f} of it green)")
+    finally:
+        server.kill()
+
+
 if __name__ == "__main__":
     check("Every file compiles", compile_all)
     check("Mods load and a test fight runs", mods)
@@ -149,6 +177,7 @@ if __name__ == "__main__":
     check("A learner's brain runs in its sandbox", brain_sandbox)
     check("Showcase draws", showcase)
     check("Learner and teacher windows log in and draw", windows)
+    check("A learner's window draws at mesh, lines and ultra", tiers)
     for name, ok, note in results:
         print(("PASS " if ok else "FAIL ") + name + ("" if ok else ":\n    " + note.replace("\n", "\n    ")))
     print("Screenshots and test data:", TMP)

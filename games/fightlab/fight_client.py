@@ -121,8 +121,8 @@ if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
 from engine import gfx_tiers  # noqa: E402
-args.gfx = gfx_tiers.nearest(args.gfx)  # (Kart Lab's mesh, lines and ultra, from the app's Graphics button: drawn as basic and high here)
-GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx)  # (auto: this computer's saved tier, else what its driver suggested)
+GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx, gfx_tiers.TIERS)  # (auto: this computer's saved tier, else what its
+# driver suggested; Fight Lab draws all seven tiers, mesh to ultra, as Kart Lab and Robot Lab do: CHANGE 147)
 loadPrcFileData("", hud.window_arg(args.window, x) + f"window-title {title}\n"  # (the size: CHANGE 126)
                     + gfx_tiers.prc_for(GFX))  # (texture size, mipmaps, multisamples: read as the window opens)
 if args.offscreen:
@@ -197,6 +197,8 @@ class Lab(hud.HudKit, ShowBase):
     reflections = tuple(fm.REFLECTIONS)
     user_mods = sim.USER_MODS
     STAGE_WORD = "STAGE"
+    GFX_TIERS = gfx_tiers.TIERS          # (CHANGE 147: the Settings tab's Graphics row and the class maximum's)
+    LINE_COLOURS = fight_gfx.LINE_COLOURS
     LIMITS_TITLE = "FIGHTER LIMITS"
     LIMITS_NOTE = "Size: 100 is the standard size; 80 to 120 is as far as a fighter can go."
 
@@ -213,7 +215,7 @@ class Lab(hud.HudKit, ShowBase):
         self.code_changed = False  # the design holds a value changed in the code (Mission 1: hack the code)
         self.code_hack = False  # the design holds a value changed in the code that this mission's garage hides
         gfx_tiers.detect(self, SETTINGS_DIR)  # (the window is open: what the driver says, for the next run's tier)
-        fight_gfx.init(self, GFX)
+        fight_gfx.init(self, GFX, line_colour=self.line_colour)
         self.gfx_tier = fight_gfx.tier()  # (the tier in use: lower than GFX when the driver couldn't run that one)
         self.fx = fight_fx.Effects(self.render, "low" if self.gfx_tier in ("basic", "low") else self.gfx_tier)
         self.snd = fight_sound.FightSounds(self, on=not args.offscreen)
@@ -1231,9 +1233,13 @@ class Lab(hud.HudKit, ShowBase):
             return
         self.gfx_max_seen = cap
         note = gfx_tiers.obey_class_max(SETTINGS_DIR, cap, getattr(self, "gfx_monitor", None),
-                                        getattr(self, "gfx_tier", None))
+                                        getattr(self, "gfx_tier", None), gfx_tiers.TIERS)
         if note:
             self.banner_note(note, 6)
+
+    def on_line_colour(self, colour):
+        """mesh and lines: the learner's line colour, at once (CHANGE 147; the HUD keeps it in their profile)."""
+        fight_gfx.set_line_colour(colour)
 
     def banner_note(self, text, secs=3, big=False):
         """Words over the ring for a few seconds. big: the size of a round's banner (a restart warning)."""

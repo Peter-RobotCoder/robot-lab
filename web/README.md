@@ -8,8 +8,8 @@ except play.
 
 What it does now:
 
-- logs in with the desk's teacher password (the one the app's Teacher screen takes), and stays connected to the
-  desk (logging in again by itself if the Wi-Fi drops; the password is kept only in the page's memory). No class
+- one login form (CHANGE 148): a learner's username, or `teacher` and the desk's teacher password (the app's), and
+  stays connected to the desk (logging in again by itself if the Wi-Fi drops; the password is kept only in the page's memory). No class
   codes (CHANGE 141): a learner logs in with their username and waits in THE LOBBY until the teacher adds them to a
   game (only a laptop test server's address, ?host=&code=, still takes a code, for the tests). The login card
   scrolls on a short screen;
@@ -33,8 +33,8 @@ What it does now:
     fighters built from their designs on the game's 13-joint skeleton and posed by its own pose code
     (`fight_gfx.py`'s stance, walks, attacks, blocks, falls, ported line for line), energy blasts, hits, each ring's
     banner and timer; the woman, the man and Robin with the app's own skinned models and Mixamo moves on the lit
-    tiers (`fightmodels.js`: `fight_model.py`'s clips, frames, blending, cartwheel and dressing, ported), the
-    primitive stand-in until a model is loaded and on blocks;
+    tiers and on mesh and lines (`fightmodels.js`: `fight_model.py`'s clips, frames, blending, cartwheel and
+    dressing, ported), the primitive stand-in until a model is loaded and on blocks;
 - each game's own controls (Kart Lab: race, track, laps, grand prix; Robot Lab: practice or battle, restart, time,
   computer robots (up to four, CHANGE 140: each the teacher's to set up in Learners, in every arena or one) and their brain, real damage, the drop zone, arenas and who is where (CHANGE 142: a row
   for every robot, the teacher's, each learner's and each computer robot's, its name renamed there and its arena;
@@ -67,14 +67,21 @@ What it does now:
 - cameras per game, and the app's graphics tiers (CHANGE 131, `base3d.js` and `pbr.js`), lit the way the app lights
   them: simplepbr's shader (the one every game's window draws with) ported to the browser, with each game's own
   lights, exposure and sky from its gfx module, and the app's own texture sets and skies (`tex/`):
-  - mesh (CHANGE 144, Kart Lab; CHANGE 145, Robot Lab): black, every triangle's edges in one line colour, the lines
-    behind hidden;
-  - lines (CHANGE 144, Kart Lab; CHANGE 145, Robot Lab): black, the outlines, folds and colour changes in the line
-    colour, a ground grid (Kart Lab's every 10 m on the grass, Robot Lab's every 2 m on the floor's plates, none over
-    the holes). Robot Lab's as its window's: each part that moves on its own has its own lines (the armour panels,
+  - mesh (CHANGE 144, Kart Lab; CHANGE 145, Robot Lab; CHANGE 147, Fight Lab): black, every triangle's edges in one
+    line colour, the lines behind hidden;
+  - lines (CHANGE 144, Kart Lab; CHANGE 145, Robot Lab; CHANGE 147, Fight Lab): black, the outlines, folds and colour
+    changes in the line colour, a ground grid (Kart Lab's every 10 m on the grass, Robot Lab's every 2 m on the
+    floor's plates, none over the holes, Fight Lab's every 1 m on each ring's canvas and every 2 m on the hall's
+    floor). Robot Lab's as its window's: each part that moves on its own has its own lines (the armour panels,
     the body, the beacon, the chain, the weapon, each wheel), the glowing parts' lines pulse as they glow, the cage's
     screens are their edges alone, the arena's name and the big screen's in the line colour, sparks in the line
-    colour, debris as edges, no smoke or fire, no names on the decks;
+    colour, debris as edges, no smoke or fire, no names on the decks. Fight Lab's as its window's: each joint of a
+    built fighter its own lines, and on lines its outline (the round limbs and head have few folds: their back faces
+    pushed out in the line colour, `base3d.js`'s `silhouette`); the woman, the man and Robin black with lines on a
+    copy of their skinned vertices, so they bend with every move (`skinnedLines`), and their outline; the ropes' and
+    an open edge's lines pulse as they glow, a fire jet a flame of lines, a blast a ball of lines, the names on the
+    canvas, the screens and the fighters' backs in the line colour, sparks and shock rings in the line colour, debris
+    as edges, no smoke, dust, fire or soft flash;
   - blocks: flat colours, nothing lit (the floor every machine can draw, and the fallback without WebGL 2);
   - low: the app's lighting and the textures' colours, no shadows or reflections;
   - medium: + the normal maps, the sky's reflections, a 1024 shadow map;
@@ -106,8 +113,20 @@ What it does now:
     ultra; until both have loaded (or if they don't) ultra draws high's robots and arena. No SSAO (5 ms more a frame
     here) and no reflection probe: ultra costs about what high does.
 
-  Each game draws its own tiers (Kart Lab and Robot Lab all seven, Fight Lab blocks to high); a tier it doesn't have
-  is drawn as its nearest (mesh and lines as blocks, ultra as high). Auto never steps into or out of mesh and lines. The line colour
+  - ultra (CHANGE 147, Fight Lab, `fightfx.js`): high's lights with a soft 4096 shadow, 16x anisotropy, a gentle
+    bloom and sharpening on a 4x MSAA picture, and the window's smooth fighters and hall (`models/fight_ultra.json`,
+    0.7 MB, and `models/stage_ultra.json`, 1.4 MB, from make_models.py: the window's `fight_models.py` and
+    `stage_models.py`): each built fighter's pieces placed as `fight_models.layout` places them on the joints the
+    poses move, a joint's pieces one mesh with a texel a role for roughness, metal and glow (13 meshes a fighter);
+    each ring for its size as `stage_models.ring_layout` places its pieces (the canvas, the padded platform with the
+    club's boards, the steps, the posts and ropes), the hall's floor and walkways, the stands with 1000 seats and 734
+    fans (thin instances), the screens, the rig, walls and roof (hidden by the ring and all rings views), in place of
+    high's platform, mat, posts, pads, ropes, floor, stands, crowd, screen boxes and truss (the markings, logo, open
+    edge, jets, spikes and ice as high's); the hall's far parts in a faint haze. The woman, the man and Robin as on
+    high. Fetched only on ultra; until both have loaded (or if they don't) ultra draws high's fighters and hall.
+
+  Each game draws its own tiers (all three all seven since CHANGE 147); a tier a game doesn't have would be drawn as
+  its nearest (mesh and lines as blocks, ultra as high). Auto never steps into or out of mesh and lines. The line colour
   (green, amber, cyan, white, magenta or any) is kept on the computer and in a learner's profile (`line_colour`).
 
   Each tier draws at most so many pixels (1.0 for mesh, lines and blocks, 1.1, 1.6, 2.4 and 3.7 million), however fine the screen: a 4K laptop
@@ -119,7 +138,7 @@ What it does now:
   second), never past the class maximum or one above the best tier this computer has run cleanly; a tier stepped
   down from is held off for 10 minutes, twice as long each time it fails again (up to a day). The page remembers
   the tier, Auto and what Auto learnt on that computer (first visit: medium, high on a graphics card). The Graphics
-  tab (a learner's Settings) has Auto and the four tiers (picking one turns Auto off, as the windows' Graphics: Low
+  tab (a learner's Settings) has Auto and the game's tiers (the seven since CHANGE 147, with the line colours; picking one turns Auto off, as the windows' Graphics: Low
   does), then every part of a tier to fine-tune (shadows off/512/1024/2048, normal maps, occlusion maps, the sky's
   reflections, anisotropic filtering, the pixels drawn, from 0.6 million to as fine as the screen; picking a tier
   sets them all back to its own), the canvas's multisampling (read as the page opens) and the frame rate box; and
@@ -165,7 +184,7 @@ escapes; code nested more than about 1,500 deep).
 | `kart.js`, `scene.js`, `track.js`, `wire.js` | Kart Lab: its messages and controls, the track and karts, the track maths, the binary snapshots |
 | `kartfx.js`, `models/`, `make_models.py` | Kart Lab's ultra tier (CHANGE 144): the sky, the after-effects, skid marks, sparks, and the curved kart and the circuit the window draws (`kart/kart_models.py` and `kart/kart_scenery.py`, pure Python, written to `models/` by `make_models.py`: run it after either changes; the test checks it) |
 | `robot.js`, `robotfx.js` | Robot Lab: the arena, the robots, its controls; its effects, cameras and ultra tier (CHANGE 145: the window's robots and arena from `models/robot_ultra.json` and `arena_ultra.json`, written by `make_models.py` from the window's `robot_models.py` and `arena_models.py`) |
-| `fight.js` | Fight Lab: the rings, the fighters and their poses, its controls |
+| `fight.js`, `fightfx.js` | Fight Lab: the rings, the fighters and their poses, its controls; its effects, cameras and ultra tier (CHANGE 147: the window's fighters and hall from `models/fight_ultra.json` and `stage_ultra.json`, written by `make_models.py` from the window's `fight_models.py` and `stage_models.py`) |
 | `fightmodels.js` | Fight Lab's detailed fighters (woman, man, Robin): the app's glTF models, fetched once per body and shape when one appears (from `models/fightlab/`: Caddy serves the release's `games/fightlab/models` there), posed and dressed as `fight_model.py` does it |
 | `base3d.js` | what every scene shares: the engine, tiers and their pixel budgets, materials, labels, coordinate rules, texture coordinates in metres, merging what never moves |
 | `pbr.js` | the app's lighting: simplepbr's shader as a Babylon ShaderMaterial, the key light's shadow, the sky's reflections, the tone curve |
@@ -211,6 +230,6 @@ the teacher's own garage (a weapon chosen); computer robot 2 renamed and put in 
 snapshot has it there alone); the Controls tab's Arenas rows (computer robot 2, amy's robot and the teacher's renamed
 and put in an arena, a name amy changes showing in her row, Save settings keeping who is where); Restart server and
 the page reconnecting. Fight Lab: the rings and posed
-fighters on its four tiers (lines drawn as blocks, ultra as high, the Graphics tab showing four), the detailed model, its controls, the teacher's own garage (the woman's look). lessons.json, schemas.json,
+fighters on blocks to high (ultra's models never fetched there, the Graphics tab showing seven), the detailed model, its controls, the teacher's own garage (the woman's look); its line tiers (CHANGE 147: black, the rings', the hall's, the ropes' or open edge's and every fighter's lines, each joint's own, the detailed model's on its skin, the outlines and grids on lines only, the line colour at once); ultra (the window's fighters and hall from `models/fight_ultra.json` and `stage_ultra.json`, fetched then and not before: parts, rings, thin instances, no shadow from the flat or far, the haze on far parts alone, 13 meshes a fighter, soft 4096 shadows, the glow, no SSAO). lessons.json, schemas.json,
 tex/ and sfx/ up to date; `schema_test.py` passing. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
 or Edge.
