@@ -548,12 +548,17 @@ def main():
                     g.message = take; g.race = r0; await new Promise(r => setTimeout(r, 300)); const out = em();
                     return {cells: cells.length, seen: cells.filter(m => m.layerMask !== 0).length, castCells: cells.filter(m => rtt.renderList.includes(m)).length,
                             inShadow, gbuffer: !!sc.fx.gbuffer,
+                            // (CHANGE 155) no mesh of the circuit shares its geometry (a copy sharing the original's put its
+                            // cell's thin instances in place of the original's: every tyre wall but one cell's gone)
+                            shared: c.meshes.filter(m => m.geometry && m.geometry.meshes.length > 1).map(m => m.name).slice(0, 5),
+                            drawn: c.meshes.filter(m => m.hasThinInstances && !m.ccCell).reduce((n, m) => n + m.thinInstanceCount, 0),
                             wholeCasting: c.meshes.filter(m => m.hasThinInstances && !m.ccCell && rtt.renderList.includes(m)).length,
                             lamps: c.lamps.length, lit, out, water: !!w && w.mesh.material.name.includes('water'),
                             moved: !!w && w.mesh.getVerticesData('uv')[0] !== uv0, lights: !!c.lights,
                             clubPond: await import('./kartfx.js').then(fx => { const d = fx.sceneryData(), m = d.materials.water;
                                 return d.tracks.club.parts.some(p => p.material === 'water') && m.texture === 'water' && !!m.flows; })}; })()""")
                 print(f"    ultra circuit by cell: {got['cells']} copies, {got['castCells']} casting, {got['inShadow']} in the shadow's box now")
+                assert not got["shared"], f"circuit meshes sharing a geometry: {got['shared']}"
                 assert got["cells"] >= 50 and got["seen"] == 0 and got["castCells"] >= 20 and got["wholeCasting"] == 0, got
                 assert 0 < got["inShadow"] < got["castCells"] and not got["gbuffer"], got
                 assert got["lamps"] == 5 and got["lit"] == "11100" and got["out"] == "00000", got

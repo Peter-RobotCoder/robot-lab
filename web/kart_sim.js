@@ -195,10 +195,41 @@ export function fullState(e, track) {
     return {...e, seg: at.seg, s: at.s, lat: at.lateral};
 }
 
-// the window's step for its own kart (kart_client.step_fn): step, then round to the wire as the server does
-export function makeStep(track, stats) {
+// two karts closer than reach pushed apart, the faster slowed a little to the slower (one pair of
+// kart_sim.Race.contacts): changes both; true when they touched
+export function bump(a, b, reach = BUMP_DISTANCE, slow = 0.3) {
+    const dx = b.x - a.x, dy = b.y - a.y, d = hypot(dx, dy);
+    if (d >= reach || d < 1e-6) return false;
+    const push = (reach - d) / 2, nx = dx / d, ny = dy / d;
+    a.x -= nx * push;
+    a.y -= ny * push;
+    b.x += nx * push;
+    b.y += ny * push;
+    const av = a.v, bv = b.v;
+    a.v = av * 0.97 - slow * Math.min(1.0, Math.max(0.0, av - bv));
+    b.v = bv * 0.97 - slow * Math.min(1.0, Math.max(0.0, bv - av));
+    return true;
+}
+
+// another kart carried on one tick as it was going (the prediction can't know its keys)
+export function coast(k, dt) {
+    const yr = radians(k.yaw), fx = Math.cos(yr), fy = Math.sin(yr), u = k.u || 0;
+    k.x += (fx * k.v - fy * u) * dt;
+    k.y += (fy * k.v + fx * u) * dt;
+}
+
+// the window's step for its own kart (kart_client.step_fn): step, then round to the wire as the server does.
+// world (CHANGE 155): {others, reach, slow}, the other karts as the last snapshot had them, carried on a tick each
+// step and bumped as the server bumps them, so your kart against another isn't put right every tick
+export function makeStep(track, stats, world = null) {
     return (state, inp, dt) => {
         const n = step(state, inp, dt, track, stats);
+        if (world) {
+            for (const o of world.others) {
+                coast(o, dt);
+                bump(n, o, world.reach, world.slow);
+            }
+        }
         return Object.assign(n, quantise(n));
     };
 }

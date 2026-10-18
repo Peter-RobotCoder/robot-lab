@@ -275,6 +275,33 @@ def compare(a, b):
 
 
 # ---------- the race (server side) ----------
+
+def bump(a, b, reach=BUMP_DISTANCE, slow=0.3):
+    """Two karts closer than reach pushed apart, a bounded nudge with no spin, and the faster one losing a little
+    speed to the slower (bounded, so nobody is sent flying): one pair of Race.contacts, and what the windows' and the
+    pages' prediction does against the other karts (CHANGE 155). Changes both; True when they touched."""
+    dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+    d = math.hypot(dx, dy)
+    if d >= reach or d < 1e-6:
+        return False
+    push = (reach - d) / 2
+    nx, ny = dx / d, dy / d
+    a["x"] -= nx * push
+    a["y"] -= ny * push
+    b["x"] += nx * push
+    b["y"] += ny * push
+    a["v"], b["v"] = a["v"] * 0.97 - slow * min(1.0, max(0.0, a["v"] - b["v"])), \
+        b["v"] * 0.97 - slow * min(1.0, max(0.0, b["v"] - a["v"]))
+    return True
+
+
+def coast(k, dt):
+    """Another kart carried on one tick as it was going (a prediction can't know its keys): CHANGE 155."""
+    yr = math.radians(k["yaw"])
+    fx, fy, u = math.cos(yr), math.sin(yr), k.get("u", 0.0)
+    k["x"] += (fx * k["v"] - fy * u) * dt
+    k["y"] += (fy * k["v"] + fx * u) * dt
+
 class Race:
     """Every kart on one track, the countdown, gates, laps, places and bumps between karts."""
 
@@ -382,20 +409,8 @@ class Race:
             a = self.karts[ids[i]]
             for j in range(i + 1, len(ids)):
                 b = self.karts[ids[j]]
-                dx, dy = b["x"] - a["x"], b["y"] - a["y"]
-                d = math.hypot(dx, dy)
-                reach, slow = RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3)
-                if d >= reach or d < 1e-6:
+                if not bump(a, b, RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3)):
                     continue
-                push = (reach - d) / 2
-                nx, ny = dx / d, dy / d
-                a["x"] -= nx * push
-                a["y"] -= ny * push
-                b["x"] += nx * push
-                b["y"] += ny * push
-                # the faster one loses a little speed to the slower (bounded, so nobody is sent flying)
-                a["v"], b["v"] = a["v"] * 0.97 - slow * min(1.0, max(0.0, a["v"] - b["v"])), \
-                    b["v"] * 0.97 - slow * min(1.0, max(0.0, b["v"] - a["v"]))
                 self.bumps.append((self.tick, ids[i], ids[j]))
                 self.hits[ids[i]] = self.hits.get(ids[i], 0) + 1
                 self.hits[ids[j]] = self.hits.get(ids[j], 0) + 1

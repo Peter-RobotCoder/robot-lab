@@ -5,7 +5,7 @@ import {KART_FIELDS, KIND_SNAPSHOT, kindOf, unpackSnapshot} from "./wire.js";
 import {Track, TRACKS} from "./track.js";
 import {KartScene} from "./scene.js";
 import {KartHud} from "./hud.js";
-import {STEP, FLAGS_RACE, FLAG_FINISHED, statsOf, fullState, makeStep, compare} from "./kart_sim.js";
+import {STEP, FLAGS_RACE, FLAG_FINISHED, BUMP_DISTANCE, statsOf, fullState, makeStep, compare, coast} from "./kart_sim.js";
 import {Predictor, InputLog, ErrorSmoother, LeadController, quantiseInput, packInput} from "./predict.js";
 import {Sound} from "./sound.js";
 
@@ -42,6 +42,17 @@ export class KartGame {
         this.drawFrom = null;   // the predicted state before the newest tick: the kart is drawn between it and the
                                 // newest, as far as the time since that tick (CHANGE 155)
         this.predStats = null;  // the stats the prediction steps with (a new design or track: predicted afresh)
+        // (CHANGE 155) the other karts as the prediction sees them: from each snapshot, carried on a tick a step, so
+        // a bump against one is predicted as the server makes it (bump_distance and bump_slowdown: the rules')
+        this.world = {others: [], reach: BUMP_DISTANCE, slow: 0.3};
+    }
+
+    // the other karts in a snapshot, as copies the prediction may move
+    setOthers(snap, id) {
+        const R = this.app.state.rules || {}, b = R.bump || {};
+        this.world.reach = Number.isFinite(b.distance) ? b.distance : BUMP_DISTANCE;
+        this.world.slow = Number.isFinite(b.slowdown) ? b.slowdown : 0.3;
+        this.world.others = snap.entities.filter(e => e.id !== id).map(e => ({x: e.x, y: e.y, yaw: e.yaw, v: e.v, u: e.u || 0}));
     }
 
     welcome(m) {
@@ -209,15 +220,21 @@ export class KartGame {
         if (!this.predictor) {  // (its numbering carries on from ours: the server ignores a number going back)
             const stats = this.myStats(id);
             this.predStats = JSON.stringify(stats);
-            this.predictor = new Predictor(makeStep(this.track, stats), state, 0.05, new InputLog(this.nextSeq));
+            this.setOthers(snap, id);
+            this.predictor = new Predictor(makeStep(this.track, stats, this.world), state, 0.05, new InputLog(this.nextSeq));
             this.drawFrom = state;
             this.smoother.clear();
             this.accum = 0;
             return;
         }
         if (snap.ack === 0) return;  // (the server hasn't applied an input of ours yet)
+        // (the others as they were at the acknowledged tick: a replay carries them on from there; with nothing to
+        // replay they are carried on to now, as far as our inputs the server hasn't had)
+        const ahead = this.predictor.log.since(snap.ack).length;
+        this.setOthers(snap, id);
         const err = this.predictor.correct(state, snap.ack, STEP, compare);
         const moved = this.predictor.movedFrom;
+        if (!moved) for (let i = 0; i < ahead; i++) for (const o of this.world.others) coast(o, STEP);
         if (moved) {
             const n = this.predictor.state;
             const dyaw = ((((moved.yaw - n.yaw + 180) % 360) + 360) % 360 - 180) * Math.PI / 180;

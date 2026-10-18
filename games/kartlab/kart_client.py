@@ -420,6 +420,7 @@ class Lab(hud.HudKit, ShowBase):
         self.local = None
         self.predictor = None
         self.draw_from = None  # the predicted state before the newest tick: drawn between the two (CHANGE 155)
+        self.others = []  # the other karts as the prediction sees them (set_others)
         self.smoother = predict.ErrorSmoother(remove_up=True)
         self.lead = predict.LeadController()
         self.snaps = interp.Snapshots(SNAP_SPEC)
@@ -2520,6 +2521,7 @@ class Lab(hud.HudKit, ShowBase):
             return
         state = self.full_state(me)
         if self.predictor is None:  # (its numbering carries on from ours: the server ignores a number going back)
+            self.set_others(snap)
             self.predictor = predict.Predictor(self.step_fn(), state, ignore=0.05,
                                                log=predict.InputLog(first_seq=self.next_seq))
             self.draw_from = state
@@ -2528,8 +2530,15 @@ class Lab(hud.HudKit, ShowBase):
             return
         if snap["ack"] == 0:
             return  # (the server hasn't applied any input of ours yet: nothing to compare with)
+        # (the others as at the acknowledged tick: a replay carries them on; with none, carried on to now)
+        ahead = len(self.predictor.log.since(snap["ack"]))
+        self.set_others(snap)
         err = self.predictor.correct(state, snap["ack"], sim.STEP, sim.compare)
         moved = self.predictor.moved_from
+        if moved is None:
+            for _ in range(ahead):
+                for o in self.others:
+                    sim.coast(o, sim.STEP)
         if moved is not None:  # (the state before the newest tick moves with the correction: the picture between them holds)
             new, f = self.predictor.state, self.draw_from
             self.draw_from = new if err == math.inf or f is None else dict(
@@ -2552,13 +2561,24 @@ class Lab(hud.HudKit, ShowBase):
         return dict(e, seg=seg, s=s, lat=lat)
 
     def step_fn(self):
-        track, st = self.track, sim.stats_of(self.design)
+        track, st, others = self.track, sim.stats_of(self.design), self.others
+        reach = self.rules.get("bump", {}).get("distance", sim.BUMP_DISTANCE)
+        slow = self.rules.get("bump", {}).get("slowdown", 0.3)
 
         def step(state, inp, dt):
             n = sim.step(state, inp, dt, track, st)
+            for o in others:  # (CHANGE 155: the other karts carried on a tick, and bumped as the race bumps them)
+                sim.coast(o, dt)
+                sim.bump(n, o, reach, slow)
             n.update(SCHEMA.quantise(n))  # (as the server does: the same numbers next tick)
             return n
         return step
+
+    def set_others(self, snap):
+        """(CHANGE 155) The other karts in a snapshot, as copies the prediction moves (in place: step_fn holds the
+        list), so our kart against another isn't put right every tick."""
+        self.others[:] = [{"x": e["x"], "y": e["y"], "yaw": e["yaw"], "v": e["v"], "u": e.get("u", 0.0)}
+                          for e in snap["entities"] if e["id"] != self.my_id]
 
     def read_keys(self):
         """The arrows or WASD, Shift and R, as the input the simulation wants. While you type in a text box (or the

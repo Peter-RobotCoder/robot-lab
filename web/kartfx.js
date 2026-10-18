@@ -588,9 +588,13 @@ export function makeCircuit(sc, data, key) {
             // every frame, however far off
             const ao = mesh.ccAO && !!(sc.fx && sc.fx.gbuffer);  // (no copies for a geometry buffer there isn't)
             if (!CIRCUIT_CULL.cells || (!mesh.ccCast && !ao) || mesh.ccFar) continue;
+            // (CHANGE 155) each copy its own geometry: Babylon keeps a mesh's thin instances on its geometry, so copies
+            // sharing the original's each put their own cell's in its place, and the camera drew only the last cell's
+            // tyres, trees and posts of every shape (the tyre walls behind the gravel traps gone)
+            const shared = BABYLON.VertexData.ExtractFromMesh(mesh);
             for (const [k, list] of cells) {
                 const copy = new BABYLON.Mesh(`${mesh.name} @${k}`, scene), m = new Float32Array(list.length * 16);
-                mesh.geometry.applyToMesh(copy);
+                shared.applyToMesh(copy);
                 list.forEach((i, j) => m.set(M.subarray(i * 16, i * 16 + 16), j * 16));
                 copy.material = mesh.material;
                 copy.thinInstanceSetBuffer("matrix", m, 16, true);

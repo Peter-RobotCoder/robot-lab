@@ -406,7 +406,10 @@ class KartServer:
                 "stat_max": sim.STAT_MAX, "settings": sim.SETTINGS, "stat_notes": sim.STAT_NOTES,
                 "full": sim.full_limits(),  # the widest ranges: the teacher's own kart, and the Limits tab's sliders
                 "cpu_levels": list(cpu_brains.LEVELS), "tracks": {k: v["name"] for k, v in kart_track.TRACKS.items()},
-                "max_karts": MAX_KARTS}
+                "max_karts": MAX_KARTS,
+                # (CHANGE 155) the page predicts its kart's bumps as the race makes them (mods/rules.py may change them)
+                "bump": {"distance": sim.RULES.get("bump_distance", sim.BUMP_DISTANCE),
+                         "slowdown": sim.RULES.get("bump_slowdown", 0.3)}}
 
     def limits_for(self, player):
         """The ranges a design is held to: the learners' (as the teacher has set them), or the widest ones for the

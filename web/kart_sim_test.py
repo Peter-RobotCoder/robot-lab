@@ -180,6 +180,22 @@ def make_packs(rng):
     return cases
 
 
+def make_bumps(rng):  # (CHANGE 155) two karts touching or nearly, bumped and carried on a tick, as the prediction does
+    cases = []
+    for i in range(2000):
+        def kart():
+            return {"x": rng.uniform(-3, 3), "y": rng.uniform(-3, 3), "yaw": rng.uniform(-180, 180),
+                    "v": rng.uniform(-6, 30), "u": rng.uniform(-3, 3)}
+        a, b = kart(), kart()
+        reach, slow = rng.choice(((kart_sim.BUMP_DISTANCE, 0.3), (2.5, 0.6)))
+        case = {"a": dict(a), "b": dict(b), "reach": reach, "slow": slow}
+        touched = kart_sim.bump(a, b, reach, slow)
+        kart_sim.coast(b, kart_sim.STEP)
+        case["out"] = [a, b, touched]
+        cases.append(case)
+    return cases
+
+
 # ---------- the prediction (Python) ----------
 def make_predicts(rng, track):
     race = kart_sim.Race(track, SCHEMA)
@@ -269,7 +285,7 @@ import {Predictor, InputLog, ErrorSmoother, LeadController, packInput, quantiseI
 import {radians, pyMod} from "./pymath.js";
 
 const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-const out = {tracks: {}, drives: [], packs: [], predicts: []};
+const out = {tracks: {}, drives: [], packs: [], predicts: [], bumps: []};
 const tracks = {};
 for (const name of Object.keys(TRACKS)) {
     const t = tracks[name] = new Track(TRACKS[name]);
@@ -309,6 +325,13 @@ for (const c of job.packs) {
     const [seq, snap, ms, th, sr, bt] = c.args;
     const hex = Buffer.from(packInput(seq, snap, ms, th, sr, bt, c.prev)).toString("hex");
     out.packs.push({hex, q: quantiseInput(th, sr, bt)});
+}
+
+for (const c of job.bumps) {  // (CHANGE 155)
+    const a = {...c.a}, b = {...c.b};
+    const touched = sim.bump(a, b, c.reach, c.slow);
+    sim.coast(b, sim.STEP);
+    out.bumps.push([a, b, touched]);
 }
 
 // the prediction, as kart_client.on_snapshot and client_tick use it
@@ -368,6 +391,7 @@ def main():
     drives, raws, cover = make_drives(rng, tracks)
     packs = make_packs(rng)
     predicts = make_predicts(rng, tracks["club"])
+    bumps = make_bumps(random.Random(SEED + 1))
     py_time = time.perf_counter() - t0
 
     tmp = tempfile.mkdtemp(prefix="kart_sim_test_")
@@ -379,7 +403,7 @@ def main():
         with open(os.path.join(tmp, "runner.js"), "w", encoding="utf-8") as f:
             f.write(RUNNER)
         job = {"drives": [{k: v for k, v in d.items() if not k.startswith("_")} for d in drives],
-               "packs": packs, "predicts": predicts}
+               "packs": packs, "predicts": predicts, "bumps": bumps}
         with open(os.path.join(tmp, "job.json"), "w") as f:
             json.dump(job, f)
         t1 = time.perf_counter()
@@ -473,6 +497,17 @@ def main():
                                for i in wrong[:3]))
     wrong = [i for i, (c, js) in enumerate(zip(packs, out["packs"])) if c["q"] != js["q"]]
     check("quantiseInput is quantise_input", not wrong, str([packs[i]["args"] for i in wrong[:3]]))
+
+    # (CHANGE 155) the bump between two karts and another kart carried on: the bump to the last bit, the carrying on
+    # (cos and sin: the system's) to a nanometre
+    def far(c, js):
+        (pa, pb, pt), (ja, jb, jt) = c["out"], js
+        return (pt != jt or any(pa[k] != ja[k] for k in pa) or any(pb[k] != jb[k] for k in ("v", "yaw"))
+                or any(abs(pb[k] - jb[k]) > 1e-9 for k in ("x", "y")))
+    wrong = [i for i, (c, js) in enumerate(zip(bumps, out["bumps"])) if far(c, js)]
+    touched = sum(1 for c in bumps if c["out"][2])
+    check(f"bump and coast are kart_sim's ({len(bumps)} pairs, {touched} touching)", not wrong and 300 < touched,
+          str([(bumps[i]["out"], out["bumps"][i]) for i in wrong[:2]]))
 
     # the prediction
     errs_same, corr, final_ok, offs_ok, mult_ok, worst_off, exact = True, 0, True, True, True, 0.0, 0
