@@ -41,7 +41,7 @@ import kart_track  # noqa: E402
 from engine import predict, wire  # noqa: E402
 
 SCHEMA = wire.Schema("kart", kart_sim.SCHEMA_FIELDS)
-JS_FILES = ["pymath.js", "track.js", "kart_sim.js", "predict.js"]
+JS_FILES = ["pymath.js", "track.js", "kart_sim.js", "predict.js", "wire.js"]
 RUNS = {"club": 2000, "oval": 600, "straight": 400}
 TICKS = 600
 RAW_RUNS = 300            # runs whose numbers before the rounding are compared too
@@ -95,6 +95,13 @@ def random_start(rng, track):
         k["slip"] = rng.choice((0, 0, rng.randint(1, 75)))
         k["charge"] = rng.choice((0, rng.randint(0, 700)))
         k["flags"] |= rng.choice((0, kart_sim.FLAG_DRIFT_L, kart_sim.FLAG_DRIFT_R))
+    if rng.random() < 0.12 and track.pit:  # (CHANGE 158) some start slowly in the PIT box...
+        s0, s1, side = track.pit
+        kart_sim.place(track, k, rng.uniform(s0, s1 - 4), side * (track.half - 1.6))
+        k["v"] = rng.uniform(0, 6)
+    if rng.random() < 0.4:  # ...and some damaged
+        for part in kart_sim.DAMAGE_PARTS:
+            k[part] = rng.choice((0, rng.randint(0, kart_sim.DAMAGE_MAX)))
     k.update(SCHEMA.quantise(k))
     return design, k
 
@@ -108,7 +115,7 @@ def server_tick(race, k, inp, st):
         k = dict(k)
         race.respawn(k)
         inp = (0.0, 0.0, 0)
-    n = kart_sim.step(k, inp, kart_sim.STEP, race.track, st)
+    n = kart_sim.step(k, inp, kart_sim.STEP, race.track, st, True)  # (real damage on: CHANGE 158)
     raw = [n["x"], n["y"], n["yaw"], n["v"], n["u"], n["s"], n["lat"]]
     n.update(SCHEMA.quantise(n))
     return n, raw
@@ -117,7 +124,7 @@ def server_tick(race, k, inp, st):
 def make_drives(rng, tracks):
     drives, raws, cover = [], {}, dict.fromkeys(
         ("drift boost (super)", "drift boost (mini)", "dash pad", "oil", "barrier", "respawn", "reversing",
-         "boosting", "drifting", "wrong-way flag"), 0)
+         "boosting", "drifting", "wrong-way flag", "damaged", "mended in the PIT box"), 0)
     for name, count in RUNS.items():
         track = tracks[name]
         race = kart_sim.Race(track, SCHEMA)
@@ -153,6 +160,8 @@ def make_drives(rng, tracks):
                 cover["boosting"] += bool(k["flags"] & kart_sim.FLAG_BOOSTING)
                 cover["drifting"] += bool(k["flags"] & (kart_sim.FLAG_DRIFT_L | kart_sim.FLAG_DRIFT_R))
                 cover["wrong-way flag"] += bool(k["flags"] & kart_sim.FLAG_WRONG_WAY)
+                cover["damaged"] += any(k[p] > was.get(p, 0) for p in kart_sim.DAMAGE_PARTS)  # (CHANGE 158)
+                cover["mended in the PIT box"] += any(was.get(p, 0) - k[p] == kart_sim.REPAIR_PIT for p in kart_sim.DAMAGE_PARTS)
             if raw:
                 raws[len(drives)] = raw
             drives.append({"track": name, "design": design, "start": start, "inputs": inputs,
@@ -286,6 +295,11 @@ import {radians, pyMod} from "./pymath.js";
 
 const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const out = {tracks: {}, drives: [], packs: [], predicts: [], bumps: []};
+{  // (CHANGE 158) the record the page reads snapshots with (wire.js), and kart_sim.js's
+    const w = await import("./wire.js");
+    out.kartFields = w.KART_FIELDS;
+    out.simFields = sim.SCHEMA_FIELDS;
+}
 const tracks = {};
 for (const name of Object.keys(TRACKS)) {
     const t = tracks[name] = new Track(TRACKS[name]);
@@ -305,7 +319,7 @@ for (const d of job.drives) {
             k = sim.respawn(k, track);
             inp = [0.0, 0.0, 0];
         }
-        const n = sim.step(k, inp, sim.STEP, track, st);
+        const n = sim.step(k, inp, sim.STEP, track, st, true);  // (real damage on: CHANGE 158)
         steps++;
         if (d.raw) raw.push([n.x, n.y, n.yaw, n.v, n.u, n.s, n.lat]);
         Object.assign(n, sim.quantise(n));
@@ -463,7 +477,7 @@ def main():
           len(flips) <= seg_ticks * 1e-4 and worst_s < 1e-9 and worst_lat < 0.01 and
           all("(neighbours)" in f for f in flips), "; ".join(flips[:3]))
     print("  what the drives did (ticks):", ", ".join(f"{k} {v}" for k, v in cover.items()))
-    check("the drives covered drift turbos, dash pads, oil, barriers, respawns, reversing and the wrong way",
+    check("the drives covered drift turbos, dash pads, oil, barriers, respawns, reversing, the wrong way, damage and the PIT box",
           all(cover.values()), str(cover))
 
     # before the rounding: how far apart, and the closest any value came to rounding differently
@@ -489,6 +503,12 @@ def main():
           f"the largest difference was {max(worst[:5]):.1e}")
     check(f"before the rounding the two never differ by more than {max(worst):.0e} (a nanometre at most allowed)",
           max(worst) < 1e-9, str(worst))
+
+    # (CHANGE 158) the page reads the server's snapshots with wire.js's KART_FIELDS: it must be the record field for
+    # field (a field added to one and not the other reads every kart wrongly: positions thousands of km off)
+    want = [list(f) for f in kart_sim.SCHEMA_FIELDS]
+    check("wire.js's KART_FIELDS and kart_sim.js's SCHEMA_FIELDS are kart_sim.SCHEMA_FIELDS, field for field",
+          out["kartFields"] == want and out["simFields"] == want, f"{out['kartFields']} / {out['simFields']}")
 
     # the input frames
     wrong = [i for i, (c, js) in enumerate(zip(packs, out["packs"])) if c["hex"] != js["hex"]]

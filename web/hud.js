@@ -99,6 +99,16 @@ function ordinal(n) {
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+// (CHANGE 158) the damage panel's parts in a 70 x 90 box, nose up: front wing, front left, front right, rear left,
+// rear right, engine (the wire's order: kart_gfx.DAMAGE_BOXES); a part's colour, green through yellow to red
+const DAMAGE_PARTS = ["dw", "dfl", "dfr", "drl", "drr", "de"], DAMAGE_MAX = 10000;
+const DAMAGE_BOXES = [[10, 0, 50, 7], [2, 14, 13, 18], [55, 14, 13, 18], [2, 58, 13, 20], [55, 58, 13, 20], [27, 56, 16, 20]];
+function damageColour(d) {
+    const k = d < 0.5 ? d / 0.5 : (d - 0.5) / 0.5;
+    const [r, g, b] = d < 0.5 ? [0.3 + 0.7 * k, 0.85, 0.35 - 0.15 * k] : [1.0, 0.85 - 0.6 * k, 0.2];
+    return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+}
+
 export class KartHud {
     constructor() {
         this.mapKey = "";
@@ -138,7 +148,8 @@ export class KartHud {
     }
 
     // me: our kart's state (interpolated or predicted), states: every kart, race: the race message, track
-    update(me, states, race, track, myId, colours) {
+    // damageOn (CHANGE 158): the lesson's real damage, the panel shown; inPit: in the PIT box being mended
+    update(me, states, race, track, myId, colours, damageOn = false, inPit = false) {
         const el = box();
         if (!me || !race) { el.innerHTML = ""; this.built = false; return; }  // (emptied: built again when there's a kart)
         el.className = "hud karthud";
@@ -160,6 +171,16 @@ export class KartHud {
         const note = performance.now() < this.noteUntil ? this.noteText : "";
         if ($("kh-note").textContent !== note) $("kh-note").textContent = note;
         this.drawMap(states, myId, colours);
+        // (CHANGE 158) the damage panel: your kart from above, each part green to red; PIT: REPAIRING while mended
+        const panel = $("kh-dmg");
+        if (panel) {
+            panel.style.display = damageOn ? "" : "none";
+            if (damageOn) DAMAGE_PARTS.forEach((p, i) => {
+                const b = $("kh-d" + i), col = damageColour(Math.min(1, Math.max(0, (me[p] || 0) / DAMAGE_MAX)));
+                if (b && b.style.background !== col) b.style.background = col;
+            });
+            $("kh-pit").style.display = damageOn && inPit ? "block" : "none";
+        }
     }
 
     build(el, track) {
@@ -169,7 +190,10 @@ export class KartHud {
           <div class="kbottom"><div class="kdrift"><span id="kh-dlabel">DRIFT</span><div class="kmeter"><b id="kh-drift"></b>
             <i style="left:${MINI_TURBO / CHARGE_MAX * 100}%"></i></div></div>
             <div id="kh-speed"></div></div>
-          <canvas id="kh-map" width="220" height="220"></canvas>`;
+          <canvas id="kh-map" width="220" height="220"></canvas>
+          <div id="kh-dmg"><span>DAMAGE</span><div class="kshape"><i class="kbody"></i>${DAMAGE_BOXES.map((b, i) =>
+              `<b id="kh-d${i}" style="left:${b[0]}px;top:${b[1]}px;width:${b[2]}px;height:${b[3]}px"></b>`).join("")}</div></div>
+          <div id="kh-pit">PIT: REPAIRING</div>`;
         this.track = track;
         this.mapKey = track.name;
         this.built = true;

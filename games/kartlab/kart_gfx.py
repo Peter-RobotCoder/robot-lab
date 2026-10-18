@@ -665,6 +665,15 @@ class TrackVisual:
                 pts.append(Vec3(p[0], p[1], p[2] + 0.018))
             oil.poly(pts, Vec3(0, 0, 1))
         part(static, oil, None, (0.16, 0.15, 0.2), rough=0.3, metal=0.4)
+        # (CHANGE 158) the PIT box: a yellow outline and PIT on the road (kart_track.pit_marks)
+        pit = Mesh()
+        for corners in track.pit_marks():
+            q = []
+            for ps_, plat in corners:
+                pt = track.point(ps_, plat)
+                q.append(Vec3(pt[0], pt[1], pt[2] + 0.022))
+            quad(pit, q, [(0, 0), (1, 0), (1, 1), (0, 1)])
+        part(static, pit, None, (1.0, 0.8, 0.08), rough=0.7, metal=0.0)
 
         self.lamp_mats, self.lit, self.water, self.water_stages = [], -1, None, []
         if ultra:  # the circuit of kart_scenery.py, as the page draws it (models/kart_scenery.json), and the sky
@@ -1178,7 +1187,7 @@ def ultra_model():
     if "ultra_model" not in _state:
         model = kart_models.kart()
         out = {"notes": model["notes"]}
-        for key in ("body", "wheel", "steering", "head"):
+        for key in ("body", "wheel", "steering", "head", "nose"):
             roles = {}
             for p in model[key]:
                 roles.setdefault(p["role"], []).append(p)
@@ -1230,6 +1239,8 @@ class KartVisual:
         self.arms, self.head = [], None  # ultra: each arm about its shoulder, the head about the neck (CHANGE 157)
         self.box_wheel = None            # the other tiers: the steering wheel, turned about its own axis (CHANGE 157)
         self.steer_now = 0.0             # the steering as drawn: eased towards the driver's
+        self.nose = None                 # (CHANGE 158) the fairing (ultra) or front bumper, hinged at its left end
+        self.smoke_timer = 0.0           # ...and the damaged engine's smoke
         self.skid_last = [None, None]    # ultra: where each rear tyre's skid mark last ended
         if tier() == "ultra":
             self.ultra(colour)
@@ -1263,7 +1274,7 @@ class KartVisual:
             p.setTexture(dot_texture())
             p.setBillboardPointEye()
             p.hide()
-            self.puffs.append([p, Vec3(0), 0.0])  # node, velocity, life left
+            self.puffs.append([p, Vec3(0), 0.0, 0.75])  # node, velocity, life left, shade (CHANGE 158)
         self.next_puff = 0
         self.puff_timer = 0.0
         self.tag = None
@@ -1285,8 +1296,6 @@ class KartVisual:
              materials=m)
         part(b, bevel_box(0.28, 0.2, 0.09, 0.04, tile=1.5), "paint", colour, rough=0.5, metal=0.2,
              pos=(0.42, 0, z0 + 0.2), materials=m)
-        part(b, bevel_box(0.08, 0.55, 0.05, 0.02), None, (0.08, 0.08, 0.09), rough=0.8, pos=(0.8, 0, z0 + 0.06),
-             materials=m)  # front bumper
         part(b, bevel_box(0.06, 0.6, 0.05, 0.02), None, (0.08, 0.08, 0.09), rough=0.8, pos=(-0.78, 0, z0 + 0.06),
              materials=m)  # rear bumper
         pods = Mesh(tile=1.5)
@@ -1330,6 +1339,13 @@ class KartVisual:
         column = b.attachNewNode("steering column")
         column.setPos(0.1, 0, z0 + 0.45)
         column.setHpr(0, 0, -25)
+        # (CHANGE 158) the front bumper on its own node, hinged at its left end: it hangs as the front wing is damaged
+        self.nose = b.attachNewNode("nose")
+        self.nose.setPos(0.8, 0.5, z0 + 0.06)
+        part(self.nose, bevel_box(0.08, 0.55, 0.05, 0.02), None, (0.08, 0.08, 0.09), rough=0.8, pos=(0, -0.5, 0),
+             materials=m)
+        if look():
+            outline(self.nose)
         self.box_wheel = column.attachNewNode("steering wheel")
         part(self.box_wheel, cylinder(0.12, 0.012, axis="x", seg=16, bevel=0.01), None, (0.1, 0.1, 0.12), rough=0.7,
              materials=m)
@@ -1398,6 +1414,12 @@ class KartVisual:
             arm.setPos(-Vec3(*note["shoulder"]))
             parts(arm, geoms)
             self.arms.append((node, Vec3(*note["shoulder"]), Vec3(*note["hand"])))
+        nose = model["notes"]["nose"]  # (CHANGE 158) the fairing, hinged at its left end
+        self.nose = self.body.attachNewNode("nose")
+        self.nose.setPos(*nose["pivot"])
+        held = self.nose.attachNewNode("held")
+        held.setPos(-Vec3(*nose["pivot"]))
+        parts(held, model["nose"])
         head = model["notes"]["head"]
         self.head = self.body.attachNewNode("head")
         self.head.setPos(*head["pivot"])
@@ -1441,7 +1463,7 @@ class KartVisual:
         self.tag.node().setText(text)
         self.tag.node().setTextColor(*colour)
 
-    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt):
+    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None):
         """Place the kart; its body pitches with acceleration and rolls with the slide, the front wheels turn
         with steer, all four spin with v; the glow shows while boosting and smoke puffs while drifting."""
         self.root.setPos(x, y, z)
@@ -1474,8 +1496,16 @@ class KartVisual:
             self.head.setHpr(self.steer_now * self.head_turn, -self.steer_now * self.head_lean, 0)
             self.skids(x, y, z, yaw_deg, drifting and abs(v) > 3.0)
         self.spin_angle = (self.spin_angle + math.degrees(v / WHEEL_R) * dt) % 360.0
-        for spin in self.wheels:
+        # (CHANGE 158) damage (each part 0 to 1: wing, fl, fr, rl, rr, engine): a damaged wheel leans and wobbles as
+        # it turns, the fairing hangs from its left end, the engine smokes
+        wing, *wheel_damage, engine = damage or (0.0,) * 6
+        for spin, d in zip(self.wheels, wheel_damage):
             spin.setR(self.spin_angle)
+            spin.setP(d * 7.0 + d * 9.0 * math.sin(math.radians(self.spin_angle)) if d > 0.08 else 0.0)
+        if self.nose is not None:
+            hang = max(0.0, min(1.0, (wing - 0.2) / 0.6))
+            # (P: the right end down, 11 degrees bringing its end to the road; R: the front edge down)
+            self.nose.setHpr(0, hang * 11.0, hang * 16.0)
         if self.tag is not None:
             if self.cam is None:
                 import builtins
@@ -1490,6 +1520,20 @@ class KartVisual:
             self.glow.setScale(0.9 + 0.25 * math.sin(self.glow_t * 31))
         elif not self.glow.isHidden():
             self.glow.hide()
+        if engine > 0.35 and not look():  # (CHANGE 158) a damaged engine smokes, grey to black, more as it gets worse
+            self.smoke_timer -= dt
+            if self.smoke_timer <= 0:
+                self.smoke_timer = 0.32 - 0.2 * engine
+                p = self.puffs[self.next_puff]
+                self.next_puff = (self.next_puff + 1) % self.PUFFS
+                shade = 0.6 - 0.45 * engine
+                p[0].setPos(self.root, -0.45, 0.28, 0.5)
+                p[0].setScale(0.3)
+                p[0].setColor(shade, shade, shade, 0.6)
+                p[0].show()
+                p[1] = Vec3(0, 0, 0.9)
+                p[2] = 0.7
+                p[3] = shade
         # drift smoke from the rear tyres
         if drifting and abs(v) > 3.0 and not look():
             self.puff_timer -= dt
@@ -1504,6 +1548,7 @@ class KartVisual:
                 p[0].show()
                 p[1] = Vec3(0, 0, 0.6)
                 p[2] = 0.7
+                p[3] = 0.75
         for p in self.puffs:
             if p[2] <= 0:
                 continue
@@ -1515,7 +1560,7 @@ class KartVisual:
             node.setPos(node.getPos() + p[1] * dt)
             f = p[2] / 0.7
             node.setScale(0.35 + (1 - f) * 0.9)
-            node.setColor(0.75, 0.75, 0.78, 0.55 * f)
+            node.setColor(p[3], p[3], p[3] * 1.04, 0.55 * f)
 
     def skids(self, x, y, z, yaw_deg, on):
         """ultra: while drifting, each rear tyre leaves a mark on the road (a piece every 35 cm)."""
@@ -1677,6 +1722,22 @@ class _Text:
         self.np.setPos(x, y)
 
 
+# (CHANGE 158) the damage panel's parts, from above, nose up: front wing, front left, front right, rear left, rear
+# right, engine (the wire's order), and a part's colour for its damage, green through yellow to red
+DAMAGE_BOXES = [(-0.1, 0.1, 0.135, 0.165), (-0.115, -0.06, 0.05, 0.12), (0.06, 0.115, 0.05, 0.12),
+                (-0.115, -0.06, -0.13, -0.05), (0.06, 0.115, -0.13, -0.05), (-0.035, 0.035, -0.11, -0.03)]
+GREEN_PART = (0.3, 0.85, 0.35, 1)
+
+
+def damage_colour(d):
+    d = max(0.0, min(1.0, d))
+    if d < 0.5:
+        k = d / 0.5
+        return (0.3 + 0.7 * k, 0.85, 0.35 - 0.15 * k, 1)
+    k = (d - 0.5) / 0.5
+    return (1.0, 0.85 - 0.6 * k, 0.2, 1)
+
+
 class Hud:
     """The racing screen on aspect2d. update() once a frame; only what changed is redrawn."""
     BAR_W, BAR_H = 0.5, 0.04
@@ -1711,6 +1772,16 @@ class Hud:
         self.bar_label = _Text(self.bar_back, 0, self.BAR_H + 0.03, 0.035, GREY, TextNode.ALeft)
         self.bar_label.set("DRIFT")
         self.charge_shown = -1
+        # (CHANGE 158) the damage panel: your kart from above, its front wing, wheels and engine green to red
+        self.dmg_back = DirectFrame(parent=r, frameColor=(0.05, 0.05, 0.07, 0.85), frameSize=(-0.14, 0.14, -0.17, 0.25))
+        _Text(self.dmg_back, 0, 0.2, 0.032, GREY).set("DAMAGE")
+        DirectFrame(parent=self.dmg_back, frameColor=(0.22, 0.23, 0.27, 1), frameSize=(-0.045, 0.045, -0.13, 0.13))
+        self.dmg_parts = [DirectFrame(parent=self.dmg_back, frameColor=GREEN_PART, frameSize=box)
+                          for box in DAMAGE_BOXES]
+        self.dmg_shown = None
+        self.pit_text = _Text(r, 0, -0.42, 0.06, YELLOW)
+        self.pit_text.set("PIT: REPAIRING")
+        self.pit_text.np.hide()
         # the minimap: built once from the track's points (see minimap()); dots per kart
         self.mini = r.attachNewNode("minimap")
         self.mini_track = None
@@ -1745,6 +1816,7 @@ class Hud:
         self.speed.pos(right - 0.05, -0.9)
         self.status_text.pos(a - 0.05, -0.975)
         self.bar_back.setPos(right - 0.05 - self.BAR_W, 0, -0.82)
+        self.dmg_back.setPos(right - 0.2, 0, -0.5)
         self.mini.setPos(-a + 0.05 + self.MINI / 2, 0, -0.95 + self.MINI / 2)
 
     def minimap(self, track):
@@ -1799,12 +1871,26 @@ class Hud:
         """Small grey text at the bottom (fps, ping)."""
         self.status_text.set(text)
 
-    def update(self, lap, laps, place, count, kmh, countdown, wrong_way, charge, karts, results):
+    def update(self, lap, laps, place, count, kmh, countdown, wrong_way, charge, karts, results, damage=None,
+               repairing=False):
         """lap/laps: the lap being driven (1-based) and how many; place/count: your place and the field; kmh: speed;
         countdown: seconds to GO or None; wrong_way: flag; charge: the drift charge (0..570+);
         karts: for the minimap, (x, y, colour) tuples or (x, y, colour, big) with big for your own kart; results: None,
-        or (name, laps, seconds or None) in finishing order as kart_sim.Race.results() gives."""
+        or (name, laps, seconds or None) in finishing order as kart_sim.Race.results() gives. damage (CHANGE 158): your
+        kart's six parts 0 to 1 (wing, fl, fr, rl, rr, engine), None with damage off (the panel hidden); repairing: in
+        the PIT box being mended."""
         self.layout()
+        shown = None if damage is None else tuple(round(d, 2) for d in damage)
+        if shown != self.dmg_shown:
+            self.dmg_shown = shown
+            if shown is None:
+                self.dmg_back.hide()
+            else:
+                self.dmg_back.show()
+                for frame, d in zip(self.dmg_parts, shown):
+                    frame["frameColor"] = damage_colour(d)
+        if bool(repairing) != (not self.pit_text.np.isHidden()):
+            self.pit_text.np.show() if repairing else self.pit_text.np.hide()
         now = time.perf_counter()
         self.lap.set(f"LAP {max(1, min(lap, laps))}/{laps}" if laps else "")
         self.place.set(f"{_ordinal(place)} of {count}" if place else "")

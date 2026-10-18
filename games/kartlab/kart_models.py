@@ -23,7 +23,7 @@ dark (chassis black), metal, chrome, glass (the visor), tyre, rim, seat, skin, h
 """
 import math
 
-VERSION = 2  # (2: the driver steers, CHANGE 157: gloves on the wheel, arms and head apart)
+VERSION = 3  # (2: the driver steers, CHANGE 157; 3: the front fairing apart, CHANGE 158)
 WHEEL_R, WHEEL_W = 0.2, 0.09  # the wheels' radius and half width (kart_gfx draws the box kart's with these too)
 WHEELS = [(0.5, 0.6), (0.5, -0.6), (-0.52, 0.62), (-0.52, -0.62)]  # (x, y): front left, front right, rear left, rear right
 STEER_RATIO = 3.0  # the steering wheel turns this many times as far as the front wheels (a picture, not the physics)
@@ -374,18 +374,14 @@ def body_parts():
                   (-0.32, 0.34, 0.13, 0.31, 4.0), (-0.52, 0.32, 0.13, 0.4, 3.8), (-0.68, 0.27, 0.14, 0.38, 3.4),
                   (-0.78, 0.2, 0.16, 0.31, 3.0)], seg=36, steps=3, round_front=0.05, round_back=0.05)
     parts.append(body)
-    # the front fairing across the nose, in front of the front wheels (paint2), lofted along y
-    fair = Part("front fairing", "paint2")
+    # (the front fairing: nose_parts, apart since CHANGE 158)
+    # the side pods between the wheels (paint2)
     span = catmull([(-0.56, 0.35), (-0.5, 0.8), (-0.4, 1.0), (0.4, 1.0), (0.5, 0.8), (0.56, 0.35)], 3)
     rows = [[(0.84, -0.575, 0.19)] * 25]  # (a point at each end: the fairing's rounded tips)
     for y, k in span:
         rows.append([(0.84 + 0.075 * k * spow(math.cos(t), 0.6), y, 0.19 + 0.065 * k * spow(math.sin(t), 0.6))
                      for t in (2 * math.pi * j / 24 for j in range(25))])
     rows.append([(0.84, 0.575, 0.19)] * 25)
-    fair.surface(rows, lambda p: (0.84, max(-0.5, min(0.5, p[1])), 0.19),
-                 pole_normals={0: (0, -1, 0), len(rows) - 1: (0, 1, 0)})
-    parts.append(fair)
-    # the side pods between the wheels (paint2)
     pods = Part("side pods", "paint2")
     for side in (1, -1):
         loft_x(pods, [(0.27, 0.05, 0.17, 0.25, 3.0), (0.18, 0.085, 0.15, 0.31, 3.4), (-0.12, 0.09, 0.15, 0.32, 3.6),
@@ -438,6 +434,24 @@ def body_parts():
     superellipsoid(suit, (-0.31, 0.0, 0.47), (0.11, 0.16, 0.16), e=2.8, seg=24, rings=14, tilt=12)
     parts.append(suit)
     return parts
+
+
+def nose_parts():
+    """(CHANGE 158) The front fairing across the nose, in front of the front wheels (paint2), lofted along y: a part
+    of its own, hinged at its left end (notes["nose"]), so damage can make it droop and hang."""
+    fair = Part("front fairing", "paint2")
+    span = catmull([(-0.56, 0.35), (-0.5, 0.8), (-0.4, 1.0), (0.4, 1.0), (0.5, 0.8), (0.56, 0.35)], 3)
+    rows = [[(0.84, -0.575, 0.19)] * 25]  # (a point at each end: the fairing's rounded tips)
+    for y, k in span:
+        rows.append([(0.84 + 0.075 * k * spow(math.cos(t), 0.6), y, 0.19 + 0.065 * k * spow(math.sin(t), 0.6))
+                     for t in (2 * math.pi * j / 24 for j in range(25))])
+    rows.append([(0.84, 0.575, 0.19)] * 25)
+    fair.surface(rows, lambda p: (0.84, max(-0.5, min(0.5, p[1])), 0.19),
+                 pole_normals={0: (0, -1, 0), len(rows) - 1: (0, 1, 0)})
+    return [fair]
+
+
+NOSE_HINGE = (0.84, 0.5, 0.19)  # (CHANGE 158) where the fairing stays on when the wing is damaged: its left end
 
 
 def hand(side):
@@ -556,8 +570,8 @@ def kart():
     body = body_parts()
     steering = steering_parts()
     wheel = wheel_parts()
-    arms, head = arm_parts(), head_parts()
-    tris = sum(len(p.idx) // 3 for p in body + steering + arms + head) + 4 * sum(len(p.idx) // 3 for p in wheel)
+    arms, head, nose = arm_parts(), head_parts(), nose_parts()
+    tris = sum(len(p.idx) // 3 for p in body + steering + arms + head + nose) + 4 * sum(len(p.idx) // 3 for p in wheel)
     return {"version": VERSION,
             "body": [p.as_dict() for p in body],
             "wheel": [p.as_dict() for p in wheel],
@@ -565,7 +579,11 @@ def kart():
             "steering": [p.as_dict() for p in steering],
             "arms": [p.as_dict() for p in arms],
             "head": [p.as_dict() for p in head],
-            "notes": {"arms": [{"side": s, "shoulder": list(shoulder(s)), "hand": [round(v, 4) for v in hand(s)]}
+            "nose": [p.as_dict() for p in nose],
+            "notes": {"nose": {"pivot": list(NOSE_HINGE),
+                               "about": "the front fairing hangs from its left end as the front wing is damaged: it "
+                                        "turns about x through the pivot (its right end down) and droops about y"},
+"arms": [{"side": s, "shoulder": list(shoulder(s)), "hand": [round(v, 4) for v in hand(s)]}
                                for s in (1, -1)],
                       "head": {"pivot": list(NECK), "turn": HEAD_TURN, "lean": HEAD_LEAN,
                                "about": "the head (neck, helmet, visor) turns about z through the pivot by turn times "
@@ -592,7 +610,7 @@ def triangles(model=None):
 
 if __name__ == "__main__":
     m = kart()
-    for key in ("body", "wheel", "steering", "arms", "head"):
+    for key in ("body", "wheel", "steering", "arms", "head", "nose"):
         for p in m[key]:
             print(f"{key:9s} {p['name']:18s} {p['role']:7s} {len(p['indices']) // 3:6d} triangles")
     print("whole kart:", triangles(m), "triangles")

@@ -76,7 +76,7 @@ GFX_MAX_FILE = os.path.join(DATA, "gfx_max_saved.json")  # ...and the class's gr
 LIMITS_FILE = os.path.join(DATA, "limits_saved.json")        # the learners' ranges, kept between sessions
 MISSIONS_FILE = os.path.join(DATA, "mission_settings.json")  # the teacher's settings for each mission, kept by
 # Save settings and used whenever that mission is chosen: these keys
-MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "user_mods",
+MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "damage", "user_mods",
                 "mods_in_vote", "arena_in_vote", "hazards", "tools", "limits")
 HAZARD_WORDS = {"bumping": "Bumping", "cpu_karts": "Computer karts"}
 STAGE_ITEMS = tuple(HAZARD_WORDS)  # what learners can vote for on the Mods tab (the track's switches)
@@ -91,6 +91,7 @@ WEEK1_LESSON = {
     "cpu_level": "medium",         # how they drive: easy, medium, expert
     "teacher_kart": True,          # the teacher's own kart is on the grid too
     "designs_locked": False,       # stop design changes (e.g. during a tournament)
+    "damage": True,                # (CHANGE 158) real damage: hits slow a kart; it mends, quickly in the PIT box
     "hazards": dict(km.NO_HAZARDS),
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
     "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
@@ -325,6 +326,7 @@ class KartServer:
         race.units = {}
         race.practice = practice
         race.set_user_mods(L.get("user_mods"))
+        race.set_damage(L.get("damage", True))
         wanted = self.karts_wanted()
         for p in self.players.values():
             p.unit = None
@@ -924,6 +926,10 @@ class KartServer:
             if key in update:
                 rebuild |= key == "teacher_kart" and bool(update[key]) != bool(L.get(key))
                 L[key] = bool(update[key])
+        if "damage" in update and bool(update["damage"]) != bool(L.get("damage", True)):  # (CHANGE 158) live
+            L["damage"] = bool(update["damage"])
+            self.race.set_damage(L["damage"])
+            self.race.events.append((self.race.tick, "Damage on" if L["damage"] else "Damage off: every kart mended"))
         if update.get("mode") in ("practice", "race", "battle"):
             mode = "race" if update["mode"] == "battle" else update["mode"]
             rebuild |= mode != L["mode"]

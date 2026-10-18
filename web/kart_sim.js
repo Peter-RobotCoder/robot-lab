@@ -34,12 +34,19 @@ export const OIL_TICKS = 75;                        // how long an oil patch's s
 export const BOOST_SPEED = 1.25, BOOST_ACCEL = 1.5;
 export const ROLL = 0.6;                            // off the throttle the tyres roll to a stop (m/s each second: CHANGE 156)
 export const COUNTDOWN_TICKS = 60 * 4;
+// (CHANGE 158) real damage: six parts, each 0 (like new) to DAMAGE_MAX (as bad as it gets), never knocked out
+export const DAMAGE_PARTS = ["dw", "dfl", "dfr", "drl", "drr", "de"];  // front wing, the wheels, the engine
+export const DAMAGE_MAX = 10000;
+export const HIT_SPEED = 2.0, HIT_BARRIER = 900, HIT_KART = 1100;
+export const REPAIR_TICK = 1, REPAIR_PIT = 80, PIT_SPEED = 12.0;
 export const FLAGS_GRID = 0, FLAGS_RACE = 1, FLAGS_OVER = 2;  // the snapshot's flags byte: the race's phase
 
 // the wire record for one kart (kart_sim.SCHEMA_FIELDS): name, struct code, scale
 export const SCHEMA_FIELDS = [["x", "i", 100], ["y", "i", 100], ["yaw", "h", 10], ["v", "h", 100], ["u", "h", 100],
                               ["charge", "H", 1], ["boost", "B", 1], ["slip", "B", 1], ["lap", "B", 1],
-                              ["cp", "B", 1], ["flags", "B", 1], ["steer", "b", 100]];  // (steer: the input's, for the picture: CHANGE 157)
+                              ["cp", "B", 1], ["flags", "B", 1], ["steer", "b", 100],  // (steer: the input's, for the picture: CHANGE 157)
+                              ["dw", "H", 1], ["dfl", "H", 1], ["dfr", "H", 1], ["drl", "H", 1], ["drr", "H", 1],
+                              ["de", "H", 1]];  // (each part's damage, 0 to DAMAGE_MAX: CHANGE 158)
 const RANGE = {b: [-128, 127], B: [0, 255], h: [-32768, 32767], H: [0, 65535],
                i: [-2147483648, 2147483647], I: [0, 4294967295]};
 
@@ -55,7 +62,7 @@ export function statsOf(design) {
 
 export function newKart(id, design, s, lateral, heading) {
     return {id, x: 0.0, y: 0.0, yaw: heading, v: 0.0, u: 0.0, charge: 0, boost: 0, slip: 0, lap: 0, cp: 0,
-            flags: 0, steer: 0.0, seg: 0, s, lat: lateral};
+            flags: 0, steer: 0.0, seg: 0, s, lat: lateral, dw: 0, dfl: 0, dfr: 0, drl: 0, drr: 0, de: 0};
 }
 
 // put a kart at s, lateral on the track (the grid, a respawn): changes k, as Python's does
@@ -77,11 +84,38 @@ export function respawn(k, track) {
 }
 
 // one tick of one kart: the new state. k: the kart, inp: [throttle, steer, buttons], st: statsOf(design)
-export function step(k, inp, dt, track, st) {
+// (CHANGE 158) each part's damage as 0 (like new) to 1 (as bad as it gets): wing, fl, fr, rl, rr, engine
+export function damageOf(k) {
+    return DAMAGE_PARTS.map(p => Math.min(DAMAGE_MAX, Math.max(0, k[p] || 0)) / DAMAGE_MAX);
+}
+
+// (CHANGE 158) damage k's parts: amount (on DAMAGE_MAX's scale) shared out, shares: {part: fraction}
+export function hurt(k, amount, shares) {
+    for (const [part, share] of Object.entries(shares)) k[part] = Math.min(DAMAGE_MAX, Math.trunc((k[part] || 0) + amount * share));
+}
+
+// (CHANGE 158) who takes a hit, from where it lands in the kart's own frame (front +1 ahead, left +1 left)
+export function sideShares(front, left) {
+    if (front > 0.5) return left >= 0 ? {dw: 0.55, dfl: 0.3, de: 0.15} : {dw: 0.55, dfr: 0.3, de: 0.15};
+    if (front < -0.5) return {drl: 0.35, drr: 0.35, de: 0.3};
+    return left > 0 ? {dfl: 0.45, drl: 0.4, de: 0.15} : {dfr: 0.45, drr: 0.4, de: 0.15};
+}
+
+// damage (CHANGE 158): barrier hits damage the kart (its damage always slows it, and it always mends)
+export function step(k, inp, dt, track, st, damage = false) {
     const [th, steer, bt] = inp;
     const n = {...k};
     let v = k.v, u = k.u, yaw = k.yaw;
     let top = st.top, accel = st.accel, grip = st.grip, steerRate = st.steer;
+    // (CHANGE 158) damage: the engine loses top speed and pull, the wing steering and a little grip, the wheels a
+    // little speed, and a side's damaged wheels drag the kart towards that side
+    const [wing, fl, fr, rl, rr, eng] = damageOf(k);
+    const wheels = (fl + fr + rl + rr) / 4;
+    top *= (1.0 - 0.25 * eng) * (1.0 - 0.1 * wheels);
+    accel *= 1.0 - 0.3 * eng;
+    steerRate *= 1.0 - 0.3 * wing;
+    grip *= 1.0 - 0.15 * wing;
+    const pull = 0.25 * ((fl + rl) - (fr + rr)) / 2;
     let boost = k.boost, slip = k.slip, charge = k.charge, flags = 0;
     if (boost) {
         top = top * BOOST_SPEED;
@@ -115,7 +149,7 @@ export function step(k, inp, dt, track, st) {
     if (th === 0) v = copysign(Math.max(0.0, Math.abs(v) - ROLL * dt), v);  // (CHANGE 156: a kart let go crept on for ever)
     v = Math.max(-0.3 * top, Math.min(top, v));
     // steering: a rate that needs some speed to work and eases off at the top, tighter in a drift
-    let turn = steer * steerRate * Math.min(1.0, Math.abs(v) / 6.0) * (1.0 - 0.4 * Math.min(1.0, Math.abs(v) / top));
+    let turn = Math.max(-1.0, Math.min(1.0, steer + pull)) * steerRate * Math.min(1.0, Math.abs(v) / 6.0) * (1.0 - 0.4 * Math.min(1.0, Math.abs(v) / top));
     if (drifting) turn = turn * 1.3 + driftDir * 25.0;
     if (v < 0) turn = -turn;
     const dyaw = turn * dt;
@@ -141,6 +175,14 @@ export function step(k, inp, dt, track, st) {
     let lat = at.lateral;
     const limit = track.half - KART_HALF;
     if (Math.abs(lat) > limit) {  // into the barrier: held at the edge, the slide stopped, speed scrubbed off
+        // (CHANGE 158) how fast it went into the barrier, only as it arrives: over HIT_SPEED, damage on that side
+        const into = (Math.abs(lat) - Math.abs(k.lat)) / dt;
+        if (damage && Math.abs(k.lat) < limit - 0.005 && into > HIT_SPEED) {
+            const side = lat > 0 ? 1 : -1;
+            const heading = radians(yaw - track.heading(s));
+            const front = Math.abs(Math.sin(heading));  // (square to the barrier: nose first)
+            hurt(n, (into - HIT_SPEED) * HIT_BARRIER, sideShares(front > 0.7 ? 1.0 : 0.0, side));
+        }
         lat = lat > 0 ? limit : -limit;
         [x, y] = track.point(s, lat);
         u = 0.0;
@@ -150,6 +192,9 @@ export function step(k, inp, dt, track, st) {
     // dash pads and oil
     if (track.near(track.boosts, s, lat, BOOST_RADIUS)) boost = Math.max(boost, PAD_BOOST);
     if (track.near(track.oil, s, lat, OIL_RADIUS)) slip = OIL_TICKS;
+    // (CHANGE 158) mending: a little every tick, quickly in the PIT box at pit speed
+    const mend = Math.abs(v) < PIT_SPEED && track.inPit(s, lat) ? REPAIR_PIT : REPAIR_TICK;
+    for (const part of DAMAGE_PARTS) if (n[part]) n[part] = Math.max(0, n[part] - mend);
     n.x = x;
     n.y = y;
     n.yaw = yaw;
@@ -200,10 +245,22 @@ export function fullState(e, track) {
 
 // two karts closer than reach pushed apart, the faster slowed a little to the slower (one pair of
 // kart_sim.Race.contacts): changes both; true when they touched
-export function bump(a, b, reach = BUMP_DISTANCE, slow = 0.3) {
+export function bump(a, b, reach = BUMP_DISTANCE, slow = 0.3, damage = false) {
     const dx = b.x - a.x, dy = b.y - a.y, d = hypot(dx, dy);
     if (d >= reach || d < 1e-6) return false;
     const push = (reach - d) / 2, nx = dx / d, ny = dy / d;
+    if (damage) {  // (CHANGE 158) closing faster than HIT_SPEED damages each where it was hit
+        const ya = radians(a.yaw), yb = radians(b.yaw), ua = a.u || 0, ub = b.u || 0;
+        const va = [Math.cos(ya) * a.v - Math.sin(ya) * ua, Math.sin(ya) * a.v + Math.cos(ya) * ua];
+        const vb = [Math.cos(yb) * b.v - Math.sin(yb) * ub, Math.sin(yb) * b.v + Math.cos(yb) * ub];
+        const closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny;
+        if (closing > HIT_SPEED) {
+            const amount = (closing - HIT_SPEED) * HIT_KART;
+            for (const [k, y, sx, sy] of [[a, ya, nx, ny], [b, yb, -nx, -ny]]) {
+                hurt(k, amount, sideShares(Math.cos(y) * sx + Math.sin(y) * sy, -Math.sin(y) * sx + Math.cos(y) * sy));
+            }
+        }
+    }
     a.x -= nx * push;
     a.y -= ny * push;
     b.x += nx * push;
@@ -226,11 +283,11 @@ export function coast(k, dt) {
 // step and bumped as the server bumps them, so your kart against another isn't put right every tick
 export function makeStep(track, stats, world = null) {
     return (state, inp, dt) => {
-        const n = step(state, inp, dt, track, stats);
+        const n = step(state, inp, dt, track, stats, !!(world && world.damage));
         if (world) {
             for (const o of world.others) {
                 coast(o, dt);
-                bump(n, o, world.reach, world.slow);
+                bump(n, o, world.reach, world.slow, !!world.damage);
             }
         }
         return Object.assign(n, quantise(n));

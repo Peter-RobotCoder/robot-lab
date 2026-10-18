@@ -15,6 +15,7 @@ import "./robotfx.js";  // (CHANGE 143: its particle shader, "ccfx", with the ap
 import {makeSky, makeLand, makeForest, AfterFx, Skids, Sparks, HAZE, loadUltraKart, ultraKartData, partMesh,
         loadScenery, sceneryData, makeCircuit, circuitFrame, cullLists} from "./kartfx.js";
 import {TRACKS} from "./track.js";
+import {DAMAGE_PARTS, DAMAGE_MAX} from "./kart_sim.js";  // (CHANGE 158: each part's damage, drawn on the kart)
 
 export {TIERS};
 
@@ -205,6 +206,14 @@ export class KartScene extends BaseScene {
         if (oil.pos.length) {
             const m = oil.mesh("oil", scene);
             m.material = this.material("oil", [0.16, 0.15, 0.2], 0.3, 0.4);
+            statics.push(m);
+        }
+        // (CHANGE 158) the PIT box: a yellow outline and PIT on the road (track.js pitMarks, kart_track's)
+        const pit = new Geo();
+        for (const corners of track.pitMarks()) pit.quad(corners.map(([s, l]) => { const p = track.point(s, l); return [p[0], p[1], p[2] + 0.022]; }));
+        if (pit.pos.length) {
+            const m = pit.mesh("pit", scene);
+            m.material = this.material("pit", [1.0, 0.8, 0.08], 0.7, 0);
             statics.push(m);
         }
         if (this.circuit) {
@@ -579,7 +588,11 @@ export class KartScene extends BaseScene {
         };
         box(0.72, 0.34, 0.07, paint, 0, 0, z0 + 0.07);                                   // the tub
         box(0.28, 0.2, 0.09, paint, 0.42, 0, z0 + 0.2);                                  // the cowl
-        box(0.08, 0.55, 0.05, dark, 0.8, 0, z0 + 0.06);                                  // bumpers
+        // (CHANGE 158) the front bumper on its own node, hinged at its left end: it hangs as the front wing is damaged
+        const nose = new BABYLON.TransformNode("nose", scene);
+        nose.parent = body;
+        nose.position = v3(0.8, 0.5, z0 + 0.06);
+        const noseParts = [this.box(nose, 0.08, 0.55, 0.05, dark, 0, -0.5, 0)];
         box(0.06, 0.6, 0.05, dark, -0.78, 0, z0 + 0.06);
         for (const side of [1, -1]) box(0.36, 0.1, 0.06, paint, 0, side * 0.44, z0 + 0.1);  // side pods
         box(0.02, 0.14, 0.1, this.material("kplate", [0.95, 0.95, 0.9], 0.6), 0.7, 0, z0 + 0.3);
@@ -620,7 +633,7 @@ export class KartScene extends BaseScene {
             wheels.push({pivot, spin, front: i < 2});
         });
         const merged = this.mergeParts(parts, body);
-        this.shadowCast([...merged, ...wheelParts, ...wheelBits]);
+        this.shadowCast([...merged, ...wheelParts, ...wheelBits, ...noseParts]);
         let flameLines = null;
         if (this.wire) {  // (the line tiers: the body's edges with the body, each wheel's turning with its wheel)
             const mat = this.lineMaterial("kart", 1, ...this.lineFade());
@@ -629,9 +642,11 @@ export class KartScene extends BaseScene {
             if (flameLines) flameLines.isVisible = false;
             wheels.forEach((w, i) => this.linesMesh("wheellines", this.edgeLines(wheelParts.slice(i * 2, i * 2 + 2), this.wire, w.spin), mat, w.spin));
             this.linesMesh("steerlines", this.edgeLines(wheelBits, this.wire, boxWheel), mat, boxWheel);
+            this.linesMesh("noselines", this.edgeLines(noseParts, this.wire, nose), mat, nose);
         }
         this.finishKart(id, design, root, body, wheels, flame, flameLines, WHEEL_R, false);
         this.karts.get(id).boxWheel = boxWheel;
+        this.karts.get(id).nose = nose;
     }
 
     kartFlame(root) {  // the boost's glow behind the kart (shown while boosting)
@@ -735,6 +750,23 @@ export class KartScene extends BaseScene {
                 steerWheel.head = {node: head, turn: (Number(H.turn) || 16) * Math.PI / 180, lean: (Number(H.lean) || 7) * Math.PI / 180};
             }
         }
+        // (CHANGE 158) the front fairing, hinged at its left end (notes.nose): it hangs as the front wing is damaged
+        let nose = null;
+        const N = notes.nose || {};
+        if ((d.nose || []).length && Array.isArray(N.pivot)) {
+            const hinge = v3(...N.pivot.map(v => v * scale));
+            nose = new BABYLON.TransformNode("nose", this.scene);
+            nose.parent = body;
+            nose.position = hinge.clone();
+            for (const part of d.nose) {
+                const mesh = partMesh(this, part, scale);
+                if (!mesh) continue;
+                mesh.material = mat(BASE[part.role] ? part.role : "paint2");
+                mesh.parent = nose;
+                mesh.position = hinge.scale(-1);
+                this.shadowCast([mesh]);
+            }
+        }
         const wheels = [], wheelParts = [];
         for (const w of d.wheels) {
             const pivot = new BABYLON.TransformNode("pivot", this.scene);
@@ -759,6 +791,7 @@ export class KartScene extends BaseScene {
         const wheelR = Math.max(0.1, Number(d.wheels[0].z) * scale || WHEEL_R);
         this.finishKart(design.id, design, root, body, wheels, this.kartFlame(root), null, wheelR, true);
         this.karts.get(design.id).steerWheel = steerWheel;
+        this.karts.get(design.id).nose = nose;
     }
 
     rebuildKarts() {  // (every kart made again, as it is now: the curved kart arrived)
@@ -842,9 +875,27 @@ export class KartScene extends BaseScene {
             // steering wheel three times as far, the hands stay on its rim and the head looks into the turn
             k.steerNow = (k.steerNow || 0) + (Math.max(-1, Math.min(1, st.steer || 0)) - (k.steerNow || 0)) * Math.min(1, dt * STEER_EASE);
             const steer = k.steerNow * MAX_STEER;
-            for (const w of k.wheels) {
+            // (CHANGE 158, kart_gfx.KartVisual.update) damage, each part 0 to 1: a damaged wheel leans and wobbles as it
+            // turns, the fairing (or bumper) hangs from its left end, the engine smokes grey to black
+            const dmg = DAMAGE_PARTS.map(p => Math.min(1, Math.max(0, (st[p] || 0) / DAMAGE_MAX)));
+            k.wheels.forEach((w, i) => {
                 w.spin.rotation.z = -k.spin;
                 if (w.front) w.pivot.rotation.y = -steer;
+                const d = dmg[1 + i] || 0;
+                w.spin.rotation.x = d > 0.08 ? -(d * 7 + d * 9 * Math.sin(k.spin)) * DEG : 0;
+            });
+            if (k.nose) {
+                const hang = Math.max(0, Math.min(1, (dmg[0] - 0.2) / 0.6));
+                k.nose.rotation.x = -hang * 11 * DEG;  // (its far end down to the road)
+                k.nose.rotation.z = -hang * 16 * DEG;
+            }
+            if (this.smoke && dmg[5] > 0.35) {
+                k.smokeTimer = (k.smokeTimer || 0) - dt;
+                if (k.smokeTimer <= 0) {
+                    k.smokeTimer = 0.32 - 0.2 * dmg[5];
+                    const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
+                    this.smoke.emit([st.x - 0.45 * c - 0.28 * s, st.y - 0.45 * s + 0.28 * c, z + 0.5], 0.6 - 0.45 * dmg[5]);
+                }
             }
             if (k.boxWheel) k.boxWheel.rotation.x = -steer * STEER_RATIO;
             if (k.steerWheel) {  // (the curved kart's steering wheel, turned as the front wheels times its ratio)
@@ -1044,11 +1095,12 @@ class Smoke {
         this.cursor = 0;
     }
 
-    emit(p) {  // a new puff at a game position
+    emit(p, shade = 0.75) {  // a new puff at a game position (shade: grey, darker for a damaged engine's: CHANGE 158)
         const it = this.items[this.cursor];
         this.cursor = (this.cursor + 1) % this.items.length;
         it.p = p;
         it.life = PUFF_LIFE;
+        it.shade = shade;
     }
 
     update(dt, cam) {
@@ -1067,7 +1119,8 @@ class Smoke {
             M[o + 8] = f.x * s; M[o + 9] = f.y * s; M[o + 10] = f.z * s; M[o + 11] = 0;
             M[o + 12] = p[0]; M[o + 13] = p[2]; M[o + 14] = p[1]; M[o + 15] = 1;
             const c = n * 4;
-            C[c] = 0.75; C[c + 1] = 0.75; C[c + 2] = 0.78; C[c + 3] = 0.55 * left;
+            const g = it.shade ?? 0.75;
+            C[c] = g; C[c + 1] = g; C[c + 2] = g * 1.04; C[c + 3] = 0.55 * left;
             n++;
         }
         const mesh = this.mesh;

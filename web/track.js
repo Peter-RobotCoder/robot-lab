@@ -16,22 +16,24 @@ export const TRACKS = {
                  [6, 74, 0], [-24, 66, -0.6], [-42, 42, -0.4], [-36, 14, 0], [-18, 2, 0]],
         boosts: [[120.0, 0.0], [235.0, 2.5], [300.0, -2.5]],
         oil: [[170.0, -2.0], [268.0, 1.5]],
+        pit: [12.0, 30.0, -1],  // (CHANGE 158) the PIT box: from s to s along one side (-1 right, 1 left)
     },
     oval: {
         name: "Test Oval", width: 14.0, laps: 2,
         points: [[0, 0, 0], [40, 0, 0], [70, 10, 0], [80, 35, 0], [70, 60, 0], [40, 70, 0], [0, 70, 0],
                  [-30, 60, 0], [-40, 35, 0], [-30, 10, 0]],
-        boosts: [[60.0, 0.0]], oil: [],
+        boosts: [[60.0, 0.0]], oil: [], pit: [10.0, 28.0, -1],
     },
     straight: {
         name: "Straight Road", width: 12.0, laps: 1,
         points: [[0, 0, 0], [60, 0, 0], [120, 0, 0], [140, 10, 0], [120, 20, 0], [60, 20, 0], [0, 20, 0], [-20, 10, 0]],
-        boosts: [], oil: [],
+        boosts: [], oil: [], pit: [14.0, 32.0, -1],
     },
 };
 
 export const BOOST_RADIUS = 2.6;
 export const OIL_RADIUS = 2.2;
+export const PIT_WIDTH = 4.0, PIT_KERB = 0.6;  // (CHANGE 158) the PIT box's width in from the barrier; its paint short of the kerb
 
 function dist2d(a, b) {  // (math.dist)
     return hypot(a[0] - b[0], a[1] - b[1]);
@@ -82,6 +84,8 @@ export class Track {
         for (let g = 0; g < GATES; g++) this.gateS.push(g * total / GATES);
         this.boosts = (data.boosts || []).map(([s, lat]) => [Number(s), Number(lat)]);
         this.oil = (data.oil || []).map(([s, lat]) => [Number(s), Number(lat)]);
+        const p = data.pit;  // (CHANGE 158) the PIT box: [from s, to s, side], or null
+        this.pit = Array.isArray(p) ? [Number(p[0]), Number(p[1]), p[2] > 0 ? 1 : -1] : null;
     }
 
     wrap(s) {  // (Python's s % length)
@@ -144,6 +148,34 @@ export class Track {
 
     gateZone(s) {
         return Math.min(GATES - 1, Math.floor(this.wrap(s) / (this.length / GATES)));
+    }
+
+    // (CHANGE 158) is (s, lateral) in the PIT box (where a kart going slowly is mended)?
+    inPit(s, lateral) {
+        if (this.pit === null) return false;
+        const [s0, s1, side] = this.pit;
+        s = pyMod(s, this.length);
+        return s0 <= s && s <= s1 && lateral * side >= this.half - PIT_WIDTH;
+    }
+
+    // (CHANGE 158) the PIT box's paint as quads, each four [s, lateral] corners (kart_track.Track.pit_marks)
+    pitMarks() {
+        if (this.pit === null) return [];
+        const [s0, s1, side] = this.pit, inner = side * (this.half - PIT_WIDTH), outer = side * (this.half - PIT_KERB);
+        const lo = Math.min(inner, outer), hi = Math.max(inner, outer), w = 0.12;
+        const quads = [[[s0, lo], [s1, lo], [s1, lo + w], [s0, lo + w]], [[s0, hi - w], [s1, hi - w], [s1, hi], [s0, hi]],
+                       [[s0, lo], [s0 + w, lo], [s0 + w, hi], [s0, hi]], [[s1 - w, lo], [s1, lo], [s1, hi], [s1 - w, hi]]];
+        const letters = {P: [[0, 0, 1, 5], [0, 4, 4, 5], [3, 2.5, 4, 5], [0, 2.5, 4, 3.5]],
+                         I: [[1.5, 0, 2.5, 5], [0, 4, 4, 5], [0, 0, 4, 1]], T: [[0, 4, 4, 5], [1.5, 0, 2.5, 5]]};
+        const left = side < 0 ? hi - 0.25 : hi - 0.25 - (PIT_WIDTH - PIT_KERB - 3.0);  // (the word clear of the kerb)
+        [..."PIT"].forEach((ch, i) => {
+            for (const [u0, h0, u1, h1] of letters[ch]) {
+                const a0 = s0 + 1.5 + h0 * 0.4, a1 = s0 + 1.5 + h1 * 0.4;
+                const b0 = left - i * 1.0 - u1 * 0.2, b1 = left - i * 1.0 - u0 * 0.2;
+                quads.push([[a0, b0], [a1, b0], [a1, b1], [a0, b1]]);
+            }
+        });
+        return quads;
     }
 
     // is (s, lateral) within radius of one of these [s, lateral] features (the dash pads, the oil)?

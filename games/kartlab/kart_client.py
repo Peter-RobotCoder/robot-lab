@@ -533,7 +533,7 @@ class Lab(hud.HudKit, ShowBase):
         layer's (the tools, the limits, the hazards), with defaults for anything missing."""
         L = {"lesson_number": 1, "track": args.track, "laps": 3, "cpu_karts": 3, "cpu_level": "medium", "brains": True,
              "tools": {}, "limits": None, "hazards": {}, "user_mods": {}, "mods_in_vote": {}, "arena_in_vote": {},
-             "designs_locked": False, "show_missions": False, "ai_card_note": "", "saved_missions": []}
+             "designs_locked": False, "damage": True, "show_missions": False, "ai_card_note": "", "saved_missions": []}
         L.update(lesson or {})
         tools = {k: True for k in kh.TOOL_ORDER}
         tools.update(L.get("tools") or {})
@@ -574,6 +574,7 @@ class Lab(hud.HudKit, ShowBase):
         self.set_track(args.track, args.laps)
         self.my_id = 0
         self.local = sim.Race(self.track, SCHEMA, args.laps)
+        self.local.set_damage(self.lesson.get("damage", True))  # (CHANGE 158: real damage offline too)
         self.local.add(0, self.design)
         self.local_cpu = {}
         for n in range(max(0, min(7, args.cpu))):
@@ -1286,6 +1287,10 @@ class Lab(hud.HudKit, ShowBase):
         if "teacher_kart" in L:
             check(f, "My kart in the race", 1.3, y, L.get("teacher_kart"),
                   lambda v: self.set_lesson({"teacher_kart": bool(v)}), 0.026)
+        y -= 0.05
+        # (CHANGE 158) real damage: hits slow a kart till it's mended (off mends every kart)
+        check(f, "Damage (hits slow a kart till it's mended)", 0.84, y, L.get("damage", True),
+              lambda v: self.set_lesson({"damage": bool(v)}), 0.026)
         y -= 0.06
         items = self.stage_items()
         if items:
@@ -2566,10 +2571,11 @@ class Lab(hud.HudKit, ShowBase):
         slow = self.rules.get("bump", {}).get("slowdown", 0.3)
 
         def step(state, inp, dt):
-            n = sim.step(state, inp, dt, track, st)
+            damage = bool(self.lesson.get("damage", True))  # (CHANGE 158: real damage, as the lesson has it now)
+            n = sim.step(state, inp, dt, track, st, damage)
             for o in others:  # (CHANGE 155: the other karts carried on a tick, and bumped as the race bumps them)
                 sim.coast(o, dt)
-                sim.bump(n, o, reach, slow)
+                sim.bump(n, o, reach, slow, damage)
             n.update(SCHEMA.quantise(n))  # (as the server does: the same numbers next tick)
             return n
         return step
@@ -2694,6 +2700,14 @@ class Lab(hud.HudKit, ShowBase):
             self.place_panel()
         return task.cont
 
+    def damage_readout(self, me):
+        """(CHANGE 158) Your kart's damage for the panel (None with damage off) and whether the PIT box is mending it."""
+        if me is None or not self.lesson.get("damage", True):
+            return None, False
+        damage = sim.damage_of(me)
+        seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))
+        return damage, any(damage) and abs(me["v"]) < sim.PIT_SPEED and self.track.in_pit(s, lat)
+
     def sync_designs(self, designs):
         for kid, d in designs.items():
             if kid not in self.karts or self.designs.get(kid) != d:
@@ -2721,7 +2735,8 @@ class Lab(hud.HudKit, ShowBase):
             z = self.track.height(s)
             flags = k.get("flags", 0)
             vis.update(k["x"], k["y"], z, k["yaw"], k.get("steer", 0.0), k["v"], k["u"],  # (steer: CHANGE 157)
-                       bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), bool(flags & sim.FLAG_BOOSTING), dt)
+                       bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), bool(flags & sim.FLAG_BOOSTING), dt,
+                       sim.damage_of(k))  # (CHANGE 158)
         if me is not None:
             seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))
             self.cam_rig.update(dt, me["x"], me["y"], self.track.height(s), me["yaw"], me["v"], self.track)
@@ -2737,7 +2752,7 @@ class Lab(hud.HudKit, ShowBase):
         self.screen.update(min(r["laps"], (me["lap"] if me else 0) + 1), r["laps"], place, len(states),
                            abs(me["v"]) * 3.6 if me else 0.0, cd if r["phase"] == sim.FLAGS_RACE else None,
                            bool(me and me.get("flags", 0) & sim.FLAG_WRONG_WAY), me["charge"] if me else 0,
-                           minimap, r["results"])
+                           minimap, r["results"], *self.damage_readout(me))
         text = f"{self.clock.getAverageFrameRate():.0f} fps   gfx {self.gfx_tier}"
         if net is not None:
             rep = self.snaps.report()

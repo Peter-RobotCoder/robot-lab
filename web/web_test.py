@@ -417,11 +417,31 @@ def main():
                              " const d = k.design; return JSON.stringify({top: 17.0 + 0.22 * d.speed, accel: 5.0 + 0.10 * d.acceleration,"
                              " grip: 6.0 + 0.10 * d.grip, steer: 95.0 + 1.0 * d.grip}); })()")
             assert chrome.js("window.__state.game.predStats") == want, (chrome.js("window.__state.game.predStats"), want)
+            chrome.wait_for("window.__state.snaps.length > 30", 15, "a second of snapshots")  # (enough gaps to judge)
             gaps = chrome.js("(() => { const s = window.__state.snaps; return s.slice(1).map((n, i) => (n.sm - s[i].sm) >>> 0); })()")
             off = [g for g in gaps if abs(g - round(g / (1000 / 60)) * 1000 / 60) > 1.01]
             assert len(gaps) > 20 and not off, f"snapshot stamps not on the 1/60 s steps: {off[:10]} of {len(gaps)}"
         check("Kart Lab: your kart is predicted with its own design, and the snapshots are stamped by the step they show",
               kart_smooth)
+
+        def kart_damage():  # (CHANGE 158) real damage: the teacher's switch, your damage panel, a damaged kart drawn
+            chrome.js("document.getElementById('panel').classList.add('open');"
+                      "document.querySelector('#panelhead button[data-tab=\"controls\"]').click()")
+            chrome.wait_for("!!document.getElementById('btn-damage') && window.__state.lesson.damage !== false", 10, "Damage on")
+            chrome.wait_for("!!document.getElementById('kh-dmg') && document.getElementById('kh-dmg').style.display !== 'none'", 10, "the damage panel")
+            chrome.js("document.getElementById('btn-damage').click()")
+            chrome.wait_for("window.__state.lesson.damage === false && document.getElementById('kh-dmg').style.display === 'none'", 10, "Damage off")
+            chrome.wait_for("!!document.getElementById('btn-damage')", 10, "the Controls tab again")
+            chrome.js("document.getElementById('btn-damage').click()")
+            chrome.wait_for("window.__state.lesson.damage === true", 10, "Damage on again")
+            got = chrome.js("""(() => { const sc = window.__state.scene, [id, k] = [...sc.karts.entries()][0];
+                const st = new Map([[id, {x: 0, y: 0, yaw: 0, v: 8, u: 0, flags: 0, steer: 0, dw: 10000, dfl: 9000, dfr: 0, drl: 0, drr: 0, de: 0}]]);
+                for (let i = 0; i < 20; i++) sc.frame(st, 1 / 60);
+                return {nose: !!k.nose && Math.abs(k.nose.rotation.x) > 0.15, fl: Math.abs(k.wheels[0].spin.rotation.x) > 0.01,
+                        fr: k.wheels[1].spin.rotation.x === 0}; })()""")
+            assert got["nose"] and got["fl"] and got["fr"], got
+        check("Kart Lab: real damage switched off and on from Controls, your damage panel with it, a damaged kart's fairing "
+              "hanging and its wheel leaning", kart_damage)
 
         def controls():
             assert chrome.js("window.__state.lesson.mode") == "practice"

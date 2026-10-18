@@ -206,6 +206,84 @@ def prediction_no_network():
     assert worst_after < 0.05, f"after the bump the window kept disagreeing: {worst_after:.3f}"
 
 
+def real_damage():
+    """(CHANGE 158) Hits damage the karts (barriers by how fast into them, other karts where they land), damage slows a
+    kart, dulls its steering or pulls it to a side but never stops it, it mends by itself and quickly in the PIT box,
+    and the lesson's switch turns it off (mending every kart)."""
+    schema = wire.Schema("kart", sim.SCHEMA_FIELDS)
+    t = kart_track.load("club")
+    st = sim.stats_of(sim.default_design("D"))
+
+    def run(k, inp, n, damage=True):
+        for _ in range(n):
+            k = sim.step(k, inp, sim.STEP, t, st, damage)
+            k.update(schema.quantise(k))
+        return k
+
+    def crash(damage):
+        k = sim.new_kart(0, None, 0.0, 0.0, 0.0)
+        sim.place(t, k, 50.0, 0.0)
+        k["yaw"], k["v"] = t.heading(50.0) + 60, 14.0
+        return run(k, (1.0, 0.0, 0), 90, damage)
+    hit = crash(True)
+    assert hit["dw"] > 3000 and hit["dfl"] > 1000 and hit["de"] > 0 and hit["dfr"] == 0, {p: hit[p] for p in sim.DAMAGE_PARTS}
+    assert not any(crash(False)[p] for p in sim.DAMAGE_PARTS)  # (damage off: none)
+    # pinned against the barrier it isn't hit again (only arriving counts): a second later, a second's mending less
+    later = run(dict(hit), (1.0, 0.0, 0), 60)
+    assert all(later[p] <= hit[p] for p in sim.DAMAGE_PARTS), "damaged again while held at the barrier"
+
+    def top_speed(level, wheels=None):
+        k = sim.new_kart(0, None, 0.0, 0.0, 0.0)
+        sim.place(t, k, 0.0, 0.0)
+        for p in sim.DAMAGE_PARTS:
+            k[p] = level
+        best = 0.0
+        for _ in range(60 * 6):  # (held in the middle of the track: the top speed, nothing in the way)
+            k = sim.step(k, (1.0, 0.0, 0), sim.STEP, t, st, False)
+            k.update(schema.quantise(k))
+            best = max(best, k["v"])
+            k["lat"], (k["x"], k["y"], _) = 0.0, t.point(k["s"], 0.0)
+            k["yaw"] = t.heading(k["s"])
+            for p in sim.DAMAGE_PARTS:
+                k[p] = level  # (no mending while measuring)
+        return best
+    fine, worst = top_speed(0), top_speed(sim.DAMAGE_MAX)
+    assert 0.62 < worst / fine < 0.72, (fine, worst)  # (at worst two thirds of its speed: never stopped)
+    # the left wheels damaged: steering straight, the kart turns left
+    k = sim.new_kart(0, None, 0.0, 0.0, 0.0)
+    sim.place(t, k, 0.0, 0.0)
+    k["v"], k["dfl"], k["drl"] = 12.0, sim.DAMAGE_MAX, sim.DAMAGE_MAX
+    yaw0 = k["yaw"]
+    k = run(k, (1.0, 0.0, 0), 30, False)
+    assert (k["yaw"] - yaw0 + 180) % 360 - 180 > 5, (yaw0, k["yaw"])
+    # mending: a tick on the road, quickly in the PIT box at pit speed (not too fast through it)
+    k = sim.new_kart(0, None, 0.0, 0.0, 0.0)
+    sim.place(t, k, 100.0, 0.0)
+    k["de"] = 5000
+    assert run(dict(k), (0.0, 0.0, 0), 60)["de"] == 5000 - 60 * sim.REPAIR_TICK
+    s0, s1, side = t.pit
+    sim.place(t, k, s0 + 1.0, side * (t.half - 1.6))
+    k["de"], k["v"] = 5000, 3.0
+    slow = run(dict(k), (0.0, 0.0, 0), 30)
+    assert t.in_pit(slow["s"], slow["lat"]) and slow["de"] == 5000 - 30 * sim.REPAIR_PIT, slow["de"]
+    k["v"] = 20.0
+    fast = run(dict(k), (0.0, 0.0, 0), 10)
+    assert fast["de"] == 5000 - 10 * sim.REPAIR_TICK, fast["de"]
+    # karts: a fast one into the back of a slow one: its wing, the other's rear
+    r = sim.Race(t, schema)
+    r.set_damage(True)
+    for i in range(2):
+        r.add(i, sim.default_design(f"K{i}"))
+    a, b = r.karts[0], r.karts[1]
+    sim.place(t, a, 20.0, 0.0)
+    sim.place(t, b, 21.5, 0.0)
+    a["v"], b["v"] = 15.0, 3.0
+    assert sim.bump(a, b, sim.BUMP_DISTANCE, 0.3, True)
+    assert a["dw"] > 0 and b["drl"] > 0 and b["drr"] > 0 and b["dw"] == 0, ({p: a[p] for p in sim.DAMAGE_PARTS}, {p: b[p] for p in sim.DAMAGE_PARTS})
+    r.set_damage(False)  # (the lesson's switch off: every kart mended)
+    assert not any(k[p] for k in r.karts.values() for p in sim.DAMAGE_PARTS)
+
+
 def ultra_scenery():
     """(CHANGE 144) The ultra circuit (kart_scenery) on every track: nothing solid within the barrier's line but what
     is flat (kerbs, the pit lane) or overhead (the gantry), nothing taller than a barrier in front of a TV camera, and
@@ -492,6 +570,8 @@ check("The kart is deterministic, held by barriers, drifts and slides", kart_phy
 check("Prediction agrees with the server through 83 ms of delay and absorbs a bump", prediction_no_network)
 check("Designs are checked as variables, inside the teacher's limits", designs_and_limits)
 check("Accounts and missions: what a learner does completes the right objectives", profiles_and_missions)
+check("Real damage: hits damage, damage slows but never stops, it mends (quickly in the PIT box), the switch turns it off",
+      real_damage)
 check("The ultra circuit keeps clear of the karts and the TV cameras, and its file reads back", ultra_scenery)
 if not QUICK:
     check("The server runs a race for two windows at 30 snapshots a second", server_end_to_end)

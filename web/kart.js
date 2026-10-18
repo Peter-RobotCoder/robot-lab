@@ -5,7 +5,7 @@ import {KART_FIELDS, KIND_SNAPSHOT, kindOf, unpackSnapshot} from "./wire.js";
 import {Track, TRACKS} from "./track.js";
 import {KartScene} from "./scene.js";
 import {KartHud} from "./hud.js";
-import {STEP, FLAGS_RACE, FLAG_FINISHED, BUMP_DISTANCE, statsOf, fullState, makeStep, compare, coast} from "./kart_sim.js";
+import {STEP, FLAGS_RACE, FLAG_FINISHED, BUMP_DISTANCE, DAMAGE_PARTS, PIT_SPEED, statsOf, fullState, makeStep, compare, coast} from "./kart_sim.js";
 import {Predictor, InputLog, ErrorSmoother, LeadController, quantiseInput, packInput} from "./predict.js";
 import {Sound} from "./sound.js";
 
@@ -53,6 +53,7 @@ export class KartGame {
         this.world.reach = Number.isFinite(b.distance) ? b.distance : BUMP_DISTANCE;
         this.world.slow = Number.isFinite(b.slowdown) ? b.slowdown : 0.3;
         this.world.others = snap.entities.filter(e => e.id !== id).map(e => ({x: e.x, y: e.y, yaw: e.yaw, v: e.v, u: e.u || 0}));
+        this.world.damage = ((this.app.state.lesson || {}).damage ?? true) !== false;  // (CHANGE 158: real damage)
     }
 
     welcome(m) {
@@ -322,7 +323,14 @@ export class KartGame {
         if (id !== null) {
             const colours = new Map([...designs].map(([k, d]) => [k, `rgb(${(d.colour || [200, 200, 200]).join(",")})`]));
             this.laps(states.get(id), Date.now());
-            this.hud.update(states.get(id), states, this.race, this.track, id, colours);
+            // (CHANGE 158) the damage panel with the lesson's real damage on; PIT: REPAIRING in the PIT box at pit speed
+            const me = states.get(id), damageOn = ((this.app.state.lesson || {}).damage ?? true) !== false;
+            let inPit = false;
+            if (damageOn && me && DAMAGE_PARTS.some(p => me[p] > 0) && Math.abs(me.v || 0) < PIT_SPEED) {
+                const at = this.track.locate(me.x, me.y, me.seg ?? null);
+                inPit = this.track.inPit(at.s, at.lateral);
+            }
+            this.hud.update(me, states, this.race, this.track, id, colours, damageOn, inPit);
         }
         if (this.app.sound) {
             const me = followed !== null && followed !== undefined ? states.get(followed) || null : null;
@@ -462,6 +470,8 @@ export class KartGame {
                 <select id="sel-level">${levels}</select></div>
               <div class="row"><label>Teacher's kart</label><button id="btn-tkart" class="${L.teacher_kart ? "on" : ""}">${L.teacher_kart ? "On the grid" : "Not racing"}</button></div>
               <div class="row"><label>Designs</label><button id="btn-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>
+              <div class="row"><label>Damage</label><button id="btn-damage" class="${L.damage !== false ? "on" : ""}">${L.damage !== false ? "On: hits slow a kart till it's mended" : "Off"}</button></div>
+              <div class="note">Real damage: barriers and other karts damage the front wing, the wheels and the engine. A damaged kart is slower or pulls to one side; it mends by itself, quickly driving slowly through the PIT box. Off mends every kart.</div>
               ${app.restartRow()}`;
             const lessonSend = patch => send({type: "lesson", lesson: patch});
             app.wireMissionRow(body);
@@ -475,6 +485,7 @@ export class KartGame {
             $("sel-level").onchange = e => lessonSend({cpu_level: e.target.value});
             $("btn-tkart").onclick = () => lessonSend({teacher_kart: !L.teacher_kart});
             $("btn-lock").onclick = () => lessonSend({designs_locked: !L.designs_locked});
+            $("btn-damage").onclick = () => lessonSend({damage: L.damage === false});  // (CHANGE 158)
             if ($("btn-gp")) $("btn-gp").onclick = () => send({type: "tournament", start: true, races: Number($("gp-races").value)});
             if ($("btn-gp-stop")) $("btn-gp-stop").onclick = () => send({type: "tournament", start: false});
             app.wireRestartRow(body);

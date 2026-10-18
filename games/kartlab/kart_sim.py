@@ -48,12 +48,23 @@ OIL_TICKS = 75                                 # how long an oil patch's slide l
 BOOST_SPEED, BOOST_ACCEL = 1.25, 1.5
 ROLL = 0.6                                     # off the throttle the tyres roll to a stop (m/s each second: CHANGE 156)
 COUNTDOWN_TICKS = 60 * 4                       # 3, 2, 1, GO
+# (CHANGE 158) real damage: six parts, each 0 (like new) to DAMAGE_MAX (as bad as it gets), never knocked out
+DAMAGE_PARTS = ("dw", "dfl", "dfr", "drl", "drr", "de")  # front wing, the wheels (front/rear, left/right), engine
+DAMAGE_MAX = 10000
+HIT_SPEED = 2.0          # m/s into a barrier or another kart before anything is damaged
+HIT_BARRIER = 900        # damage for each m/s over HIT_SPEED into a barrier (a 8 m/s crash: 5400, half the scale)
+HIT_KART = 1100          # ...and for each m/s two karts close on each other over HIT_SPEED
+REPAIR_TICK = 1          # mended a tick by itself on the road (a whole part in 2.8 minutes)
+REPAIR_PIT = 80          # ...and in the PIT box, slower than PIT_SPEED (a whole part in 2 s)
+PIT_SPEED = 12.0         # m/s: faster than this through the PIT box mends nothing (43 km/h)
 FLAGS_GRID, FLAGS_RACE, FLAGS_OVER = 0, 1, 2   # the snapshot's flags byte: the race's phase
 
 # the wire record for one kart (engine.wire): both ends round their numbers to this every tick
 SCHEMA_FIELDS = [("x", "i", 100), ("y", "i", 100), ("yaw", "h", 10), ("v", "h", 100), ("u", "h", 100),
                  ("charge", "H", 1), ("boost", "B", 1), ("slip", "B", 1), ("lap", "B", 1), ("cp", "B", 1),
-                 ("flags", "B", 1), ("steer", "b", 100)]  # (steer: the input's, for the picture: CHANGE 157)
+                 ("flags", "B", 1), ("steer", "b", 100),  # (steer: the input's, for the picture: CHANGE 157)
+                 ("dw", "H", 1), ("dfl", "H", 1), ("dfr", "H", 1), ("drl", "H", 1), ("drr", "H", 1),
+                 ("de", "H", 1)]  # (each part's damage, 0 to DAMAGE_MAX: CHANGE 158)
 
 
 def default_design(name="Kart", colour=(220, 60, 50)):
@@ -177,7 +188,8 @@ def stats_of(design):
 
 def new_kart(kid, design, s, lateral, heading):
     track_free = {"id": kid, "x": 0.0, "y": 0.0, "yaw": heading, "v": 0.0, "u": 0.0, "charge": 0, "boost": 0,
-                  "slip": 0, "lap": 0, "cp": 0, "flags": 0, "steer": 0.0, "seg": 0, "s": s, "lat": lateral}
+                  "slip": 0, "lap": 0, "cp": 0, "flags": 0, "steer": 0.0, "seg": 0, "s": s, "lat": lateral,
+                  "dw": 0, "dfl": 0, "dfr": 0, "drl": 0, "drr": 0, "de": 0}
     return track_free
 
 
@@ -188,12 +200,44 @@ def place(track, k, s, lateral):
              lat=lateral, seg=track.segment_at(s), flags=k["flags"] & FLAG_FINISHED)
 
 
-def step(k, inp, dt, track, st):
-    """One tick of one kart: the new state. k: the kart, inp: (throttle, steer, buttons), st: stats_of(design)."""
+def damage_of(k):
+    """(CHANGE 158) Each part's damage as 0 (like new) to 1 (as bad as it gets): wing, fl, fr, rl, rr, engine."""
+    return [min(DAMAGE_MAX, max(0, k.get(p, 0))) / DAMAGE_MAX for p in DAMAGE_PARTS]
+
+
+def hurt(k, amount, shares):
+    """(CHANGE 158) Damage k's parts: amount (on DAMAGE_MAX's scale) shared out, shares: {part: fraction}."""
+    for part, share in shares.items():
+        k[part] = min(DAMAGE_MAX, int(k.get(part, 0) + amount * share))
+
+
+def side_shares(front, left):
+    """(CHANGE 158) Who takes a hit, from where it lands in the kart's own frame (front: +1 ahead, -1 behind; left:
+    +1 left, -1 right): the wing and the front wheels for one in front, the rear wheels and the engine for one behind,
+    a side's wheels for one from the side; always a little for the engine."""
+    if front > 0.5:
+        return {"dw": 0.55, "dfl" if left >= 0 else "dfr": 0.3, "de": 0.15}
+    if front < -0.5:
+        return {"drl": 0.35, "drr": 0.35, "de": 0.3}
+    return {"dfl": 0.45, "drl": 0.4, "de": 0.15} if left > 0 else {"dfr": 0.45, "drr": 0.4, "de": 0.15}
+
+
+def step(k, inp, dt, track, st, damage=False):
+    """One tick of one kart: the new state. k: the kart, inp: (throttle, steer, buttons), st: stats_of(design).
+    damage (CHANGE 158): barrier hits damage the kart (its damage always slows it, and it always mends)."""
     th, steer, bt = inp
     n = dict(k)
     v, u, yaw = k["v"], k["u"], k["yaw"]
     top, accel, grip, steer_rate = st["top"], st["accel"], st["grip"], st["steer"]
+    # (CHANGE 158) damage: the engine loses top speed and pull, the wing steering and a little grip, the wheels a
+    # little speed, and a side's damaged wheels drag the kart towards that side; at worst two thirds of its speed
+    wing, fl, fr, rl, rr, eng = damage_of(k)
+    wheels = (fl + fr + rl + rr) / 4
+    top *= (1.0 - 0.25 * eng) * (1.0 - 0.1 * wheels)
+    accel *= 1.0 - 0.3 * eng
+    steer_rate *= 1.0 - 0.3 * wing
+    grip *= 1.0 - 0.15 * wing
+    pull = 0.25 * ((fl + rl) - (fr + rr)) / 2
     boost, slip, charge, flags = k["boost"], k["slip"], k["charge"], 0
     if boost:
         top, accel = top * BOOST_SPEED, accel * BOOST_ACCEL
@@ -227,8 +271,9 @@ def step(k, inp, dt, track, st):
     if th == 0:  # (CHANGE 156) the drag alone fades with the speed, and below 0.8 m/s the rounding to the wire each
         v = math.copysign(max(0.0, abs(v) - ROLL * dt), v)  # tick undid it: a kart let go crept on for ever
     v = max(-0.3 * top, min(top, v))
-    # steering: a rate that needs some speed to work and eases off at the top, tighter in a drift
-    turn = steer * steer_rate * min(1.0, abs(v) / 6.0) * (1.0 - 0.4 * min(1.0, abs(v) / top))
+    # steering: a rate that needs some speed to work and eases off at the top, tighter in a drift (and pulled to a
+    # side with damaged wheels: CHANGE 158)
+    turn = max(-1.0, min(1.0, steer + pull)) * steer_rate * min(1.0, abs(v) / 6.0) * (1.0 - 0.4 * min(1.0, abs(v) / top))
     if drifting:
         turn = turn * 1.3 + drift_dir * 25.0
     if v < 0:
@@ -253,6 +298,15 @@ def step(k, inp, dt, track, st):
     seg, s, lat = track.locate(x, y, k.get("seg"))
     limit = track.half - KART_HALF
     if abs(lat) > limit:  # into the barrier: held at the edge, the slide stopped, speed scrubbed off
+        # (CHANGE 158) how fast it went into the barrier (across the track): over HIT_SPEED, damage, on that side,
+        # the wing too for a kart pointing at it
+        # (only as it arrives: held at the barrier, scraping along or pushing into it, it isn't hit again)
+        into = (abs(lat) - abs(k["lat"])) / dt
+        if damage and abs(k["lat"]) < limit - 0.005 and into > HIT_SPEED:
+            side = 1 if lat > 0 else -1
+            heading = math.radians(yaw - track.heading(s))
+            front = abs(math.sin(heading))  # (square to the barrier: nose first)
+            hurt(n, (into - HIT_SPEED) * HIT_BARRIER, side_shares(1.0 if front > 0.7 else 0.0, side))
         lat = limit if lat > 0 else -limit
         x, y, _ = track.point(s, lat)
         u = 0.0
@@ -263,6 +317,11 @@ def step(k, inp, dt, track, st):
         boost = max(boost, PAD_BOOST)
     if track.near(track.oil, s, lat, kart_track.OIL_RADIUS):
         slip = OIL_TICKS
+    # (CHANGE 158) mending: a little every tick, quickly in the PIT box at pit speed
+    mend = REPAIR_PIT if abs(v) < PIT_SPEED and track.in_pit(s, lat) else REPAIR_TICK
+    for part in DAMAGE_PARTS:
+        if n.get(part):
+            n[part] = max(0, n[part] - mend)
     n.update(x=x, y=y, yaw=yaw, v=v, u=u, charge=charge, boost=max(0, boost - 1), slip=max(0, slip - 1),
              flags=flags | (k["flags"] & (FLAG_FINISHED | FLAG_WRONG_WAY)), seg=seg, s=s, lat=lat,
              steer=steer)  # (what the driver is doing with the wheel: every window turns the kart's front wheels by it)
@@ -280,16 +339,26 @@ def compare(a, b):
 
 # ---------- the race (server side) ----------
 
-def bump(a, b, reach=BUMP_DISTANCE, slow=0.3):
+def bump(a, b, reach=BUMP_DISTANCE, slow=0.3, damage=False):
     """Two karts closer than reach pushed apart, a bounded nudge with no spin, and the faster one losing a little
     speed to the slower (bounded, so nobody is sent flying): one pair of Race.contacts, and what the windows' and the
-    pages' prediction does against the other karts (CHANGE 155). Changes both; True when they touched."""
+    pages' prediction does against the other karts (CHANGE 155). Changes both; True when they touched.
+    damage (CHANGE 158): closing faster than HIT_SPEED damages each where it was hit."""
     dx, dy = b["x"] - a["x"], b["y"] - a["y"]
     d = math.hypot(dx, dy)
     if d >= reach or d < 1e-6:
         return False
     push = (reach - d) / 2
     nx, ny = dx / d, dy / d
+    if damage:
+        ya, yb = math.radians(a["yaw"]), math.radians(b["yaw"])
+        va = (math.cos(ya) * a["v"] - math.sin(ya) * a.get("u", 0.0), math.sin(ya) * a["v"] + math.cos(ya) * a.get("u", 0.0))
+        vb = (math.cos(yb) * b["v"] - math.sin(yb) * b.get("u", 0.0), math.sin(yb) * b["v"] + math.cos(yb) * b.get("u", 0.0))
+        closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny  # (positive: a and b coming together along a to b)
+        if closing > HIT_SPEED:
+            amount = (closing - HIT_SPEED) * HIT_KART
+            for k, y, sx, sy in ((a, ya, nx, ny), (b, yb, -nx, -ny)):  # (where the other is, in k's own frame)
+                hurt(k, amount, side_shares(math.cos(y) * sx + math.sin(y) * sy, -math.sin(y) * sx + math.cos(y) * sy))
     a["x"] -= nx * push
     a["y"] -= ny * push
     b["x"] += nx * push
@@ -322,6 +391,7 @@ class Race:
         self.events = []        # (tick, text)
         self.bumps = []         # (tick, id, other id) this tick, for the windows' sound and sparks
         self.hits = {}          # id -> bumps with another kart since it joined (the missions watch these)
+        self.damage = False     # (CHANGE 158) real damage: hits damage the karts (the lesson's "damage")
         self.lap_times = {}     # id -> [seconds for each lap completed this race]
         self.lap_start = {}     # id -> the tick its current lap began
         self.practice = True    # a practice (free driving) or a race that counts (the teaching layer reads it)
@@ -331,6 +401,14 @@ class Race:
     def time(self):
         """The race's clock, in ticks (the teaching layer stamps its events with it, as the race does its own)."""
         return self.tick
+
+    def set_damage(self, on):
+        """(CHANGE 158) Real damage on or off; off mends every kart at once."""
+        self.damage = bool(on)
+        if not self.damage:
+            for k in self.karts.values():
+                for part in DAMAGE_PARTS:
+                    k[part] = 0
 
     def set_user_mods(self, switches):
         self.user_mods = {k: bool(v) for k, v in (switches or {}).items() if k in USER_MODS}
@@ -387,7 +465,7 @@ class Race:
             if inp[2] & RESPAWN and not frozen:
                 self.respawn(k)
                 inp = (0.0, 0.0, 0)
-            n = step(k, inp, STEP, self.track, self.stats[kid])
+            n = step(k, inp, STEP, self.track, self.stats[kid], self.damage)
             self.karts[kid] = n
         self.contacts()
         for kid, k in self.karts.items():
@@ -413,7 +491,7 @@ class Race:
             a = self.karts[ids[i]]
             for j in range(i + 1, len(ids)):
                 b = self.karts[ids[j]]
-                if not bump(a, b, RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3)):
+                if not bump(a, b, RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3), self.damage):
                     continue
                 self.bumps.append((self.tick, ids[i], ids[j]))
                 self.hits[ids[i]] = self.hits.get(ids[i], 0) + 1

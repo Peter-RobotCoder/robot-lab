@@ -22,6 +22,7 @@ TRACKS = {
                    (6, 74, 0), (-24, 66, -0.6), (-42, 42, -0.4), (-36, 14, 0), (-18, 2, 0)],
         "boosts": [(120.0, 0.0), (235.0, 2.5), (300.0, -2.5)],   # dash pads: (s, lateral)
         "oil": [(170.0, -2.0), (268.0, 1.5)],                     # slippery patches: (s, lateral)
+        "pit": (12.0, 30.0, -1),  # (CHANGE 158) the PIT box: from s to s along one side (-1 right, 1 left) of the road
     },
     "oval": {
         "name": "Test Oval", "width": 14.0, "laps": 2,
@@ -29,17 +30,21 @@ TRACKS = {
                    (-30, 60, 0), (-40, 35, 0), (-30, 10, 0)],
         "boosts": [(60.0, 0.0)],
         "oil": [],
+        "pit": (10.0, 28.0, -1),
     },
     "straight": {  # for netcode tests: a long straight and a hairpin back, the simplest loop there is
         "name": "Straight Road", "width": 12.0, "laps": 1,
         "points": [(0, 0, 0), (60, 0, 0), (120, 0, 0), (140, 10, 0), (120, 20, 0), (60, 20, 0), (0, 20, 0),
                    (-20, 10, 0)],
         "boosts": [], "oil": [],
+        "pit": (14.0, 32.0, -1),
     },
 }
 
 BOOST_RADIUS = 2.6  # how close to a dash pad's middle a kart must pass (m)
 OIL_RADIUS = 2.2
+PIT_WIDTH = 4.0  # (CHANGE 158) the PIT box's width, in from the barrier on its side (m)
+PIT_KERB = 0.6   # (its paint stops short of the kerb along the barrier)
 
 
 def catmull_rom(points, step=1.2):
@@ -78,6 +83,8 @@ class Track:
         self.gate_s = [g * total / GATES for g in range(GATES)]
         self.boosts = [(float(s), float(lat)) for s, lat in data.get("boosts", [])]
         self.oil = [(float(s), float(lat)) for s, lat in data.get("oil", [])]
+        p = data.get("pit")  # (CHANGE 158) the PIT box: (from s, to s, side), or None
+        self.pit = (float(p[0]), float(p[1]), 1 if p[2] > 0 else -1) if p else None
 
     # ---------- where things are ----------
     def segment_at(self, s):
@@ -150,6 +157,38 @@ class Track:
         """Where a kart starts: two abreast, 4 m apart, behind the start line."""
         row, side = divmod(place, 2)
         return (-(5.0 + row * 4.0)) % self.length, 2.6 if side == 0 else -2.6
+
+    def in_pit(self, s, lateral):
+        """(CHANGE 158) Is (s, lateral) in the PIT box (where a kart going slowly is mended)?"""
+        if self.pit is None:
+            return False
+        s0, s1, side = self.pit
+        s %= self.length
+        inner = self.half - PIT_WIDTH  # (the box runs from the barrier PIT_WIDTH in towards the middle)
+        return s0 <= s <= s1 and lateral * side >= inner
+
+    def pit_marks(self):
+        """(CHANGE 158) The PIT box's paint as quads, each four (s, lateral) corners: a yellow outline and the word
+        PIT across it near its start, reading the right way for a kart coming up to it (track.js's pitMarks too)."""
+        if self.pit is None:
+            return []
+        s0, s1, side = self.pit
+        inner, outer = side * (self.half - PIT_WIDTH), side * (self.half - PIT_KERB)
+        lo, hi = min(inner, outer), max(inner, outer)
+        w = 0.12  # (the lines' width)
+        quads = [((s0, lo), (s1, lo), (s1, lo + w), (s0, lo + w)), ((s0, hi - w), (s1, hi - w), (s1, hi), (s0, hi)),
+                 ((s0, lo), (s0 + w, lo), (s0 + w, hi), (s0, hi)), ((s1 - w, lo), (s1, lo), (s1, hi), (s1 - w, hi))]
+        # the letters on a grid 4 across (0.2 m each, the first column on the driver's left) by 5 along (0.4 m each)
+        letters = {"P": [(0, 0, 1, 5), (0, 4, 4, 5), (3, 2.5, 4, 5), (0, 2.5, 4, 3.5)],
+                   "I": [(1.5, 0, 2.5, 5), (0, 4, 4, 5), (0, 0, 4, 1)],
+                   "T": [(0, 4, 4, 5), (1.5, 0, 2.5, 5)]}
+        left = hi - 0.25 if side < 0 else hi - 0.25 - (PIT_WIDTH - PIT_KERB - 3.0)  # (the word clear of the kerb)
+        for i, ch in enumerate("PIT"):
+            for u0, h0, u1, h1 in letters[ch]:
+                a0, a1 = s0 + 1.5 + h0 * 0.4, s0 + 1.5 + h1 * 0.4
+                b0, b1 = left - i * 1.0 - u1 * 0.2, left - i * 1.0 - u0 * 0.2
+                quads.append(((a0, b0), (a1, b0), (a1, b1), (a0, b1)))
+        return quads
 
     def near(self, features, s, lateral, radius):
         """Is (s, lateral) within radius of one of these (s, lateral) features?"""

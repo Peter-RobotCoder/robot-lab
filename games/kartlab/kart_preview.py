@@ -24,6 +24,7 @@ ap.add_argument("--gfx", choices=["mesh", "lines", "basic", "low", "medium", "hi
 ap.add_argument("--lines", default=None, help="mesh and lines: their colour, #rrggbb")
 ap.add_argument("--closeup", action="store_true", help="the camera close to the followed kart, from the front")
 ap.add_argument("--steer", type=float, default=None, help="draw every kart steering this much (-1 right to 1 left: CHANGE 157)")
+ap.add_argument("--damage", default=None, help="draw every kart this damaged: six numbers 0 to 1, wing,fl,fr,rl,rr,engine (CHANGE 158)")
 ap.add_argument("--track", choices=["club", "oval", "straight"], default="club")
 ap.add_argument("--camera", choices=["chase", "hood", "tv"], default="chase")
 ap.add_argument("--laps", type=int, default=None)
@@ -173,7 +174,8 @@ class Preview(ShowBase):
             inp = drive(self.track, self.race.karts[i])
             drifting = bool(k["flags"] & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R))
             self.karts[i].update(k["x"], k["y"], z, k["yaw"], inp[1] if args.steer is None else args.steer, k["v"], k["u"], drifting,
-                                 bool(k["flags"] & sim.FLAG_BOOSTING), dt)
+                                 bool(k["flags"] & sim.FLAG_BOOSTING), dt,
+                                 [float(v) for v in args.damage.split(",")] if args.damage else sim.damage_of(k))
         me = states[self.follow]
         self.cam.update(dt, me["x"], me["y"], self.track.height(me["s"]), me["yaw"], me["v"], self.track)
         if args.closeup:  # three quarters from the front, a little above
@@ -188,7 +190,8 @@ class Preview(ShowBase):
         results = self.race.results() if self.race.phase == sim.FLAGS_OVER else None
         dots = [(k["x"], k["y"], DESIGNS[i]["colour"], i == self.follow) for i, k in states.items()]
         self.hud.update(mine["lap"] + 1, self.race.laps, places.index(self.follow) + 1, len(places), me["v"] * 3.6,
-                        self.race.countdown(), bool(mine["flags"] & sim.FLAG_WRONG_WAY), mine["charge"], dots, results)
+                        self.race.countdown(), bool(mine["flags"] & sim.FLAG_WRONG_WAY), mine["charge"], dots, results,
+                        [float(v) for v in args.damage.split(",")] if args.damage else None)  # (CHANGE 158)
         self.hud.status(f"{self.clock.getAverageFrameRate():.0f} fps   gfx {kart_gfx.tier()}   camera {self.cam.name}"
                         f"   C camera  1-4 follow  R restart")
 
