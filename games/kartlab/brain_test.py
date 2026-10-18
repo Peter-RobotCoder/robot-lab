@@ -17,6 +17,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import kart_version  # noqa: E402,F401  (puts the engine on the path: one folder up here, two in the public repository)
 from engine import wire  # noqa: E402
 import brain_worker  # noqa: E402
 import cpu_brains  # noqa: E402

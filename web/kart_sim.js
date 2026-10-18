@@ -32,13 +32,14 @@ export const MINI_BOOST = 37, SUPER_BOOST = 100;    // ...and the boosts they pa
 export const PAD_BOOST = 90;                        // a dash pad's boost (1.5 s)
 export const OIL_TICKS = 75;                        // how long an oil patch's slide lasts (1.25 s)
 export const BOOST_SPEED = 1.25, BOOST_ACCEL = 1.5;
+export const ROLL = 0.6;                            // off the throttle the tyres roll to a stop (m/s each second: CHANGE 156)
 export const COUNTDOWN_TICKS = 60 * 4;
 export const FLAGS_GRID = 0, FLAGS_RACE = 1, FLAGS_OVER = 2;  // the snapshot's flags byte: the race's phase
 
 // the wire record for one kart (kart_sim.SCHEMA_FIELDS): name, struct code, scale
 export const SCHEMA_FIELDS = [["x", "i", 100], ["y", "i", 100], ["yaw", "h", 10], ["v", "h", 100], ["u", "h", 100],
                               ["charge", "H", 1], ["boost", "B", 1], ["slip", "B", 1], ["lap", "B", 1],
-                              ["cp", "B", 1], ["flags", "B", 1]];
+                              ["cp", "B", 1], ["flags", "B", 1], ["steer", "b", 100]];  // (steer: the input's, for the picture: CHANGE 157)
 const RANGE = {b: [-128, 127], B: [0, 255], h: [-32768, 32767], H: [0, 65535],
                i: [-2147483648, 2147483647], I: [0, 4294967295]};
 
@@ -54,7 +55,7 @@ export function statsOf(design) {
 
 export function newKart(id, design, s, lateral, heading) {
     return {id, x: 0.0, y: 0.0, yaw: heading, v: 0.0, u: 0.0, charge: 0, boost: 0, slip: 0, lap: 0, cp: 0,
-            flags: 0, seg: 0, s, lat: lateral};
+            flags: 0, steer: 0.0, seg: 0, s, lat: lateral};
 }
 
 // put a kart at s, lateral on the track (the grid, a respawn): changes k, as Python's does
@@ -111,6 +112,7 @@ export function step(k, inp, dt, track, st) {
     } else {
         v -= accel * 1.6 * dt;
     }
+    if (th === 0) v = copysign(Math.max(0.0, Math.abs(v) - ROLL * dt), v);  // (CHANGE 156: a kart let go crept on for ever)
     v = Math.max(-0.3 * top, Math.min(top, v));
     // steering: a rate that needs some speed to work and eases off at the top, tighter in a drift
     let turn = steer * steerRate * Math.min(1.0, Math.abs(v) / 6.0) * (1.0 - 0.4 * Math.min(1.0, Math.abs(v) / top));
@@ -160,6 +162,7 @@ export function step(k, inp, dt, track, st) {
     n.seg = seg;
     n.s = s;
     n.lat = lat;
+    n.steer = steer;  // (what the driver is doing with the wheel: every window turns the kart's front wheels by it)
     return n;
 }
 

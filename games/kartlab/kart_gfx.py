@@ -1174,17 +1174,30 @@ def geom_of(parts):
 
 def ultra_model():
     """The ultra kart's Geoms, one per role, made once: {"body": {role: Geom}, "wheel": {...}, "steering": {...},
-    "notes": ...}."""
+    "head": {...}, "arms": [{role: Geom} for each arm], "notes": ...}."""
     if "ultra_model" not in _state:
         model = kart_models.kart()
         out = {"notes": model["notes"]}
-        for key in ("body", "wheel", "steering"):
+        for key in ("body", "wheel", "steering", "head"):
             roles = {}
             for p in model[key]:
                 roles.setdefault(p["role"], []).append(p)
             out[key] = {role: geom_of(ps) for role, ps in roles.items()}
+        out["arms"] = [{p["role"]: geom_of([p])} for p in model["arms"]]  # (each its own: each turns apart)
         _state["ultra_model"] = out
     return _state["ultra_model"]
+
+
+def arm_turn(shoulder, hand, to):
+    """(CHANGE 157) The turn about the shoulder that points the arm (shoulder to hand) at to: the shortest one."""
+    a, b = hand - shoulder, to - shoulder
+    a.normalize()
+    b.normalize()
+    axis = a.cross(b)
+    if axis.length() < 1e-9:
+        return LRotationf.identQuat()
+    axis.normalize()
+    return LRotationf(axis, math.degrees(math.acos(max(-1.0, min(1.0, a.dot(b))))))
 
 
 def role_look(role, colour):
@@ -1199,6 +1212,7 @@ def role_look(role, colour):
 WHEEL_R, WHEEL_W = kart_models.WHEEL_R, kart_models.WHEEL_W
 WHEELS = kart_models.WHEELS  # (x, y): front left, front right, rear left, rear right
 MAX_STEER = 26.0  # degrees the front wheels turn at full lock (a picture, not the physics)
+STEER_EASE = 10.0  # (CHANGE 157) how fast the picture's steering follows the driver's (per second): keys are all or nothing
 
 
 class KartVisual:
@@ -1213,6 +1227,9 @@ class KartVisual:
         self.root = parent.attachNewNode("kart")
         self.body = self.root.attachNewNode("body")  # (pitch and roll go on this; the wheels stay on the road)
         self.steering = None             # ultra: the steering wheel, turned with the front wheels
+        self.arms, self.head = [], None  # ultra: each arm about its shoulder, the head about the neck (CHANGE 157)
+        self.box_wheel = None            # the other tiers: the steering wheel, turned about its own axis (CHANGE 157)
+        self.steer_now = 0.0             # the steering as drawn: eased towards the driver's
         self.skid_last = [None, None]    # ultra: where each rear tyre's skid mark last ended
         if tier() == "ultra":
             self.ultra(colour)
@@ -1291,9 +1308,7 @@ class KartVisual:
         part(b, helmet, "paint", (0.95, 0.95, 0.95), rough=0.25, metal=0.0, pos=(-0.28, 0, z0 + 0.66), materials=m)
         part(b, bevel_box(0.03, 0.1, 0.045, 0.01), None, (0.05, 0.05, 0.08), rough=0.1, pos=(-0.16, 0, z0 + 0.67),
              materials=m)  # visor
-        # the steering wheel (a flat ring: a short cylinder with a hub) and column
-        part(b, cylinder(0.12, 0.012, axis="x", seg=16, bevel=0.01), None, (0.1, 0.1, 0.12), rough=0.7,
-             pos=(0.1, 0, z0 + 0.45), hpr=(0, 0, -25), materials=m)
+        # the steering column (the wheel itself turns: below, CHANGE 157)
         part(b, cylinder(0.02, 0.14, axis="x", seg=8), "steel", (0.6, 0.6, 0.62), rough=0.5, metal=1.0,
              pos=(0.22, 0, z0 + 0.4), hpr=(0, 0, -25), materials=m)
         # the rear wing on two posts, and a little engine block beside the seat
@@ -1310,6 +1325,19 @@ class KartVisual:
         self.body.flattenStrong()
         if look():  # mesh and lines: black faces, the edges as lines
             outline(self.body)
+        # (CHANGE 157) the steering wheel (a flat ring: a short cylinder) on its own node, tilted with the column and
+        # turned about its own axis (x) as the driver steers: kept out of the flattened body
+        column = b.attachNewNode("steering column")
+        column.setPos(0.1, 0, z0 + 0.45)
+        column.setHpr(0, 0, -25)
+        self.box_wheel = column.attachNewNode("steering wheel")
+        part(self.box_wheel, cylinder(0.12, 0.012, axis="x", seg=16, bevel=0.01), None, (0.1, 0.1, 0.12), rough=0.7,
+             materials=m)
+        for face in (-0.012, 0.012):  # (a spoke across each face: the turn shows from in front and from the seat)
+            part(self.box_wheel, bevel_box(0.006, 0.11, 0.014, 0.004), "steel", (0.6, 0.6, 0.62), rough=0.5, metal=1.0,
+                 pos=(face, 0, 0), materials=m)
+        if look():
+            outline(self.box_wheel)
         # the wheels: the front pair on steering pivots, each with a spin node
         self.wheels, self.steer_nodes = [], []
         tyre = cylinder(WHEEL_R, WHEEL_W, axis="y", seg=20, bevel=0.03, tile=2.5)
@@ -1360,7 +1388,23 @@ class KartVisual:
         self.steer_axis, self.steer_ratio = Vec3(*steer["axis"]), steer["ratio"]
         held = self.steering.attachNewNode("steering wheel")
         held.setPos(-Vec3(*steer["pivot"]))
-        parts(held, model["steering"])
+        parts(held, model["steering"])  # (the gloves on its rim among them: CHANGE 157)
+        # (CHANGE 157) each arm on its shoulder, turned so its hand stays on the rim; the head on the neck
+        self.steer_pivot = Vec3(*steer["pivot"])
+        for note, geoms in zip(model["notes"]["arms"], model["arms"]):
+            node = self.body.attachNewNode("arm")
+            node.setPos(*note["shoulder"])
+            arm = node.attachNewNode("held")
+            arm.setPos(-Vec3(*note["shoulder"]))
+            parts(arm, geoms)
+            self.arms.append((node, Vec3(*note["shoulder"]), Vec3(*note["hand"])))
+        head = model["notes"]["head"]
+        self.head = self.body.attachNewNode("head")
+        self.head.setPos(*head["pivot"])
+        self.head_turn, self.head_lean = head["turn"], head["lean"]
+        held = self.head.attachNewNode("held")
+        held.setPos(-Vec3(*head["pivot"]))
+        parts(held, model["head"])
         wheel = self.root.attachNewNode("wheel")  # (one wheel, instanced at the four corners)
         parts(wheel, model["wheel"])
         wheel.detachNode()
@@ -1412,11 +1456,22 @@ class KartVisual:
         self.pitch += (want_pitch - self.pitch) * a
         self.roll += (want_roll - self.roll) * a
         self.body.setHpr(0, self.roll, self.pitch)  # (nose along +x: a lean is Panda's P, a nose dip its R)
-        angle = max(-1.0, min(1.0, steer)) * MAX_STEER
+        # (CHANGE 157) the steering as drawn eases towards the driver's (the keys are all or nothing): the front wheels
+        # turn by it, the steering wheel three times as far, the hands stay on the rim and the head looks into the turn
+        self.steer_now += (max(-1.0, min(1.0, steer)) - self.steer_now) * min(1.0, dt * STEER_EASE)
+        angle = self.steer_now * MAX_STEER
         for pivot in self.steer_nodes:
             pivot.setH(angle)
+        if self.box_wheel is not None:
+            self.box_wheel.setP(angle * kart_models.STEER_RATIO)
         if self.steering is not None:
-            self.steering.setQuat(LRotationf(self.steer_axis, angle * self.steer_ratio))
+            turn = LRotationf(self.steer_axis, angle * self.steer_ratio)
+            self.steering.setQuat(turn)
+            for node, shoulder, hand in self.arms:
+                node.setQuat(arm_turn(shoulder, hand, self.steer_pivot + turn.xform(hand - self.steer_pivot)))
+                node.setScale((self.steer_pivot + turn.xform(hand - self.steer_pivot) - shoulder).length()
+                              / (hand - shoulder).length())
+            self.head.setHpr(self.steer_now * self.head_turn, -self.steer_now * self.head_lean, 0)
             self.skids(x, y, z, yaw_deg, drifting and abs(v) > 3.0)
         self.spin_angle = (self.spin_angle + math.degrees(v / WHEEL_R) * dt) % 360.0
         for spin in self.wheels:

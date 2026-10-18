@@ -23,6 +23,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--gfx", choices=["mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="medium")
 ap.add_argument("--lines", default=None, help="mesh and lines: their colour, #rrggbb")
 ap.add_argument("--closeup", action="store_true", help="the camera close to the followed kart, from the front")
+ap.add_argument("--steer", type=float, default=None, help="draw every kart steering this much (-1 right to 1 left: CHANGE 157)")
 ap.add_argument("--track", choices=["club", "oval", "straight"], default="club")
 ap.add_argument("--camera", choices=["chase", "hood", "tv"], default="chase")
 ap.add_argument("--laps", type=int, default=None)
@@ -171,7 +172,7 @@ class Preview(ShowBase):
             z = self.track.height(k["s"])
             inp = drive(self.track, self.race.karts[i])
             drifting = bool(k["flags"] & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R))
-            self.karts[i].update(k["x"], k["y"], z, k["yaw"], inp[1], k["v"], k["u"], drifting,
+            self.karts[i].update(k["x"], k["y"], z, k["yaw"], inp[1] if args.steer is None else args.steer, k["v"], k["u"], drifting,
                                  bool(k["flags"] & sim.FLAG_BOOSTING), dt)
         me = states[self.follow]
         self.cam.update(dt, me["x"], me["y"], self.track.height(me["s"]), me["yaw"], me["v"], self.track)

@@ -9,7 +9,7 @@ export const KIND_SNAPSHOT = 1;
 // kart_sim.SCHEMA_FIELDS: name, struct code, scale
 export const KART_FIELDS = [["x", "i", 100], ["y", "i", 100], ["yaw", "h", 10], ["v", "h", 100], ["u", "h", 100],
                             ["charge", "H", 1], ["boost", "B", 1], ["slip", "B", 1], ["lap", "B", 1],
-                            ["cp", "B", 1], ["flags", "B", 1]];
+                            ["cp", "B", 1], ["flags", "B", 1], ["steer", "b", 100]];
 
 const READ = {
     b: (dv, o) => [dv.getInt8(o), 1], B: (dv, o) => [dv.getUint8(o), 1],

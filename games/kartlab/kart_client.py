@@ -2623,7 +2623,9 @@ class Lab(hud.HudKit, ShowBase):
         now = time.perf_counter()
         dt = min(now - self.last, 0.1)
         self.last = now
-        if args.screenshot and now - self.start > args.after:
+        # (a few frames first: simplepbr sets camera_world_position in its own task, later in each frame than this one,
+        # so a picture taken in the first frame of a slow start asserted: CHANGE 156)
+        if args.screenshot and now - self.start > args.after and task.frame > 2:
             self.graphicsEngine.renderFrame()
             self.graphicsEngine.renderFrame()
             self.win.saveScreenshot(Filename.fromOsSpecific(os.path.abspath(args.screenshot)))
@@ -2718,7 +2720,7 @@ class Lab(hud.HudKit, ShowBase):
             seg, s, lat = self.track.locate(k["x"], k["y"], k.get("seg"))
             z = self.track.height(s)
             flags = k.get("flags", 0)
-            vis.update(k["x"], k["y"], z, k["yaw"], 0.0, k["v"], k["u"],
+            vis.update(k["x"], k["y"], z, k["yaw"], k.get("steer", 0.0), k["v"], k["u"],  # (steer: CHANGE 157)
                        bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), bool(flags & sim.FLAG_BOOSTING), dt)
         if me is not None:
             seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))

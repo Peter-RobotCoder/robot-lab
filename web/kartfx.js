@@ -405,9 +405,11 @@ export class Sparks {
 // front, side}], steering: [part]}; a part: {name, role, positions, normals, indices, uvs?} in the game's frame
 // (z up, metres, the nose along +x). Loaded once; null until it has (or when it isn't there or is broken)
 let ultraKart = null, ultraAsked = null;
+// (CHANGE 157) the model files are asked for as no-cache: the browser checks for a newer one each time (a 304 when it's
+// the same), so a release's new kart isn't drawn from an old copy it kept (a laptop server says nothing of caching)
 export function loadUltraKart() {
     if (!ultraAsked) {
-        ultraAsked = fetch("models/kart_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+        ultraAsked = fetch("models/kart_ultra.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).then(d => {
             ultraKart = d && Array.isArray(d.body) && Array.isArray(d.wheel) && Array.isArray(d.wheels) && d.wheels.length ? d : null;
             return ultraKart;
         }).catch(() => null);
@@ -447,7 +449,7 @@ export function partMesh(sc, part, scale = 1) {
 let scenery = null, sceneryAsked = null;
 export function loadScenery() {
     if (!sceneryAsked) {
-        sceneryAsked = fetch("models/kart_scenery.json").then(r => r.ok ? r.json() : null).then(d => {
+        sceneryAsked = fetch("models/kart_scenery.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).then(d => {
             scenery = d && d.version === 1 && d.materials && d.shapes && d.tracks ? d : null;
             return scenery;
         }).catch(() => null);

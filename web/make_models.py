@@ -2,7 +2,7 @@
 tier draws the same kart and the same circuit as the app's (CHANGE 144).
 
 - kart_ultra.json: Kart Lab's ultra kart (kart/kart_models.py: pure Python, the window builds it the same way),
-  {"version", "body", "wheel", "wheels", "steering", "notes"}: see kart_models.py for every field.
+  {"version", "body", "wheel", "wheels", "steering", "arms", "head", "notes"}: see kart_models.py for every field.
 - kart_scenery.json: Kart Lab's ultra circuit for every built-in track (kart/kart_scenery.py, the same way): the
   road, kerbs, gravel, barriers, grass, buildings and country as parts, and the trees, tufts, tyre stacks, fans and
   posts as shapes placed by instances, {"version", "materials", "shapes", "tracks", "lights", "notes"}: see
@@ -97,7 +97,7 @@ def kart_text():
     """kart_ultra.json's text as kart_models.py makes it today (one line per part: small to diff, quick to read)."""
     m = module("kart_models").kart()
     lines = ["{" + f'"version": {json.dumps(m["version"])},']
-    for key in ("body", "wheel", "steering"):
+    for key in ("body", "wheel", "steering", "arms", "head"):  # (arms and head: CHANGE 157)
         parts = [json.dumps(p, separators=(",", ":")) for p in m[key]]
         lines.append(f'"{key}": [' + ("\n" + ",\n".join(parts) + "\n" if parts else "") + "],")
     lines.append(f'"wheels": {json.dumps(m["wheels"])},')

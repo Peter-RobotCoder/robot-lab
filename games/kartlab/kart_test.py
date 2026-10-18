@@ -134,6 +134,23 @@ def kart_physics():
     sim.place(t, k, s_oil - 1.0, lat_oil)
     k = sim.step(k, (1.0, 0.0, 0), sim.STEP, t, st)
     assert k["slip"] > 0
+    # (CHANGE 156) let go, a kart rolls to a stop and stays there (the rounding to the wire once held it at 0.81 m/s)
+    k = sim.new_kart(0, None, 0.0, 0.0, 0.0)
+    sim.place(t, k, 10.0, 0.0)
+    for _ in range(120):
+        k = sim.step(k, (1.0, 0.0, 0), sim.STEP, t, st)
+        k.update(schema.quantise(k))
+    for _ in range(60 * 10):
+        k = sim.step(k, (0.0, 0.0, 0), sim.STEP, t, st)
+        k.update(schema.quantise(k))
+    still = (k["x"], k["y"])
+    for _ in range(60):
+        k = sim.step(k, (0.0, 0.0, 0), sim.STEP, t, st)
+        k.update(schema.quantise(k))
+    assert k["v"] == 0 and (k["x"], k["y"]) == still, (k["v"], still, k["x"], k["y"])
+    # (CHANGE 157) the state carries the driver's steering, for every window's front wheels
+    k = sim.step(k, (0.0, -0.75, 0), sim.STEP, t, st)
+    assert schema.quantise(k)["steer"] == -0.75, k["steer"]
     # the wire rounding is stable: rounding a rounded state changes nothing (both ends can agree)
     q = schema.quantise(r1.karts[0])
     assert schema.quantise(q) == q

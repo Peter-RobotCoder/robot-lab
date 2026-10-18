@@ -46,13 +46,14 @@ MINI_BOOST, SUPER_BOOST = 37, 100              # ...and the boosts they pay out,
 PAD_BOOST = 90                                 # a dash pad's boost (1.5 s)
 OIL_TICKS = 75                                 # how long an oil patch's slide lasts (1.25 s)
 BOOST_SPEED, BOOST_ACCEL = 1.25, 1.5
+ROLL = 0.6                                     # off the throttle the tyres roll to a stop (m/s each second: CHANGE 156)
 COUNTDOWN_TICKS = 60 * 4                       # 3, 2, 1, GO
 FLAGS_GRID, FLAGS_RACE, FLAGS_OVER = 0, 1, 2   # the snapshot's flags byte: the race's phase
 
 # the wire record for one kart (engine.wire): both ends round their numbers to this every tick
 SCHEMA_FIELDS = [("x", "i", 100), ("y", "i", 100), ("yaw", "h", 10), ("v", "h", 100), ("u", "h", 100),
                  ("charge", "H", 1), ("boost", "B", 1), ("slip", "B", 1), ("lap", "B", 1), ("cp", "B", 1),
-                 ("flags", "B", 1)]
+                 ("flags", "B", 1), ("steer", "b", 100)]  # (steer: the input's, for the picture: CHANGE 157)
 
 
 def default_design(name="Kart", colour=(220, 60, 50)):
@@ -176,7 +177,7 @@ def stats_of(design):
 
 def new_kart(kid, design, s, lateral, heading):
     track_free = {"id": kid, "x": 0.0, "y": 0.0, "yaw": heading, "v": 0.0, "u": 0.0, "charge": 0, "boost": 0,
-                  "slip": 0, "lap": 0, "cp": 0, "flags": 0, "seg": 0, "s": s, "lat": lateral}
+                  "slip": 0, "lap": 0, "cp": 0, "flags": 0, "steer": 0.0, "seg": 0, "s": s, "lat": lateral}
     return track_free
 
 
@@ -223,6 +224,8 @@ def step(k, inp, dt, track, st):
         v += (th * accel - accel * v / top) * dt if th >= 0 else (th * accel * 0.5 - accel * v / top) * dt
     else:
         v -= accel * 1.6 * dt
+    if th == 0:  # (CHANGE 156) the drag alone fades with the speed, and below 0.8 m/s the rounding to the wire each
+        v = math.copysign(max(0.0, abs(v) - ROLL * dt), v)  # tick undid it: a kart let go crept on for ever
     v = max(-0.3 * top, min(top, v))
     # steering: a rate that needs some speed to work and eases off at the top, tighter in a drift
     turn = steer * steer_rate * min(1.0, abs(v) / 6.0) * (1.0 - 0.4 * min(1.0, abs(v) / top))
@@ -261,7 +264,8 @@ def step(k, inp, dt, track, st):
     if track.near(track.oil, s, lat, kart_track.OIL_RADIUS):
         slip = OIL_TICKS
     n.update(x=x, y=y, yaw=yaw, v=v, u=u, charge=charge, boost=max(0, boost - 1), slip=max(0, slip - 1),
-             flags=flags | (k["flags"] & (FLAG_FINISHED | FLAG_WRONG_WAY)), seg=seg, s=s, lat=lat)
+             flags=flags | (k["flags"] & (FLAG_FINISHED | FLAG_WRONG_WAY)), seg=seg, s=s, lat=lat,
+             steer=steer)  # (what the driver is doing with the wheel: every window turns the kart's front wheels by it)
     return n
 
 

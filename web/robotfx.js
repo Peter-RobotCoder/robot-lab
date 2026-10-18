@@ -575,7 +575,7 @@ const DEG = Math.PI / 180;
 let robotModels = null, robotAsked = null, arenaModels = null, arenaAsked = null;
 export function loadRobotModels() {
     if (!robotAsked) {
-        robotAsked = fetch("models/robot_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+        robotAsked = fetch("models/robot_ultra.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).then(d => {
             robotModels = d && d.version === 1 && d.roles && d.pieces && d.pieces.hull ? d : null;
             return robotModels;
         }).catch(() => null);
@@ -586,7 +586,7 @@ export function robotModelsData() { return robotModels; }
 
 export function loadArenaModels() {
     if (!arenaAsked) {
-        arenaAsked = fetch("models/arena_ultra.json").then(r => r.ok ? r.json() : null).then(d => {
+        arenaAsked = fetch("models/arena_ultra.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).then(d => {
             arenaModels = d && d.version === 1 && d.materials && d.groups && d.groups.floor ? d : null;
             return arenaModels;
         }).catch(() => null);

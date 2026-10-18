@@ -19,6 +19,9 @@ import {TRACKS} from "./track.js";
 export {TIERS};
 
 const WHEEL_R = 0.2, WHEEL_W = 0.09;
+// (CHANGE 157, kart_gfx's) the front wheels at full lock (radians), the steering wheel's turn to theirs, how fast the
+// drawn steering follows the driver's (per second)
+const MAX_STEER = 26 * Math.PI / 180, STEER_RATIO = 3.0, STEER_EASE = 10.0;
 const WHEELS = [[0.5, 0.6], [0.5, -0.6], [-0.52, 0.62], [-0.52, -0.62]];  // x, y: FL, FR, RL, RR
 const KERB_RED = [0.85, 0.12, 0.08, 1], KERB_WHITE = [0.95, 0.95, 0.92, 1];
 const TARMAC_TINT = [0.9, 0.9, 0.92], GRASS_TINT = [0.95, 1.0, 0.9], STEEL = [0.6, 0.6, 0.62];
@@ -586,7 +589,13 @@ export class KartScene extends BaseScene {
         for (const side of [1, -1]) parts.push(this.cyl(body, 0.035, 0.2, "x", suit, -0.08, side * 0.14, z0 + 0.42, null, 8));
         parts.push(this.sphere(body, 0.14, this.material("khelmet", [0.95, 0.95, 0.95], 0.25, 0, 0, {tex: "paint", tile: 1.5, clearcoat: 0.8, probe: true}), -0.28, 0, z0 + 0.66, 1, 1, 1, 14));
         box(0.03, 0.1, 0.045, this.material("kvisor", [0.05, 0.05, 0.08], 0.1), -0.16, 0, z0 + 0.67);
-        parts.push(this.cyl(body, 0.12, 0.012, "x", seatM, 0.1, 0, z0 + 0.45, null, 16));  // the steering wheel
+        // (CHANGE 157) the steering wheel on its own node, turned about its own axis (x) as the driver steers, with a
+        // spoke across each face so the turn shows: kept out of the merged body
+        const boxWheel = new BABYLON.TransformNode("steering wheel", scene);
+        boxWheel.parent = body;
+        boxWheel.position = v3(0.1, 0, z0 + 0.45);
+        const wheelBits = [this.cyl(boxWheel, 0.12, 0.012, "x", seatM, 0, 0, 0, null, 16)];
+        for (const face of [-0.012, 0.012]) wheelBits.push(this.box(boxWheel, 0.006, 0.11, 0.014, steel, face, 0, 0));
         parts.push(this.cyl(body, 0.02, 0.14, "x", steel, 0.22, 0, z0 + 0.4, null, 8));
         for (const side of [1, -1]) box(0.02, 0.02, 0.12, steel, -0.66, side * 0.3, z0 + 0.26);  // wing posts
         const wing = this.box(body, 0.1, 0.42, 0.015, paint, -0.66, 0, z0 + 0.4);
@@ -611,7 +620,7 @@ export class KartScene extends BaseScene {
             wheels.push({pivot, spin, front: i < 2});
         });
         const merged = this.mergeParts(parts, body);
-        this.shadowCast([...merged, ...wheelParts]);
+        this.shadowCast([...merged, ...wheelParts, ...wheelBits]);
         let flameLines = null;
         if (this.wire) {  // (the line tiers: the body's edges with the body, each wheel's turning with its wheel)
             const mat = this.lineMaterial("kart", 1, ...this.lineFade());
@@ -619,8 +628,10 @@ export class KartScene extends BaseScene {
             flameLines = this.linesMesh("flamelines", this.edgeLines([flame], this.wire, flame), mat, flame);
             if (flameLines) flameLines.isVisible = false;
             wheels.forEach((w, i) => this.linesMesh("wheellines", this.edgeLines(wheelParts.slice(i * 2, i * 2 + 2), this.wire, w.spin), mat, w.spin));
+            this.linesMesh("steerlines", this.edgeLines(wheelBits, this.wire, boxWheel), mat, boxWheel);
         }
         this.finishKart(id, design, root, body, wheels, flame, flameLines, WHEEL_R, false);
+        this.karts.get(id).boxWheel = boxWheel;
     }
 
     kartFlame(root) {  // the boost's glow behind the kart (shown while boosting)
@@ -688,7 +699,41 @@ export class KartScene extends BaseScene {
                 mesh.position = v3(...pivot).scale(-1);  // (its vertices are the kart's: about the pivot)
                 this.shadowCast([mesh]);
             }
-            steerWheel = {node, axis: v3(...axis).normalize(), ratio: Number(S.ratio) || 3};
+            steerWheel = {node, axis: v3(...axis).normalize(), ratio: Number(S.ratio) || 3, pivot: v3(...pivot), arms: [], head: null};
+            // (CHANGE 157) each arm on its shoulder, turned so its hand stays on the rim (the gloves are on it)
+            (d.arms || []).forEach((part, i) => {
+                const note = (notes.arms || [])[i];
+                if (!note) return;
+                const shoulder = v3(...note.shoulder.map(v => v * scale)), hand = v3(...note.hand.map(v => v * scale));
+                const arm = new BABYLON.TransformNode("arm", this.scene);
+                arm.parent = body;
+                arm.position = shoulder.clone();
+                arm.rotationQuaternion = BABYLON.Quaternion.Identity();
+                const mesh = partMesh(this, part, scale);
+                if (!mesh) return;
+                mesh.material = mat(BASE[part.role] ? part.role : "dark");
+                mesh.parent = arm;
+                mesh.position = shoulder.scale(-1);
+                this.shadowCast([mesh]);
+                steerWheel.arms.push({arm, shoulder, hand});
+            });
+            // (CHANGE 157) the head (neck, helmet, visor) on the neck: it looks and leans into a turn
+            const H = notes.head || {};
+            if ((d.head || []).length && Array.isArray(H.pivot)) {
+                const neck = v3(...H.pivot.map(v => v * scale));
+                const head = new BABYLON.TransformNode("head", this.scene);
+                head.parent = body;
+                head.position = neck.clone();
+                for (const part of d.head) {
+                    const mesh = partMesh(this, part, scale);
+                    if (!mesh) continue;
+                    mesh.material = mat(BASE[part.role] ? part.role : "helmet");
+                    mesh.parent = head;
+                    mesh.position = neck.scale(-1);
+                    this.shadowCast([mesh]);
+                }
+                steerWheel.head = {node: head, turn: (Number(H.turn) || 16) * Math.PI / 180, lean: (Number(H.lean) || 7) * Math.PI / 180};
+            }
         }
         const wheels = [], wheelParts = [];
         for (const w of d.wheels) {
@@ -792,14 +837,29 @@ export class KartScene extends BaseScene {
                 }
             }
             k.spin += v * dt / (k.wheelR || WHEEL_R);
-            const steer = Math.max(-0.45, Math.min(0.45, (st.u || 0) * 0.08 + drift * 0.3));
+            // (CHANGE 157, kart_gfx.KartVisual.update) the steering as drawn eases towards the driver's (st.steer, -1
+            // right to 1 left: the keys are all or nothing); the front wheels turn by it, up to 26 degrees, the
+            // steering wheel three times as far, the hands stay on its rim and the head looks into the turn
+            k.steerNow = (k.steerNow || 0) + (Math.max(-1, Math.min(1, st.steer || 0)) - (k.steerNow || 0)) * Math.min(1, dt * STEER_EASE);
+            const steer = k.steerNow * MAX_STEER;
             for (const w of k.wheels) {
                 w.spin.rotation.z = -k.spin;
                 if (w.front) w.pivot.rotation.y = -steer;
             }
+            if (k.boxWheel) k.boxWheel.rotation.x = -steer * STEER_RATIO;
             if (k.steerWheel) {  // (the curved kart's steering wheel, turned as the front wheels times its ratio)
-                const sw = k.steerWheel;
-                BABYLON.Quaternion.RotationAxisToRef(sw.axis, -steer * sw.ratio, sw.node.rotationQuaternion);
+                const sw = k.steerWheel, q = sw.node.rotationQuaternion;
+                BABYLON.Quaternion.RotationAxisToRef(sw.axis, -steer * sw.ratio, q);
+                for (const a of sw.arms) {  // (each arm turned about its shoulder to point at its hand, carried round)
+                    const to = a.hand.subtract(sw.pivot).applyRotationQuaternion(q).addInPlace(sw.pivot);
+                    const from = a.hand.subtract(a.shoulder), want = to.subtract(a.shoulder);
+                    BABYLON.Quaternion.FromUnitVectorsToRef(from.normalizeToNew(), want.normalizeToNew(), a.arm.rotationQuaternion);
+                    a.arm.scaling.setAll(want.length() / from.length());
+                }
+                if (sw.head) {
+                    sw.head.node.rotation.y = -k.steerNow * sw.head.turn;
+                    sw.head.node.rotation.x = -k.steerNow * sw.head.lean;
+                }
             }
         }
         if (this.padMat && this.lighting) {  // the dash pads pulse (kart_gfx.TrackVisual.update)

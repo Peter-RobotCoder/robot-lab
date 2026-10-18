@@ -23,7 +23,7 @@ dark (chassis black), metal, chrome, glass (the visor), tyre, rim, seat, skin, h
 """
 import math
 
-VERSION = 1
+VERSION = 2  # (2: the driver steers, CHANGE 157: gloves on the wheel, arms and head apart)
 WHEEL_R, WHEEL_W = 0.2, 0.09  # the wheels' radius and half width (kart_gfx draws the box kart's with these too)
 WHEELS = [(0.5, 0.6), (0.5, -0.6), (-0.52, 0.62), (-0.52, -0.62)]  # (x, y): front left, front right, rear left, rear right
 STEER_RATIO = 3.0  # the steering wheel turns this many times as far as the front wheels (a picture, not the physics)
@@ -432,31 +432,48 @@ def body_parts():
     seat = Part("seat", "seat")
     superellipsoid(seat, (-0.45, 0.0, 0.43), (0.035, 0.18, 0.16), e=4, seg=20, rings=12, tilt=14)
     parts.append(seat)
-    # the driver: a dark suit (dark: it stands out against the paint), neck (skin), helmet (helmet), visor (glass),
-    # gloves (dark)
+    # the driver's body: a dark suit (dark: it stands out against the paint). The arms, the head and the gloves are
+    # apart (CHANGE 157): arm_parts, head_parts, and the gloves on the steering wheel (steering_parts)
     suit = Part("driver", "dark")
     superellipsoid(suit, (-0.31, 0.0, 0.47), (0.11, 0.16, 0.16), e=2.8, seg=24, rings=14, tilt=12)
-    for side in (1, -1):
-        hand = (STEER_CENTRE[0] - 0.01, side * 0.105, STEER_CENTRE[2] + 0.005)
-        tube(suit, [(-0.27, side * 0.15, 0.58), (-0.13, side * 0.205, 0.49), (-0.01, side * 0.15, 0.49), hand],
-             [0.04, 0.035, 0.032, 0.03], seg=12, steps=5)
     parts.append(suit)
-    skin = Part("neck", "skin")
-    tube(skin, [(-0.3, 0.0, 0.6), (-0.29, 0.0, 0.7)], 0.045, seg=14, steps=1)
-    parts.append(skin)
-    helmet = Part("helmet", "helmet")
-    superellipsoid(helmet, HELMET, (0.145, 0.135, 0.135), e=2.0, seg=28, rings=16)
-    parts.append(helmet)
-    parts.append(visor())
-    gloves = Part("gloves", "dark")
-    for side in (1, -1):
-        superellipsoid(gloves, (STEER_CENTRE[0] - 0.01, side * 0.105, STEER_CENTRE[2] + 0.005), (0.032, 0.03, 0.035),
-                       e=2.2, seg=10, rings=6)
-    parts.append(gloves)
     return parts
 
 
+def hand(side):
+    """Where a glove holds the steering wheel (side 1 the left hand, -1 the right), with the wheel straight."""
+    return (STEER_CENTRE[0] - 0.01, side * 0.105, STEER_CENTRE[2] + 0.005)
+
+
+def shoulder(side):
+    return (-0.27, side * 0.15, 0.58)
+
+
+def arm_parts():
+    """(CHANGE 157) Each arm, shoulder to glove, a part of its own: a drawer turns it about its shoulder (and stretches
+    it a little) so the hand stays on the steering wheel as it turns (notes["arms"])."""
+    arms = []
+    for side, name in ((1, "arm left"), (-1, "arm right")):
+        arm = Part(name, "dark")
+        tube(arm, [shoulder(side), (-0.13, side * 0.205, 0.49), (-0.01, side * 0.15, 0.49), hand(side)],
+             [0.04, 0.035, 0.032, 0.03], seg=12, steps=5)
+        arms.append(arm)
+    return arms
+
+
+def head_parts():
+    """(CHANGE 157) The neck (skin), helmet (helmet) and visor (glass), turned together about the neck's foot
+    (notes["head"]): the driver looks into a turn."""
+    skin = Part("neck", "skin")
+    tube(skin, [NECK, (-0.29, 0.0, 0.7)], 0.045, seg=14, steps=1)
+    helmet = Part("helmet", "helmet")
+    superellipsoid(helmet, HELMET, (0.145, 0.135, 0.135), e=2.0, seg=28, rings=16)
+    return [skin, helmet, visor()]
+
+
 HELMET = (-0.27, 0.0, 0.79)
+NECK = (-0.3, 0.0, 0.6)                            # the neck's foot: the head turns about it (CHANGE 157)
+HEAD_TURN, HEAD_LEAN = 16.0, 7.0                   # degrees the head turns and leans into a turn at full lock
 STEER_CENTRE = (0.1, 0.0, 0.47)                    # the steering wheel's middle...
 STEER_AXIS = norm((-math.cos(math.radians(32)), 0.0, math.sin(math.radians(32))))  # ...and its column, towards the driver
 
@@ -499,7 +516,10 @@ def steering_parts():
         tube(rim, [add(c, mul(sub(end, c), 0.25)), end], 0.009, seg=8, steps=1)
     hub = Part("steering hub", "metal")
     tube(hub, [add(c, mul(a, -0.02)), add(c, mul(a, 0.015))], 0.03, seg=16, steps=1)
-    return [rim, hub]
+    gloves = Part("gloves", "dark")  # (on the rim, so they turn with it: CHANGE 157)
+    for s in (1, -1):
+        superellipsoid(gloves, hand(s), (0.032, 0.03, 0.035), e=2.2, seg=10, rings=6)
+    return [rim, hub, gloves]
 
 
 def wheel_parts():
@@ -536,13 +556,24 @@ def kart():
     body = body_parts()
     steering = steering_parts()
     wheel = wheel_parts()
-    tris = sum(len(p.idx) // 3 for p in body + steering) + 4 * sum(len(p.idx) // 3 for p in wheel)
+    arms, head = arm_parts(), head_parts()
+    tris = sum(len(p.idx) // 3 for p in body + steering + arms + head) + 4 * sum(len(p.idx) // 3 for p in wheel)
     return {"version": VERSION,
             "body": [p.as_dict() for p in body],
             "wheel": [p.as_dict() for p in wheel],
             "wheels": [{"x": x, "y": y, "z": WHEEL_R, "front": x > 0, "side": 1 if y > 0 else -1} for x, y in WHEELS],
             "steering": [p.as_dict() for p in steering],
-            "notes": {"steering": {"pivot": [round(v, 4) for v in STEER_CENTRE], "axis": [round(v, 4) for v in STEER_AXIS],
+            "arms": [p.as_dict() for p in arms],
+            "head": [p.as_dict() for p in head],
+            "notes": {"arms": [{"side": s, "shoulder": list(shoulder(s)), "hand": [round(v, 4) for v in hand(s)]}
+                               for s in (1, -1)],
+                      "head": {"pivot": list(NECK), "turn": HEAD_TURN, "lean": HEAD_LEAN,
+                               "about": "the head (neck, helmet, visor) turns about z through the pivot by turn times "
+                                        "the steering (-1 to 1, left positive) and leans about x by lean times it"},
+                      "arms_about": "each arm turns about its shoulder so that its hand follows the steering wheel's "
+                                    "turn (the hand turned about the steering axis through the pivot), stretched by "
+                                    "the change in the shoulder-to-hand distance",
+"steering": {"pivot": [round(v, 4) for v in STEER_CENTRE], "axis": [round(v, 4) for v in STEER_AXIS],
                                    "ratio": STEER_RATIO,
                                    "about": "the steering wheel turns about the axis through the pivot by the front "
                                             "wheels' angle times ratio (a left turn, anticlockwise seen from the driver)"},
@@ -561,7 +592,7 @@ def triangles(model=None):
 
 if __name__ == "__main__":
     m = kart()
-    for key in ("body", "wheel", "steering"):
+    for key in ("body", "wheel", "steering", "arms", "head"):
         for p in m[key]:
             print(f"{key:9s} {p['name']:18s} {p['role']:7s} {len(p['indices']) // 3:6d} triangles")
     print("whole kart:", triangles(m), "triangles")

@@ -517,6 +517,19 @@ def main():
             assert got["forest"] >= 2 and got["shadow"] == 4096 and got["soft"] and got["coat"], got
             if os.path.exists(os.path.join(HERE, "models", "kart_ultra.json")):  # (the curved kart, make_models.py's)
                 chrome.wait_for("[...window.__state.scene.karts.values()].every(k => k.curved)", 20, "the curved karts")
+                # (CHANGE 157) a kart steering full left, drawn a second: its front wheels and its driver's head point
+                # to its left (sin 26 and sin 16 degrees), the steering wheel turns, the arms follow the hands
+                got = chrome.js("""(() => { const sc = window.__state.scene, [id, k] = [...sc.karts.entries()][0];
+                    const st = new Map([[id, {x: 0, y: 0, yaw: 0, v: 0, u: 0, flags: 0, steer: 1}]]);
+                    for (let i = 0; i < 60; i++) sc.frame(st, 1 / 60);
+                    const left = BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(0, 0, 1), k.root.getWorldMatrix()).normalize();
+                    const fwd = n => BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(1, 0, 0), n.getWorldMatrix()).normalize();
+                    const sw = k.steerWheel, turned = q => Math.abs(q.w) < 0.9999;
+                    return {wheels: k.wheels.filter(w => w.front).map(w => BABYLON.Vector3.Dot(fwd(w.pivot), left)),
+                            head: sw && sw.head ? BABYLON.Vector3.Dot(fwd(sw.head.node), left) : null,
+                            wheel: !!sw && turned(sw.node.rotationQuaternion), arms: sw ? sw.arms.filter(a => turned(a.arm.rotationQuaternion)).length : 0}; })()""")
+                assert all(abs(w - 0.438) < 0.01 for w in got["wheels"]) and len(got["wheels"]) == 2, got
+                assert got["head"] is not None and abs(got["head"] - 0.276) < 0.01 and got["wheel"] and got["arms"] == 2, got
             if os.path.exists(os.path.join(HERE, "models", "kart_scenery.json")):  # (the window's ultra circuit, CHANGE 144)
                 chrome.wait_for("!!window.__state.scene.circuit", 30, "the ultra circuit (models/kart_scenery.json) drawn")
                 chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 30, f"the circuit drawn properly (last: {chrome.js(DRAWN_RIGHT)})")
