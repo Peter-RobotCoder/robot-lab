@@ -10,6 +10,8 @@ import {Predictor, InputLog, ErrorSmoother, LeadController, quantiseInput, packI
 import {Sound} from "./sound.js";
 
 const $ = id => document.getElementById(id);
+// (CHANGE 159) the power-ups (kart_items.ITEMS), their codes 1 to 5 in this order, and their names on the screen
+export const ITEM_NAMES = [["boost", "Boost"], ["oil", "Oil slick"], ["shot", "Bouncing shot"], ["homing", "Homing shot"], ["shield", "Shield"]];
 
 export class KartGame {
     static detect(m) { return !!(m.rules && m.rules.tracks && m.track); }
@@ -52,7 +54,12 @@ export class KartGame {
         const R = this.app.state.rules || {}, b = R.bump || {};
         this.world.reach = Number.isFinite(b.distance) ? b.distance : BUMP_DISTANCE;
         this.world.slow = Number.isFinite(b.slowdown) ? b.slowdown : 0.3;
-        this.world.others = snap.entities.filter(e => e.id !== id).map(e => ({x: e.x, y: e.y, yaw: e.yaw, v: e.v, u: e.u || 0}));
+        const karts = new Map((((this.app.state.roster || {}).karts) || []).map(k => [k.id, k]));
+        this.world.others = snap.entities.filter(e => e.id !== id).map(e => {  // (their steering and stats: CHANGE 159)
+            const st = statsOf((karts.get(e.id) || {}).design || {});
+            return {x: e.x, y: e.y, yaw: e.yaw, v: e.v, u: e.u || 0, steer: e.steer || 0, rate: st.steer, top: st.top,
+                    bg: e.bg || 0};
+        });
         this.world.damage = ((this.app.state.lesson || {}).damage ?? true) !== false;  // (CHANGE 158: real damage)
     }
 
@@ -141,7 +148,7 @@ export class KartGame {
     // H: the window's key list (kart_hud.keys_text), a row a key, with the camera's zoom and Home after it
     keyList() {
         const teacher = this.app.state.role !== "learner";
-        return [["Arrows/WASD", "drive"], ["Shift", "drift"], ["R", "respawn"], ["V", "view"], ["Tab/I", "HUD"], ["C", "code"],
+        return [["Arrows/WASD", "drive"], ["Shift", "drift"], ["E", "use your item"], ["R", "respawn"], ["V", "view"], ["Tab/I", "HUD"], ["C", "code"],
                 ...(teacher ? [["Enter", "start"], ["G", "grid"], ["T", "track"]] : [["U", "brain"], ["P", "autopilot"]]),
                 ["N", "sound"], ["H", "help"], ["+/- or the wheel", "zoom"], ["Home", "the camera back to normal"]];
     }
@@ -172,6 +179,15 @@ export class KartGame {
             case "lesson":
                 if (m.track) this.setTrack(m.track);
                 return false;
+            case "items": {  // (CHANGE 159) the power-ups out on the track, drawn as late as the karts; who was hit
+                this.itemsBuf = (this.itemsBuf || []).concat([m]).slice(-12);
+                for (const [kid, what, blocked] of m.hits || []) {
+                    if (kid !== this.myId()) continue;
+                    const words = {shot: "a shot", homing: "a homing shot", oil: "an oil slick"}[what] || what;
+                    this.hud.note(blocked ? `Your shield stopped ${words}!` : `Hit by ${words}!`, 2);
+                }
+                return true;
+            }
             case "roster":
                 this.scene.setKarts(m.karts || []);
                 this.renderPlaces();
@@ -315,6 +331,7 @@ export class KartGame {
             states.set(myId, mine);
         }
         this.scene.frame(states, dt);
+        this.scene.drawItems(this.itemsAt(this.app.renderTime ? this.app.renderTime(now) : null), dt);  // (CHANGE 159)
         if (pair && this.race && (this.race.phase === 1 || this.phaseFlags === 1)) this.renderCountdown();
         // your race (hud.js): lap, place, speed, the drift meter, wrong way, the minimap; the sounds (sound.js)
         const id = this.myId(), followed = id !== null ? id : this.scene.follow;
@@ -338,6 +355,29 @@ export class KartGame {
             this.app.sound.kartFrame(me, this.race, {top: Sound.kartTop(designs.get(followed)), place: places.indexOf(followed) + 1,
                                                      karts: states, now: Date.now()});
         }
+    }
+
+    // (CHANGE 159) the items to draw at the server's time t (ms): the messages either side, the shots blended
+    itemsAt(t) {
+        const buf = this.itemsBuf || [];
+        if (!buf.length) return null;
+        if (t === null) return buf[buf.length - 1];
+        let a = null, b = null;
+        for (const m of buf) {
+            if (m.sm <= t) a = m;
+            else if (!b && a) b = m;
+        }
+        if (!a) return buf[0];
+        if (!b) return a;
+        const f = Math.max(0, Math.min(1, (t - a.sm) / Math.max(1, b.sm - a.sm)));
+        const later = new Map(b.shots.map(sh => [sh[0], sh]));
+        const shots = a.shots.map(sh => {
+            const n = later.get(sh[0]);
+            if (!n) return sh;
+            const dh = ((n[4] - sh[4] + 180) % 360 + 360) % 360 - 180;
+            return [sh[0], sh[1], sh[2] + (n[2] - sh[2]) * f, sh[3] + (n[3] - sh[3]) * f, sh[4] + dh * f];
+        });
+        return {boxes: a.boxes, shots, slicks: a.slicks};
     }
 
     renderCountdown() {
@@ -472,6 +512,8 @@ export class KartGame {
               <div class="row"><label>Designs</label><button id="btn-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>
               <div class="row"><label>Damage</label><button id="btn-damage" class="${L.damage !== false ? "on" : ""}">${L.damage !== false ? "On: hits slow a kart till it's mended" : "Off"}</button></div>
               <div class="note">Real damage: barriers and other karts damage the front wing, the wheels and the engine. A damaged kart is slower or pulls to one side; it mends by itself, quickly driving slowly through the PIT box. Off mends every kart.</div>
+              <div class="row"><label>Power-ups</label>${ITEM_NAMES.map(([k, t]) => `<button data-item="${k}" class="${(L.items || {})[k] !== false ? "on" : ""}">${t}</button>`).join("")}</div>
+              <div class="note">Item boxes give a random power-up (better ones further back); E uses it. Each one on or off; with all off there are no boxes.</div>
               ${app.restartRow()}`;
             const lessonSend = patch => send({type: "lesson", lesson: patch});
             app.wireMissionRow(body);
@@ -485,7 +527,14 @@ export class KartGame {
             $("sel-level").onchange = e => lessonSend({cpu_level: e.target.value});
             $("btn-tkart").onclick = () => lessonSend({teacher_kart: !L.teacher_kart});
             $("btn-lock").onclick = () => lessonSend({designs_locked: !L.designs_locked});
-            $("btn-damage").onclick = () => lessonSend({damage: L.damage === false});  // (CHANGE 158)
+            // (CHANGE 158, 159) the lesson as it is at the click, not as it was drawn: a second click before the panel is
+            // drawn again would send the first's again
+            const now = () => this.app.state.lesson || L;
+            $("btn-damage").onclick = () => lessonSend({damage: now().damage === false});
+            body.querySelectorAll("button[data-item]").forEach(b => b.onclick = () => {  // (CHANGE 159)
+                const on = Object.fromEntries(ITEM_NAMES.map(([k]) => [k, (now().items || {})[k] !== false]));
+                lessonSend({items: {...on, [b.dataset.item]: !on[b.dataset.item]}});
+            });
             if ($("btn-gp")) $("btn-gp").onclick = () => send({type: "tournament", start: true, races: Number($("gp-races").value)});
             if ($("btn-gp-stop")) $("btn-gp-stop").onclick = () => send({type: "tournament", start: false});
             app.wireRestartRow(body);

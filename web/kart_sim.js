@@ -38,6 +38,7 @@ export const COUNTDOWN_TICKS = 60 * 4;
 export const DAMAGE_PARTS = ["dw", "dfl", "dfr", "drl", "drr", "de"];  // front wing, the wheels, the engine
 export const DAMAGE_MAX = 10000;
 export const HIT_SPEED = 2.0, HIT_BARRIER = 900, HIT_KART = 1100;
+export const HIT_KART_SPEED = 3.0, BUMP_GRACE = 60;  // (CHANGE 159: a bump damages once, then a second's grace)
 export const REPAIR_TICK = 1, REPAIR_PIT = 80, PIT_SPEED = 12.0;
 export const FLAGS_GRID = 0, FLAGS_RACE = 1, FLAGS_OVER = 2;  // the snapshot's flags byte: the race's phase
 
@@ -46,7 +47,9 @@ export const SCHEMA_FIELDS = [["x", "i", 100], ["y", "i", 100], ["yaw", "h", 10]
                               ["charge", "H", 1], ["boost", "B", 1], ["slip", "B", 1], ["lap", "B", 1],
                               ["cp", "B", 1], ["flags", "B", 1], ["steer", "b", 100],  // (steer: the input's, for the picture: CHANGE 157)
                               ["dw", "H", 1], ["dfl", "H", 1], ["dfr", "H", 1], ["drl", "H", 1], ["drr", "H", 1],
-                              ["de", "H", 1]];  // (each part's damage, 0 to DAMAGE_MAX: CHANGE 158)
+                              ["de", "H", 1],  // (each part's damage, 0 to DAMAGE_MAX: CHANGE 158)
+                              ["item", "B", 1], ["shield", "H", 1],  // (the item held; shield ticks left: CHANGE 159)
+                              ["bg", "B", 1]];  // (a bump's grace: CHANGE 159)
 const RANGE = {b: [-128, 127], B: [0, 255], h: [-32768, 32767], H: [0, 65535],
                i: [-2147483648, 2147483647], I: [0, 4294967295]};
 
@@ -62,7 +65,7 @@ export function statsOf(design) {
 
 export function newKart(id, design, s, lateral, heading) {
     return {id, x: 0.0, y: 0.0, yaw: heading, v: 0.0, u: 0.0, charge: 0, boost: 0, slip: 0, lap: 0, cp: 0,
-            flags: 0, steer: 0.0, seg: 0, s, lat: lateral, dw: 0, dfl: 0, dfr: 0, drl: 0, drr: 0, de: 0};
+            flags: 0, steer: 0.0, seg: 0, s, lat: lateral, dw: 0, dfl: 0, dfr: 0, drl: 0, drr: 0, de: 0, item: 0, shield: 0, bg: 0};
 }
 
 // put a kart at s, lateral on the track (the grid, a respawn): changes k, as Python's does
@@ -195,6 +198,8 @@ export function step(k, inp, dt, track, st, damage = false) {
     // (CHANGE 158) mending: a little every tick, quickly in the PIT box at pit speed
     const mend = Math.abs(v) < PIT_SPEED && track.inPit(s, lat) ? REPAIR_PIT : REPAIR_TICK;
     for (const part of DAMAGE_PARTS) if (n[part]) n[part] = Math.max(0, n[part] - mend);
+    if (n.shield) n.shield -= 1;  // (CHANGE 159) a shield wears off
+    if (n.bg) n.bg -= 1;  // ...and a bump's grace
     n.x = x;
     n.y = y;
     n.yaw = yaw;
@@ -254,10 +259,12 @@ export function bump(a, b, reach = BUMP_DISTANCE, slow = 0.3, damage = false) {
         const va = [Math.cos(ya) * a.v - Math.sin(ya) * ua, Math.sin(ya) * a.v + Math.cos(ya) * ua];
         const vb = [Math.cos(yb) * b.v - Math.sin(yb) * ub, Math.sin(yb) * b.v + Math.cos(yb) * ub];
         const closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny;
-        if (closing > HIT_SPEED) {
-            const amount = (closing - HIT_SPEED) * HIT_KART;
+        if (closing > HIT_KART_SPEED) {
+            const amount = (closing - HIT_KART_SPEED) * HIT_KART;
             for (const [k, y, sx, sy] of [[a, ya, nx, ny], [b, yb, -nx, -ny]]) {
+                if (k.bg) continue;  // (CHANGE 159: damaged by a bump in the last second)
                 hurt(k, amount, sideShares(Math.cos(y) * sx + Math.sin(y) * sy, -Math.sin(y) * sx + Math.cos(y) * sy));
+                k.bg = BUMP_GRACE;
             }
         }
     }
@@ -272,7 +279,15 @@ export function bump(a, b, reach = BUMP_DISTANCE, slow = 0.3, damage = false) {
 }
 
 // another kart carried on one tick as it was going (the prediction can't know its keys)
+// (CHANGE 159) turning as its driver is steering: its steer from the wire, k.rate and k.top its design's steering
+// rate and top speed when the prediction knows them (kart_sim.coast)
 export function coast(k, dt) {
+    const steer = k.steer || 0, rate = k.rate || 0;
+    if (steer && rate) {
+        const v = k.v, top = k.top || 25.0;
+        const turn = steer * rate * Math.min(1.0, Math.abs(v) / 6.0) * (1.0 - 0.4 * Math.min(1.0, Math.abs(v) / top));
+        k.yaw += v < 0 ? -turn * dt : turn * dt;
+    }
     const yr = radians(k.yaw), fx = Math.cos(yr), fy = Math.sin(yr), u = k.u || 0;
     k.x += (fx * k.v - fy * u) * dt;
     k.y += (fy * k.v + fx * u) * dt;

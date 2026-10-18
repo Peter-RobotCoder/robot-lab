@@ -550,6 +550,11 @@ function pushSnap(snap, now) {
     if (state.snaps.length > 90) state.snaps.shift();
 }
 
+// (CHANGE 159) the server's time (ms) the picture is drawn at: what samplePair blends to (null before a snapshot)
+function renderTime(now) {
+    return state.offset === null ? null : now - state.offset - DELAY_MS;
+}
+
 // {a, b, f}: the two snapshots around the moment to draw and how far between them (b null at the newest)
 function samplePair(now) {
     const snaps = state.snaps;
@@ -1029,7 +1034,7 @@ const appApi = {
     get state() { return state; }, get game() { return state.game; }, get tier() { return chosenTier(); }, setTier: t => setTier(t),
     lineColour: c => chooseLineColour(c),
     get canvas() { return $("view"); }, get engine() { return engine; }, params,
-    send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, esc,
+    send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, renderTime, esc,
     missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
     restartRow: () => restartRow(appApi), wireRestartRow: body => wireRestartRow(appApi, body),
     twice: (key, text, then) => twice(appApi, key, text, then), keepPrefs: p => keepPrefs(p),

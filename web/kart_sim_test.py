@@ -197,8 +197,14 @@ def make_bumps(rng):  # (CHANGE 155) two karts touching or nearly, bumped and ca
                     "v": rng.uniform(-6, 30), "u": rng.uniform(-3, 3)}
         a, b = kart(), kart()
         reach, slow = rng.choice(((kart_sim.BUMP_DISTANCE, 0.3), (2.5, 0.6)))
-        case = {"a": dict(a), "b": dict(b), "reach": reach, "slow": slow}
-        touched = kart_sim.bump(a, b, reach, slow)
+        damage = rng.random() < 0.6  # (CHANGE 158, 159: the damage a bump does, and the grace after one)
+        for k in (a, b):
+            for part in kart_sim.DAMAGE_PARTS:
+                k[part] = rng.choice((0, rng.randint(0, kart_sim.DAMAGE_MAX)))
+            k["bg"] = rng.choice((0, 0, rng.randint(1, kart_sim.BUMP_GRACE)))
+        b["steer"], b["rate"], b["top"] = rng.choice((0.0, rng.uniform(-1, 1))), rng.uniform(100, 160), rng.uniform(19, 31)
+        case = {"a": dict(a), "b": dict(b), "reach": reach, "slow": slow, "damage": damage}
+        touched = kart_sim.bump(a, b, reach, slow, damage)
         kart_sim.coast(b, kart_sim.STEP)
         case["out"] = [a, b, touched]
         cases.append(case)
@@ -343,7 +349,7 @@ for (const c of job.packs) {
 
 for (const c of job.bumps) {  // (CHANGE 155)
     const a = {...c.a}, b = {...c.b};
-    const touched = sim.bump(a, b, c.reach, c.slow);
+    const touched = sim.bump(a, b, c.reach, c.slow, c.damage);
     sim.coast(b, sim.STEP);
     out.bumps.push([a, b, touched]);
 }
@@ -522,7 +528,7 @@ def main():
     # (cos and sin: the system's) to a nanometre
     def far(c, js):
         (pa, pb, pt), (ja, jb, jt) = c["out"], js
-        return (pt != jt or any(pa[k] != ja[k] for k in pa) or any(pb[k] != jb[k] for k in ("v", "yaw"))
+        return (pt != jt or any(pa[k] != ja[k] for k in pa) or pb["v"] != jb["v"] or abs(pb["yaw"] - jb["yaw"]) > 1e-9
                 or any(abs(pb[k] - jb[k]) > 1e-9 for k in ("x", "y")))
     wrong = [i for i, (c, js) in enumerate(zip(bumps, out["bumps"])) if far(c, js)]
     touched = sum(1 for c in bumps if c["out"][2])

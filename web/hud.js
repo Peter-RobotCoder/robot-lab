@@ -102,6 +102,7 @@ function ordinal(n) {
 // (CHANGE 158) the damage panel's parts in a 70 x 90 box, nose up: front wing, front left, front right, rear left,
 // rear right, engine (the wire's order: kart_gfx.DAMAGE_BOXES); a part's colour, green through yellow to red
 const DAMAGE_PARTS = ["dw", "dfl", "dfr", "drl", "drr", "de"], DAMAGE_MAX = 10000;
+const ITEMS = ["boost", "oil", "shot", "homing", "shield"];  // (CHANGE 159: kart_items.ITEMS, the item codes 1 to 5)
 const DAMAGE_BOXES = [[10, 0, 50, 7], [2, 14, 13, 18], [55, 14, 13, 18], [2, 58, 13, 20], [55, 58, 13, 20], [27, 56, 16, 20]];
 function damageColour(d) {
     const k = d < 0.5 ? d / 0.5 : (d - 0.5) / 0.5;
@@ -171,6 +172,9 @@ export class KartHud {
         const note = performance.now() < this.noteUntil ? this.noteText : "";
         if ($("kh-note").textContent !== note) $("kh-note").textContent = note;
         this.drawMap(states, myId, colours);
+        // (CHANGE 159) your item, E to use it
+        const item = ITEMS[(me.item || 0) - 1], itemText = item ? `${item.toUpperCase()}   E to use` : "";
+        if ($("kh-item") && $("kh-item").textContent !== itemText) $("kh-item").textContent = itemText;
         // (CHANGE 158) the damage panel: your kart from above, each part green to red; PIT: REPAIRING while mended
         const panel = $("kh-dmg");
         if (panel) {
@@ -193,7 +197,8 @@ export class KartHud {
           <canvas id="kh-map" width="220" height="220"></canvas>
           <div id="kh-dmg"><span>DAMAGE</span><div class="kshape"><i class="kbody"></i>${DAMAGE_BOXES.map((b, i) =>
               `<b id="kh-d${i}" style="left:${b[0]}px;top:${b[1]}px;width:${b[2]}px;height:${b[3]}px"></b>`).join("")}</div></div>
-          <div id="kh-pit">PIT: REPAIRING</div>`;
+          <div id="kh-pit">PIT: REPAIRING</div>
+          <div id="kh-item"></div>`;
         this.track = track;
         this.mapKey = track.name;
         this.built = true;

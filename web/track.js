@@ -17,17 +17,18 @@ export const TRACKS = {
         boosts: [[120.0, 0.0], [235.0, 2.5], [300.0, -2.5]],
         oil: [[170.0, -2.0], [268.0, 1.5]],
         pit: [12.0, 30.0, -1],  // (CHANGE 158) the PIT box: from s to s along one side (-1 right, 1 left)
+        boxes: [90.0, 205.0],  // (CHANGE 159) where a row of item boxes crosses the road (s)
     },
     oval: {
         name: "Test Oval", width: 14.0, laps: 2,
         points: [[0, 0, 0], [40, 0, 0], [70, 10, 0], [80, 35, 0], [70, 60, 0], [40, 70, 0], [0, 70, 0],
                  [-30, 60, 0], [-40, 35, 0], [-30, 10, 0]],
-        boosts: [[60.0, 0.0]], oil: [], pit: [10.0, 28.0, -1],
+        boosts: [[60.0, 0.0]], oil: [], pit: [10.0, 28.0, -1], boxes: [110.0, 235.0],
     },
     straight: {
         name: "Straight Road", width: 12.0, laps: 1,
         points: [[0, 0, 0], [60, 0, 0], [120, 0, 0], [140, 10, 0], [120, 20, 0], [60, 20, 0], [0, 20, 0], [-20, 10, 0]],
-        boosts: [], oil: [], pit: [14.0, 32.0, -1],
+        boosts: [], oil: [], pit: [14.0, 32.0, -1], boxes: [80.0, 250.0],
     },
 };
 
@@ -84,6 +85,7 @@ export class Track {
         for (let g = 0; g < GATES; g++) this.gateS.push(g * total / GATES);
         this.boosts = (data.boosts || []).map(([s, lat]) => [Number(s), Number(lat)]);
         this.oil = (data.oil || []).map(([s, lat]) => [Number(s), Number(lat)]);
+        this.boxRows = (data.boxes || []).map(Number);  // (CHANGE 159) the item boxes' rows
         const p = data.pit;  // (CHANGE 158) the PIT box: [from s, to s, side], or null
         this.pit = Array.isArray(p) ? [Number(p[0]), Number(p[1]), p[2] > 0 ? 1 : -1] : null;
     }
@@ -148,6 +150,13 @@ export class Track {
 
     gateZone(s) {
         return Math.min(GATES - 1, Math.floor(this.wrap(s) / (this.length / GATES)));
+    }
+
+    // (CHANGE 159) each item box's [s, lateral]: four across the road in each row (kart_track.Track.box_spots)
+    boxSpots() {
+        const out = [];
+        for (const s of this.boxRows) for (const f of [-0.6, -0.2, 0.2, 0.6]) out.push([s, f * this.half]);
+        return out;
     }
 
     // (CHANGE 158) is (s, lateral) in the PIT box (where a kart going slowly is mended)?

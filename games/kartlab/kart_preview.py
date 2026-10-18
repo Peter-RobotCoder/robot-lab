@@ -24,6 +24,7 @@ ap.add_argument("--gfx", choices=["mesh", "lines", "basic", "low", "medium", "hi
 ap.add_argument("--lines", default=None, help="mesh and lines: their colour, #rrggbb")
 ap.add_argument("--closeup", action="store_true", help="the camera close to the followed kart, from the front")
 ap.add_argument("--steer", type=float, default=None, help="draw every kart steering this much (-1 right to 1 left: CHANGE 157)")
+ap.add_argument("--shield", action="store_true", help="every kart with a shield up (CHANGE 159)")
 ap.add_argument("--damage", default=None, help="draw every kart this damaged: six numbers 0 to 1, wing,fl,fr,rl,rr,engine (CHANGE 158)")
 ap.add_argument("--track", choices=["club", "oval", "straight"], default="club")
 ap.add_argument("--camera", choices=["chase", "hood", "tv"], default="chase")
@@ -49,6 +50,7 @@ from panda3d.core import Filename  # noqa: E402
 
 import kart_gfx  # noqa: E402
 import kart_sim as sim  # noqa: E402
+import kart_items  # noqa: E402  (CHANGE 159)
 import kart_track  # noqa: E402
 
 COLOURS = [(220, 60, 50), (60, 130, 230), (60, 190, 90), (240, 190, 40)]
@@ -82,6 +84,7 @@ class Preview(ShowBase):
         self.pipeline = kart_gfx.init(self, args.gfx, line_colour=args.lines)
         started = time.perf_counter()
         self.track_vis = kart_gfx.TrackVisual(self.render, self.track)
+        self.items_vis = kart_gfx.ItemsVisual(self.render, self.track)  # (CHANGE 159) the power-ups
         extra = [f"{k} {getattr(self.track_vis, a):.2f} s" for k, a in (("lines", "lines_secs"), ("circuit", "circuit_secs"))
                  if hasattr(self.track_vis, a)]
         print(f"track built in {time.perf_counter() - started:.2f} s at {kart_gfx.tier()}"
@@ -119,6 +122,7 @@ class Preview(ShowBase):
             vis = kart_gfx.KartVisual(self.render, d, kart_gfx.mats())
             vis.set_label(d["name"], (*(c / 255 for c in d["colour"]), 1))
             self.karts[i] = vis
+        self.race.items = kart_items.Items(self.race)  # (CHANGE 159)
         self.race.start()
         self.prev = None
 
@@ -134,7 +138,10 @@ class Preview(ShowBase):
         steps = 0
         while self.accum >= sim.STEP and steps < 5:  # (a stall never makes the race run away)
             self.prev = {i: dict(k) for i, k in self.race.karts.items()}
-            inputs = {i: drive(self.track, k) for i, k in self.race.karts.items()}
+            inputs = {}
+            for i, k in self.race.karts.items():  # (and their items, as the computer karts use them: CHANGE 159)
+                th, st, bt = drive(self.track, k)
+                inputs[i] = (th, st, bt | kart_items.cpu_use(k, self.race))
             self.race.step_all(inputs)
             self.accum -= sim.STEP
             steps += 1
@@ -168,6 +175,7 @@ class Preview(ShowBase):
 
     def draw(self, dt, alpha, now):
         self.track_vis.update(now - self.start, self.race.countdown())  # (ultra's start lights: CHANGE 151)
+        self.items_vis.update(dt, self.race.items.state())  # (CHANGE 159)
         states = {i: self.shown(i, alpha) for i in self.race.karts}
         for i, k in states.items():
             z = self.track.height(k["s"])
@@ -175,7 +183,8 @@ class Preview(ShowBase):
             drifting = bool(k["flags"] & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R))
             self.karts[i].update(k["x"], k["y"], z, k["yaw"], inp[1] if args.steer is None else args.steer, k["v"], k["u"], drifting,
                                  bool(k["flags"] & sim.FLAG_BOOSTING), dt,
-                                 [float(v) for v in args.damage.split(",")] if args.damage else sim.damage_of(k))
+                                 [float(v) for v in args.damage.split(",")] if args.damage else sim.damage_of(k),
+                                 args.shield or k.get("shield", 0) > 0)
         me = states[self.follow]
         self.cam.update(dt, me["x"], me["y"], self.track.height(me["s"]), me["yaw"], me["v"], self.track)
         if args.closeup:  # three quarters from the front, a little above

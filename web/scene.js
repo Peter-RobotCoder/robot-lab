@@ -208,6 +208,7 @@ export class KartScene extends BaseScene {
             m.material = this.material("oil", [0.16, 0.15, 0.2], 0.3, 0.4);
             statics.push(m);
         }
+        this.makeItemBoxes(track);  // (CHANGE 159) the power-ups' boxes
         // (CHANGE 158) the PIT box: a yellow outline and PIT on the road (track.js pitMarks, kart_track's)
         const pit = new Geo();
         for (const corners of track.pitMarks()) pit.quad(corners.map(([s, l]) => { const p = track.point(s, l); return [p[0], p[1], p[2] + 0.022]; }));
@@ -817,6 +818,67 @@ export class KartScene extends BaseScene {
         }
     }
 
+    // ---------- the power-ups (CHANGE 159, kart_gfx.ItemsVisual) ----------
+    // the item boxes, a row of four across the road at each of the track's box rows, spinning, their colour going
+    // round the rainbow; the shots and slicks come and go with the items messages (drawItems)
+    makeItemBoxes(track) {
+        for (const m of (this.itemShots || new Map()).values()) m.dispose();
+        for (const m of (this.itemSlicks || new Map()).values()) m.dispose();
+        this.itemShots = new Map();
+        this.itemSlicks = new Map();
+        this.itemBoxes = track.boxSpots().map(([s, lat], i) => {
+            const [x, y, z] = track.point(s, lat);
+            const mat = this.material("itembox" + i, [0.18, 0.18, 0.2], 0.35, 0, 0, {emission: [0.9, 0.8, 0.3]});  // (its glow its colour)
+            const box = this.box(null, 0.42, 0.42, 0.42, mat, x, y, z + 0.75, "itembox");
+            box.isPickable = false;
+            this.trackMeshes.push(box);
+            if (this.wire) this.linesMesh("itemboxlines", this.edgeLines([box], this.wire, box), this.lineMaterial("itembox", 1, ...this.lineFade()), box);
+            return {box, mat};
+        });
+        this.itemSpin = 0;
+    }
+
+    // view: the items to draw ({boxes: "1101..", shots: [[id, kind, x, y, heading]], slicks: [[id, x, y]]}) or null
+    drawItems(view, dt) {
+        if (!this.itemBoxes || !this.track) return;
+        this.itemSpin = (this.itemSpin + dt * 90) % 360;
+        const boxes = (view && view.boxes) || "";
+        this.itemBoxes.forEach(({box, mat}, i) => {
+            const there = boxes[i] === "1";
+            box.setEnabled(there);
+            if (!there) return;
+            box.rotation.set(20 * DEG, this.itemSpin * DEG, 30 * DEG);
+            const [r, g, b] = hueColour((this.itemSpin / 360 + i * 0.13) % 1);
+            this.setGlow(mat, [r * 0.8, g * 0.8, b * 0.8]);
+        });
+        const height = (x, y) => { const at = this.track.locate(x, y, null); return this.track.point(at.s)[2]; };
+        this.syncItems(this.itemShots, (view && view.shots) || [], sh => {
+            const c = sh[1] === "homing" ? [1.0, 0.3, 0.22] : [0.35, 1.0, 0.45];
+            const m = this.sphere(null, 0.28, this.material("itemshot" + sh[1], c, 0.3, 0, 0, {emission: c.map(v => v * 2.5)}), 0, 0, 0, 1, 1, 1, 12, "shot");
+            if (this.wire) this.linesMesh("shotlines", this.edgeLines([m], this.wire, m), this.lineMaterial("shot", 1, ...this.lineFade()), m);
+            return m;
+        }, (m, sh) => m.position.set(sh[2], height(sh[2], sh[3]) + 0.45, sh[3]));
+        this.syncItems(this.itemSlicks, (view && view.slicks) || [], () => {
+            const g = new Geo(), pts = [];
+            for (let k = 0; k < 16; k++) { const a = 2 * Math.PI * k / 16; pts.push([Math.cos(a) * 1.5, Math.sin(a) * 1.2, 0]); }
+            g.poly(pts, [0, 0, 1]);
+            const m = g.mesh("slick", this.scene);
+            m.material = this.material("itemslick", [0.05, 0.05, 0.07], 0.15, 0.5);
+            return m;
+        }, (m, sl) => m.position.set(sl[1], height(sl[1], sl[2]) + 0.025, sl[2]));
+    }
+
+    syncItems(meshes, items, make, place) {
+        const seen = new Set();
+        for (const it of items) {
+            seen.add(it[0]);
+            let m = meshes.get(it[0]);
+            if (!m) meshes.set(it[0], m = make(it));
+            place(m, it);
+        }
+        for (const [id, m] of meshes) if (!seen.has(id)) { m.dispose(); meshes.delete(id); }
+    }
+
     // ---------- each frame ----------
     // states: Map id -> {x, y, yaw, v, flags, ...} (interpolated); dt in seconds
     frame(states, dt) {
@@ -884,6 +946,11 @@ export class KartScene extends BaseScene {
                 const d = dmg[1 + i] || 0;
                 w.spin.rotation.x = d > 0.08 ? -(d * 7 + d * 9 * Math.sin(k.spin)) * DEG : 0;
             });
+            if ((st.shield || 0) > 0 && !k.bubble) {  // (CHANGE 159) the shield: a pale blue bubble round the kart
+                k.bubble = this.sphere(k.root, 1.25, this.glass("kshield", [0.45, 0.75, 1.0], 0.25, 0.4), 0, 0, 0.45, 1, 0.75, 0.6, 16, "shield");
+                k.bubble.isPickable = false;
+            }
+            if (k.bubble) k.bubble.setEnabled((st.shield || 0) > 0);
             if (k.nose) {
                 const hang = Math.max(0, Math.min(1, (dmg[0] - 0.2) / 0.6));
                 k.nose.rotation.x = -hang * 11 * DEG;  // (its far end down to the road)
@@ -1067,6 +1134,12 @@ export class KartScene extends BaseScene {
 // drift smoke (kart_gfx.KartVisual's puffs, CHANGE 143): soft grey puffs left behind in the world, rising at 0.6 m/s,
 // growing from 0.35 m to 1.25 m and fading over 0.7 s. One pool for every kart, the oldest reused, drawn as one
 // mesh's thin instances facing the camera (robotfx.js's way, with its shader: one draw call, the app's tone curve)
+// (CHANGE 159) a bright colour round the rainbow (h 0 to 1: kart_gfx.hue_colour)
+function hueColour(h) {
+    const i = Math.floor(h * 6) % 6, f = h * 6 - Math.floor(h * 6);
+    return [[1, f, 0.05], [1 - f, 1, 0.05], [0.05, 1, f], [0.05, 1 - f, 1], [f, 0.05, 1], [1, 0.05, 1 - f]][i];
+}
+
 class Smoke {
     constructor(sc, cap) {
         const scene = sc.scene;

@@ -431,7 +431,7 @@ def main():
             chrome.wait_for("!!document.getElementById('kh-dmg') && document.getElementById('kh-dmg').style.display !== 'none'", 10, "the damage panel")
             chrome.js("document.getElementById('btn-damage').click()")
             chrome.wait_for("window.__state.lesson.damage === false && document.getElementById('kh-dmg').style.display === 'none'", 10, "Damage off")
-            chrome.wait_for("!!document.getElementById('btn-damage')", 10, "the Controls tab again")
+            chrome.wait_for("!!document.getElementById('btn-damage') && !document.getElementById('btn-damage').classList.contains('on')", 10, "the Controls tab again")
             chrome.js("document.getElementById('btn-damage').click()")
             chrome.wait_for("window.__state.lesson.damage === true", 10, "Damage on again")
             got = chrome.js("""(() => { const sc = window.__state.scene, [id, k] = [...sc.karts.entries()][0];
@@ -442,6 +442,24 @@ def main():
             assert got["nose"] and got["fl"] and got["fr"], got
         check("Kart Lab: real damage switched off and on from Controls, your damage panel with it, a damaged kart's fairing "
               "hanging and its wheel leaning", kart_damage)
+
+        def kart_items():  # (CHANGE 159) power-ups: the boxes drawn from the items messages, a switch, E sends USE
+            chrome.wait_for("(window.__state.game.itemsBuf || []).length > 0", 10, "an items message")
+            chrome.wait_for("(window.__state.scene.itemBoxes || []).length === 8 && window.__state.scene.itemBoxes.some(b => b.box.isEnabled())",
+                            10, "the item boxes drawn")
+            chrome.wait_for("!!document.querySelector('button[data-item=\"oil\"]')", 10, "the power-up switches")
+            chrome.js("document.querySelector('button[data-item=\"oil\"]').click()")
+            chrome.wait_for("window.__state.lesson.items && window.__state.lesson.items.oil === false && window.__state.lesson.items.shot === true",
+                            10, "oil switched off, the rest on")
+            chrome.wait_for("!!document.querySelector('button[data-item=\"oil\"]') && !document.querySelector('button[data-item=\"oil\"]').classList.contains('on')", 10, "the switches again")
+            chrome.js("document.querySelector('button[data-item=\"oil\"]').click()")
+            chrome.wait_for("window.__state.lesson.items.oil === true", 10, "oil on again")
+            # E: the next input frame carries USE (2)
+            got = chrome.js("""(() => { const c = window.__state.ctrl, k = c.keys; k.taps.push('e'); c.tapped = k.takeTaps();
+                return c.kartControl().buttons; })()""")
+            assert got & 2, got
+        check("Kart Lab: power-ups drawn from the items messages (the boxes), each switched off and on from Controls, E "
+              "sends USE", kart_items)
 
         def controls():
             assert chrome.js("window.__state.lesson.mode") == "practice"

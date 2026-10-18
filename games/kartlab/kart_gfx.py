@@ -1217,6 +1217,128 @@ def role_look(role, colour):
     return c, look_["rough"], look_["metal"], name
 
 
+# ---------- the power-ups (CHANGE 159) ----------
+ITEM_COLOURS = {"shot": (0.35, 1.0, 0.45), "homing": (1.0, 0.3, 0.22)}
+
+
+class ItemsVisual:
+    """The power-ups on the track: the item boxes (spinning, their colour going round the rainbow; gone while
+    taken), the shots (glowing balls: green bouncing, red homing) and the oil slicks. Fed the server's items
+    messages (push) and drawn a little in the past as the karts are (update with the server time drawn), or an
+    offline race's state (show)."""
+
+    def __init__(self, parent, track):
+        self.root = parent.attachNewNode("items")
+        self.track = track
+        self.boxes = []
+        box = Mesh()
+        bevel_box(0.42, 0.42, 0.42, 0.08, mesh=box)
+        for s, lat in track.box_spots():
+            x, y, z = track.point(s, lat)
+            node = part(self.root, box, None, (1.0, 1.0, 1.0), rough=0.35, metal=0.0, emission=None,
+                        pos=(x, y, z + 0.75))  # (white, tinted round the rainbow by its colour scale: update)
+            if look():
+                outline(node)
+            self.boxes.append(node)
+        self.shot_mesh = ball(0.28, 12, 8)
+        self.slick_mesh = Mesh()
+        pts = []
+        for k in range(16):
+            a = 2 * math.pi * k / 16
+            pts.append(Vec3(math.cos(a) * 1.5, math.sin(a) * 1.2, 0.0))
+        self.slick_mesh.poly(pts, Vec3(0, 0, 1))
+        self.shots, self.slicks = {}, {}  # id -> node
+        self.buffer = []  # the items messages, oldest first
+        self.spin = 0.0
+
+    def push(self, msg):
+        self.buffer.append(msg)
+        if len(self.buffer) > 12:
+            del self.buffer[:-12]
+
+    def at(self, t_ms):
+        """The state to draw at the server's time t_ms: the messages either side of it, the shots blended."""
+        if not self.buffer:
+            return None
+        a = b = None
+        for m in self.buffer:
+            if m["sm"] <= t_ms:
+                a = m
+            elif b is None and a is not None:
+                b = m
+        if a is None:
+            return self.buffer[0]
+        if b is None:
+            return a
+        f = max(0.0, min(1.0, (t_ms - a["sm"]) / max(1, b["sm"] - a["sm"])))
+        later = {sh[0]: sh for sh in b["shots"]}
+        shots = []
+        for sh in a["shots"]:
+            n = later.get(sh[0])
+            if n is None:
+                shots.append(sh)
+            else:
+                dh = (n[4] - sh[4] + 180) % 360 - 180
+                shots.append([sh[0], sh[1], sh[2] + (n[2] - sh[2]) * f, sh[3] + (n[3] - sh[3]) * f, sh[4] + dh * f])
+        return {"boxes": a["boxes"], "shots": shots, "slicks": a["slicks"]}
+
+    def update(self, dt, state):
+        """Draw state (an items message's body, or at()'s)."""
+        self.spin = (self.spin + dt * 90.0) % 360.0
+        boxes = (state or {}).get("boxes", "")
+        for i, node in enumerate(self.boxes):
+            there = i < len(boxes) and boxes[i] == "1"
+            if there:
+                node.show()
+                node.setHpr(self.spin, 20, 30)
+                if not look():
+                    hue = (self.spin / 360.0 + i * 0.13) % 1.0
+                    node.setColorScale(*hue_colour(hue), 1)
+            else:
+                node.hide()
+        self.sync(self.shots, (state or {}).get("shots", []), self.new_shot,
+                  lambda node, sh: (node.setPos(sh[2], sh[3], self.height(sh[2], sh[3]) + 0.45)))
+        self.sync(self.slicks, (state or {}).get("slicks", []), self.new_slick,
+                  lambda node, sl: node.setPos(sl[1], sl[2], self.height(sl[1], sl[2]) + 0.025))
+
+    def height(self, x, y):
+        seg, s, lat = self.track.locate(x, y, None)
+        return self.track.height(s)
+
+    def sync(self, nodes, items, make, place):
+        seen = set()
+        for it in items:
+            seen.add(it[0])
+            node = nodes.get(it[0])
+            if node is None:
+                node = nodes[it[0]] = make(it)
+            place(node, it)
+        for i in [i for i in nodes if i not in seen]:
+            nodes.pop(i).removeNode()
+
+    def new_shot(self, sh):
+        c = ITEM_COLOURS.get(sh[1], (1, 1, 1))
+        node = part(self.root, self.shot_mesh, None, c, rough=0.3, metal=0.0, emission=tuple(v * 2.5 for v in c))
+        if look():
+            outline(node)
+        return node
+
+    def new_slick(self, sl):
+        node = part(self.root, self.slick_mesh, None, (0.05, 0.05, 0.07), rough=0.15, metal=0.5)
+        if look():
+            outline(node)
+        return node
+
+    def destroy(self):
+        self.root.removeNode()
+
+
+def hue_colour(h):
+    """A bright colour round the rainbow (h 0 to 1)."""
+    i, f = int(h * 6) % 6, h * 6 - int(h * 6)
+    return [(1, f, 0.05), (1 - f, 1, 0.05), (0.05, 1, f), (0.05, 1 - f, 1), (f, 0.05, 1), (1, 0.05, 1 - f)][i]
+
+
 # ---------- karts ----------
 WHEEL_R, WHEEL_W = kart_models.WHEEL_R, kart_models.WHEEL_W
 WHEELS = kart_models.WHEELS  # (x, y): front left, front right, rear left, rear right
@@ -1240,6 +1362,7 @@ class KartVisual:
         self.box_wheel = None            # the other tiers: the steering wheel, turned about its own axis (CHANGE 157)
         self.steer_now = 0.0             # the steering as drawn: eased towards the driver's
         self.nose = None                 # (CHANGE 158) the fairing (ultra) or front bumper, hinged at its left end
+        self.bubble = None               # (CHANGE 159) the shield, made when first needed
         self.smoke_timer = 0.0           # ...and the damaged engine's smoke
         self.skid_last = [None, None]    # ultra: where each rear tyre's skid mark last ended
         if tier() == "ultra":
@@ -1463,7 +1586,7 @@ class KartVisual:
         self.tag.node().setText(text)
         self.tag.node().setTextColor(*colour)
 
-    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None):
+    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None, shield=False):
         """Place the kart; its body pitches with acceleration and rolls with the slide, the front wheels turn
         with steer, all four spin with v; the glow shows while boosting and smoke puffs while drifting."""
         self.root.setPos(x, y, z)
@@ -1520,6 +1643,23 @@ class KartVisual:
             self.glow.setScale(0.9 + 0.25 * math.sin(self.glow_t * 31))
         elif not self.glow.isHidden():
             self.glow.hide()
+        if shield and self.bubble is None:  # (CHANGE 159) the shield: a pale blue bubble round the kart, pulsing
+            self.bubble = self.root.attachNewNode(ball(1.25, 18, 12).node())
+            self.bubble.setPos(0, 0, 0.45)
+            self.bubble.setScale(1.0, 0.75, 0.6)
+            self.bubble.setLightOff(1)
+            self.bubble.setShaderOff(1)
+            self.bubble.setTransparency(TransparencyAttrib.M_alpha)
+            self.bubble.setDepthWrite(False)
+            self.bubble.setTwoSided(True)
+            self.bubble.setBin("fixed", 22)
+        if self.bubble is not None:
+            if shield:
+                self.bubble.show()
+                pulse = 0.22 + 0.08 * math.sin(time.perf_counter() * 6.0)
+                self.bubble.setColor(0.45, 0.75, 1.0, pulse)
+            else:
+                self.bubble.hide()
         if engine > 0.35 and not look():  # (CHANGE 158) a damaged engine smokes, grey to black, more as it gets worse
             self.smoke_timer -= dt
             if self.smoke_timer <= 0:
@@ -1779,6 +1919,8 @@ class Hud:
         self.dmg_parts = [DirectFrame(parent=self.dmg_back, frameColor=GREEN_PART, frameSize=box)
                           for box in DAMAGE_BOXES]
         self.dmg_shown = None
+        self.item_text = _Text(r, 0, 0, 0.05, YELLOW, TextNode.ARight)  # (CHANGE 159) your item, E to use it
+        self.item_shown = None
         self.pit_text = _Text(r, 0, -0.42, 0.06, YELLOW)
         self.pit_text.set("PIT: REPAIRING")
         self.pit_text.np.hide()
@@ -1817,6 +1959,7 @@ class Hud:
         self.status_text.pos(a - 0.05, -0.975)
         self.bar_back.setPos(right - 0.05 - self.BAR_W, 0, -0.82)
         self.dmg_back.setPos(right - 0.2, 0, -0.5)
+        self.item_text.pos(right - 0.05, -0.22)
         self.mini.setPos(-a + 0.05 + self.MINI / 2, 0, -0.95 + self.MINI / 2)
 
     def minimap(self, track):
@@ -1872,7 +2015,7 @@ class Hud:
         self.status_text.set(text)
 
     def update(self, lap, laps, place, count, kmh, countdown, wrong_way, charge, karts, results, damage=None,
-               repairing=False):
+               repairing=False, item=None):
         """lap/laps: the lap being driven (1-based) and how many; place/count: your place and the field; kmh: speed;
         countdown: seconds to GO or None; wrong_way: flag; charge: the drift charge (0..570+);
         karts: for the minimap, (x, y, colour) tuples or (x, y, colour, big) with big for your own kart; results: None,
@@ -1880,6 +2023,9 @@ class Hud:
         kart's six parts 0 to 1 (wing, fl, fr, rl, rr, engine), None with damage off (the panel hidden); repairing: in
         the PIT box being mended."""
         self.layout()
+        if item != self.item_shown:  # (CHANGE 159) the item you hold (its name), E to use it
+            self.item_shown = item
+            self.item_text.set(f"{item.upper()}   E to use" if item else "")
         shown = None if damage is None else tuple(round(d, 2) for d in damage)
         if shown != self.dmg_shown:
             self.dmg_shown = shown

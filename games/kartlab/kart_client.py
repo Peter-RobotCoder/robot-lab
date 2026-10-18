@@ -144,6 +144,9 @@ import cpu_brains  # noqa: E402
 import kart_gfx  # noqa: E402
 import kart_hud as kh  # noqa: E402
 import kart_sim as sim  # noqa: E402
+import kart_items  # noqa: E402  (CHANGE 159: the power-ups, offline)
+ITEM_TEXT = [("boost", "Boost"), ("oil", "Oil slick"), ("shot", "Bouncing shot"), ("homing", "Homing shot"),
+             ("shield", "Shield")]  # (CHANGE 159: kart_items.ITEMS on the screen)
 import kart_sound  # noqa: E402
 import kart_track  # noqa: E402
 from engine import interp, predict, wire  # noqa: E402
@@ -410,7 +413,7 @@ class Lab(hud.HudKit, ShowBase):
         self.cd_last, self.was_boosting, self.was_finished = None, False, False
         self.lap_seen, self.lap_started, self.best_lap = None, None, None  # lap timing (see laps)
         self.accum = 0.0
-        self.keys_down = {"drift": False, "respawn": False}
+        self.keys_down = {"drift": False, "respawn": False, "use": False}  # (use: E, your item: CHANGE 159)
         self.note_text, self.note_big, self.note_until = "", False, 0.0
         self.finished = False
         self.autopilot = False
@@ -458,6 +461,7 @@ class Lab(hud.HudKit, ShowBase):
         self.key("space", self.key_down, "drift", True)
         self.accept("space-up", self.key_down, ["drift", False])
         self.key("r", self.key_down, "respawn", True)
+        self.key("e", self.key_down, "use", True)  # (CHANGE 159) your item
         self.key("i", self.toggle_panel)
         self.key("c", self.toggle_code)
         self.key("h", self.toggle_help)
@@ -575,6 +579,7 @@ class Lab(hud.HudKit, ShowBase):
         self.my_id = 0
         self.local = sim.Race(self.track, SCHEMA, args.laps)
         self.local.set_damage(self.lesson.get("damage", True))  # (CHANGE 158: real damage offline too)
+        self.local.items = kart_items.Items(self.local)  # (CHANGE 159: power-ups offline too, every one on)
         self.local.add(0, self.design)
         self.local_cpu = {}
         for n in range(max(0, min(7, args.cpu))):
@@ -1291,7 +1296,15 @@ class Lab(hud.HudKit, ShowBase):
         # (CHANGE 158) real damage: hits slow a kart till it's mended (off mends every kart)
         check(f, "Damage (hits slow a kart till it's mended)", 0.84, y, L.get("damage", True),
               lambda v: self.set_lesson({"damage": bool(v)}), 0.026)
-        y -= 0.06
+        y -= 0.05
+        # (CHANGE 159) the power-ups the item boxes give, each on or off
+        label(f, "Power-ups", 0.82, y, 0.028, YELLOW)
+        items = L.get("items") if isinstance(L.get("items"), dict) else {}
+        for i, (name, text) in enumerate(ITEM_TEXT):
+            check(f, text, 1.02 + (i % 3) * 0.26, y - (i // 3) * 0.043, items.get(name, True),
+                  lambda v, n=name: self.set_lesson({"items": {**self.items_now(), n: bool(v)}}),
+                  0.024)
+        y -= 0.1
         items = self.stage_items()
         if items:
             label(f, "Track items", 0.82, y, 0.028, YELLOW)
@@ -1416,6 +1429,11 @@ class Lab(hud.HudKit, ShowBase):
                                     "load new code.", 8)
         self.needs_restart = False
         send({"type": "restart_server"})
+
+    def items_now(self):
+        """(CHANGE 159) The lesson's power-ups as they are now (a click before the panel is drawn again sees these)."""
+        items = self.lesson.get("items") if isinstance(self.lesson.get("items"), dict) else {}
+        return {k: items.get(k, True) for k, _ in ITEM_TEXT}
 
     def set_lesson(self, change):
         send({"type": "lesson", "lesson": change})
@@ -2325,6 +2343,9 @@ class Lab(hud.HudKit, ShowBase):
             if self.track_vis is not None:
                 self.track_vis.destroy()
             self.track_vis = kart_gfx.TrackVisual(self.render, self.track)
+            if getattr(self, "items_vis", None) is not None:
+                self.items_vis.destroy()
+            self.items_vis = kart_gfx.ItemsVisual(self.render, self.track)  # (CHANGE 159) the power-ups
             if self.screen is not None:
                 self.screen.destroy()
             self.screen = kart_gfx.Hud(self, self.track)
@@ -2349,6 +2370,10 @@ class Lab(hud.HudKit, ShowBase):
                     self.on_snapshot(wire.unpack_snapshot(SCHEMA, m["data"]), m.get(interp.RECEIVED))
             elif kind == "race":
                 rebuild = self.on_race(m) or rebuild
+            elif kind == "items":  # (CHANGE 159) the power-ups out on the track, and who was hit
+                if getattr(self, "items_vis", None) is not None:
+                    self.items_vis.push(m)
+                self.item_hits(m.get("hits") or [])
             elif kind == "roster":
                 self.roster = m
                 self.sync_designs({k["id"]: {"name": k["name"], "colour": k["colour"]} for k in m["karts"]})
@@ -2583,8 +2608,14 @@ class Lab(hud.HudKit, ShowBase):
     def set_others(self, snap):
         """(CHANGE 155) The other karts in a snapshot, as copies the prediction moves (in place: step_fn holds the
         list), so our kart against another isn't put right every tick."""
-        self.others[:] = [{"x": e["x"], "y": e["y"], "yaw": e["yaw"], "v": e["v"], "u": e.get("u", 0.0)}
-                          for e in snap["entities"] if e["id"] != self.my_id]
+        others = []
+        designs = {k["id"]: k.get("design") for k in (getattr(self, "roster", None) or {}).get("karts", [])}
+        for e in snap["entities"]:
+            if e["id"] != self.my_id:  # (their steering and stats, from the roster's designs: CHANGE 159)
+                st = sim.stats_of(designs.get(e["id"]) or sim.default_design())
+                others.append({"x": e["x"], "y": e["y"], "yaw": e["yaw"], "v": e["v"], "u": e.get("u", 0.0),
+                               "steer": e.get("steer", 0.0), "rate": st["steer"], "top": st["top"], "bg": e.get("bg", 0)})
+        self.others[:] = others
 
     def read_keys(self):
         """The arrows or WASD, Shift and R, as the input the simulation wants. While you type in a text box (or the
@@ -2599,8 +2630,9 @@ class Lab(hud.HudKit, ShowBase):
         k = KeyboardButton
         th = (down(k.up()) or down(k.asciiKey("w"))) - (down(k.down()) or down(k.asciiKey("s")))
         steer = (down(k.left()) or down(k.asciiKey("a"))) - (down(k.right()) or down(k.asciiKey("d")))
-        bt = (sim.DRIFT if self.keys_down["drift"] else 0) | (sim.RESPAWN if self.keys_down["respawn"] else 0)
-        self.keys_down["respawn"] = False
+        bt = (sim.DRIFT if self.keys_down["drift"] else 0) | (sim.RESPAWN if self.keys_down["respawn"] else 0) | \
+            (sim.USE if self.keys_down["use"] else 0)
+        self.keys_down["respawn"] = self.keys_down["use"] = False
         return wire.quantise_input(float(th), float(steer), bt)
 
     def client_tick(self, now):
@@ -2649,7 +2681,8 @@ class Lab(hud.HudKit, ShowBase):
                 else:
                     inputs[0] = self.read_keys()
                 for kid, level in self.local_cpu.items():
-                    inputs[kid] = cpu_brains.drive(level, self.local.karts[kid], self.local)
+                    th, st_, bt = cpu_brains.drive(level, self.local.karts[kid], self.local)
+                    inputs[kid] = (th, st_, bt | kart_items.cpu_use(self.local.karts[kid], self.local))
                 self.local.step_all(inputs)
             r = self.local
             cd = r.countdown()
@@ -2700,6 +2733,15 @@ class Lab(hud.HudKit, ShowBase):
             self.place_panel()
         return task.cont
 
+    def item_hits(self, hits):
+        """(CHANGE 159) A shot or a slick reached our kart: a note, and the bump's sound (a shield: a lighter one)."""
+        for kid, what, blocked in hits:
+            if kid != self.my_id:
+                continue
+            words = {"shot": "a shot", "homing": "a homing shot", "oil": "an oil slick"}.get(what, what)
+            self.banner_note(f"Your shield stopped {words}!" if blocked else f"Hit by {words}!", 2)
+            self.snd.bump(0.5 if blocked else 1.0)
+
     def damage_readout(self, me):
         """(CHANGE 158) Your kart's damage for the panel (None with damage off) and whether the PIT box is mending it."""
         if me is None or not self.lesson.get("damage", True):
@@ -2727,6 +2769,15 @@ class Lab(hud.HudKit, ShowBase):
         go = self.race["go_local"] if self.race["phase"] == sim.FLAGS_RACE else None
         # (the dash pads pulse; on ultra the pond's ripples move and the start lights follow the countdown: CHANGE 151)
         self.track_vis.update(now - self.start, None if go is None else go - now)
+        if getattr(self, "items_vis", None) is not None:  # (CHANGE 159) the power-ups, as late as the karts
+            if self.local is not None:
+                if self.local.items is not None:
+                    state = self.local.items.state()
+                    self.item_hits(state["hits"])
+                    self.items_vis.update(dt, state)
+            else:
+                t = self.snaps.clock.server_time(now)
+                self.items_vis.update(dt, None if t is None else self.items_vis.at((t - self.snaps.delay) * 1000.0))
         for kid, k in states.items():
             vis = self.karts.get(kid)
             if vis is None:
@@ -2736,7 +2787,7 @@ class Lab(hud.HudKit, ShowBase):
             flags = k.get("flags", 0)
             vis.update(k["x"], k["y"], z, k["yaw"], k.get("steer", 0.0), k["v"], k["u"],  # (steer: CHANGE 157)
                        bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), bool(flags & sim.FLAG_BOOSTING), dt,
-                       sim.damage_of(k))  # (CHANGE 158)
+                       sim.damage_of(k), k.get("shield", 0) > 0)  # (CHANGE 158, 159)
         if me is not None:
             seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))
             self.cam_rig.update(dt, me["x"], me["y"], self.track.height(s), me["yaw"], me["v"], self.track)
@@ -2752,7 +2803,8 @@ class Lab(hud.HudKit, ShowBase):
         self.screen.update(min(r["laps"], (me["lap"] if me else 0) + 1), r["laps"], place, len(states),
                            abs(me["v"]) * 3.6 if me else 0.0, cd if r["phase"] == sim.FLAGS_RACE else None,
                            bool(me and me.get("flags", 0) & sim.FLAG_WRONG_WAY), me["charge"] if me else 0,
-                           minimap, r["results"], *self.damage_readout(me))
+                           minimap, r["results"], *self.damage_readout(me),
+                           kart_items.ITEMS[me["item"] - 1] if me and me.get("item") else None)  # (CHANGE 159)
         text = f"{self.clock.getAverageFrameRate():.0f} fps   gfx {self.gfx_tier}"
         if net is not None:
             rep = self.snaps.report()

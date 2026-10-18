@@ -11,7 +11,9 @@ export const KART_FIELDS = [["x", "i", 100], ["y", "i", 100], ["yaw", "h", 10], 
                             ["charge", "H", 1], ["boost", "B", 1], ["slip", "B", 1], ["lap", "B", 1],
                             ["cp", "B", 1], ["flags", "B", 1], ["steer", "b", 100],
                             ["dw", "H", 1], ["dfl", "H", 1], ["dfr", "H", 1], ["drl", "H", 1], ["drr", "H", 1],
-                            ["de", "H", 1]];  // (each part's damage: CHANGE 158)
+                            ["de", "H", 1],  // (each part's damage: CHANGE 158)
+                            ["item", "B", 1], ["shield", "H", 1],  // (the item held; shield ticks left: CHANGE 159)
+                            ["bg", "B", 1]];  // (a bump's grace: CHANGE 159)
 
 const READ = {
     b: (dv, o) => [dv.getInt8(o), 1], B: (dv, o) => [dv.getUint8(o), 1],

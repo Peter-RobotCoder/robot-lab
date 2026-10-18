@@ -45,6 +45,7 @@ import kart_profiles  # noqa: E402
 import kart_sim as sim  # noqa: E402
 import kart_teaching  # noqa: E402
 import kart_track  # noqa: E402
+import kart_items  # noqa: E402  (CHANGE 159: the power-ups)
 
 DEMO_CODES = {"learner": "CLUB42", "teacher": "TEACH99"}
 LEARNER_CODE = os.environ.get("JOIN_CODE", DEMO_CODES["learner"])
@@ -76,7 +77,7 @@ GFX_MAX_FILE = os.path.join(DATA, "gfx_max_saved.json")  # ...and the class's gr
 LIMITS_FILE = os.path.join(DATA, "limits_saved.json")        # the learners' ranges, kept between sessions
 MISSIONS_FILE = os.path.join(DATA, "mission_settings.json")  # the teacher's settings for each mission, kept by
 # Save settings and used whenever that mission is chosen: these keys
-MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "damage", "user_mods",
+MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "damage", "items", "user_mods",
                 "mods_in_vote", "arena_in_vote", "hazards", "tools", "limits")
 HAZARD_WORDS = {"bumping": "Bumping", "cpu_karts": "Computer karts"}
 STAGE_ITEMS = tuple(HAZARD_WORDS)  # what learners can vote for on the Mods tab (the track's switches)
@@ -92,6 +93,7 @@ WEEK1_LESSON = {
     "teacher_kart": True,          # the teacher's own kart is on the grid too
     "designs_locked": False,       # stop design changes (e.g. during a tournament)
     "damage": True,                # (CHANGE 158) real damage: hits slow a kart; it mends, quickly in the PIT box
+    "items": {n: True for n in kart_items.ITEMS},  # (CHANGE 159) the power-ups the item boxes give (each on or off)
     "hazards": dict(km.NO_HAZARDS),
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
     "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
@@ -327,6 +329,7 @@ class KartServer:
         race.practice = practice
         race.set_user_mods(L.get("user_mods"))
         race.set_damage(L.get("damage", True))
+        race.items = kart_items.Items(race, self.items_allowed())  # (CHANGE 159)
         wanted = self.karts_wanted()
         for p in self.players.values():
             p.unit = None
@@ -374,6 +377,12 @@ class KartServer:
             race.events[-1:] = [(race.tick, "Practice: the track is open")]
         self.roster_version += 1
         self.race_version = None
+
+    def items_allowed(self):
+        """(CHANGE 159) The lesson's power-ups, {item: on}, every item there (a lesson from before them: all on)."""
+        got = self.lesson.get("items")
+        got = got if isinstance(got, dict) else {}
+        return {n: bool(got.get(n, True)) for n in kart_items.ITEMS}
 
     def roster(self):
         return {"type": "roster", "version": self.roster_version, "track": self.lesson["track"],
@@ -926,6 +935,13 @@ class KartServer:
             if key in update:
                 rebuild |= key == "teacher_kart" and bool(update[key]) != bool(L.get(key))
                 L[key] = bool(update[key])
+        if isinstance(update.get("items"), dict):  # (CHANGE 159) the power-ups switched on and off, live
+            was = self.items_allowed()
+            L["items"] = {n: bool(update["items"].get(n, was[n])) for n in kart_items.ITEMS}
+            if L["items"] != was and self.race.items is not None:
+                self.race.items.set_allowed(L["items"])
+                on = [n for n in kart_items.ITEMS if L["items"][n]]
+                self.race.events.append((self.race.tick, "Power-ups: " + (", ".join(on) if on else "none")))
         if "damage" in update and bool(update["damage"]) != bool(L.get("damage", True)):  # (CHANGE 158) live
             L["damage"] = bool(update["damage"])
             self.race.set_damage(L["damage"])
@@ -1067,7 +1083,8 @@ class KartServer:
                 inputs[p.kart] = keys
         for kid, level in self.cpu_levels.items():
             if kid in race.karts:
-                inputs[kid] = cpu_brains.drive(level, race.karts[kid], race)
+                th, st, bt = cpu_brains.drive(level, race.karts[kid], race)
+                inputs[kid] = (th, st, bt | kart_items.cpu_use(race.karts[kid], race))  # (CHANGE 159: its item)
         race.step_all(inputs)
 
     def check_race(self):
@@ -1115,6 +1132,11 @@ class KartServer:
                     self.perf_version = perf_version
                     self.roster_version += 1
             roster = None
+            # (CHANGE 159) the power-ups: every send while shots or slicks are out, else when the boxes change and
+            # once a second (a window just joined)
+            items, items_msg = self.race.items, None
+            if items is not None and (items.shots or items.slicks or items.changed or items.unsent or ticks % 30 == 0):
+                items_msg = json.dumps({"type": "items", "sm": sm, **items.state()}, separators=(",", ":"))
             for ws, p in list(self.players.items()):
                 if backed_up(ws):
                     continue
@@ -1128,6 +1150,8 @@ class KartServer:
                 flags = self.race.phase | (min(15, p.inputs.depth()) << 4)
                 frame = wire.pack_snapshot(SCHEMA, sm, self.snap_seq, entities, ack=p.ctrl_seq or 0, flags=flags)
                 await self.send(ws, frame)
+                if items_msg:
+                    await self.send(ws, items_msg)
             await asyncio.sleep(0)
 
     async def watch_desk(self):

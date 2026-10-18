@@ -23,6 +23,7 @@ TRACKS = {
         "boosts": [(120.0, 0.0), (235.0, 2.5), (300.0, -2.5)],   # dash pads: (s, lateral)
         "oil": [(170.0, -2.0), (268.0, 1.5)],                     # slippery patches: (s, lateral)
         "pit": (12.0, 30.0, -1),  # (CHANGE 158) the PIT box: from s to s along one side (-1 right, 1 left) of the road
+        "boxes": [90.0, 205.0],   # (CHANGE 159) where a row of item boxes crosses the road (s)
     },
     "oval": {
         "name": "Test Oval", "width": 14.0, "laps": 2,
@@ -31,6 +32,7 @@ TRACKS = {
         "boosts": [(60.0, 0.0)],
         "oil": [],
         "pit": (10.0, 28.0, -1),
+        "boxes": [110.0, 235.0],
     },
     "straight": {  # for netcode tests: a long straight and a hairpin back, the simplest loop there is
         "name": "Straight Road", "width": 12.0, "laps": 1,
@@ -38,6 +40,7 @@ TRACKS = {
                    (-20, 10, 0)],
         "boosts": [], "oil": [],
         "pit": (14.0, 32.0, -1),
+        "boxes": [80.0, 250.0],
     },
 }
 
@@ -83,6 +86,7 @@ class Track:
         self.gate_s = [g * total / GATES for g in range(GATES)]
         self.boosts = [(float(s), float(lat)) for s, lat in data.get("boosts", [])]
         self.oil = [(float(s), float(lat)) for s, lat in data.get("oil", [])]
+        self.box_rows = [float(s) for s in data.get("boxes", [])]  # (CHANGE 159) the item boxes' rows
         p = data.get("pit")  # (CHANGE 158) the PIT box: (from s, to s, side), or None
         self.pit = (float(p[0]), float(p[1]), 1 if p[2] > 0 else -1) if p else None
 
@@ -157,6 +161,11 @@ class Track:
         """Where a kart starts: two abreast, 4 m apart, behind the start line."""
         row, side = divmod(place, 2)
         return (-(5.0 + row * 4.0)) % self.length, 2.6 if side == 0 else -2.6
+
+    def box_spots(self):
+        """(CHANGE 159) Each item box's (s, lateral): four across the road in each row (track.js's boxSpots too)."""
+        across = [-0.6, -0.2, 0.2, 0.6]  # (as a share of the half width: clear of the barriers)
+        return [(s, f * self.half) for s in self.box_rows for f in across]
 
     def in_pit(self, s, lateral):
         """(CHANGE 158) Is (s, lateral) in the PIT box (where a kart going slowly is mended)?"""

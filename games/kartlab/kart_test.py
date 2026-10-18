@@ -284,6 +284,113 @@ def real_damage():
     assert not any(k[p] for k in r.karts.values() for p in sim.DAMAGE_PARTS)
 
 
+def power_ups():
+    """(CHANGE 159) The item boxes give items (only those switched on), and each does what it should: a boost, a
+    shield that takes one hit, an oil slick another kart slides on, a shot that reaches the kart ahead, a homing shot
+    that finds the kart one place ahead round a bend; with every item off there are no boxes. And a pack of karts
+    no longer wrecks itself: a bump damages a kart once, then a second's grace. (Each tick makes each kart's state
+    anew: r.karts[i] is read again after every step.)"""
+    import kart_items
+    schema = wire.Schema("kart", sim.SCHEMA_FIELDS)
+    t = kart_track.load("club")
+
+    def race(n=2, allowed=None, damage=True):
+        r = sim.Race(t, schema)
+        r.set_damage(damage)
+        r.items = kart_items.Items(r, allowed, seed=7)
+        for i in range(n):
+            r.add(i, sim.default_design(f"K{i}"))
+        r.phase, r.go_tick = sim.FLAGS_RACE, -1  # (racing, no countdown)
+        return r
+
+    def put(r, i, s, lat=0.0, v=0.0, item=None):
+        k = r.karts[i]
+        sim.place(t, k, s, lat)
+        k["v"] = v
+        if item:
+            k["item"] = kart_items.CODE[item]
+
+    # a box: driven through, an item (one of those allowed)
+    r = race(1, {"shield": True})
+    s, lat = t.box_spots()[0]
+    put(r, 0, s - 0.5, lat)
+    r.step_all({0: (0.0, 0.0, 0)})
+    assert r.karts[0]["item"] == kart_items.CODE["shield"] and r.items.state()["boxes"][0] == "0", r.karts[0]["item"]
+    # the shield: on with USE, it takes a hit
+    r.step_all({0: (0.0, 0.0, sim.USE)})
+    assert r.karts[0]["item"] == 0 and r.karts[0]["shield"] > 500, r.karts[0]["shield"]
+    r.items.hit(0, "shot", r.karts[0]["x"] + 1, r.karts[0]["y"])
+    assert r.karts[0]["shield"] == 0 and r.items.hits[-1][3] is True
+    # a boost
+    r = race(1)
+    put(r, 0, 50.0, 0.0, 10.0, "boost")
+    r.step_all({0: (1.0, 0.0, sim.USE)})
+    assert r.karts[0]["boost"] >= kart_items.ITEM_BOOST - 2 and r.karts[0]["item"] == 0, r.karts[0]["boost"]
+    # an oil slick dropped behind: the kart behind slides on it
+    r = race(2)
+    put(r, 0, 60.0, 0.0, 8.0, "oil")
+    put(r, 1, 48.0, 0.0, 8.0)
+    r.step_all({0: (1.0, 0.0, sim.USE), 1: (1.0, 0.0, 0)})
+    assert len(r.items.slicks) == 1
+    for _ in range(120):
+        r.step_all({0: (1.0, 0.0, 0), 1: (1.0, 0.0, 0)})
+        if r.karts[1]["slip"]:
+            break
+    assert r.karts[1]["slip"] > 0 and not r.items.slicks, (r.karts[1]["slip"], r.items.slicks)
+    # a shot at the kart ahead on a straight: it spins out, damaged
+    r = race(2)
+    put(r, 0, 2.0, 0.0, 10.0, "shot")
+    put(r, 1, 20.0, 0.0, 4.0)
+    r.step_all({0: (1.0, 0.0, sim.USE), 1: (0.5, 0.0, 0)})
+    hit = False
+    for _ in range(90):
+        r.step_all({0: (0.0, 0.0, 0), 1: (0.5, 0.0, 0)})
+        if any(h[1] == 1 and h[2] == "shot" for h in r.items.hits):
+            hit = True
+            break
+    b = r.karts[1]
+    assert hit and b["slip"] > 0 and b["drl"] + b["drr"] > 0, ({p: b[p] for p in sim.DAMAGE_PARTS}, b["slip"])
+    # a homing shot finds the kart one place ahead, out of sight round the first bend
+    r = race(2)
+    put(r, 0, 30.0, 0.0, 6.0, "homing")
+    put(r, 1, 85.0, 0.0, 6.0)
+    r.step_all({0: (0.0, 0.0, sim.USE), 1: (0.0, 0.0, 0)})
+    assert r.items.shots and r.items.shots[0]["target"] == 1
+    hit = False
+    for _ in range(kart_items.HOMING_LIFE):
+        r.step_all({0: (0.0, 0.0, 0), 1: (0.0, 0.0, 0)})
+        if any(h[1] == 1 and h[2] == "homing" for h in r.items.hits):
+            hit = True
+            break
+    assert hit, "the homing shot never found the kart ahead"
+    # ...the kart in front on the road, not the leader: here the leader is further round, a lap ahead (Pete's
+    # laptop test: it went for the leader)
+    r = race(3)
+    put(r, 0, 30.0, 0.0, 6.0, "homing")
+    put(r, 1, 300.0, 0.0, 6.0)
+    r.karts[1]["lap"] = 3
+    put(r, 2, 70.0, 0.0, 6.0)
+    r.step_all({0: (0.0, 0.0, sim.USE), 1: (0.0, 0.0, 0), 2: (0.0, 0.0, 0)})
+    assert r.items.shots[0]["target"] == 2, r.items.shots[0]["target"]
+    # every item off: no boxes, nobody holding one
+    r = race(1)
+    r.karts[0]["item"] = kart_items.CODE["shot"]
+    r.items.set_allowed({})
+    assert r.items.state()["boxes"] == "" and r.karts[0]["item"] == 0
+    # a pack: four computer karts for 90 s barely scratch each other now (they wrecked themselves in a lap)
+    import cpu_brains
+    r = sim.Race(t, schema)
+    r.set_damage(True)
+    for i in range(4):
+        r.add(i, sim.default_design(f"K{i}"))
+    r.start()
+    worst = 0
+    for _ in range(60 * 90):
+        r.step_all({kid: cpu_brains.drive("medium", k, r) for kid, k in r.karts.items()})
+        worst = max(worst, max(k[p] for k in r.karts.values() for p in sim.DAMAGE_PARTS))
+    assert worst < 0.4 * sim.DAMAGE_MAX and all(k["lap"] >= 2 for k in r.karts.values()), (worst, [k["lap"] for k in r.karts.values()])
+
+
 def ultra_scenery():
     """(CHANGE 144) The ultra circuit (kart_scenery) on every track: nothing solid within the barrier's line but what
     is flat (kerbs, the pit lane) or overhead (the gantry), nothing taller than a barrier in front of a TV camera, and
@@ -572,6 +679,8 @@ check("Designs are checked as variables, inside the teacher's limits", designs_a
 check("Accounts and missions: what a learner does completes the right objectives", profiles_and_missions)
 check("Real damage: hits damage, damage slows but never stops, it mends (quickly in the PIT box), the switch turns it off",
       real_damage)
+check("Power-ups: boxes give the items switched on; a boost, a shield, oil, a shot and a homing shot each work; a "
+      "pack of karts doesn't wreck itself", power_ups)
 check("The ultra circuit keeps clear of the karts and the TV cameras, and its file reads back", ultra_scenery)
 if not QUICK:
     check("The server runs a race for two windows at 30 snapshots a second", server_end_to_end)

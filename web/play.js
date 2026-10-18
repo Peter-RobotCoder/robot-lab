@@ -88,6 +88,7 @@ export class Controller {
         let buttons = 0;
         if (K.is("Shift", " ")) buttons |= 1;          // DRIFT
         if (this.tapped.includes("r")) buttons |= 4;   // RESPAWN (once per press)
+        if (this.tapped.includes("e")) buttons |= 2;   // USE: your item (once per press: CHANGE 159)
         return {throttle, steer, buttons};
     }
 
