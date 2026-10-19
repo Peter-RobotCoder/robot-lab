@@ -24,11 +24,11 @@ import {Keys, Controller} from "./play.js";
 import {Sound, SETTINGS_ROWS, MUSIC, HAS_MUSIC} from "./sound.js";
 import {hideHud} from "./hud.js";
 import {makeDraggable} from "./drag.js";
+import {Snapshots} from "./interp.js";  // (CHANGE 175: the window's blending, delay following the network)
 import {openBrainEditor, closeBrainEditor, brainEditorChanged, uploadMyBrain, brainsOn} from "./brain.js";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const DELAY_MS = 80;            // how far behind the newest snapshot the page draws (two snapshots plus jitter)
 const CLOSE_TEXT = {4001: "Wrong teacher code.", 4002: "A teacher window is already open on this class: close it first.",
                     4006: "This page is out of date for that server.", 4008: "Too many wrong tries: wait a minute.",
                     4011: "The ticket ran out: log in again.", 4010: "That group hasn't started.", 4009: "The session has ended."};
@@ -41,7 +41,7 @@ const state = {
     ws: null, connected: false, role: null, name: "", game: null,
     version: params.get("version") || "",
     lesson: null, rules: null, roster: null, race: null, classList: [], tournament: null, teaching: null,
-    snaps: [], offset: null, lastSeq: null, missed: 0, stalls: 0, pingMs: 0, lastPong: 0, reconnects: 0,
+    snaps: [], interp: new Snapshots(), offset: null, lastSeq: null, missed: 0, stalls: 0, pingMs: 0, pings: [], rttS: null, lastPong: 0, reconnects: 0,
     events: [], eventKeys: new Set(), tab: "controls", scene: null, game: null, tier: "low",
     fps: 0, frames: 0, fpsAt: performance.now(), autoTier: params.get("auto") !== "0",
     desk: null, deskUi: null, lessons: {}, watchGames: [], leaving: false,
@@ -287,6 +287,7 @@ function connect(address = null, how = null) {
     state.url = url;
     state.lastHow = {address: url, how};
     state.snaps = [];  // (a fresh class: nothing from the last one's clock)
+    state.interp = new Snapshots();
     state.offset = state.lastSeq = null;
     ws.onopen = () => {
         const hello = how && how.ticket ? {type: "hello", name, ticket: how.ticket, version: state.version}
@@ -413,6 +414,7 @@ function onMessage(data) {
             state.name = m.name || state.name;
             if (m.role === "learner" && !LEARNER_TABS.some(([k]) => k === state.tab)) state.tab = "mission";
             state.snaps = [];
+            state.interp = new Snapshots();
             state.offset = state.lastSeq = null;
             classMaxHeard();  // (before the scene is made: it is made at the class maximum)
             const g = startGame(m);
@@ -522,7 +524,15 @@ function onMessage(data) {
             toast("A live update is ready on the class server.\nWarn the class, then press Restart server (Controls).", true, 12000);
             return;
         case "pong":
-            if (m.t) state.pingMs = Date.now() - m.t;
+            if (m.t) {
+                state.pingMs = Date.now() - m.t;
+                // (CHANGE 175) the round trip drawing ahead uses: the quickest of the last six, rising by at most
+                // 10 ms a second, so one slow sample doesn't move every robot drawn ahead and back a second later
+                state.pings.push(state.pingMs);
+                if (state.pings.length > 6) state.pings.shift();
+                const target = Math.min(...state.pings) / 1000;
+                state.rttS = state.rttS === null || target < state.rttS ? target : Math.min(target, state.rttS + 0.01);
+            }
             return;
         case "notice":
             toast(m.text || "", !!m.big, m.big ? 12000 : 5000);
@@ -536,7 +546,8 @@ function onMessage(data) {
     }
 }
 
-// the snapshots every game blends between: kept with the server's clock (sm), drawn DELAY_MS behind the newest
+// the snapshots every game blends between, kept with the server's clock (sm): interp.js (CHANGE 175), the
+// window's engine/interp.py line for line, its delay following the network instead of a fixed 80 ms
 function pushSnap(snap, now) {
     snap.at = now;
     if (snap.seq !== undefined) {
@@ -546,31 +557,24 @@ function pushSnap(snap, now) {
         }
         state.lastSeq = snap.seq;
     }
-    // the clock offset between the server's ms and ours: the smallest arrival lag seen, drifting up slowly
-    const lag = now - snap.sm;
-    state.offset = state.offset === null ? lag : Math.min(lag, state.offset + 0.002 * (now - (state.offsetAt || now)));
-    state.offsetAt = now;
-    state.snaps.push(snap);
+    state.interp.push(snap, now);
+    // (the clock offset between the server's ms and ours, as the games drawing ahead read it: now - offset is the
+    // server's time now)
+    const st = state.interp.serverTime(now);
+    state.offset = st === null ? null : now - st;
+    state.snaps.push(snap);  // (the newest for the places table)
     if (state.snaps.length > 90) state.snaps.shift();
 }
 
 // (CHANGE 159) the server's time (ms) the picture is drawn at: what samplePair blends to (null before a snapshot)
 function renderTime(now) {
-    return state.offset === null ? null : now - state.offset - DELAY_MS;
+    return state.interp.renderTime(now);
 }
 
-// {a, b, f}: the two snapshots around the moment to draw and how far between them (b null at the newest)
+// {a, b, f, extrapolating}: the two snapshots around the moment to draw and how far between them (b null with only
+// one; f over 1 while carrying on past the newest for up to 100 ms)
 function samplePair(now) {
-    const snaps = state.snaps;
-    if (!snaps.length || state.offset === null) return null;
-    const t = now - state.offset - DELAY_MS;
-    for (let i = snaps.length - 1; i >= 0; i--) {
-        if (snaps[i].sm <= t) {
-            const a = snaps[i], b = snaps[i + 1] || null;
-            return {a, b, f: b ? Math.max(0, Math.min(1, (t - a.sm) / Math.max(1, b.sm - a.sm))) : 0};
-        }
-    }
-    return {a: snaps[0], b: null, f: 0};
+    return state.interp.pair(now);
 }
 
 // ---------- drawing ----------
@@ -632,7 +636,9 @@ function loop() {
             // (CHANGE 143) as the windows send it: the key delay (ctrl, null until measured: the teacher's table shows
             // it as "key delay") and Kart Lab's prediction corrections (corr)
             const pred = state.game && state.game.predictor;
-            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier() + (state.softwareGl ? " NO GPU" : ""), stalls: state.stalls, delay: DELAY_MS,
+            const rep = state.interp.report();  // (CHANGE 175: the network's stalls and the delay, as the windows report them)
+            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier() + (state.softwareGl ? " NO GPU" : ""),
+                  stalls: rep.stalls, delay: rep.delay_ms, underruns: rep.underruns, hitches: state.stalls,
                   ctrl: state.ctrl && state.ctrl.ctrlMs !== null ? Math.round(state.ctrl.ctrlMs) : null,
                   ...(state.game && state.game.id === "kartlab" ? {corr: pred ? pred.corrections : null} : {})});
             if (state.prefsDirty && now - (state.prefsAt || 0) > 3000) { state.prefsDirty = false; state.prefsAt = now; send({type: "prefs", prefs: state.prefs}); }

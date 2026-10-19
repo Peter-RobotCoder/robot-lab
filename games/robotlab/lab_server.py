@@ -107,6 +107,7 @@ def next_group(groups, live_group=None, now=None):
 
 BRAIN_UPLOAD_GAP = 3.0                   # seconds between one learner's brain uploads
 MAX_LEARNERS = 4
+CTRL_TIMEOUT = 1.0  # (CHANGE 175) seconds without a control before a robot stops (a hidden tab, a long stall)
 INTRO_SECONDS = 8.0  # the countdown before a battle: the arena's name, who is fighting, then 3, 2, 1, ACTIVATE!
 SEND_RATE = 1 / 30       # state snapshots a second (the windows blend between them: engine.interp)
 T0 = time.perf_counter()  # the server's clock for the stamp on every snapshot
@@ -233,6 +234,7 @@ class Player:
         self.default = copy.deepcopy(self.design)  # the starting robot (the code panel's RESET CODE goes back to it)
         self.profile = None
         self.ctrl_seq = None  # the number of the last control message applied (the window numbers them)
+        self.ctrl_at = None   # when the last control came (CHANGE 175: none for a second stops the robot)
         self.perf = None      # the window's own report: frame rate, ping, graphics tier, network stalls
 
 
@@ -909,6 +911,13 @@ class LabServer:
             self.teaching.attach(p)
             self.roster_version += 1
             self.arena.events.append((self.arena.time, f"{name} is back"))
+        elif (role == "learner" and self.arena is not None and not self.tournament
+              and self.start_for_joiner(name) is not None):  # (CHANGE 175) their robot alone goes in: nobody else is reset
+            i, start = self.start_for_joiner(name)
+            p.robot = self.arena.add_robot(p.design, brain=None, owner=name, start=start, arena=i)
+            self.teaching.attach(p)
+            self.roster_version += 1
+            self.arena.events.append((self.arena.time, f"{name} joined"))
         else:
             self.rebuild_arena()
             self.arena.events.append((self.arena.time, f"{name} joined"))
@@ -944,9 +953,24 @@ class LabServer:
                     self.seats.hold(lab_profiles.slug(name), p)
                     print(f"- {name} dropped: their robot is kept {self.seats.seconds:.0f} s")
                     self.roster_version += 1
+                elif (role == "learner" and not self.tournament and p.robot is not None
+                      and p.robot in self.arena.robots):  # (CHANGE 175) only their robot goes: nobody else is reset
+                    print(f"- {name} left")
+                    self.arena.remove_robot(p.robot)
+                    p.robot = None
+                    self.roster_version += 1
+                    self.arena.events.append((self.arena.time, f"{name} left"))
                 else:
                     print(f"- {name} left")
                     self.rebuild_arena()
+
+    def start_for_joiner(self, name):
+        """(CHANGE 175) Where a learner joining mid-battle goes: (arena index, start square), or None when their
+        arena is full (then the arena is rebuilt, as before)."""
+        i = self.place_of(name, max(0, len(self.learners()) - 1))
+        used = {r.start_index for r in self.arena[i].robots}
+        start = next((s for s in range(len(sim.Arena.STARTS)) if s not in used), None)
+        return None if start is None else (i, start)
 
     def rules(self):
         return {"stats": sim.STATS, "points_total": sim.POINTS_TOTAL, "stat_min": sim.STAT_MIN,
@@ -1025,6 +1049,7 @@ class LabServer:
             throttle, steer = number(m.get("throttle")), number(m.get("steer"))  # (CHANGE 165: odd ones are 0)
             p.robot.drive(max(-1.0, min(1.0, throttle)), max(-1.0, min(1.0, steer)),
                           bool(m.get("fire")), p.role == "teacher" or bool(self.lesson["tools"]["weapon_toggle"]))
+            p.ctrl_at = time.perf_counter()
         elif kind == "ping":
             await self.send(p.ws, {"type": "pong", "t": m.get("t"), "sm": server_ms()})
         elif kind == "perf":  # the window's report on itself, for the teacher's grid
@@ -1663,6 +1688,10 @@ class LabServer:
                 self.end_intro()
             if not self.paused:  # (after a win the arena keeps working; the winner stays on screen until Restart)
                 self.arena.step()
+            for p in self.players.values():  # (CHANGE 175) a window gone quiet (a hidden tab, a stall over a second):
+                if p.ctrl_at is not None and now - p.ctrl_at > CTRL_TIMEOUT and p.robot is not None:  # its robot stops
+                    p.robot.drive(0.0, 0.0, False)
+                    p.ctrl_at = None
             self.step_ms = step_ms(next_step - sim.STEP)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament

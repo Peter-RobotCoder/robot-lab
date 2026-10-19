@@ -110,6 +110,10 @@ class Predictor:
         and snaps.
         """
         was = self.predicted.get(ack_seq)
+        if was is None and self.predicted:  # (CHANGE 175) the server has run more ticks than we have inputs for (a
+            newest = next(reversed(self.predicted))  # slow window dropping ticks): compared with our newest instead
+            if seq_after(ack_seq, newest) and seq_diff(ack_seq, newest) < 64:
+                was = self.predicted[newest]
         err = compare(was, server_state) if was is not None else math.inf
         if err < self.ignore:
             self.moved_from = None
@@ -121,9 +125,9 @@ class Predictor:
                 self.predicted[seq] = self.state
             self.corrections += 1
         for seq in list(self.predicted):  # (older than the acknowledged tick is of no further use; the tick
-            if not seq_after(ack_seq, seq):  # itself stays, because the same ack comes again while the server
-                break                        # has nothing new of ours, and that must not look like a reconnect)
-            del self.predicted[seq]
+            if not seq_after(ack_seq, seq) or len(self.predicted) == 1:  # itself stays, and so does our newest,
+                break                        # because the same ack comes again while the server has nothing new of
+            del self.predicted[seq]          # ours (or has run past our newest), and that must not look like a reconnect)
         self.log.trim(ack_seq)
         return err
 
@@ -239,16 +243,32 @@ class ServerInputQueue:
     for, because a later message having arrived means the earlier one never will. pop_for_tick() gives the input
     to apply this tick: the next in sequence if it is here, else the last applied again (and counts the repeat,
     which the LeadController on the client is there to make rare). applied is what the snapshot echoes as ack.
+
+    (CHANGE 175) Each number is one tick, on both sides. A dry tick uses up the next number with the last input
+    (as Overwatch's, Unity's and Photon's tick-indexed servers run tick T with the last input when T's hasn't come),
+    and that input is dropped when it comes late, keeping only its button presses for the next one applied. The
+    window predicted that number with its own input, so its prediction is the one to compare with, and a repeated
+    tick only corrects it when the keys really changed meanwhile; comparing at the input applied, as before, made
+    every dry tick a correction of one tick's movement, and the late inputs then queued for seconds. A window that
+    has fallen behind (slow, not late: half a second of its inputs stale with no fresh one) is picked up where it is. Never
+    more than max_depth wait (the oldest go; Source caps at 24 ticks), and after idle_after dry ticks the idle
+    input is used (a window gone: its kart coasts to a stop).
     """
 
-    def __init__(self, idle=None, max_gap=2):
+    def __init__(self, idle=None, max_gap=2, max_depth=12, idle_after=60, merge=None, behind_after=30):
         self.idle, self.max_gap = idle, max_gap
+        self.max_depth, self.idle_after, self.behind_after = max_depth, idle_after, behind_after
+        self.merge = merge  # merge(late input, next input) -> the next with the late one's presses kept
         self.queue = {}  # seq -> input, all after floor
         self.floor = None  # nothing at or before this seq is accepted: the last applied, or the first seen - 1
-        self.applied = None  # the seq of the input applied last
+        self.applied = None  # the seq of the input applied last (a repeated one counts)
         self.last_input = idle
+        self.late = None  # a late input dropped since the last tick (its presses go into the next)
         self.repeats = 0  # ticks with nothing new to apply (buffer ran dry)
-        self.skipped = 0  # inputs given up on (holes wider than the redundancy covers)
+        self.skipped = 0  # inputs given up on (holes wider than the redundancy covers, or over max_depth)
+        self.dropped = 0  # inputs that came after their tick had been run
+        self.dry = 0  # dry ticks in a row
+        self.stale_run = 0  # late inputs in a row with no fresh one between (a window behind, not a burst)
 
     def push(self, seq, input, prev=()):
         """Queue an input; False if it was stale. prev fills the holes just before it."""
@@ -256,26 +276,65 @@ class ServerInputQueue:
         if self.floor is None:
             self.floor = (seq - 1) & SEQ_MASK
         elif not seq_after(seq, self.floor):
-            return False
+            self.stale_run += 1
+            if self.stale_run > self.behind_after and seq_diff(self.floor, seq) < 600:  # (half a second of nothing
+                self.skipped += seq_diff(self.floor, seq)  # but late ones: a window behind, not a burst after a stall:
+                self.floor = (seq - 1) & SEQ_MASK            # picked up where it is)
+                self.queue.clear()
+            else:
+                self.dropped += 1
+                self.late = input if self.late is None or self.merge is None else self.merge(self.late, input)
+                return False
+        self.stale_run = 0
         self.queue[seq] = input
         for back, p in enumerate(list(prev)[:self.max_gap], 1):
             s = (seq - back) & SEQ_MASK
             if seq_after(s, self.floor) and s not in self.queue:
                 self.queue[s] = p
+        while len(self.queue) > self.max_depth:  # (too many waiting: the oldest are given up on)
+            oldest = min(self.queue, key=lambda s: seq_diff(s, self.floor))
+            del self.queue[oldest]
+            self.floor = oldest
+            self.skipped += 1
         return True
 
     def pop_for_tick(self):
         """The input to apply this tick."""
+        if self.floor is None:
+            return self.last_input  # (nothing from this window yet: no number to use up)
+        nxt = (self.floor + 1) & SEQ_MASK
         if not self.queue:
             self.repeats += 1
-            return self.last_input
-        nxt = (self.floor + 1) & SEQ_MASK
+            self.dry += 1
+            self.floor = self.applied = nxt  # (this tick's number, with the last input)
+            return self.idle if self.dry > self.idle_after else self.last_input
+        self.dry = 0
         if nxt not in self.queue:
             nxt = min(self.queue, key=lambda s: seq_diff(s, self.floor))
             self.skipped += seq_diff(nxt, self.floor) - 1
-        self.last_input = self.queue.pop(nxt)
+        inp = self.queue.pop(nxt)
+        if self.late is not None:  # (a late input's presses: kept, not lost)
+            if self.merge is not None:
+                inp = self.merge(self.late, inp)
+            self.late = None
+        self.last_input = inp
         self.floor = self.applied = nxt
-        return self.last_input
+        return inp
+
+    def drain(self):
+        """While the game is paused: nothing is applied, so everything waiting goes (the newest kept as the last
+        input) and the numbering stays level with the window's, which sends nothing while paused."""
+        if self.queue:
+            newest = max(self.queue, key=lambda s: seq_diff(s, self.floor))
+            self.last_input = self.queue[newest]
+            self.floor = self.applied = newest
+            self.queue.clear()
+        self.late = None
+        self.dry = 0
+
+    def ack(self):
+        """What the snapshot echoes (0 before any input)."""
+        return 0 if self.applied is None else self.applied
 
     def depth(self):
         """How many inputs wait unapplied (echoed to the client for its LeadController)."""

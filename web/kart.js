@@ -268,6 +268,12 @@ export class KartGame {
         }
     }
 
+    sendNeutral() {  // (CHANGE 175) the tab hidden: one input with nothing pressed, numbered on from ours
+        const seq = this.nextSeq;
+        this.nextSeq = (seq + 1) & 0xFFFF;
+        this.app.sendBinary(packInput(seq, this.snapSeq, Math.floor(performance.now()) >>> 0, 0, 0, 0, []));
+    }
+
     frozen() {
         const r = this.race;
         if (this.phase !== FLAGS_RACE) return true;
@@ -277,9 +283,11 @@ export class KartGame {
     // play.js calls this every frame with a function reading the keys: whole 1/60 s ticks, each one input
     controlFrame(now, readKeys, dt) {
         if (this.predictor === null && this.predicting()) return;  // (nothing to predict from until the first snapshot)
+        if (this.race && this.race.paused) return;  // (CHANGE 175: nothing moves and nothing is sent while paused)
         // (the lead multiplier stretches the time between ticks so the server keeps one or two of ours waiting; a
-        // hitch of more than four ticks is skipped, not caught up)
-        this.accum = Math.min(4 * STEP, this.accum + dt / this.lead.multiplier());
+        // hitch of up to 15 ticks is caught up (else the server repeats our last input for each: CHANGE 175), a
+        // longer freeze skipped)
+        this.accum = Math.min(15 * STEP, this.accum + dt / this.lead.multiplier());
         while (this.accum >= STEP) {
             this.accum -= STEP;
             const k = readKeys();

@@ -160,7 +160,7 @@ check("InputLog: seqs wrap at 65535; since/previous/trim honour the wrap; the lo
 
 def queue_wrap_and_gaps():
     q = ServerInputQueue(idle="idle")
-    assert q.pop_for_tick() == "idle" and q.repeats == 1 and q.applied is None
+    assert q.pop_for_tick() == "idle" and q.repeats == 0 and q.applied is None, "nothing from the window yet: no number used"
     for s in (65534, 65535, 0, 1):
         assert q.push(s, f"in{s}", prev=[f"p{s}-1", f"p{s}-2"])
     assert q.depth() == 4, "the first message's prev entries are not queued before it"
@@ -168,10 +168,11 @@ def queue_wrap_and_gaps():
     assert got == ["in65534", "in65535", "in0", "in1"], got
     assert q.applied == 1 and q.depth() == 0
     assert not q.push(65535, "old") and not q.push(1, "dup") and q.depth() == 0, "stale seqs are ignored"
-    assert q.pop_for_tick() == "in1" and q.repeats == 2, "dry: the last input is repeated"
-    assert q.push(4, "in4", prev=["in3", "in2"])
-    assert q.depth() == 3
-    assert [q.pop_for_tick() for _ in range(3)] == ["in2", "in3", "in4"], "a hole of 2 is filled from prev"
+    assert q.pop_for_tick() == "in1" and q.repeats == 1 and q.applied == 2, "dry: the last input again, as number 2 (CHANGE 175)"
+    assert not q.push(2, "in2") and q.dropped == 3, "number 2 coming after its tick was run is dropped..."
+    assert q.push(4, "in4", prev=["in3", "in2"]) and q.depth() == 2, "...and prev fills only what is still to come"
+    assert q.pop_for_tick() == "in3"
+    assert q.pop_for_tick() == "in4"
     assert q.push(9, "in9", prev=["in8", "in7"])
     assert q.push(10, "in10", prev=["in9", "in8"]) and q.depth() == 4, "prev never overwrites what arrived"
     assert q.pop_for_tick() == "in7" and q.skipped == 2 and q.applied == 7, "a wider hole (5, 6) is skipped"
@@ -181,7 +182,26 @@ def queue_wrap_and_gaps():
     q2.pop_for_tick()
     q2.push(3, "d", prev=["c", "b"])
     assert q2.depth() == 2 and q2.pop_for_tick() == "c", "max_gap limits how far back prev is used"
-check("ServerInputQueue: wraps, drops stale seqs, repeats when dry, fills holes <= 2 from prev, skips wider",
+    q3 = ServerInputQueue(idle="idle", max_depth=4, idle_after=3, behind_after=5)  # (CHANGE 175) the cap, idling, a slow window
+    for s in range(1, 9):
+        q3.push(s, f"in{s}")
+    assert q3.depth() == 4 and q3.skipped == 4 and q3.pop_for_tick() == "in5", "over max_depth the oldest go"
+    for _ in range(3):
+        q3.pop_for_tick()
+    assert [q3.pop_for_tick() for _ in range(5)] == ["in8", "in8", "in8", "idle", "idle"], "dry: the last input, then idle"
+    assert q3.applied == 13
+    for s in range(3, 9):  # a window far behind (its numbers stale, nothing fresh): picked up where it is after 5
+        q3.push(s, f"late{s}")
+    assert q3.depth() == 1 and q3.pop_for_tick() == "late8" and q3.applied == 8, "...and its next input applied"
+    q3.drain()
+    assert q3.depth() == 0 and q3.applied == 8
+    q4 = ServerInputQueue(idle="idle", merge=lambda late, nxt: nxt + "+" + late)  # a late input's presses kept
+    q4.push(1, "in1")
+    q4.push(2, "in2")
+    assert [q4.pop_for_tick() for _ in range(3)] == ["in1", "in2", "in2"] and q4.applied == 3
+    assert not q4.push(3, "in3") and q4.push(4, "in4")
+    assert q4.pop_for_tick() == "in4+in3", "number 3 came late: dropped, its presses in number 4"
+check("ServerInputQueue: wraps, drops stale seqs, a dry tick uses the next number, fills holes <= 2 from prev, skips wider, caps, idles",
       queue_wrap_and_gaps)
 
 # ---- the toy sim ----------------------------------------------------------------------------------------------

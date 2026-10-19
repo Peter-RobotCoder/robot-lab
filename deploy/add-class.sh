@@ -94,7 +94,9 @@ cat > "/etc/caddy/robotlab-classes/$NAME.caddy" <<EOF
 	header_regexp Upgrade (?i)^websocket$
 }
 handle @$NAME {
-	reverse_proxy 127.0.0.1:$PORT
+	reverse_proxy 127.0.0.1:$PORT {
+		stream_close_delay 5m
+	}
 }
 EOF
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || {

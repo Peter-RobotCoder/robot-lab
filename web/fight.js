@@ -1465,7 +1465,7 @@ export class FightGame {
                 const y = byId.get(x.id);
                 if (!y) { fighters.push({...x, ri: ra.i}); continue; }
                 fighters.push({...y, pos: x.pos.map((v, i) => lerp(v, y.pos[i], f)), h: lerpDeg(x.h, y.h, f),
-                               k: x.a === y.a ? lerp(x.k, y.k, f) : y.k, ri: ra.i});
+                               k: x.a === y.a ? lerp(x.k, y.k, Math.min(1, f)) : y.k, ri: ra.i});
             }
         }
         const S = this.app.state, my = this.myId();
@@ -1473,7 +1473,7 @@ export class FightGame {
             const ri = (fighters.find(x => x.id === my) || {}).ri;
             if (ri !== undefined) {
                 const drawn = new Map(this.ahead.adjust(fighters.filter(x => x.ri === ri), now / 1000, (now - S.offset) / 1000,
-                                                        (S.pingMs || 0) / 1000, my, this.move.get(my) || null, dt).map(x => [x.id, x]));
+                                                        S.rttS ?? (S.pingMs || 0) / 1000, my, this.move.get(my) || null, dt).map(x => [x.id, x]));
                 fighters = fighters.map(x => drawn.get(x.id) || x);
             }
         }

@@ -148,7 +148,11 @@ export class Predictor {
     // ignore nothing happens; otherwise the state becomes the server's and the inputs after ackSeq are replayed.
     // An ack with no prediction behind it (a reconnect, or one older than the ring) is an unbounded error: a snap
     correct(serverState, ackSeq, dt, compare) {
-        const was = this.predicted.get(ackSeq);
+        let was = this.predicted.get(ackSeq);
+        if (was === undefined && this.predicted.size) {  // (CHANGE 175) the server has run more ticks than we have inputs
+            const newest = [...this.predicted.keys()].pop();  // for (a slow page dropping ticks): our newest instead
+            if (seqAfter(ackSeq, newest) && seqDiff(ackSeq, newest) < 64) was = this.predicted.get(newest);
+        }
         const err = was !== undefined ? compare(was, serverState) : Infinity;
         if (err < this.ignore) {
             this.movedFrom = null;
@@ -164,7 +168,7 @@ export class Predictor {
         // (older than the acknowledged tick is of no further use; the tick itself stays, because the same ack
         // comes again while the server has nothing new of ours, and that must not look like a reconnect)
         for (const seq of [...this.predicted.keys()]) {
-            if (!seqAfter(ackSeq, seq)) break;
+            if (!seqAfter(ackSeq, seq) || this.predicted.size === 1) break;  // (our newest stays too: CHANGE 175)
             this.predicted.delete(seq);
         }
         this.log.trim(ackSeq);

@@ -41,8 +41,10 @@ export class Keys {
             this.down.delete(k);
         });
         // a key held as the page loses focus would never let go (its key-up never comes): let everything go
-        window.addEventListener("blur", () => { this.down.clear(); this.taps = []; });
-        document.addEventListener("visibilitychange", () => { if (document.hidden) { this.down.clear(); this.taps = []; } });
+        window.addEventListener("blur", () => { this.down.clear(); this.taps = []; if (this.onLetGo) this.onLetGo(); });
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) { this.down.clear(); this.taps = []; if (this.onLetGo) this.onLetGo(); }
+        });
         this.active = false;
     }
 
@@ -68,6 +70,17 @@ export class Controller {
         this.lastSend = 0;
         this.sent = new Map();       // seq -> when it went (the control delay, from the server's acks)
         this.ctrlMs = null;
+        // (CHANGE 175) the tab hidden or the page unfocused: a neutral control goes at once (the frame loop that
+        // would have sent it stops with the tab), so a kart, robot or fighter isn't left driving on the last keys
+        keys.onLetGo = () => {
+            const game = this.app.game;
+            if (!game || !game.myId || game.myId() === null || game.myId() === undefined) return;
+            this.seq = (this.seq + 1) % 65536;
+            if (this.kind === "kart") { if (game.sendNeutral) game.sendNeutral(); }
+            else if (this.kind === "fight") this.app.send({type: "control", seq: this.seq, f: 0, s: 0, hold: ""});
+            else this.app.send({type: "control", seq: this.seq, throttle: 0, steer: 0, fire: false});
+            this.last = null;
+        };
         this.pads = new Pads();      // (CHANGE 170) a USB or Bluetooth controller
         this.pad = null;             // ...as read this frame
     }

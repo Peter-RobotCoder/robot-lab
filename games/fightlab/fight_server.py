@@ -73,6 +73,7 @@ def read_live():
         return None
 BRAIN_UPLOAD_GAP = 3.0                     # seconds between one learner's brain uploads
 MAX_LEARNERS = 4
+CTRL_TIMEOUT = 1.0  # (CHANGE 175) seconds without a control before a fighter stands still (a hidden tab, a long stall)
 SEND_RATE = 1 / 30       # state snapshots a second (the windows blend between them: engine.interp)
 T0 = time.perf_counter()  # the server's clock for the stamp on every snapshot
 
@@ -147,6 +148,7 @@ class Player:
         self.start_colour = list(colour)
         self.profile = None
         self.ctrl_seq = None  # the number of the last control message applied (the window numbers them)
+        self.ctrl_at = None   # when the last control came (CHANGE 175: none for a second stops the fighter)
         self.perf = None      # the window's own report: frame rate, ping, graphics tier, network stalls
 
 
@@ -844,6 +846,7 @@ class FightServer:
                 return  # (an older control that arrived after a newer one: ignored)
             if p.fighter.brain is None:  # (autopilot drives when it's on)
                 p.fighter.control = (fwd, side, hold)
+                p.ctrl_at = time.perf_counter()
                 if m.get("press") in sim.PRESSES:
                     p.fighter.press(m["press"], self.stage.time)
         elif kind == "ping":
@@ -1423,6 +1426,11 @@ class FightServer:
                 self.ticks.skip(int(skip))
             if not self.paused:
                 self.stage.step()
+            for p in self.players.values():  # (CHANGE 175) a window gone quiet (a hidden tab, a stall over a second):
+                if (p.ctrl_at is not None and now - p.ctrl_at > CTRL_TIMEOUT and p.fighter is not None  # it stands still
+                        and p.fighter.brain is None):
+                    p.fighter.control = (0.0, 0.0, "")
+                    p.ctrl_at = None
             self.step_ms = step_ms(next_step - sim.STEP)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament

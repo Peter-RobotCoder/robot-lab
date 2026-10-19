@@ -6,6 +6,13 @@ window keeps a short queue of snapshots and draws the picture a little in the pa
 snapshots), blending between the snapshot before and the one after that moment. A stall is then invisible as long
 as it is shorter than the delay; a longer one makes the delay grow a little (and shrink again slowly afterwards).
 
+(CHANGE 175) The delay follows the network: two snapshots plus how late the snapshots have been arriving (the 97th
+percentile over the last three seconds, measured against the quickest), between 67 and 250 ms, as Mirror, Unity's
+netcode and Photon Fusion set theirs; it only moves when the target is more than half a snapshot away (a dead
+band, so it doesn't hunt around the jitter's edge), up at once and down at 20 ms a second. Past the newest snapshot
+the picture carries on for up to 100 ms, headings too (positions and headings are near enough straight over that;
+rotations as quaternions are held).
+
     snaps = Snapshots(LAB_SPEC)            # or FIGHT_SPEC, or a spec of your own (see blend)
     snaps.push(message)                    # every state message, as it arrives (it carries "sm", server ms)
     state = snaps.sample(now)              # every frame: a state message blended for this moment, or None
@@ -56,18 +63,21 @@ class ServerClock:
 class Snapshots:
     """The queue of snapshots and the render delay (see the module's docstring)."""
 
-    def __init__(self, spec=None, interval=1 / 30, delay_intervals=2.0, min_delay=0.05, max_delay=0.2,
-                 max_extrapolate=0.05, keep=1.5):
+    def __init__(self, spec=None, interval=1 / 30, delay_intervals=2.0, min_delay=0.05, max_delay=0.25,
+                 max_extrapolate=0.1, keep=1.5, late_window=3.0, late_pct=0.97, fall=0.02):
         self.spec = spec or {}
         self.interval = interval
         self.base_delay = max(min_delay, interval * delay_intervals)
         self.delay = self.base_delay
         self.min_delay, self.max_delay, self.max_extrapolate = min_delay, max_delay, max_extrapolate
         self.keep = keep                 # seconds of snapshots kept (for the blend and for the gap statistics)
+        self.late_window, self.late_pct, self.fall = late_window, late_pct, fall  # (CHANGE 175: the delay's target)
+        self.late = deque()              # (our time, how late that snapshot was against the quickest)
+        self.target = self.base_delay
         self.clock = ServerClock()
         self.snaps = deque()             # (server time, message)
         self.last_rx = None
-        self.stalls = 0                  # gaps between arrivals of more than 2.5 intervals
+        self.stalls = 0                  # gaps between arrivals of more than 4.5 intervals (150 ms)
         self.worst_gap = 0.0             # the longest gap seen (seconds)
         self.underruns = 0               # times the picture wanted a snapshot newer than any that had arrived
         self.in_underrun = False
@@ -86,7 +96,7 @@ class Snapshots:
         if self.last_rx is not None:
             gap = local_t - self.last_rx
             self.worst_gap = max(self.worst_gap, gap)
-            if gap > 2.5 * self.interval:
+            if gap > 4.5 * self.interval:
                 self.stalls += 1
         self.last_rx = local_t
         if sm is None:
@@ -95,6 +105,15 @@ class Snapshots:
             return
         server_t = sm / 1000.0
         self.clock.note(server_t, local_t)
+        # (CHANGE 175) how late this one was against the quickest path seen: what the delay has to cover
+        self.late.append((local_t, max(0.0, self.clock.server_time(local_t) - server_t)))
+        while self.late and local_t - self.late[0][0] > self.late_window:
+            self.late.popleft()
+        lates = sorted(v for _, v in self.late)
+        pct = lates[min(len(lates) - 1, int(self.late_pct * len(lates)))] if lates else 0.0
+        self.target = max(self.base_delay, min(self.max_delay, self.base_delay + pct))
+        if self.target > self.delay + self.interval / 2:  # (a dead band of half a snapshot: up at once)
+            self.delay = self.target
         if self.snaps and self.snaps[-1][0] is not None and server_t <= self.snaps[-1][0]:
             return  # (out of order or repeated: keep what we have)
         self.in_underrun = False  # (something new has arrived: a stall is over)
@@ -113,9 +132,10 @@ class Snapshots:
             local_t = time.perf_counter()
         dt = 0.0 if self.last_sample_t is None else max(0.0, local_t - self.last_sample_t)
         self.last_sample_t = local_t
-        # the delay creeps back towards its base value when nothing has gone wrong for a while
-        if self.delay > self.base_delay:
-            self.delay = max(self.base_delay, self.delay - 0.004 * dt)
+        # the delay eases back towards its target when the network has been quicker for a while (CHANGE 175: the
+        # target measured, not the base; only when it is more than half a snapshot below, so it doesn't hunt)
+        if self.delay > self.target + self.interval / 2:
+            self.delay = max(self.target, self.delay - self.fall * dt)
         # The moment drawn is a clock of its own: it runs at the server's speed, a little slower while it is ahead
         # of where it should be (after a stall made the delay grow, or a quick packet moved the server clock) and a
         # little faster while behind. So the picture never jumps back and never skips, only eases.
@@ -157,7 +177,7 @@ class Snapshots:
 
     def report(self):
         """Numbers for the status line and the teacher's grid."""
-        return {"delay_ms": round(self.delay * 1000), "stalls": self.stalls,
+        return {"delay_ms": round(self.delay * 1000), "stalls": self.stalls, "target_ms": round(self.target * 1000),
                 "worst_gap_ms": round(self.worst_gap * 1000), "underruns": self.underruns}
 
 
@@ -237,7 +257,7 @@ def blend(a, b, k, spec, extrapolating=False):
             op = OPS.get(rule)
             if op is None:
                 continue
-            if extrapolating and rule != "lerp":
+            if extrapolating and rule not in ("lerp", "angle"):  # (CHANGE 175: headings carried on too)
                 continue
             try:
                 out[key] = op(va, vb, k)

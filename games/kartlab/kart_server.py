@@ -135,6 +135,12 @@ class KartUnit:
         return self.server.race.hits.get(self.kid, 0)
 
 
+def keep_presses(late, nxt):
+    """(CHANGE 175) An input that came after its tick was run is dropped, but its button presses (use the item,
+    respawn, drift) go into the next one applied, so a tap during a Wi-Fi hiccup isn't lost."""
+    return (nxt[0], nxt[1], nxt[2] | late[2])
+
+
 class Player:
     def __init__(self, ws, role, name, colour):
         self.ws, self.role, self.name = ws, role, name
@@ -142,11 +148,13 @@ class Player:
         self.start_colour = list(colour)
         self.kart = None                                  # its kart's id
         self.unit = None                                  # KartUnit, while its kart is in the race
-        self.inputs = predict.ServerInputQueue(idle=IDLE)  # numbered inputs from the window
+        self.inputs = predict.ServerInputQueue(idle=IDLE, merge=keep_presses)  # numbered inputs from the window
         self.last_brain = IDLE
         self.profile = None
         self.perf = None
         self.ctrl_seq = None
+        self.seen_snap = None  # (CHANGE 175) the newest snapshot its inputs say it has seen, and when it said so
+        self.seen_at = None
         self.brain_at = -BRAIN_UPLOAD_GAP
 
 
@@ -590,6 +598,7 @@ class KartServer:
             m = wire.unpack_input(raw)
             inp = (m["throttle"], m["steer"], m["buttons"])
             p.inputs.push(m["seq"], inp, [tuple(x) for x in m["prev"]])
+            p.seen_snap, p.seen_at = m["ack"], time.perf_counter()
 
     async def deliver(self, replies):
         for ws, msg in replies:
@@ -1106,6 +1115,9 @@ class KartServer:
             start = time.perf_counter()
             if not self.paused:
                 self.step()
+            else:  # (CHANGE 175) nothing is applied while paused: the inputs don't pile up to be driven on later
+                for p in self.players.values():
+                    p.inputs.drain()
             self.step_ms = step_ms(next_step)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the league
@@ -1128,7 +1140,13 @@ class KartServer:
             self.ticks.step(time.perf_counter() - start, max(0.0, start - next_step))
             self.watchdog.ping()
             if self.ticks.due() and self.players:  # (the log's line every 10 s: engine.tick_stats, CHANGE 160)
-                print(self.ticks.report(self.outboxes, {ws: p.name for ws, p in self.players.items()}), flush=True)
+                line = self.ticks.report(self.outboxes, {ws: p.name for ws, p in self.players.items()})
+                inputs = []  # (CHANGE 175) each window's dry ticks (its input late or missing) and inputs given up on
+                for p in self.players.values():
+                    if p.kart is not None and (p.inputs.repeats or p.inputs.skipped):
+                        inputs.append(f"{p.name} {p.inputs.repeats} dry, {p.inputs.skipped} skipped")
+                        p.inputs.repeats = p.inputs.skipped = 0
+                print(line + ("; inputs: " + ", ".join(inputs) if inputs else ""), flush=True)
 
     def step(self):
         race = self.race
@@ -1205,9 +1223,17 @@ class KartServer:
             items, items_msg = self.race.items, None
             if items is not None and (items.shots or items.slicks or items.changed or items.unsent or ticks % 30 == 0):
                 items_msg = json.dumps({"type": "items", "sm": sm, **items.state()}, separators=(",", ":"))
+            now_s = time.perf_counter()
             for ws, p in list(self.players.items()):
                 if backed_up(ws):
                     continue
+                # (CHANGE 175) a window whose inputs say it is far behind on our snapshots (a Wi-Fi stall queuing them
+                # beyond Caddy, where the outbox can't see): every other snapshot, every third when further still, so
+                # it gets fewer, fresher ones and catches up
+                if p.seen_snap and p.seen_at is not None and now_s - p.seen_at < 1.0:
+                    behind = predict.seq_diff(self.snap_seq, p.seen_snap)
+                    if (ticks % 3 if behind > 20 else ticks % 2 if behind > 8 else 0):
+                        continue
                 if sent_version.get(ws) != self.roster_version:
                     roster = roster or json.dumps(self.roster(), separators=(",", ":"))
                     await self.send(ws, roster, "roster")
@@ -1216,7 +1242,7 @@ class KartServer:
                     await self.send(ws, race_msg, "race")
                 # that window's own frame: its last input applied, and how many of its inputs wait (for its lead)
                 flags = self.race.phase | (min(15, p.inputs.depth()) << 4)
-                frame = wire.pack_snapshot(SCHEMA, sm, self.snap_seq, entities, ack=p.ctrl_seq or 0, flags=flags)
+                frame = wire.pack_snapshot(SCHEMA, sm, self.snap_seq, entities, ack=p.inputs.ack(), flags=flags)
                 await self.send(ws, frame, "state")
                 if items_msg:
                     await self.send(ws, items_msg, "items")

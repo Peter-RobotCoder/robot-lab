@@ -10,7 +10,9 @@
 		header_regexp Upgrade (?i)^websocket$
 	}
 	handle @desk {
-		reverse_proxy 127.0.0.1:8779
+		reverse_proxy 127.0.0.1:8779 {
+			stream_close_delay 5m
+		}
 	}
 
 	# live code updates the teacher signed (robotlab-live): only their .zip and .sig files, no folder listings.
@@ -65,9 +67,13 @@
 	import /etc/caddy/robotlab-classes/*.caddy
 
 	# the first class: wss://{{DOMAIN}}
+	# (stream_close_delay: a reload of Caddy (an update, another class added) no longer cuts every window off
+	# mid-lesson; the old connections carry on up to five minutes while the new settings take over: CHANGE 175)
 	@game header_regexp Upgrade (?i)^websocket$
 	handle @game {
-		reverse_proxy 127.0.0.1:8780
+		reverse_proxy 127.0.0.1:8780 {
+			stream_close_delay 5m
+		}
 	}
 
 	# anyone opening https://{{DOMAIN}} in a browser

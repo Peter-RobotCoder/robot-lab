@@ -1830,13 +1830,14 @@ export class RobotGame {
         let robots = A.robots.map(r => {
             const n = byId.get(r.id);
             if (!n) return r;
-            return {...n, pos: r.pos.map((v, i) => lerp(v, n.pos[i], f)), quat: slerpQ(r.quat, n.quat, f),
-                    wpos: r.wpos.map((v, i) => lerp(v, n.wpos[i], f)), wquat: slerpQ(r.wquat, n.wquat, f),
+            const fq = Math.min(1, f);  // (CHANGE 175: carrying on past the newest moves them, but doesn't turn them)
+            return {...n, pos: r.pos.map((v, i) => lerp(v, n.pos[i], f)), quat: slerpQ(r.quat, n.quat, fq),
+                    wpos: r.wpos.map((v, i) => lerp(v, n.wpos[i], f)), wquat: slerpQ(r.wquat, n.wquat, fq),
                     speed: lerp(r.speed || 0, n.speed || 0, f)};
         });
         const S = this.app.state;
         if (S.gfx && S.gfx.ahead && S.offset !== null) {  // (CHANGE 166: drawn where they are now)
-            robots = this.ahead.adjust(robots, now / 1000, (now - S.offset) / 1000, (S.pingMs || 0) / 1000, this.myId(),
+            robots = this.ahead.adjust(robots, now / 1000, (now - S.offset) / 1000, S.rttS ?? (S.pingMs || 0) / 1000, this.myId(),
                                        this.drive, dt);
         }
         let hz = A.hz;

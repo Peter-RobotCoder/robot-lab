@@ -424,6 +424,8 @@ class Lab(hud.HudKit, ShowBase):
         self.ring_of = {}        # fighter id -> ring index
         self.watch = None        # the ring being watched (None = your own)
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
+        self.pings, self.rtt = [], None  # (CHANGE 175) the last round trips and the smoothed one drawing ahead uses
+        self.fighter_keys = {}           # (CHANGE 175) each drawn fighter's design and owner: rebuilt only on a change
         # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
         self.snaps, self.latest = interp.Snapshots(interp.FIGHT_SPEC), None
         self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
@@ -2701,7 +2703,7 @@ class Lab(hud.HudKit, ShowBase):
                 if self.tab in ("learners", "accounts"):
                     rebuild = True
             elif kind == "pong":
-                self.ping_ms = (time.time() - m["t"]) * 1000
+                self.note_ping((time.time() - m["t"]) * 1000)
             elif kind == "closed":
                 self.connection_lost(m)
         if rebuild:
@@ -2738,7 +2740,7 @@ class Lab(hud.HudKit, ShowBase):
         rings = []
         for r in state.get("rings", []):
             if any(f["id"] == my for f in r.get("f", [])):
-                r = dict(r, f=self.ahead.adjust(r["f"], now, self.snaps.clock.server_time(now), getattr(self, "ping_ms", 0.0) / 1000, my,
+                r = dict(r, f=self.ahead.adjust(r["f"], now, self.snaps.clock.server_time(now), self.rtt or getattr(self, "ping_ms", 0.0) / 1000, my,
                                                 self.move.get(my), dt))
             rings.append(r)
         return dict(state, rings=rings)
@@ -2754,19 +2756,38 @@ class Lab(hud.HudKit, ShowBase):
             sim.RULES["ring_size"] = m.get("rs", sim.RULES["ring_size"])
             self.stage_vis = StageVisual(self.render, m["rings"], m["hazards"], m.get("look"), m.get("user_mods"))
             self.stage_drawn = drawn
-        for fv in self.fighters.values():
-            fv.destroy()
-        self.fighters = {}
-        for f in m["fighters"]:
+        # (CHANGE 175) only a fighter whose design or owner changed is built again (a roster comes every second with
+        # the windows' reports in it: building every fighter in every ring each time froze the window for seconds)
+        wanted = {f["id"]: f for f in m["fighters"]}
+        keyed = {fid: json.dumps([f["design"], f["owner"]], sort_keys=True, default=str) for fid, f in wanted.items()}
+        for fid in list(self.fighters):
+            if fid not in wanted or self.fighter_keys.get(fid) != keyed[fid]:
+                self.fighters.pop(fid).destroy()
+                self.fighter_keys.pop(fid, None)
+        for fid, f in wanted.items():
+            if fid in self.fighters:
+                continue
             fv = fight_model.make(self.render, f["design"])
             boss = f["design"].get("model")
             fv.set_label(f"{f['design']['name']}\n{'Boss' if boss and f['owner'] == 'Computer' else f['owner']}",
                          (1, 0.75, 0.3, 1) if f["owner"] == "Computer" else (1, 1, 1, 1))
-            self.fighters[f["id"]] = fv
+            self.fighters[fid] = fv
+            self.fighter_keys[fid] = keyed[fid]
         self.my_id = m["mine"].get(name)
         self.ring_of = {f["id"]: f["ring"] for f in m["fighters"]}
         self.names = {f["id"]: (f["design"]["name"], f["owner"], tuple(v / 255 for v in f["design"]["colour"]),
                                 f["design"].get("body", "robot")) for f in m["fighters"]}
+
+
+    def note_ping(self, ms):
+        """(CHANGE 175) The round trip: ping_ms as measured (the status line), rtt the one drawing ahead uses: the
+        quickest of the last six, rising by at most 10 ms a second, so a spike in one sample doesn't move every
+        robot drawn ahead at once and back a second later."""
+        self.ping_ms = ms
+        self.pings.append(ms)
+        del self.pings[:-6]
+        target = min(self.pings) / 1000
+        self.rtt = target if self.rtt is None or target < self.rtt else min(target, self.rtt + 0.01)
 
     # ---------- your controls ----------
     def press(self, action):

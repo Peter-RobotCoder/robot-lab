@@ -2385,7 +2385,9 @@ class Lab(hud.HudKit, ShowBase):
                 self.item_hits(m.get("hits") or [])
             elif kind == "roster":
                 self.roster = m
-                self.sync_designs({k["id"]: {"name": k["name"], "colour": k["colour"]} for k in m["karts"]})
+                self.sync_designs({k["id"]: {"name": k["name"], "colour": k["colour"],  # (and the body: a kart or a
+                                              "body": (k.get("design") or {}).get("body", "kart")}  # sports car, CHANGE 173)
+                                   for k in m["karts"]})
                 if m.get("laps"):
                     self.race["laps"] = m["laps"]
                 mine = (m.get("mine") or {}).get(self.my_name)
@@ -2659,6 +2661,8 @@ class Lab(hud.HudKit, ShowBase):
         """One predicted tick of our own kart, and its input to the server."""
         if self.predictor is None and not (args.no_predict or self.autopilot or self.finished):
             return  # (nothing to predict from until the first snapshot: inputs sent now would only be unlogged)
+        if self.race.get("paused"):
+            return  # (CHANGE 175: nothing moves and nothing is sent; the server drains what it has)
         inp = self.read_keys()
         if self.frozen(now):
             inp = (0.0, 0.0, 0)
@@ -2712,11 +2716,12 @@ class Lab(hud.HudKit, ShowBase):
             states = r.karts
         elif net is not None:
             self.read_network()
-            # (a hitch of more than four ticks is skipped, not caught up: a burst of inputs would only queue at the
+            # (a hitch of up to 15 ticks is caught up (the server would otherwise repeat our last input for every
+            # tick we missed: CHANGE 175); a longer freeze is skipped, as a burst of inputs would only queue at the
             # server and make every key press late until the lead controller drained it)
             # (the lead multiplier stretches the time between our ticks: over 1 when the server has too many of our
             # inputs waiting, under 1 when it is running dry, so a key press is applied within a tick or two)
-            self.accum = min(4 * sim.STEP, self.accum + dt / self.lead.multiplier())
+            self.accum = min(15 * sim.STEP, self.accum + dt / self.lead.multiplier())
             while self.accum >= sim.STEP:
                 self.accum -= sim.STEP
                 self.client_tick(now)
@@ -2915,7 +2920,7 @@ class Lab(hud.HudKit, ShowBase):
         self.perf_at = now
         rep = self.snaps.report()
         perf = {"type": "perf", "fps": round(self.clock.getAverageFrameRate()), "ping": round(self.ping_ms),
-                "tier": self.gfx_tier, "stalls": rep["stalls"], "delay": rep["delay_ms"],
+                "tier": self.gfx_tier, "stalls": rep["stalls"], "delay": rep["delay_ms"], "underruns": rep["underruns"],
                 "ctrl": None if self.ctrl_ms is None else round(self.ctrl_ms),
                 "corr": self.predictor.corrections if self.predictor else None}
         send(perf)

@@ -430,6 +430,8 @@ class Lab(hud.HudKit, ShowBase):
         #                                                                 the one you chose, None = your own)
         self.house = set()       # ids of the Resident Robots
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
+        self.pings, self.rtt = [], None  # (CHANGE 175) the last round trips and the smoothed one drawing ahead uses
+        self.robot_keys = {}             # (CHANGE 175) each drawn robot's design and owner: rebuilt only on a change
         # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
         self.snaps, self.latest = interp.Snapshots(interp.LAB_SPEC), None
         self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
@@ -2870,7 +2872,7 @@ class Lab(hud.HudKit, ShowBase):
                 self.state = self.arena_view(blended)
                 if self.ahead_on and not args.no_ahead and self.state.get("robots"):  # (CHANGE 166)
                     self.state = dict(self.state, robots=self.ahead.adjust(
-                        self.state["robots"], now, self.snaps.clock.server_time(now), self.ping_ms / 1000,
+                        self.state["robots"], now, self.snaps.clock.server_time(now), self.rtt or self.ping_ms / 1000,
                         getattr(self, "my_id", None), self.drive, dt))
         self.send_controls(now)
         self.send_perf(now)
@@ -3064,7 +3066,7 @@ class Lab(hud.HudKit, ShowBase):
                 if self.tab in ("learners", "accounts"):
                     rebuild = True
             elif kind == "pong":
-                self.ping_ms = (time.time() - m["t"]) * 1000
+                self.note_ping((time.time() - m["t"]) * 1000)
             elif kind == "closed":
                 self.connection_lost(m)
         if rebuild:
@@ -3143,22 +3145,42 @@ class Lab(hud.HudKit, ShowBase):
                 self.arena_vis.root.removeNode()
             self.arena_vis = ArenaVisual(self.render, m["hazards"], m.get("look"), m.get("user_mods"))
             self.hazards_drawn = drawn
-        for rv in self.robots.values():
-            rv.destroy()
-        self.robots = {}
+        # (CHANGE 175) only a robot whose design or owner changed is built again (a roster comes every second with
+        # the windows' reports in it: building every robot each time was a stutter every second)
+        wanted = {r["id"]: r for r in m["robots"]}
+        keyed = {rid: json.dumps([painted(r["design"]), r["owner"]], sort_keys=True, default=str) for rid, r in wanted.items()}
+        for rid in list(self.robots):
+            if rid not in wanted or self.robot_keys.get(rid) != keyed[rid]:
+                self.robots.pop(rid).destroy()
+                self.robot_keys.pop(rid, None)
         self.house = set()
         self.weapons = {r["id"]: sim.design_weapon(r["design"]) for r in m["robots"]}
-        for r in m["robots"]:
+        for rid, r in wanted.items():
+            if r["design"].get("house"):
+                self.house.add(rid)
+            if rid in self.robots:
+                continue
             rv = RobotVisual(self.render, painted(r["design"]))
             if r["design"].get("house"):
-                self.house.add(r["id"])
                 rv.set_label(f"{r['design']['name']}\nResident Robot", (1, 0.75, 0.3, 1))
             else:
                 rv.set_label(r["owner"])  # (the username above; the robot's name is painted on it: CHANGE 78)
-            self.robots[r["id"]] = rv
+            self.robots[rid] = rv
+            self.robot_keys[rid] = keyed[rid]
         self.my_id = m["mine"].get(name)
         self.names = {r["id"]: (r["design"]["name"], r["owner"], tuple(v / 255 for v in r["design"]["colour"]))
                       for r in m["robots"]}
+
+
+    def note_ping(self, ms):
+        """(CHANGE 175) The round trip: ping_ms as measured (the status line), rtt the one drawing ahead uses: the
+        quickest of the last six, rising by at most 10 ms a second, so a spike in one sample doesn't move every
+        robot drawn ahead at once and back a second later."""
+        self.ping_ms = ms
+        self.pings.append(ms)
+        del self.pings[:-6]
+        target = min(self.pings) / 1000
+        self.rtt = target if self.rtt is None or target < self.rtt else min(target, self.rtt + 0.01)
 
     def send_controls(self, now):
         if now - self.last_ping > 1:

@@ -25,6 +25,7 @@ import math
 import os
 import random
 import sys
+import threading
 import time
 
 import kart_version  # (puts the engine package on the path)
@@ -442,6 +443,7 @@ def init(base, tier="medium", line_colour=None):
         base.camLens.setFar(4000)  # (the hills are out to 1.3 km)
     _state.update(quality=used, pipeline=pipeline, sun=sun_np, amb=amb_np)
     _state["headlights"] = Headlights(render)  # (CHANGE 172) the beams, given out each frame
+    warm_cars(used)  # (CHANGE 175) the sports cars' numbers worked out now, not when one first appears mid-race
     apply_time()  # (CHANGE 172) the time of day as the lesson has it (kept over a tier change)
     return pipeline
 
@@ -1429,6 +1431,26 @@ def ultra_model():
         out["arms"] = [{p["role"]: geom_of([p])} for p in model["arms"]]  # (each its own: each turns apart)
         _state["ultra_model"] = out
     return _state["ultra_model"]
+
+
+def warm_cars(tier_used):
+    """(CHANGE 175) Build every sports car's model (car_models: pure Python, 0.15 s each plain, 1.2 s each in ultra's
+    detail) on a thread while the window is loading and logging in, so the first car to appear in a race doesn't
+    freeze the window while it is worked out. car_model() then only turns the numbers into Geoms."""
+    if _state.get("cars_warm") or tier_used in gfx_tiers.LOOKS:
+        return
+    _state["cars_warm"] = True
+
+    def build():
+        for name in car_models.CARS:
+            try:
+                car_models.car(name)
+                if tier_used == "ultra":
+                    car_models.car_ultra(name)
+            except Exception as e:  # (a model that won't build is built again, on the main thread, when needed)
+                print(f"gfx: couldn't prepare the {name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+                return
+    threading.Thread(target=build, name="cars", daemon=True).start()
 
 
 def car_model(name, ultra=False):
