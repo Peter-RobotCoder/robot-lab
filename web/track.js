@@ -4,7 +4,7 @@
 // Its numbers are Python's to the last bit (math.hypot, % and degrees done as Python does them: pymath.js), because
 // the browser's prediction (kart_sim.js) steps a kart on it and must land where the server's step does.
 
-import {hypot, pyMod, degrees} from "./pymath.js";
+import {hypot, pyMod, degrees, atan2} from "./pymath.js";  // (atan2: CHANGE 162)
 
 export const GATES = 8;
 
@@ -116,7 +116,7 @@ export class Track {
 
     heading(s) {
         const [tx, ty] = this.tan[this.segmentAt(s)];
-        return degrees(Math.atan2(ty, tx));
+        return degrees(atan2(ty, tx));
     }
 
     height(s) {

@@ -513,10 +513,34 @@ def main():
                 chrome.screenshot(os.path.join(work, f"kartlab_{tier}.png"))
             errors = chrome.js("JSON.stringify(window.__errors)")
             assert errors == "[]", f"JavaScript errors: {errors}"
+            # (CHANGE 161) the screen's ratio changing (a zoom, another screen) keeps the budget: Babylon's own
+            # adaptToDeviceRatio scaled it a second time (medium at 1.25 drew 2.4 MP for 1.6)
+            # (a zoom changes the CSS size with the ratio; the protocol's ratio alone fires no resize event)
+            for ratio, w, h in ((1.25, 1300, 800), (2.0, 1400, 820), (1.0, 1400, 850)):
+                chrome.call("Emulation.setDeviceMetricsOverride", width=w, height=h, deviceScaleFactor=ratio, mobile=False)
+                chrome.wait_for(f"window.devicePixelRatio === {ratio}", 5, f"the page at {ratio} pixels a CSS pixel")
+                time.sleep(0.5)
+                chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 10, f"the pixel budget at {ratio} (last: {chrome.js(DRAWN_RIGHT)})")
+                want = chrome.js("(async () => { const b = await import('./base3d.js'); return b.resolutionFor(window.__state.scene.tier); })()")
+                got = chrome.js("1 / window.__state.scene.engine.getHardwareScalingLevel()")
+                assert abs(got - want) < 1e-6, f"at {ratio} the canvas draws {got} pixels a CSS pixel, the tier wants {want}"
+            chrome.call("Emulation.clearDeviceMetricsOverride")
             # (CHANGE 144) only ultra asks for the ultra circuit (4.7 MB): never a school laptop on low, nor on high
             assert not chrome.js(SCENERY_FETCHED), "the ultra circuit (models/kart_scenery.json) was fetched below ultra"
         check("The graphics tiers (blocks, low, medium, high: the app's lighting and textures) keep the track and the karts, "
               "load every picture and keep to their pixel budgets, and never fetch the ultra circuit", tiers)
+
+        def software_gl():  # (CHANGE 161) drawing without the graphics card is recognised (it starts on blocks)
+            names = ["Google SwiftShader", "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+                     "llvmpipe (LLVM 15.0.7, 256 bits)", "ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0)",
+                     "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+                     "ANGLE (Intel, Mesa Intel(R) UHD Graphics 600 (GLK 2), OpenGL 4.6)", "Mali-G52 MC2", "Adreno (TM) 618",
+                     "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)"]
+            got = chrome.js(f"(async () => {{ const {{SOFTWARE_GL}} = await import('./app.js'); "
+                            f"return {json.dumps(names)}.map(n => SOFTWARE_GL.test(n)); }})()")
+            assert got == [True, True, True, True, False, False, False, False, False], got
+            assert chrome.js("window.__state.softwareGl") is False, "this computer's graphics card taken for software drawing"
+        check("Drawing without a graphics card (SwiftShader, llvmpipe, the basic display driver) is recognised", software_gl)
 
         def line_tiers():  # (CHANGE 144) mesh and lines: black, every mesh's edges as lines (lines: outlines and a grid)
             for tier in ("mesh", "lines"):
@@ -1107,6 +1131,16 @@ def main():
             assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == \
                 "mesh,lines,blocks,low,medium,high,ultra"
             assert chrome.js("!!document.querySelector('button[data-linecol]')"), "no line colours on Robot Lab's Graphics tab"
+            # (CHANGE 166) the robots drawn where they are now: every robot followed from the snapshots, each one's
+            # drive from the roster, the Graphics tab's Movement row; "as sent" draws them blended again
+            got = chrome.js("[window.__state.game.ahead.tracks.size, window.__state.game.drive.size, "
+                            "!!document.querySelector('button[data-ahead=\"1\"].on'), window.__state.gfx.ahead]")
+            assert got[0] >= 3 and got[1] >= 3 and got[2] and got[3] is True, f"the robots drawn ahead: {got}"
+            chrome.js("document.querySelector('button[data-ahead=\"0\"]').click()")
+            chrome.wait_for("window.__state.gfx.ahead === false && JSON.parse(localStorage.getItem('gfx')).ahead === false", 5,
+                            "Movement: as sent, kept on this computer")
+            chrome.js("document.querySelector('button[data-ahead=\"1\"]').click()")
+            chrome.wait_for("window.__state.gfx.ahead === true", 5, "Movement: now again")
             chrome.js("window.__app.send({type: 'restart'})")  # (new robots: the old ones go, their materials stay)
             time.sleep(3.0)
             chrome.wait_for(f"window.__state.scene.robots.size >= 3 && {DRAWN_RIGHT} === 'ok'", 20, "Robot Lab drawn properly after a restart")
@@ -1122,8 +1156,8 @@ def main():
             time.sleep(1.0)
             chrome.screenshot(os.path.join(work, "robotlab.png"))
             no_errors()
-        check("Robot Lab: the arena and the robots are drawn from its snapshots, on every tier; B makes the health bars small",
-              robot_lab)
+        check("Robot Lab: the arena and the robots are drawn from its snapshots, on every tier, ahead (the Movement row); "
+              "B makes the health bars small", robot_lab)
 
         def robot_line_tiers():  # (CHANGE 145) mesh and lines as the window's: black, the arena's, the cage's screens'
             if "amy" not in servers:  # and every robot's edges as lines (each moving part's own), the grid on lines only
@@ -1463,6 +1497,10 @@ def main():
                 "mesh,lines,blocks,low,medium,high,ultra"
             assert chrome.js("!!document.querySelector('button[data-linecol]')"), "no line colours on Fight Lab's Graphics tab"
             assert chrome.js("document.querySelector('button[data-tier=\"low\"]').classList.contains('on')")
+            # (CHANGE 167) your fighter's footwork drawn at once: the Movement row, each fighter's footwork from the roster
+            got = chrome.js("[!!document.querySelector('button[data-ahead=\"1\"].on'), window.__state.game.move.size, "
+                            "!!window.__state.game.ahead]")
+            assert got[0] and got[1] >= 2 and got[2], f"Fight Lab's Movement: {got}"
             # the detailed bodies (woman, man, Robin): the app's own skinned model and moves (fightmodels.js, the files
             # from models/fightlab/) on the lit tiers, posed every frame; the primitive stand-in on blocks
             chrome.js("window.__app.send({type: 'cpu_robot', design: {name: 'Ava', body: 'woman', colour: [200, 40, 40], "

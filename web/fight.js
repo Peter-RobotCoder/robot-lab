@@ -23,6 +23,7 @@ import {FightFX, FightCamera, CAM_MODES, CAM_NAMES, loadFightModels, fightModels
         drawWords} from "./fightfx.js";
 import {FightHud} from "./hud.js";
 import {Sound} from "./sound.js";
+import {FighterAhead} from "./ahead.js";
 
 const $ = id => document.getElementById(id);
 loadPandaFont();  // (the window's letters, asked for as the page opens: CHANGE 150)
@@ -1269,6 +1270,10 @@ export class FightGame {
     constructor(app) {
         this.app = app;
         this.id = "fightlab";
+        // (CHANGE 167) your fighter's footwork drawn at once (ahead.js); each fighter's from the roster
+        this.ahead = new FighterAhead();
+        this.move = new Map();
+        this.aheadNote = "your fighter's steps drawn as you press the keys";  // (app.js: the Graphics tab's Movement row)
         this.title = "Fight Lab";
         this.word = "fighter";
         this.scene = new FightScene(app.canvas, app.tier, app.engine);
@@ -1407,9 +1412,12 @@ export class FightGame {
 
     learnerTabs() { return [["camera", "Camera"]]; }
 
+    controlSent(msg, now) { this.ahead.control(now / 1000, msg.f, msg.s, msg.hold); }  // (play.js: CHANGE 167)
+
     message(m) {
         if (m.type === "roster") {
             this.roster = m;
+            this.move = new Map((m.fighters || []).filter(x => x.move).map(x => [x.id, x.move]));  // (CHANGE 167)
             this.scene.setSetup({rings: m.rings || [0], rs: m.rs || 4.5, hazards: m.hazards || {}, look: m.look || {}});
             this.scene.setFighters(m.fighters || []);
             this.scene.watchRing = this.watched();
@@ -1421,6 +1429,8 @@ export class FightGame {
             const myId = this.myId();  // (the server's acks: how long our key presses take to show)
             if (myId !== null && m.acks && m.acks[myId] !== undefined && this.app.ctrl) this.app.ctrl.ack(m.acks[myId], performance.now());
             this.app.pushSnap(m, performance.now());
+            const mine = myId !== null ? (m.rings || []).find(r => (r.f || []).some(x => x.id === myId)) : null;
+            this.ahead.snapshot(m.sm / 1000, mine ? mine.f : [], myId);  // (CHANGE 167)
             this.last = m;
             this.scene.impacts(m.fx || [], m.rings || []);  // (sparks, flashes, dust, debris and the shake: fightfx.js)
             this.impacts = (this.impacts || []).concat(m.fx || []);  // (heard on the next frame: sound.js)
@@ -1447,7 +1457,7 @@ export class FightGame {
         if (!pair) { this.scene.frame([], [], dt, now / 1000); return; }
         const {a, b, f} = pair;
         const bRings = b ? new Map((b.rings || []).map(r => [r.i, r])) : new Map();
-        const fighters = [];
+        let fighters = [];
         for (const ra of a.rings || []) {
             const rb = bRings.get(ra.i);
             const byId = rb ? new Map((rb.f || []).map(x => [x.id, x])) : new Map();
@@ -1458,8 +1468,17 @@ export class FightGame {
                                k: x.a === y.a ? lerp(x.k, y.k, f) : y.k, ri: ra.i});
             }
         }
+        const S = this.app.state, my = this.myId();
+        if (S.gfx && S.gfx.ahead && S.offset !== null && my !== null) {  // (CHANGE 167: your footwork drawn at once)
+            const ri = (fighters.find(x => x.id === my) || {}).ri;
+            if (ri !== undefined) {
+                const drawn = new Map(this.ahead.adjust(fighters.filter(x => x.ri === ri), now / 1000, (now - S.offset) / 1000,
+                                                        (S.pingMs || 0) / 1000, my, this.move.get(my) || null, dt).map(x => [x.id, x]));
+                fighters = fighters.map(x => drawn.get(x.id) || x);
+            }
+        }
         this.scene.watchRing = this.watched();
-        this.scene.myId = this.myId();
+        this.scene.myId = my;
         this.scene.frame(fighters, (b || a).rings || [], dt, now / 1000);
         // the fight screen (hud.js): the watched ring's two fighters, from the newest snapshot
         const watched = this.watched(), ring = this.last ? (this.last.rings || []).find(r => r.i === watched) : null;

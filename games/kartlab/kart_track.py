@@ -12,6 +12,8 @@ start line), and the start line is gate 0.
 import bisect
 import math
 
+import kart_math as kmath  # (atan2 and hypot the same on every computer: CHANGE 162)
+
 GATES = 8
 
 TRACKS = {
@@ -77,7 +79,7 @@ class Track:
         for i in range(n):
             a, b = self.pts[i], self.pts[(i + 1) % n]
             dx, dy = b[0] - a[0], b[1] - a[1]
-            length = math.hypot(dx, dy) or 1e-6
+            length = kmath.hypot(dx, dy) or 1e-6
             self.seg_len.append(length)
             self.tan.append((dx / length, dy / length))
             self.s.append(total)
@@ -108,7 +110,7 @@ class Track:
     def heading(self, s):
         """The track's direction at s, in degrees (0 = +x, anticlockwise), as a kart's yaw is."""
         tx, ty = self.tan[self.segment_at(s)]
-        return math.degrees(math.atan2(ty, tx))
+        return math.degrees(kmath.atan2(ty, tx))
 
     def height(self, s):
         return self.point(s)[2]

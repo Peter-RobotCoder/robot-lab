@@ -84,7 +84,7 @@ def setup(game):
 
 
 def slug(name):
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "learner"
+    return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_") or "learner"
 
 
 def git(*args, check=True):

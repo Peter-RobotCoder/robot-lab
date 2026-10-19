@@ -33,6 +33,9 @@ const CLOSE_TEXT = {4001: "Wrong teacher code.", 4002: "A teacher window is alre
                     4006: "This page is out of date for that server.", 4008: "Too many wrong tries: wait a minute.",
                     4011: "The ticket ran out: log in again.", 4010: "That group hasn't started.", 4009: "The session has ended."};
 let engine = null;
+// (CHANGE 161) the renderer names of drawing done without the graphics card (Chrome's SwiftShader, Mesa's llvmpipe,
+// Windows' basic display driver)
+export const SOFTWARE_GL = /SwiftShader|llvmpipe|softpipe|Software|Microsoft Basic Render/i;
 
 const state = {
     ws: null, connected: false, role: null, name: "", game: null,
@@ -303,9 +306,10 @@ function connect(address = null, how = null) {
         renderKeyHelp();  // (CHANGE 143: the key list goes with the class)
         if (!left && was && !(ev.code >= 4000 && ev.code < 4100) && state.reconnects < 30) {  // (a restart or the Wi-Fi)
             state.reconnects++;
-            toast(state.expectRestart && Date.now() - state.expectRestart < 60000 ? "The class server is restarting: reconnecting…"
-                                                                                : "Lost the class: reconnecting…", false, 4000);
-            setTimeout(reconnect, Math.min(5000, 1000 + 500 * state.reconnects));
+            const restarting = ev.code === 1012 || (state.expectRestart && Date.now() - state.expectRestart < 60000);
+            toast(restarting ? "The class server is restarting: reconnecting…" : "Lost the class: reconnecting…", false, 4000);
+            // (1012: the server closed every window to restart. Not the whole class at the same moment: CHANGE 160)
+            setTimeout(reconnect, Math.min(5000, 1000 + 500 * state.reconnects) + Math.random() * 1500);
             return;
         }
         if (state.learnerLink && !left) {  // (a learner: the game ended or turned us away; back to waiting at the desk)
@@ -570,12 +574,34 @@ function samplePair(now) {
 }
 
 // ---------- drawing ----------
+// (CHANGE 161) the screen's refresh: the browser calls loop() at the screen's rate, 120 a second and more on some
+// laptops. There a frame is drawn every `every` refreshes, about 60 a second (half the work and the heat), and Auto
+// judges by the screen: a missed frame is one later than the drawing interval and half a refresh (25 ms at 60 Hz, as
+// AutoTier.MISS_MS; 21 ms drawing every other refresh at 120 Hz, where every frame sat under 25 ms however slow)
+const refresh = {gaps: [], at: 0, ms: 1000 / 60, every: 1, last: performance.now()};
+function measureRefresh(now) {
+    const gap = now - refresh.last;
+    refresh.last = now;
+    if (gap > 2 && gap < 60) { refresh.gaps.push(gap); if (refresh.gaps.length > 120) refresh.gaps.shift(); }
+    if (now - refresh.at > 1000 && refresh.gaps.length >= 30) {  // (the quickest tenth: the screen's own interval)
+        refresh.at = now;
+        const sorted = refresh.gaps.slice().sort((a, b) => a - b);
+        refresh.ms = sorted[Math.floor(sorted.length * 0.1)];
+        refresh.every = Math.max(1, Math.floor(1000 / 60 / refresh.ms + 0.25));
+    }
+}
+
 let lastFrame = performance.now();
 function loop() {
     const now = performance.now();
+    measureRefresh(now);
+    if (now - lastFrame < (refresh.every - 0.5) * refresh.ms) {  // (a fast screen: not this refresh)
+        requestAnimationFrame(loop);
+        return;
+    }
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
     if (now - lastFrame > 100) state.stalls++;
-    if (now - lastFrame > AutoTier.MISS_MS) state.missedFrames = (state.missedFrames || 0) + 1;
+    if (now - lastFrame > (refresh.every + 0.5) * refresh.ms) state.missedFrames = (state.missedFrames || 0) + 1;
     lastFrame = now;
     state.frames++;
     const covered = $("login").style.display !== "none" || deskShown();  // (nothing to see behind them: don't draw)
@@ -606,7 +632,7 @@ function loop() {
             // (CHANGE 143) as the windows send it: the key delay (ctrl, null until measured: the teacher's table shows
             // it as "key delay") and Kart Lab's prediction corrections (corr)
             const pred = state.game && state.game.predictor;
-            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier(), stalls: state.stalls, delay: DELAY_MS,
+            send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier() + (state.softwareGl ? " NO GPU" : ""), stalls: state.stalls, delay: DELAY_MS,
                   ctrl: state.ctrl && state.ctrl.ctrlMs !== null ? Math.round(state.ctrl.ctrlMs) : null,
                   ...(state.game && state.game.id === "kartlab" ? {corr: pred ? pred.corrections : null} : {})});
             if (state.prefsDirty && now - (state.prefsAt || 0) > 3000) { state.prefsDirty = false; state.prefsAt = now; send({type: "prefs", prefs: state.prefs}); }
@@ -629,7 +655,8 @@ function loadGfx() {
     let kept = {};
     try { kept = JSON.parse(localStorage.getItem("gfx") || "{}") || {}; } catch (e) { /* storage blocked */ }
     state.gfx = {auto: kept.auto !== false, parts: cleanParts(kept.parts),
-                 aa: kept.aa !== false, fps: kept.fps !== false};
+                 aa: kept.aa !== false, fps: kept.fps !== false,
+                 ahead: params.get("ahead") === "0" ? false : kept.ahead !== false};  // (CHANGE 166: Movement)
     state.autoTier = params.get("auto") === "0" ? false : state.gfx.auto;
     state.auto = new AutoTier(kept.autoStore || {});
 }
@@ -757,7 +784,9 @@ function graphicsHtml() {
     }
     html += `<tr><th>Smooth edges (multisampling)</th><td><button data-aa="1" class="${state.gfx.aa ? "on" : ""}">on</button><button data-aa="0" class="${state.gfx.aa ? "" : "on"}">off</button>
         ${state.gfx.aa !== aa ? `<span class="note">from the next time the page opens</span>` : ""}</td></tr>
-      <tr><th>Frame rate box</th><td><button data-fpsbox="1" class="${state.gfx.fps ? "on" : ""}">shown</button><button data-fpsbox="0" class="${state.gfx.fps ? "" : "on"}">hidden</button></td></tr></table>
+      <tr><th>Frame rate box</th><td><button data-fpsbox="1" class="${state.gfx.fps ? "on" : ""}">shown</button><button data-fpsbox="0" class="${state.gfx.fps ? "" : "on"}">hidden</button></td></tr>
+      ${state.game && state.game.aheadNote ? `<tr><th>Movement</th><td><button data-ahead="1" class="${state.gfx.ahead ? "on" : ""}">now</button><button data-ahead="0" class="${state.gfx.ahead ? "" : "on"}">as sent</button>
+        <span class="note">now: ${esc(state.game.aheadNote)}</span></td></tr>` : ""}</table>
       ${tuned ? `<div class="row"><button id="btn-parts-reset">Back to ${drawn}'s own</button></div>` : ""}
       <div class="note">${["mesh", "lines", "blocks"].includes(drawn) ? `On ${drawn} nothing is lit, so only the pixels count. ` : ""}Each tier draws at most so many pixels
         however fine the screen (${tiers.map(t => `${t} ${(TIER_SETTINGS[t].pixels / 1e6).toFixed(1)}`).join(", ")} million); more is sharper and slower.</div>`;
@@ -788,6 +817,7 @@ function wireGraphics(body) {
     });
     body.querySelectorAll("button[data-aa]").forEach(b => b.onclick = () => { state.gfx.aa = b.dataset.aa === "1"; keepGfx(); renderPanel(); });
     body.querySelectorAll("button[data-fpsbox]").forEach(b => b.onclick = () => { state.gfx.fps = b.dataset.fpsbox === "1"; keepGfx(); applyGraphics(); });
+    body.querySelectorAll("button[data-ahead]").forEach(b => b.onclick = () => { state.gfx.ahead = b.dataset.ahead === "1"; keepGfx(); applyGraphics(); });
     if ($("btn-parts-reset")) $("btn-parts-reset").onclick = () => { state.gfx.parts = {}; keepGfx(); applyGraphics(true); };
     body.querySelectorAll("button[data-gfxmax]").forEach(b => b.onclick = () => {
         const t = b.dataset.gfxmax;
@@ -931,7 +961,7 @@ function drawPanel(body) {
         body.innerHTML = graphicsHtml() + `
           <h2>This browser</h2>
           <table><tr><th>WebGL</th><td>${info.webgl}</td></tr><tr><th>WebGPU</th><td>${info.webgpu ? "available (not used yet)" : "no"}</td></tr>
-            <tr><th>Renderer</th><td>${esc(info.renderer)}</td></tr><tr><th>Screen</th><td>${window.innerWidth} x ${window.innerHeight} at ${devicePixelRatio}x</td></tr>
+            <tr><th>Renderer</th><td>${esc(info.renderer)}</td></tr><tr><th>Screen</th><td>${window.innerWidth} x ${window.innerHeight} at ${devicePixelRatio}x, ${Math.round(1000 / refresh.ms)} Hz${refresh.every > 1 ? ` (drawn every ${refresh.every})` : ""}</td></tr>
             <tr><th>Drawing</th><td>${info.width} x ${info.height} pixels (${info.ratio.toFixed(2)} per screen point)${sc ? `, ${sc.drawCalls()} meshes` : ""}</td></tr>
             <tr><th>Frame rate</th><td>${state.fps} fps, ${state.stalls} stalls, ${state.missed} missed snapshots</td></tr></table>
           <div class="note">These numbers from a school laptop and a Chromebook are the measurement nobody has published: note them down.</div>`;
@@ -1280,6 +1310,7 @@ window.addEventListener("error", e => { window.__errors.push(String(e.message));
 window.addEventListener("unhandledrejection", e => { window.__errors.push(String(e.reason)); toast("Problem: " + e.reason, false, 8000); });
 window.__state = state;  // (the tests read it, and send through the page)
 window.__app = appApi;
+window.__refresh = refresh;  // (CHANGE 161: the tests read the screen's refresh)
 
 async function main() {
     setupUi();
@@ -1295,6 +1326,10 @@ async function main() {
         engine = state.engine = pageEngine($("view"), state.gfx.aa);
         const info = engineInfo(engine);
         if (!params.get("tier") && !TIERS.includes(kept) && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
+        // (CHANGE 161) no graphics card in use (Chrome's software drawing: hardware acceleration off or blocked on a
+        // school computer): blocks, which Auto can't step up from, and the teacher's Learners table says so
+        state.softwareGl = SOFTWARE_GL.test(info.renderer || "");
+        if (state.softwareGl && !params.get("tier") && !["mesh", "lines"].includes(state.tier)) state.tier = "blocks";
         // (the app's lighting needs WebGL 2; blocks and the line tiers don't)
         if (info.webgl < 2 && !["mesh", "lines", "blocks"].includes(state.tier)) state.tier = "blocks";
     } catch (e) {

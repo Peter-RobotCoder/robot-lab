@@ -33,6 +33,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import random
 import time
 import webbrowser
 
@@ -56,6 +57,7 @@ ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=6)
 ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--no-interp", action="store_true", help="draw each snapshot as it arrives (no blending between them)")
+ap.add_argument("--no-ahead", action="store_true", help="draw your fighter as sent, not ahead (engine/ahead.py: CHANGE 167)")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
 ap.add_argument("--show-code", action="store_true", help=argparse.SUPPRESS)  # (tests: open the code panel)
@@ -146,6 +148,7 @@ from fight_gfx import StageVisual  # noqa: E402
 from fight_hud import FightHUD  # noqa: E402
 from engine.net import Net  # noqa: E402
 from engine import interp  # noqa: E402
+from engine import ahead  # noqa: E402  (CHANGE 167: your fighter's footwork drawn at once)
 
 CODE_ROWS = 19     # lines of code the code panel shows at once (longer code scrolls)
 CODE_PANEL = (-0.86, 0.12, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
@@ -199,6 +202,7 @@ class Lab(hud.HudKit, ShowBase):
     STAGE_WORD = "STAGE"
     GFX_TIERS = gfx_tiers.TIERS          # (CHANGE 147: the Settings tab's Graphics row and the class maximum's)
     LINE_COLOURS = fight_gfx.LINE_COLOURS
+    AHEAD_ROW = "your fighter's steps are drawn as you press the keys"  # (CHANGE 167: the Settings tab's Movement row)
     LIMITS_TITLE = "FIGHTER LIMITS"
     LIMITS_NOTE = "Size: 100 is the standard size; 80 to 120 is as far as a fighter can go."
 
@@ -417,6 +421,7 @@ class Lab(hud.HudKit, ShowBase):
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
         # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
         self.snaps, self.latest = interp.Snapshots(interp.FIGHT_SPEC), None
+        self.ahead, self.move = ahead.FighterAhead(), {}  # (CHANGE 167) your fighter drawn ahead; footwork from the roster
         self.ctrl_seq, self.ctrl_sent, self.ctrl_ms = 0, {}, None  # numbered controls, and the measured control delay
         self.perf_at = 0.0
         self.fx_waiting = []
@@ -2507,6 +2512,8 @@ class Lab(hud.HudKit, ShowBase):
             blended = self.snaps.sample(now)
             if blended is not None:
                 self.state = blended
+                if self.ahead_on and not args.no_ahead:  # (CHANGE 167)
+                    self.state = self.fighter_ahead(blended, now, dt)
         self.send_controls(now)
         self.send_perf(now)
         watched = self.watched_ring()
@@ -2570,6 +2577,10 @@ class Lab(hud.HudKit, ShowBase):
                     rebuild = True  # (the Pause button lights up: CHANGE 102)
                 self.latest = m
                 self.snaps.push(m)
+                my = getattr(self, "my_id", None)
+                mine = next((r for r in m.get("rings", []) if any(f["id"] == my for f in r.get("f", []))), None)
+                if m.get("sm") is not None:  # (CHANGE 167: what your fighter is drawn ahead from)
+                    self.ahead.snapshot(m["sm"] / 1000, mine["f"] if mine else [], my)
                 if args.no_interp:
                     self.state = m
                 self.fx_waiting.append(m.get("fx", []))
@@ -2702,20 +2713,33 @@ class Lab(hud.HudKit, ShowBase):
                 self.banner_note("The session has ended. This window will close.", 3600)
                 self.taskMgr.doMethodLater(5, lambda t: self.userExit(), "session_over")
             return
-        self.banner_note("Lost the connection: reconnecting...", 3600)
+        self.banner_note("The class server is restarting: reconnecting..." if m.get("code") == 1012 else
+                         "Lost the connection: reconnecting...", 3600)  # (1012: CHANGE 160)
         self.reconnecting = True
         if self.reconnect_thread is not None and self.reconnect_thread.is_alive():
             return
 
         def work():  # keep trying every 2 seconds; the server's welcome comes through the inbox
-            time.sleep(2)
+            time.sleep(1.0 + random.random() * 2.0)  # (not the whole class at the same moment: CHANGE 160)
             while not net.reconnect():
-                time.sleep(2)
+                time.sleep(1.5 + random.random())
         self.reconnect_thread = threading.Thread(target=work, daemon=True)
         self.reconnect_thread.start()
 
+    def fighter_ahead(self, state, now, dt):
+        """(CHANGE 167) The blended state with your fighter's footwork drawn ahead (engine.ahead.FighterAhead)."""
+        my = getattr(self, "my_id", None)
+        rings = []
+        for r in state.get("rings", []):
+            if any(f["id"] == my for f in r.get("f", [])):
+                r = dict(r, f=self.ahead.adjust(r["f"], now, self.snaps.clock.server_time(now), getattr(self, "ping_ms", 0.0) / 1000, my,
+                                                self.move.get(my), dt))
+            rings.append(r)
+        return dict(state, rings=rings)
+
     def apply_roster(self, m):
         self.roster = m
+        self.move = {f["id"]: tuple(f["move"]) for f in m.get("fighters", []) if f.get("move")}  # (CHANGE 167)
         drawn = json.dumps([m.get("look", {}), m.get("rings"), m.get("hazards"), m.get("rs"), m.get("user_mods")],
                            sort_keys=True)
         if drawn != self.stage_drawn:
@@ -2804,6 +2828,7 @@ class Lab(hud.HudKit, ShowBase):
             if press:
                 msg["press"] = press
             send(msg)
+            self.ahead.control(now, control[0], control[1], control[2])  # (CHANGE 167)
             self.ctrl_sent[self.ctrl_seq] = now
             if len(self.ctrl_sent) > 90:
                 for k in sorted(self.ctrl_sent)[:30]:

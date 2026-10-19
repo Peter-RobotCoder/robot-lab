@@ -119,6 +119,7 @@ export class Controller {
         if (press) out.press = press;
         if (this.kind === "kart" && game.sendInput) game.sendInput(msg, this.seq, now);  // (prediction: kart.js)
         else this.app.send(out);
+        if ((this.kind === "robot" || this.kind === "fight") && game.controlSent) game.controlSent(msg, now);  // (yours drawn ahead: CHANGE 166, 167)
         this.sent.set(this.seq, now);
         if (this.sent.size > 90) for (const k of [...this.sent.keys()].slice(0, 30)) this.sent.delete(k);
         this.last = key;

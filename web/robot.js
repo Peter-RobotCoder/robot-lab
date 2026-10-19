@@ -13,6 +13,7 @@
 
 import {BaseScene, TIERS, v3, col, rgb255, gameQuat, slerpQ, lerp, mulberry} from "./base3d.js";
 import {toneMap} from "./pbr.js";
+import {RobotsAhead} from "./ahead.js";
 import {Sound} from "./sound.js";
 import {AfterFx} from "./kartfx.js";
 import {loadPandaFont, wordsSize, drawWords} from "./fightfx.js";
@@ -1551,7 +1552,7 @@ export class RobotPreview {
     constructor(tier) {
         this.canvas = document.createElement("canvas");
         this.canvas.className = "gpreview";
-        this.engine = new BABYLON.Engine(this.canvas, true, {disableWebGL2Support: true, alpha: false, stencil: false}, true);
+        this.engine = new BABYLON.Engine(this.canvas, true, {disableWebGL2Support: true, alpha: false, stencil: false}, false);  // (false: CHANGE 161)
         try { this.scene = new PreviewScene(this.canvas, tier, this.engine); } catch (e) { this.engine.dispose(); throw e; }
         this.design = null;
         this.seen = this.drawn = this.checked = performance.now();
@@ -1607,6 +1608,10 @@ export class RobotGame {
         this.last = null;
         this.events = new Set();
         this.controlKind = "robot";  // (play.js: the arrows drive, Space fires)
+        // (CHANGE 166) the robots drawn where they are now (ahead.js); each robot's drive, from the roster
+        this.ahead = new RobotsAhead();
+        this.drive = new Map();
+        this.aheadNote = "the robots drawn where they are now, and yours answers your keys at once";  // (app.js: Movement)
         // B: the health bars small (just the title) or full, kept on this computer as the window keeps hud_small
         try { this.boardSmall = localStorage.getItem("hud_small") === "1"; } catch (e) { this.boardSmall = false; }
         // the health bars dragged by their title bar, as the window's (lab_client's hud_at), kept on this computer;
@@ -1768,10 +1773,13 @@ export class RobotGame {
 
     learnerTabs() { return [["camera", "Camera"]]; }
 
+    controlSent(msg, now) { this.ahead.control(now / 1000, msg.throttle, msg.steer); }  // (play.js: CHANGE 166)
+
     message(m) {
         if (m.type === "roster") {
             this.scene.setSetup({hazards: m.hazards || {}, user_mods: m.user_mods || {}, look: m.look || {}});
             this.scene.setRobots(m.robots || []);
+            this.drive = new Map((m.robots || []).filter(r => r.drive).map(r => [r.id, r.drive]));
             const id = this.myId();
             if (this.followMine && id !== null) this.scene.setMode(this.rigMode || "third", id);
             this.renderBoard();
@@ -1780,6 +1788,7 @@ export class RobotGame {
         if (m.type === "state") {
             m.sm = m.sm >>> 0;
             this.app.pushSnap(m, performance.now());
+            this.ahead.snapshot(m.sm / 1000, ((this.arenaOf(m) || {}).robots) || []);  // (CHANGE 166)
             const id = this.myId();  // (the server's acks: how long our key presses take to show)
             if (id !== null && m.acks && m.acks[id] !== undefined && this.app.ctrl) this.app.ctrl.ack(m.acks[id], performance.now());
             this.last = m;
@@ -1818,13 +1827,18 @@ export class RobotGame {
         const A = this.arenaOf(pair.a), B = pair.b ? this.arenaOf(pair.b) : null, f = pair.f;
         if (!A) { this.scene.frame(null, dt, now / 1000); return; }
         const byId = B ? new Map(B.robots.map(r => [r.id, r])) : new Map();
-        const robots = A.robots.map(r => {
+        let robots = A.robots.map(r => {
             const n = byId.get(r.id);
             if (!n) return r;
             return {...n, pos: r.pos.map((v, i) => lerp(v, n.pos[i], f)), quat: slerpQ(r.quat, n.quat, f),
                     wpos: r.wpos.map((v, i) => lerp(v, n.wpos[i], f)), wquat: slerpQ(r.wquat, n.wquat, f),
                     speed: lerp(r.speed || 0, n.speed || 0, f)};
         });
+        const S = this.app.state;
+        if (S.gfx && S.gfx.ahead && S.offset !== null) {  // (CHANGE 166: drawn where they are now)
+            robots = this.ahead.adjust(robots, now / 1000, (now - S.offset) / 1000, (S.pingMs || 0) / 1000, this.myId(),
+                                       this.drive, dt);
+        }
         let hz = A.hz;
         if (B && B.hz && A.hz) {
             hz = {...B.hz, pit: lerp(A.hz.pit ?? 0, B.hz.pit ?? 0, f), spikes: lerp(A.hz.spikes || 0, B.hz.spikes || 0, f),

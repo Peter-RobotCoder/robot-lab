@@ -280,15 +280,34 @@ export function unpackPart(part) {
     return {pos, nor, uv, col, idx: ix};
 }
 
+// (CHANGE 161) the screen's devicePixelRatio changing on its own (dragged to another screen, Windows' scaling
+// changed) fires no resize: a media query on the ratio as it is says when it stops being true
+function watchRatio(then) {
+    let query = null;
+    const changed = () => { then(); watch(); };
+    const watch = () => {
+        try {
+            if (query) query.removeEventListener("change", changed);
+            query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+            query.addEventListener("change", changed);
+        } catch (e) { /* (no matchMedia: the resize event alone) */ }
+    };
+    watch();
+}
+
 let sharedEngine = null;
 export function pageEngine(canvas, antialias = true) {
     if (!sharedEngine) {
         // alpha false: the canvas is opaque, so the page behind can never show through the drawing (CHANGE 132: a
         // material that wrote alpha 0 made every lit tier black in a real window, though headless pictures were fine).
         // antialias: the canvas's multisampling, fixed when the page opens (CHANGE 139: the Graphics tab's switch)
-        sharedEngine = new BABYLON.Engine(canvas, antialias, {stencil: true, antialias, alpha: false}, true);
+        // adaptToDeviceRatio false (CHANGE 161): resolutionFor() already counts the screen's devicePixelRatio, and
+        // with it true Babylon's resize() scaled the level again whenever the ratio changed (the browser zoomed, the
+        // window dragged to another screen): 1.25 times the zoom drew 2.4 times the tier's pixel budget
+        sharedEngine = new BABYLON.Engine(canvas, antialias, {stencil: true, antialias, alpha: false}, false);
         sharedEngine.ccKeep = {scene: new BABYLON.Scene(sharedEngine), textures: {}};  // (pbr.js: pictures kept loaded)
         window.addEventListener("resize", () => applyResolution(sharedEngine));
+        watchRatio(() => applyResolution(sharedEngine));
         applyResolution(sharedEngine);
     }
     return sharedEngine;

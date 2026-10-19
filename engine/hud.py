@@ -246,6 +246,7 @@ class HudKit:
     GFX_TIERS = None                         # the graphics tiers the game draws, when its Settings tab has a Graphics
     #                                          row (CHANGE 144: Kart Lab's seven); None: the core four, no row
     LINE_COLOURS = ()                        # (name, "#rrggbb") for the mesh and lines looks, when the game has them
+    AHEAD_ROW = None                         # (CHANGE 166) the Settings tab's Movement row: what "Now" does, when the game has it
     STAGE_WORD = "ARENA"                     # the Mods tab's heading for the game's own items (hazards and so on)
     MODS_PER_PAGE = 7                        # user mods on one page of the Mods tab (under those items)
     LIMITS_TITLE = "LIMITS"                  # the Limits tab's heading, and its note on the size setting
@@ -281,6 +282,7 @@ class HudKit:
         self.panel_scroll = 0.0  # how far a side panel taller than the screen has been slid up (CHANGE 40)
         self.invert_scroll = bool(SETTINGS.get("invert_scroll"))  # the mouse wheel the other way up (Settings)
         self.invert_zoom = bool(SETTINGS.get("invert_zoom"))      # ...and for the camera's zoom, its own switch
+        self.ahead_on = SETTINGS.get("ahead") is not False        # (CHANGE 166) drawn ahead (the Movement row)
         self.line_colour = SETTINGS.get("line_colour") if self.good_line_colour(SETTINGS.get("line_colour")) else None
         self.entries, self.entry_text, self.typing = {}, {}, None  # text boxes on screen, what they held, which has the keyboard
         self.code_editor = None
@@ -728,6 +730,11 @@ class HudKit:
         remember("invert_zoom", self.invert_zoom)
         self.rebuild_panels()
 
+    def set_ahead(self, on):
+        self.ahead_on = bool(on)
+        remember("ahead", self.ahead_on)
+        self.rebuild_panels()
+
     def set_look(self, theme):
         set_theme(theme)
         remember("theme", THEME)
@@ -769,6 +776,14 @@ class HudKit:
         y -= 0.045
         label(f, "Normal: wheel up zooms in. Inverted: wheel up zooms out.", 0.82, y, 0.02, GREY)
         y -= 0.07
+        if self.AHEAD_ROW:  # (CHANGE 166)
+            label(f, "Movement", 0.82, y, 0.03)
+            for i, (on, text) in enumerate(((True, "Now"), (False, "As sent"))):
+                button(f, text, 1.12 + i * 0.2, y + 0.008, self.set_ahead, [on], 0.026, ON if on == self.ahead_on else OFF)
+            y -= 0.045
+            label(f, f"Now: {self.AHEAD_ROW}.\nAs sent: as the server last said, a little in the past (kept on this "
+                     f"computer).", 0.82, y, 0.02, GREY)
+            y -= 0.09
         label(f, "Window", 0.82, y, 0.03)  # (CHANGE 126)
         now = self.current_window()
         fits = sizes_for(*self.display_size())

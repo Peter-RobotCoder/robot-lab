@@ -22,6 +22,7 @@ import datetime
 import hmac
 import ipaddress
 import json
+import math
 import os
 import sys
 import re
@@ -37,6 +38,9 @@ import lab_sim as sim
 import lab_version
 sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
 from engine import club_ticket  # noqa: E402
+from engine.outbox import Outboxes  # noqa: E402
+from engine.seats import Seats, dropped  # noqa: E402
+from engine import lifecycle, tick_stats  # noqa: E402
 from engine import schema  # noqa: E402
 from engine import gfx_tiers  # noqa: E402
 import lab_teaching
@@ -254,6 +258,10 @@ class LabServer:
         self.use_mission_settings()
         self.intro_started = None  # the countdown before a battle is running since this moment (time.monotonic)
         self.players = {}        # websocket -> Player
+        self.outboxes = Outboxes()  # each window's messages (CHANGE 160)
+        self.seats = Seats()  # learners whose connection dropped: their robot kept a while (CHANGE 164)
+        self.watchdog = lifecycle.Watchdog()  # (systemd's, on the VPS: CHANGE 160)
+        self.ticks = tick_stats.TickStats("Robot Lab")  # how the physics loop keeps time (CHANGE 160)
         self.teacher_design = sim.default_design("Teacher Bot", (180, 90, 230), "spinner")
         saved = load_saved(TEACHER_FILE)  # (the teacher's robot as it was last time: it survives a server restart)
         if isinstance(saved, dict) and not sim.check_design(saved, sim.full_limits()):
@@ -410,9 +418,9 @@ class LabServer:
             if not self.arena.frozen:
                 self.arena.events.append((self.arena.time, "FIGHT!"))
             return
-        for n, p in enumerate(self.learners()):
+        for n, p in enumerate(self.learners() + self.seats.players()):  # (a dropped learner's robot too: CHANGE 164)
             p.robot = put(p.design, p.name, None, self.place_of(p.name, n))
-            if p.robot is not None:
+            if p.robot is not None and not self.seats.holding(p):
                 self.teaching.attach(p)  # their uploaded brain drives it if autopilot is on
         t = self.teacher()
         if self.lesson["teacher_robot"]:
@@ -637,7 +645,7 @@ class LabServer:
         text = None
         try:
             c = self.cpus[max(1, min(MAX_CPUS, int(m.get("n") or 1))) - 1]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             c = self.cpu
         whose = "the computer's robot" if c.n == 1 else f"computer robot {c.n}"
         if "arena" in m:  # CHANGE 140: which arena it is in (everyone's robots go back to their start squares)
@@ -867,7 +875,7 @@ class LabServer:
             name = profile["name"]
             old = next((q for q in self.learners() if lab_profiles.slug(q.name) == lab_profiles.slug(name)), None)
             if old is not None:  # logged in again (e.g. after a dropped connection): the old connection goes
-                await old.ws.close(4005, "you logged in again somewhere else")
+                await self.outboxes.close(old.ws, 4005, "you logged in again somewhere else")
                 self.players.pop(old.ws, None)
             if len(self.learners()) >= MAX_LEARNERS:
                 await ws.close(4003, "the class is full (4 learners)")
@@ -893,9 +901,17 @@ class LabServer:
             if getattr(self, "design_for_everyone", None) and p.role == "learner":  # (CHANGE 85)
                 await self.build_for(p, self.design_for_everyone, quiet=True)
         self.players[ws] = p
+        self.outboxes.open(ws)  # (from now on everything to this window goes through its outbox: CHANGE 160)
         print(f"+ {name} ({role})")
-        self.rebuild_arena()
-        self.arena.events.append((self.arena.time, f"{name} joined"))
+        held = self.seats.take(lab_profiles.slug(name)) if role == "learner" else None
+        if held is not None and held.robot is not None and held.robot in self.arena.robots:
+            p.robot = held.robot  # (CHANGE 164) back within the time: the same robot, where it is, nobody else's reset
+            self.teaching.attach(p)
+            self.roster_version += 1
+            self.arena.events.append((self.arena.time, f"{name} is back"))
+        else:
+            self.rebuild_arena()
+            self.arena.events.append((self.arena.time, f"{name} joined"))
         await self.send(ws, {"type": "welcome", "role": role, "name": name, "lesson": self.lesson,
                              "design": p.design, "default": p.default, "rules": self.rules(),
                              "prefs": (profile or {}).get("prefs", {}), "new_profile": bool(profile and is_new),
@@ -907,17 +923,30 @@ class LabServer:
             await self.warn_teacher()
         try:
             async for raw in ws:
-                await self.on_message(p, json.loads(raw))
-        except (websockets.ConnectionClosed, json.JSONDecodeError):
+                try:
+                    m = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue  # (not a message: dropped, CHANGE 165)
+                if isinstance(m, dict):
+                    await lifecycle.handle(self.on_message, p, m)  # (an error over one is logged, not the end: CHANGE 165)
+        except websockets.ConnectionClosed:
             pass
         finally:
+            self.outboxes.drop(ws)
             if self.players.get(ws) is p:  # (not already replaced by the same learner logging in again)
                 del self.players[ws]
                 if role == "teacher":
                     self.keep_teacher_design(p.design)
                 self.teaching.save()
-                print(f"- {name} left")
-                self.rebuild_arena()
+                if (role == "learner" and dropped(ws) and not self.tournament and p.robot is not None
+                        and p.robot in self.arena.robots):  # (lost, not left: CHANGE 164)
+                    p.robot.drive(0.0, 0.0, False)  # (it stands still until they're back)
+                    self.seats.hold(lab_profiles.slug(name), p)
+                    print(f"- {name} dropped: their robot is kept {self.seats.seconds:.0f} s")
+                    self.roster_version += 1
+                else:
+                    print(f"- {name} left")
+                    self.rebuild_arena()
 
     def rules(self):
         return {"stats": sim.STATS, "points_total": sim.POINTS_TOTAL, "stat_min": sim.STAT_MIN,
@@ -974,8 +1003,8 @@ class LabServer:
             votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
                 (self.arena_votes, m.get("item"), ARENA_ITEMS)
             in_vote = self.lesson.get("mods_in_vote" if kind == "mod_vote" else "arena_in_vote", {})
-            if not in_vote.get(key, True):
-                return  # (the teacher took this out of the vote)
+            if not isinstance(key, str) or not in_vote.get(key, True):
+                return  # (the teacher took this out of the vote; or not a name: CHANGE 165)
             if isinstance(key, str) and key in known:
                 votes[key] = [n for n in votes.get(key, []) if n != p.name] + ([p.name] if m.get("on") else [])
                 await self.broadcast_lesson()
@@ -993,8 +1022,9 @@ class LabServer:
         if kind == "control" and p.robot is not None:  # (fire is Space, the one weapon key: see Robot.drive)
             if not newer_control(p, m.get("seq")):
                 return  # (an older control that arrived after a newer one: ignored)
-            p.robot.drive(max(-1.0, min(1.0, float(m["throttle"]))), max(-1.0, min(1.0, float(m["steer"]))),
-                          bool(m["fire"]), p.role == "teacher" or bool(self.lesson["tools"]["weapon_toggle"]))
+            throttle, steer = number(m.get("throttle")), number(m.get("steer"))  # (CHANGE 165: odd ones are 0)
+            p.robot.drive(max(-1.0, min(1.0, throttle)), max(-1.0, min(1.0, steer)),
+                          bool(m.get("fire")), p.role == "teacher" or bool(self.lesson["tools"]["weapon_toggle"]))
         elif kind == "ping":
             await self.send(p.ws, {"type": "pong", "t": m.get("t"), "sm": server_ms()})
         elif kind == "perf":  # the window's report on itself, for the teacher's grid
@@ -1006,7 +1036,7 @@ class LabServer:
                 return
             # from the code panel a learner can change what the garage hides (while the lesson has the Code view)
             hack = bool(m.get("code")) and p.role == "learner" and bool(self.lesson["tools"].get("code_view"))
-            new = self.clean_design(p, m.get("design", {}), everything=hack)
+            new = self.clean_design(p, m.get("design") if isinstance(m.get("design"), dict) else {}, everything=hack)
             limits = self.limits_for(p)
             if hack:  # (CHANGE 124: the code may go to twice the teacher's limit, or the maximum)
                 limits = sim.code_limits(limits)
@@ -1064,10 +1094,11 @@ class LabServer:
                 for ws in list(self.players):
                     await self.send(ws, {"type": "notice", "big": True,
                                          "text": "THE GAME IS UPDATING\nback in 10 seconds: your window will reopen"})
-                asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), os._exit(3)))
+                asyncio.get_running_loop().call_later(10, lambda: asyncio.ensure_future(lifecycle.exit_after_closing(
+                    self.outboxes, self.players, 3, lambda: (self.teaching.save()))))  # (1012: CHANGE 160)
                 return
             print("Restarting to load code changes...")
-            os._exit(3)
+            await lifecycle.exit_after_closing(self.outboxes, self.players, 3)
         if kind == "restart_clients":  # everyone's window reopens itself with the new code
             for ws, q in list(self.players.items()):
                 if q.role == "learner":
@@ -1152,7 +1183,7 @@ class LabServer:
             await self.broadcast_lesson()
             return
         if kind == "lesson":  # partial update from the teacher's screen
-            update = m.get("lesson", {})
+            update = m.get("lesson") if isinstance(m.get("lesson"), dict) else {}  # (CHANGE 165: odd ones)
             rebuild, arena_changed = False, False
             if update.get("cpu_level") in cpu_brains.LEVELS:  # straight away, no restart
                 self.lesson["cpu_level"] = update["cpu_level"]
@@ -1298,7 +1329,7 @@ class LabServer:
                     self.tournament = t
                     text = "KNOCKOUT!  The winners go through to the next round."
                 else:
-                    self.tournament = WinnerStaysOn(names, live=max(1, min(sim.MAX_ARENAS, int(m.get("live", 2)))))
+                    self.tournament = WinnerStaysOn(names, live=max(1, min(sim.MAX_ARENAS, int(number(m.get("live"), 2)))))
                     text = "WINNER STAYS ON!  The loser goes to the back of the queue."
                 self.swaps, self.next_round_at = [], None
                 self.lesson["mode"] = "battle"
@@ -1341,11 +1372,10 @@ class LabServer:
         self.rebuild_arena()
         self.arena.events.append((self.arena.time, "An approved AI change is now in the game"))
 
-    async def send(self, ws, msg):
-        try:
-            await ws.send(json.dumps(msg, separators=(",", ":")))
-        except websockets.ConnectionClosed:
-            pass
+    async def send(self, ws, msg, key=None):
+        """Into the window's outbox (engine.outbox: never waits for a slow window; CHANGE 160). key: a kind of
+        message of which only the newest matters (a snapshot), so one not sent yet is dropped for this."""
+        await self.outboxes.send(ws, json.dumps(msg, separators=(",", ":")) if isinstance(msg, dict) else msg, key)
 
     def user_mods_msg(self):
         """For everyone's User mods tab: who made each mod, who'd like it switched on, and whose group is in
@@ -1479,7 +1509,9 @@ class LabServer:
 
     def roster(self):
         return {"type": "roster", "version": self.roster_version,
-                "robots": [{"id": r.id, "owner": r.owner, "design": r.design, "arena": r.arena.index}
+                "robots": [{"id": r.id, "owner": r.owner, "design": r.design, "arena": r.arena.index,
+                            # (its drive, for the windows' and pages' prediction of it: engine/ahead.py, CHANGE 166)
+                            "drive": [round(r.stats[k], 3) for k in ("forward_max", "reverse_max", "accel", "turn_rate")]}
                            for r in self.arena.robots],
                 "perf": {p.name: p.perf for p in self.players.values() if p.perf},  # each window's own report
                 "arenas": len(self.arena),
@@ -1491,7 +1523,7 @@ class LabServer:
         for ws, q in list(self.players.items()):
             if q.role == "learner" and lab_profiles.slug(q.name) == lab_profiles.slug(name):
                 del self.players[ws]
-                await ws.close(4007, "Your account has been deleted by the teacher.")
+                await self.outboxes.close(ws, 4007, "Your account has been deleted by the teacher.")
         if self.tournament:
             self.tournament.leave(name)
         text = self.teaching.delete_learner(name)
@@ -1523,10 +1555,14 @@ class LabServer:
             if key == seen and mine and sorted(mine.get("learners", [])) != self.group:
                 # the same session, but the teacher has let someone in or taken someone out: back to the lobby (CHANGE 141)
                 self.group = sorted(mine.get("learners", []))
+                for p in self.seats.players():
+                    if p.name not in self.group:
+                        self.seats.take(lab_profiles.slug(p.name))
+                        self.rebuild_arena()
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in self.group:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "Your teacher took you out of this game: back to the lobby.")
+                        await self.outboxes.close(ws, 4009, "Your teacher took you out of this game: back to the lobby.")
                         self.rebuild_arena()
             session = self.session_msg()
             if session != self.session:  # (for the teacher's Accounts tab)
@@ -1536,6 +1572,7 @@ class LabServer:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()
                 self.group, self.mod_votes, self.arena_votes = sorted(allowed), {}, {}  # a new session: new votes
+                self.seats.clear()  # (CHANGE 164: a new session, or none: nobody's robot is kept)
                 self.warnings = []
                 await self.warn_teacher()
                 self.lesson["cpu_level"] = cpu_brains.START_LEVEL  # ...and nothing attacks until the teacher says
@@ -1544,7 +1581,8 @@ class LabServer:
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in allowed:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "The session has ended." if not mine else "You aren't in this group.")
+                        await self.outboxes.close(ws, 4009, "The session has ended." if not mine else
+                                                  "You aren't in this group.")
                 if mine:
                     self.teaching.apply_lesson(int(mine.get("lesson", 1)))
                     self.rebuild_arena()
@@ -1591,6 +1629,7 @@ class LabServer:
         who restarts the class when they have warned it (see restart_server). Checked every 10 seconds."""
         pointer = os.environ.get("CLUBCODERS_LIVE_POINTER")
         self.live_ready = None
+        failed, told = os.environ.get("CLUBCODERS_LIVE_FAILED") or None, set()  # (run-class.sh: CHANGE 168)
         while pointer:
             try:
                 with open(pointer, encoding="utf-8") as f:
@@ -1598,6 +1637,12 @@ class LabServer:
             except OSError:
                 wanted = None
             ready = wanted if wanted and wanted != lab_version.CODE else None
+            if ready and ready == failed:  # (tried as this server started, and not ready: not offered again; the
+                ready = None              # teacher is told, once each time they log in)
+                for ws, p in list(self.players.items()):
+                    if p.role == "teacher" and ws not in told:
+                        told.add(ws)
+                        await self.send(ws, {"type": "notice", "text": "The live update didn't pass its check as the class server started (engine/canary.py), so the class is running the release's own code. Fix the change and make it live again."})
             if ready != self.live_ready:
                 self.live_ready = ready
                 for ws, p in list(self.players.items()):
@@ -1609,6 +1654,11 @@ class LabServer:
         next_step, steps = time.perf_counter(), 0
         while True:
             next_step += sim.STEP
+            now = time.perf_counter()
+            if next_step < now - 4 * sim.STEP:  # (a long stall: don't try to catch up, as Kart Lab's: thirty steps back
+                skip = (now - next_step) // sim.STEP  # to back starved the sends: CHANGE 160)
+                next_step += skip * sim.STEP
+                self.ticks.skip(int(skip))
             if self.intro_started is not None and time.monotonic() - self.intro_started >= INTRO_SECONDS:
                 self.end_intro()
             if not self.paused:  # (after a win the arena keeps working; the winner stays on screen until Restart)
@@ -1617,9 +1667,17 @@ class LabServer:
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament
                 self.teaching.tick(self.arena.time)
+                for p in self.seats.expired():  # (CHANGE 164) not back in time: their robot goes
+                    print(f"- {p.name} didn't come back: their robot has gone")
+                    self.rebuild_arena()
+                    await self.broadcast_lesson()
                 if self.tournament and (self.check_matches() | (bool(self.swaps) and self.do_swaps()) |
                                         self.next_round_due()):
                     await self.broadcast_lesson()
+            self.ticks.step(time.perf_counter() - now, max(0.0, now - (next_step - sim.STEP)))
+            self.watchdog.ping()
+            if self.ticks.due() and self.players:  # (the log's line every 10 s: engine.tick_stats)
+                print(self.ticks.report(self.outboxes, {ws: p.name for ws, p in self.players.items()}), flush=True)
             await asyncio.sleep(max(0.0, next_step - time.perf_counter()))
 
     async def send_loop(self):
@@ -1651,14 +1709,20 @@ class LabServer:
                     roster = roster or self.roster()
                     await self.send(ws, roster)
                     sent_version[ws] = self.roster_version
-                try:
-                    await ws.send(state)
-                except websockets.ConnectionClosed:
-                    pass
+                await self.outboxes.send(ws, state, "state")
             await asyncio.sleep(0)  # (send() rarely yields: let the receiving side run before the next physics step)
 
 
-def backed_up(ws, limit=64 * 1024):
+def number(v, default=0.0):
+    """(CHANGE 165) A number from a message: anything else (missing, text, a list, NaN, infinite) is the default."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return v if math.isfinite(v) else default
+
+
+def backed_up(ws, limit=16 * 1024):
     """True if a window hasn't read what it was sent (so sending more would only make everyone wait)."""
     transport = getattr(ws, "transport", None)
     try:
@@ -1675,7 +1739,7 @@ def newer_control(p, seq):
         return True
     try:
         seq = int(seq) % 65536
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return True
     if p.ctrl_seq is not None and 0 < (p.ctrl_seq - seq) % 65536 < 32768:
         return False
@@ -1750,13 +1814,15 @@ async def main():
     # keepalive pings every 5 s (a window that has gone is noticed in 15 s, not 40), a short queue of unread
     # messages from each window (a window's controls are only worth anything fresh)
     async with websockets.serve(server.handler, args.bind, args.port, ping_interval=5, ping_timeout=10, max_queue=8):
+        tick_stats.start_up()  # (CHANGE 160)
         if CLASS_SERVER:
             print(f"Robot Lab class server {lab_version.VERSION} on {args.bind}:{args.port}. "
                   f"Accounts are made by the teacher.")
         else:
             print(f"Robot Lab laptop test server on {args.bind}:{args.port}. "
                   f"Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username makes a profile.")
-        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk())
+        await lifecycle.run([server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()],
+                            server.outboxes, server.players, server.teaching.save)  # (1012 at the end: CHANGE 160)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,9 @@ import fight_teaching
 import fight_version
 sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
 from engine import club_ticket  # noqa: E402
+from engine.outbox import Outboxes  # noqa: E402
+from engine.seats import Seats, dropped  # noqa: E402
+from engine import lifecycle, tick_stats  # noqa: E402
 from engine import schema  # noqa: E402
 from engine import gfx_tiers  # noqa: E402
 from engine import rw_sound  # noqa: E402
@@ -229,6 +232,10 @@ class FightServer:
             pass
         self.use_mission_settings()
         self.players = {}        # websocket -> Player
+        self.outboxes = Outboxes()  # each window's messages (CHANGE 160)
+        self.seats = Seats()  # learners whose connection dropped: their fighter kept a while (CHANGE 164)
+        self.watchdog = lifecycle.Watchdog()  # (systemd's, on the VPS: CHANGE 160)
+        self.ticks = tick_stats.TickStats("Fight Lab")  # how the physics loop keeps time (CHANGE 160)
         # the computer fighter: every ring's sparring partner is built from this design (the teacher sets it up in
         # the Learner view, with a brain of its own if they like); None = the partners as they come
         self.cpu_default = sim.default_design("SPARKY", (150, 150, 160), "blast", "robot")
@@ -278,7 +285,7 @@ class FightServer:
     # ---------- the rings and who is in them ----------
     def fighters_wanted(self):
         """Everyone who gets a fighter: the learners, and the teacher if their fighter is switched on."""
-        out = [(p.name, p.design, p) for p in self.learners()]
+        out = [(p.name, p.design, p) for p in self.learners() + self.seats.players()]  # (the dropped too: CHANGE 164)
         t = self.teacher()
         if self.lesson.get("teacher_fighter"):
             out.append((t.name if t else "Sensei", t.design if t else self.teacher_design, t))
@@ -417,10 +424,12 @@ class FightServer:
                 ring.label = "TRAINING" if self.stage.practice else ""
 
     def place(self, ring, name, design, p):
-        f = ring.add_fighter(design, brain=None if p else self.cpu_brain("medium"), owner=name if p else "Teacher (away)")
+        here = p is not None and not self.seats.holding(p)  # (a dropped learner's fighter: the computer's, CHANGE 164)
+        f = ring.add_fighter(design, brain=None if here else self.cpu_brain("medium"),
+                             owner=name if p else "Teacher (away)")
         if p is not None:
             p.fighter = f
-            if p.role == "learner":
+            if here and p.role == "learner":
                 self.teaching.attach(p)  # their uploaded brain fights if autopilot is on
         return f
 
@@ -689,7 +698,7 @@ class FightServer:
             name = profile["name"]
             old = next((q for q in self.learners() if fight_profiles.slug(q.name) == fight_profiles.slug(name)), None)
             if old is not None:  # logged in again (e.g. after a dropped connection): the old connection goes
-                await old.ws.close(4005, "you logged in again somewhere else")
+                await self.outboxes.close(old.ws, 4005, "you logged in again somewhere else")
                 self.players.pop(old.ws, None)
             if len(self.learners()) >= MAX_LEARNERS:
                 await ws.close(4003, "the class is full (4 learners)")
@@ -709,9 +718,18 @@ class FightServer:
             if getattr(self, "design_for_everyone", None) and p.role == "learner":  # (CHANGE 85)
                 await self.build_for(p, self.design_for_everyone, quiet=True)
         self.players[ws] = p
+        self.outboxes.open(ws)  # (from now on everything to this window goes through its outbox: CHANGE 160)
         print(f"+ {name} ({role})")
-        self.rebuild_stage()
-        self.stage.events.append((self.stage.time, f"{name} joined"))
+        held = self.seats.take(fight_profiles.slug(name)) if role == "learner" else None
+        if held is not None and any(f is held.fighter for ring in self.stage.rings for f in ring.fighters):
+            p.fighter = held.fighter  # (CHANGE 164) back within the time: the same fighter, mid-round, nobody's reset
+            p.fighter.brain = None
+            self.teaching.attach(p)
+            self.roster_version += 1
+            self.stage.events.append((self.stage.time, f"{name} is back"))
+        else:
+            self.rebuild_stage()
+            self.stage.events.append((self.stage.time, f"{name} joined"))
         await self.send(ws, {"type": "welcome", "role": role, "name": name, "lesson": self.lesson,
                              "design": p.design, "rules": self.rules(),
                              "prefs": (profile or {}).get("prefs", {}), "new_profile": bool(profile and is_new),
@@ -723,19 +741,29 @@ class FightServer:
             await self.warn_teacher()
         try:
             async for raw in ws:
-                m = json.loads(raw)
+                try:
+                    m = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue  # (not a message: dropped, CHANGE 165)
                 if isinstance(m, dict):
-                    await self.on_message(p, m)
-        except (websockets.ConnectionClosed, json.JSONDecodeError):
+                    await lifecycle.handle(self.on_message, p, m)  # (an error over one is logged, not the end: CHANGE 165)
+        except websockets.ConnectionClosed:
             pass
         finally:
+            self.outboxes.drop(ws)
             if self.players.get(ws) is p:  # (not already replaced by the same learner logging in again)
                 del self.players[ws]
                 if role == "teacher":
                     self.teacher_design = p.design
                 self.teaching.save()
-                print(f"- {name} left")
-                self.rebuild_stage()
+                if role == "learner" and dropped(ws) and not self.tournament and p.fighter is not None:
+                    p.fighter.brain = self.cpu_brain("medium")  # (lost, not left: the computer fights for them, CHANGE 164)
+                    self.seats.hold(fight_profiles.slug(name), p)
+                    print(f"- {name} dropped: their fighter is kept {self.seats.seconds:.0f} s")
+                    self.roster_version += 1
+                else:
+                    print(f"- {name} left")
+                    self.rebuild_stage()
 
     def rules(self):
         return {"stats": sim.STATS, "points_total": sim.POINTS_TOTAL, "stat_min": sim.STAT_MIN,
@@ -807,7 +835,7 @@ class FightServer:
             try:
                 fwd = max(-1.0, min(1.0, float(m.get("f", 0))))
                 side = max(-1.0, min(1.0, float(m.get("s", 0))))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return
             hold = m.get("hold") if m.get("hold") in sim.HOLDS else ""
             if not newer_control(p, m.get("seq")):
@@ -926,10 +954,11 @@ class FightServer:
                 for ws in list(self.players):
                     await self.send(ws, {"type": "notice", "big": True,
                                          "text": "THE GAME IS UPDATING\nback in 10 seconds: your window will reopen"})
-                asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), self.carry_lesson(), os._exit(3)))
+                asyncio.get_running_loop().call_later(10, lambda: asyncio.ensure_future(lifecycle.exit_after_closing(
+                    self.outboxes, self.players, 3, lambda: (self.teaching.save(), self.carry_lesson()))))  # (1012: CHANGE 160)
                 return
             print("Restarting to load code changes...")
-            os._exit(3)
+            await lifecycle.exit_after_closing(self.outboxes, self.players, 3)
         if kind == "restart_clients":  # everyone's window reopens itself with the new code
             for ws, q in list(self.players.items()):
                 if q.role == "learner":
@@ -1052,7 +1081,7 @@ class FightServer:
             try:
                 self.lesson["round_time"] = max(20, min(300, int(self.lesson["round_time"])))
                 self.lesson["rounds_to_win"] = max(1, min(3, int(self.lesson["rounds_to_win"])))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 self.lesson["round_time"], self.lesson["rounds_to_win"] = 60, 2
             self.stage.round_seconds = self.lesson["round_time"]
             if "show_missions" in update:  # CHANGE 122: every learner's Mission tab opens and the game pauses
@@ -1061,7 +1090,7 @@ class FightServer:
             if "rings" in update:  # CHANGE 75: how many rings (0 = automatic), and who is in which
                 try:
                     n = max(0, min(sim.MAX_RINGS, int(update["rings"])))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     n = 0
                 rebuild |= n != self.lesson.get("rings", 0)
                 self.lesson["rings"] = n
@@ -1145,11 +1174,10 @@ class FightServer:
         self.rebuild_stage()
         self.stage_event("An approved AI change is now in the game")
 
-    async def send(self, ws, msg):
-        try:
-            await ws.send(json.dumps(msg, separators=(",", ":")))
-        except websockets.ConnectionClosed:
-            pass
+    async def send(self, ws, msg, key=None):
+        """Into the window's outbox (engine.outbox: never waits for a slow window; CHANGE 160). key: a kind of
+        message of which only the newest matters (a snapshot), so one not sent yet is dropped for this."""
+        await self.outboxes.send(ws, json.dumps(msg, separators=(",", ":")) if isinstance(msg, dict) else msg, key)
 
     def user_mods_msg(self):
         """For everyone's Mods tab: who made each mod, who'd like it switched on, and whose group is in."""
@@ -1182,7 +1210,9 @@ class FightServer:
 
     def roster(self):
         return {"type": "roster", "version": self.roster_version,
-                "fighters": [{"id": f.id, "owner": f.owner, "design": f.design, "ring": f.ring.index, "slot": f.slot}
+                "fighters": [{"id": f.id, "owner": f.owner, "design": f.design, "ring": f.ring.index, "slot": f.slot,
+                              # (its footwork, for the windows' and pages' drawing of it ahead: engine/ahead.py, CHANGE 167)
+                              "move": [round(f.stats["walk"], 3), round(f.stats["sidestep"], 3)]}
                              for f in self.stage.fighters()],
                 "perf": {p.name: p.perf for p in self.players.values() if p.perf},  # each window's own report
                 "rings": [r.index for r in self.stage.rings], "hazards": self.stage.hazards, "look": self.look,
@@ -1265,7 +1295,7 @@ class FightServer:
         for ws, q in list(self.players.items()):
             if q.role == "learner" and fight_profiles.slug(q.name) == fight_profiles.slug(name):
                 del self.players[ws]
-                await ws.close(4007, "Your account has been deleted by the teacher.")
+                await self.outboxes.close(ws, 4007, "Your account has been deleted by the teacher.")
         text = self.teaching.delete_learner(name)
         gone = fight_profiles.slug(name)
         if any(v and fight_profiles.slug(v) == gone for v in self.mod_makers.values()):  # their mods stay, unnamed
@@ -1296,19 +1326,25 @@ class FightServer:
                 # the same session, but the teacher has added someone or taken someone out (the desk's This session, the
                 # live group's learners, or the Accounts tab): who was taken out goes back to the lobby (CHANGE 141)
                 self.group = sorted(mine.get("learners", []))
+                for p in self.seats.players():
+                    if p.name not in self.group:
+                        self.seats.take(fight_profiles.slug(p.name))
+                        self.rebuild_stage()
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in self.group:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "Your teacher took you out of this game: back to the lobby.")
+                        await self.outboxes.close(ws, 4009, "Your teacher took you out of this game: back to the lobby.")
                         self.rebuild_stage()
             if key != seen:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()
                 self.group, self.mod_votes, self.arena_votes = sorted(allowed), {}, {}  # a new session: new votes
+                self.seats.clear()  # (CHANGE 164: a new session, or none: nobody's fighter is kept)
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in allowed:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "The session has ended." if not mine else "You aren't in this group.")
+                        await self.outboxes.close(ws, 4009, "The session has ended." if not mine else
+                                                  "You aren't in this group.")
                 if mine:
                     self.teaching.apply_lesson(int(mine.get("lesson", 1)))
                     self.rebuild_stage()
@@ -1355,6 +1391,7 @@ class FightServer:
         who restarts the class when they have warned it (see restart_server). Checked every 10 seconds."""
         pointer = os.environ.get("CLUBCODERS_LIVE_POINTER")
         self.live_ready = None
+        failed, told = os.environ.get("CLUBCODERS_LIVE_FAILED") or None, set()  # (run-class.sh: CHANGE 168)
         while pointer:
             try:
                 with open(pointer, encoding="utf-8") as f:
@@ -1362,6 +1399,12 @@ class FightServer:
             except OSError:
                 wanted = None
             ready = wanted if wanted and wanted != fight_version.CODE else None
+            if ready and ready == failed:  # (tried as this server started, and not ready: not offered again; the
+                ready = None              # teacher is told, once each time they log in)
+                for ws, p in list(self.players.items()):
+                    if p.role == "teacher" and ws not in told:
+                        told.add(ws)
+                        await self.send(ws, {"type": "notice", "text": "The live update didn't pass its check as the class server started (engine/canary.py), so the class is running the release's own code. Fix the change and make it live again."})
             if ready != self.live_ready:
                 self.live_ready = ready
                 for ws, p in list(self.players.items()):
@@ -1373,12 +1416,21 @@ class FightServer:
         next_step, steps, next_round_at = time.perf_counter(), 0, None
         while True:
             next_step += sim.STEP
+            now = time.perf_counter()
+            if next_step < now - 4 * sim.STEP:  # (a long stall: don't try to catch up, as Kart Lab's: thirty steps back
+                skip = (now - next_step) // sim.STEP  # to back starved the sends: CHANGE 160)
+                next_step += skip * sim.STEP
+                self.ticks.skip(int(skip))
             if not self.paused:
                 self.stage.step()
             self.step_ms = step_ms(next_step - sim.STEP)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament
                 self.teaching.tick(self.stage.time)
+                for p in self.seats.expired():  # (CHANGE 164) not back in time: their fighter goes
+                    print(f"- {p.name} didn't come back: their fighter has gone")
+                    self.rebuild_stage()
+                    await self.broadcast_lesson()
                 if next_round_at is None and self.check_matches():
                     next_round_at = time.perf_counter() + (4.0 if not self.tournament.champion else 9999)
                     await self.broadcast_lesson()
@@ -1391,6 +1443,10 @@ class FightServer:
                 next_round_at = None
                 self.rebuild_stage()  # the next round of the tournament
                 await self.broadcast_lesson()
+            self.ticks.step(time.perf_counter() - now, max(0.0, now - (next_step - sim.STEP)))
+            self.watchdog.ping()
+            if self.ticks.due() and self.players:  # (the log's line every 10 s: engine.tick_stats)
+                print(self.ticks.report(self.outboxes, {ws: p.name for ws, p in self.players.items()}), flush=True)
             await asyncio.sleep(max(0.0, next_step - time.perf_counter()))
 
     async def send_loop(self):
@@ -1422,14 +1478,11 @@ class FightServer:
                     roster = roster or self.roster()
                     await self.send(ws, roster)
                     sent_version[ws] = self.roster_version
-                try:
-                    await ws.send(state)
-                except websockets.ConnectionClosed:
-                    pass
+                await self.outboxes.send(ws, state, "state")
             await asyncio.sleep(0)  # (send() rarely yields: let the receiving side run before the next physics step)
 
 
-def backed_up(ws, limit=64 * 1024):
+def backed_up(ws, limit=16 * 1024):
     """True if a window hasn't read what it was sent (so sending more would only make everyone wait)."""
     transport = getattr(ws, "transport", None)
     try:
@@ -1446,7 +1499,7 @@ def newer_control(p, seq):
         return True
     try:
         seq = int(seq) % 65536
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return True
     if p.ctrl_seq is not None and 0 < (p.ctrl_seq - seq) % 65536 < 32768:
         return False
@@ -1521,13 +1574,15 @@ async def main():
     # keepalive pings every 5 s (a window that has gone is noticed in 15 s, not 40), a short queue of unread
     # messages from each window (a window's controls are only worth anything fresh)
     async with websockets.serve(server.handler, args.bind, args.port, ping_interval=5, ping_timeout=10, max_queue=8):
+        tick_stats.start_up()  # (CHANGE 160)
         if CLASS_SERVER:
             print(f"Fight Lab class server {fight_version.VERSION} on {args.bind}:{args.port}. "
                   f"Accounts are made by the teacher.")
         else:
             print(f"Fight Lab laptop test server on {args.bind}:{args.port}. "
                   f"Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username makes a profile.")
-        await asyncio.gather(server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk())
+        await lifecycle.run([server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()],
+                            server.outboxes, server.players, server.teaching.save)  # (1012 at the end: CHANGE 160)
 
 
 if __name__ == "__main__":

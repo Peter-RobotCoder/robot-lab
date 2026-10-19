@@ -8,15 +8,15 @@
 // from -1 to 1 in hundredths (predict.js's quantiseInput), buttons DRIFT, USE and RESPAWN.
 //
 // Python's arithmetic is kept where JavaScript's differs (pymath.js: floored %, round half to even, math.hypot,
-// radians), so the result is Python's to the last bit except where both call the system's cos, sin and exp: those
-// can differ in the last bit between any two machines (a Windows laptop's Python and the Linux server's too), and
-// the rounding to the wire each tick is what makes that not matter (kart_sim_test.py measures it).
+// radians), and sin, cos and exp are pymath.js's own, kart/kart_math.py's twins (CHANGE 162: the system's differ in
+// the last bit between Python and each browser, and a value on the edge of the wire's rounding then flipped a whole
+// step), so the result is Python's to the last bit by construction, on every computer and in every browser.
 //
 // Bumping, gates, laps and the countdown are the server's (kart_sim.Race); the browser learns of them from the
 // snapshots. respawn() is here because the server applies it before the step (Race.step_all).
 
 import {BOOST_RADIUS, OIL_RADIUS, GATES} from "./track.js";
-import {pyMod, pyRound, copysign, hypot, radians} from "./pymath.js";
+import {pyMod, pyRound, copysign, hypot, radians, sin, cos, exp} from "./pymath.js";  // (sin, cos, exp: CHANGE 162)
 
 export const STEP = 1 / 60;
 export const POINTS_TOTAL = 100, STAT_MIN = 10, STAT_MAX = 60;
@@ -161,15 +161,15 @@ export function step(k, inp, dt, track, st, damage = false) {
     // apart from a scrub (bigger in a drift)
     let pace = hypot(v, u);
     const r = radians(dyaw);
-    const c = Math.cos(r), s_ = Math.sin(r);
+    const c = cos(r), s_ = sin(r);
     const v2 = v * c + u * s_;
     u = -v * s_ + u * c;
     v = v2;
-    u *= Math.exp(-grip * dt);
+    u *= exp(-grip * dt);
     pace *= 1.0 - (drifting ? 0.12 : 0.03) * dt;
     v = copysign(Math.sqrt(Math.max(0.0, pace * pace - u * u)), v ? v : 1.0);
     const yr = radians(yaw);
-    const fx = Math.cos(yr), fy = Math.sin(yr);
+    const fx = cos(yr), fy = sin(yr);
     let x = k.x + (fx * v - fy * u) * dt;
     let y = k.y + (fy * v + fx * u) * dt;
     // the track: where we are along it, and the barriers at its edges
@@ -183,7 +183,7 @@ export function step(k, inp, dt, track, st, damage = false) {
         if (damage && Math.abs(k.lat) < limit - 0.005 && into > HIT_SPEED) {
             const side = lat > 0 ? 1 : -1;
             const heading = radians(yaw - track.heading(s));
-            const front = Math.abs(Math.sin(heading));  // (square to the barrier: nose first)
+            const front = Math.abs(sin(heading));  // (square to the barrier: nose first)
             hurt(n, (into - HIT_SPEED) * HIT_BARRIER, sideShares(front > 0.7 ? 1.0 : 0.0, side));
         }
         lat = lat > 0 ? limit : -limit;
@@ -256,14 +256,14 @@ export function bump(a, b, reach = BUMP_DISTANCE, slow = 0.3, damage = false) {
     const push = (reach - d) / 2, nx = dx / d, ny = dy / d;
     if (damage) {  // (CHANGE 158) closing faster than HIT_SPEED damages each where it was hit
         const ya = radians(a.yaw), yb = radians(b.yaw), ua = a.u || 0, ub = b.u || 0;
-        const va = [Math.cos(ya) * a.v - Math.sin(ya) * ua, Math.sin(ya) * a.v + Math.cos(ya) * ua];
-        const vb = [Math.cos(yb) * b.v - Math.sin(yb) * ub, Math.sin(yb) * b.v + Math.cos(yb) * ub];
+        const va = [cos(ya) * a.v - sin(ya) * ua, sin(ya) * a.v + cos(ya) * ua];
+        const vb = [cos(yb) * b.v - sin(yb) * ub, sin(yb) * b.v + cos(yb) * ub];
         const closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny;
         if (closing > HIT_KART_SPEED) {
             const amount = (closing - HIT_KART_SPEED) * HIT_KART;
             for (const [k, y, sx, sy] of [[a, ya, nx, ny], [b, yb, -nx, -ny]]) {
                 if (k.bg) continue;  // (CHANGE 159: damaged by a bump in the last second)
-                hurt(k, amount, sideShares(Math.cos(y) * sx + Math.sin(y) * sy, -Math.sin(y) * sx + Math.cos(y) * sy));
+                hurt(k, amount, sideShares(cos(y) * sx + sin(y) * sy, -sin(y) * sx + cos(y) * sy));
                 k.bg = BUMP_GRACE;
             }
         }
@@ -288,7 +288,7 @@ export function coast(k, dt) {
         const turn = steer * rate * Math.min(1.0, Math.abs(v) / 6.0) * (1.0 - 0.4 * Math.min(1.0, Math.abs(v) / top));
         k.yaw += v < 0 ? -turn * dt : turn * dt;
     }
-    const yr = radians(k.yaw), fx = Math.cos(yr), fy = Math.sin(yr), u = k.u || 0;
+    const yr = radians(k.yaw), fx = cos(yr), fy = sin(yr), u = k.u || 0;
     k.x += (fx * k.v - fy * u) * dt;
     k.y += (fy * k.v + fx * u) * dt;
 }

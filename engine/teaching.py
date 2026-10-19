@@ -212,13 +212,13 @@ class Teaching:
         if kind == "prediction":
             try:
                 r.prediction = max(0.0, min(500.0, float(m["value"])))
-            except (TypeError, ValueError, KeyError):
+            except (TypeError, ValueError, KeyError, OverflowError):
                 return [(p.ws, {"type": "notice", "text": "Type a number for your prediction."})]
             self.predicted(p, r)
             self.save_profile(p.name)
             return [(p.ws, self.missions_msg(p))]
         if kind == "reflection":
-            mission = m.get("mission")
+            mission = m.get("mission") if isinstance(m.get("mission"), str) else None  # (CHANGE 165: odd ones)
             text = re.sub(r"\s+", " ", str(m.get("text", "")))[:600]
             if mission in self.reflections:
                 r.text[mission] = text
@@ -233,7 +233,7 @@ class Teaching:
                 return [(p.ws, self.slots_msg(p.name, self.slots_of(p)))]
             try:
                 n = int(m.get("n"))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return []
             if not 1 <= n <= self.MAX_SLOTS:
                 return []
@@ -272,14 +272,15 @@ class Teaching:
             self.save_profile(p.name)
             return [(p.ws, self.missions_msg(p))]
         if kind == "ai_card":
-            return [(p.ws, self.submit_card(p, m.get("card", {})))] + self.teacher_update()
+            card = m.get("card") if isinstance(m.get("card"), dict) else {}  # (CHANGE 165: odd ones)
+            return [(p.ws, self.submit_card(p, card))] + self.teacher_update()
         if kind == "ai_review":
             return [(p.ws, self.submit_review(p, m))] + self.teacher_update()
         if p.role == "teacher":
             if kind == "lesson_number":
                 try:
                     n = int(m["n"])
-                except (TypeError, ValueError, KeyError):
+                except (TypeError, ValueError, KeyError, OverflowError):
                     return []
                 if n in self.g.missions.LESSONS:
                     self.apply_lesson(n)
@@ -304,7 +305,7 @@ class Teaching:
                 text = self.import_missions(m.get("data"))
                 return [(p.ws, {"type": "notice", "text": text}), "broadcast"]
             if kind == "slots_of":  # CHANGE 86: the teacher reads a learner's saved designs (or their own)
-                who = m.get("name")
+                who = m.get("name") if isinstance(m.get("name"), str) else None  # (CHANGE 165: odd ones)
                 if who == p.name or not who:
                     return [(p.ws, self.slots_msg(p.name, self.slots_of(p)))]
                 prof = self.profiles.get(who) or (self.g.profiles.load(who) if isinstance(who, str) else None)
@@ -335,7 +336,7 @@ class Teaching:
             if kind == "card_status":
                 try:
                     return self.set_card_status(int(m["id"]), m.get("status"), str(m.get("note", "")))
-                except (TypeError, ValueError, KeyError):
+                except (TypeError, ValueError, KeyError, OverflowError):
                     return []
             if kind == "export":  # saved on the server, and a copy sent to the teacher's own computer
                 path = self.export()
@@ -624,7 +625,7 @@ class Teaching:
         for n_text, lesson in missions.items():
             try:
                 n = int(n_text)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if n not in self.g.missions.LESSONS or not isinstance(lesson, dict):
                 continue
@@ -666,7 +667,7 @@ class Teaching:
         elif do == "add":
             try:
                 n = int(m.get("lesson"))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return
             k = f"{n}t{1 + sum(1 for i in e['added'] if e['added'][i][0] == n) + len(e['removed'])}"
             while k in e["added"] or k in self.g.missions.MISSIONS:

@@ -74,11 +74,31 @@ a = Analysis(  # noqa: F821
     excludes=sorted(NOT_IN_APP),
 )
 pyz = PYZ(a.pure)  # noqa: F821
+
+
+def version_resource():
+    """(CHANGE 163) The exe's version details (Properties > Details): an exe without any is one of the things
+    antivirus programs count against an unsigned download, with UPX (off: upx=False) and one-file packing (one folder)."""
+    from PyInstaller.utils.win32.versioninfo import (FixedFileInfo, StringFileInfo, StringStruct, StringTable,
+                                                     VarFileInfo, VarStruct, VSVersionInfo)
+    with open(os.path.join(ROOT, "VERSION"), encoding="utf-8") as f:
+        text = f.read().strip()
+    parts = tuple((list(map(int, text.split("."))) + [0, 0, 0, 0])[:4])
+    strings = [StringStruct("CompanyName", "Club Coders"), StringStruct("FileDescription", "Club Coders"),
+               StringStruct("FileVersion", text), StringStruct("InternalName", "Club Coders"),
+               StringStruct("OriginalFilename", "Club Coders.exe"), StringStruct("ProductName", "Club Coders"),
+               StringStruct("ProductVersion", text),
+               StringStruct("LegalCopyright", "Club Coders, github.com/Peter-RobotCoder/robot-lab")]
+    return VSVersionInfo(ffi=FixedFileInfo(filevers=parts, prodvers=parts),
+                         kids=[StringFileInfo([StringTable("080904B0", strings)]), VarFileInfo([VarStruct("Translation", [2057, 1200])])])
+
+
 exe = EXE(  # noqa: F821
     pyz, a.scripts, [],
     exclude_binaries=True,
     name="Club Coders",
     console=False,
     upx=False,
+    version=version_resource(),
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="Club Coders", upx=False)  # noqa: F821

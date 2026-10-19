@@ -10,6 +10,7 @@ Testing on one laptop: the environment variable CLUBCODERS_LAG makes the connect
     CLUBCODERS_LAG=60,15,0.02    ...and a 2% chance per message of a 200 ms stall (the messages behind it queue
                                  up and arrive together, as they do on a real link when a packet is lost)
 """
+import atexit
 import heapq
 import json
 import os
@@ -96,6 +97,16 @@ class Net:
             self.delay_in = Delay(*self.lag, self._arrive_late)
             self.delay_out = Delay(*self.lag, self._send_now)
         self._connect()
+        atexit.register(self.goodbye)
+
+    def goodbye(self):
+        """(CHANGE 164) The window closing on purpose says so (close code 1000): the server lets its place go at
+        once. A connection that just stops (a lid shut, the Wi-Fi gone) keeps the place a while (engine.seats)."""
+        try:
+            self.ws.close_timeout = 0.5
+            self.ws.close(1000, "window closed")
+        except Exception:
+            pass
 
     def _connect(self):
         # entered by hand: the connection lives as long as the game

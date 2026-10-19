@@ -21,6 +21,10 @@ ExecStart=/bin/bash /opt/robotlab/app/deploy/run-class.sh %i
 # exit code 3 = the teacher pressed Restart server: start again straight away
 Restart=always
 RestartSec=2
+# the physics loop pings systemd every second (engine/lifecycle.py): a loop stopped for a minute is restarted.
+# On stop the server tells every window 1012 (restarting) and they reconnect by themselves.
+WatchdogSec=60
+TimeoutStopSec=15
 
 # Hardening: the server can only write its class's data, the games' mod files, and the desk's reports and inbox
 # (the session it reports to the desk; the desk's requests, deleted once done).

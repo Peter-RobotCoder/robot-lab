@@ -7,9 +7,13 @@ Runs the same karts through kart/kart_sim.py and, with node, through kart_sim.js
   - the step: thousands of random drives (600 ticks each, every track, random designs, starting places, speeds
     and inputs: full throttle, braking, reversing, drifts long enough for both turbos, dash pads, oil, barriers,
     respawns, the wrong way round) give the same wire numbers and track segment tick for tick, as the server
-    applies them (respawn, step, quantise); and how far apart the two are before the rounding (the system's cos,
-    sin and exp may differ in the last bit between any two machines: printed, with the closest a value came to
-    rounding the other way);
+    applies them (respawn, step, quantise), and the same numbers to the last bit before the rounding too (CHANGE
+    162: sin, cos, exp, atan2 and hypot are kart_math.py's and pymath.js's own, the same on every computer);
+  - those five themselves: kart_math.py and pymath.js give the same bits for thousands of arguments, and are
+    within two ulps of the system's;
+  - the fingerprint: the drives' numbers and the five functions' are the ones kart_sim_golden.json recorded for
+    kart_sim.SIM_VERSION (a change to the step that wasn't meant to change them fails here; one that was: raise
+    SIM_VERSION and run this with --record in the same commit);
   - the input frame: packInput's 18 bytes are pack_input's, and quantiseInput is quantise_input (halves rounded
     to even, buttons cut to a byte);
   - the prediction: a Predictor stepping the kart with snapshots arriving late, jittered, some skipped, with
@@ -38,6 +42,7 @@ sys.path.insert(0, KART)
 import kart_version  # noqa: E402,F401  (puts the engine on the path)
 import kart_sim  # noqa: E402
 import kart_track  # noqa: E402
+import kart_math  # noqa: E402  (CHANGE 162)
 from engine import predict, wire  # noqa: E402
 
 SCHEMA = wire.Schema("kart", kart_sim.SCHEMA_FIELDS)
@@ -47,6 +52,10 @@ TICKS = 600
 RAW_RUNS = 300            # runs whose numbers before the rounding are compared too
 PREDICT_RUNS = 40
 SEED = 20261014
+GOLDEN = os.path.join(HERE, "kart_sim_golden.json")  # (CHANGE 162: the drives' and the functions' fingerprint)
+MATH_FUNCS = {"sin": kart_math.sin, "cos": kart_math.cos, "exp": kart_math.exp, "atan2": kart_math.atan2,
+              "hypot": kart_math.hypot}
+SYSTEM = {"sin": math.sin, "cos": math.cos, "exp": math.exp, "atan2": math.atan2, "hypot": math.hypot}
 
 results = []
 
@@ -297,7 +306,7 @@ import crypto from "crypto";
 import {Track, TRACKS} from "./track.js";
 import * as sim from "./kart_sim.js";
 import {Predictor, InputLog, ErrorSmoother, LeadController, packInput, quantiseInput} from "./predict.js";
-import {radians, pyMod} from "./pymath.js";
+import {radians, pyMod, sin, cos, exp, atan2, hypot} from "./pymath.js";
 
 const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const out = {tracks: {}, drives: [], packs: [], predicts: [], bumps: []};
@@ -385,8 +394,40 @@ for (const c of job.predicts) {
     out.predicts.push({errs, corrections: p.corrections, final: sim.wireInts(p.state), offs, mult,
                        log: p.log.length, snaps: sm.snaps});
 }
+// (CHANGE 162) the five functions, as bits (JSON would lose a negative zero)
+const FUNCS = {sin, cos, exp, atan2, hypot}, DV = new DataView(new ArrayBuffer(8));
+out.math = job.math.map(([f, ...args]) => { DV.setFloat64(0, FUNCS[f](...args)); return DV.getBigUint64(0).toString(16).padStart(16, "0"); });
 fs.writeFileSync(process.argv[3], JSON.stringify(out));
 """
+
+
+def make_math(rng):
+    """(CHANGE 162) arguments for the five functions: what a kart's step gives them, and their edges."""
+    cases = []
+    for _ in range(4000):
+        cases.append(["sin", rng.uniform(-7, 7)])
+        cases.append(["cos", rng.uniform(-7, 7)])
+        cases.append(["exp", -rng.uniform(0, 2)])
+        cases.append(["atan2", rng.uniform(-3, 3), rng.uniform(-3, 3)])
+        cases.append(["hypot", rng.uniform(-40, 40), rng.uniform(-40, 40)])
+    for _ in range(1000):
+        cases.append(["sin", rng.uniform(-1e5, 1e5)])
+        cases.append(["cos", rng.uniform(-1e5, 1e5)])
+        cases.append(["exp", rng.uniform(-745, 709)])
+        cases.append(["atan2", rng.uniform(-1, 1) * 10 ** rng.randint(-20, 20), rng.uniform(-1, 1) * 10 ** rng.randint(-20, 20)])
+        cases.append(["hypot", rng.uniform(-1, 1) * 10 ** rng.randint(-200, 200), rng.uniform(-1, 1) * 10 ** rng.randint(-200, 200)])
+    for x in (0.0, -0.0, 1e-300, math.pi / 4, -math.pi / 4, math.pi / 2, math.pi, 1.5 * math.pi, 2 * math.pi, 1e-9, 0.785398163397448):
+        cases += [["sin", x], ["cos", x], ["exp", x], ["exp", -x]]
+    for y, x in ((0.0, 1.0), (-0.0, 1.0), (0.0, -1.0), (-0.0, -1.0), (1.0, 0.0), (-1.0, 0.0), (0.0, 0.0), (-0.0, -0.0),
+                 (1.0, 1.0), (-1.0, -1.0), (1e-30, -1.0), (1e30, 1.0), (2.0, 1.0), (0.5, 1.0)):
+        cases.append(["atan2", y, x])
+    cases += [["hypot", 0.0, 0.0], ["hypot", 3.0, 4.0], ["hypot", 1e-310, 1e-310], ["hypot", -0.0, 5.0]]
+    return cases
+
+
+def bits(x):
+    import struct
+    return struct.pack(">d", x).hex()
 
 
 def ulps(a, b):
@@ -412,6 +453,7 @@ def main():
     packs = make_packs(rng)
     predicts = make_predicts(rng, tracks["club"])
     bumps = make_bumps(random.Random(SEED + 1))
+    maths = make_math(random.Random(SEED + 2))
     py_time = time.perf_counter() - t0
 
     tmp = tempfile.mkdtemp(prefix="kart_sim_test_")
@@ -423,7 +465,7 @@ def main():
         with open(os.path.join(tmp, "runner.js"), "w", encoding="utf-8") as f:
             f.write(RUNNER)
         job = {"drives": [{k: v for k, v in d.items() if not k.startswith("_")} for d in drives],
-               "packs": packs, "predicts": predicts, "bumps": bumps}
+               "packs": packs, "predicts": predicts, "bumps": bumps, "math": maths}
         with open(os.path.join(tmp, "job.json"), "w") as f:
             json.dump(job, f)
         t1 = time.perf_counter()
@@ -503,12 +545,12 @@ def main():
                             frac = (a[f] * scales[f]) % 1.0
                             closest = min(closest, abs(frac - 0.5) / scales[f])
     print(f"  before the rounding: {diff_ticks} of {total} ticks not identical to the bit "
-          f"({100 * diff_ticks / max(1, total):.2f}%, from the system's cos/sin/exp); worst per field: " +
+          f"({100 * diff_ticks / max(1, total):.2f}%); worst per field: " +
           ", ".join(f"{fields[f]} {worst[f]:.1e} ({worst_ulp[f]} ulp)" for f in range(7)))
     print(f"  the closest a differing value came to a rounding edge: {closest:.2e} (m, or degrees for yaw); "
           f"the largest difference was {max(worst[:5]):.1e}")
-    check(f"before the rounding the two never differ by more than {max(worst):.0e} (a nanometre at most allowed)",
-          max(worst) < 1e-9, str(worst))
+    check(f"before the rounding the numbers are the same to the last bit too ({total} ticks: CHANGE 162, sin, cos "
+          f"and exp the same everywhere)", diff_ticks == 0, str(worst))
 
     # (CHANGE 158) the page reads the server's snapshots with wire.js's KART_FIELDS: it must be the record field for
     # field (a field added to one and not the other reads every kart wrongly: positions thousands of km off)
@@ -524,16 +566,46 @@ def main():
     wrong = [i for i, (c, js) in enumerate(zip(packs, out["packs"])) if c["q"] != js["q"]]
     check("quantiseInput is quantise_input", not wrong, str([packs[i]["args"] for i in wrong[:3]]))
 
-    # (CHANGE 155) the bump between two karts and another kart carried on: the bump to the last bit, the carrying on
-    # (cos and sin: the system's) to a nanometre
+    # (CHANGE 155) the bump between two karts and another kart carried on: both to the last bit (CHANGE 162)
     def far(c, js):
         (pa, pb, pt), (ja, jb, jt) = c["out"], js
-        return (pt != jt or any(pa[k] != ja[k] for k in pa) or pb["v"] != jb["v"] or abs(pb["yaw"] - jb["yaw"]) > 1e-9
-                or any(abs(pb[k] - jb[k]) > 1e-9 for k in ("x", "y")))
+        return pt != jt or any(pa[k] != ja[k] for k in pa) or any(pb[k] != jb[k] for k in pb)
     wrong = [i for i, (c, js) in enumerate(zip(bumps, out["bumps"])) if far(c, js)]
     touched = sum(1 for c in bumps if c["out"][2])
     check(f"bump and coast are kart_sim's ({len(bumps)} pairs, {touched} touching)", not wrong and 300 < touched,
           str([(bumps[i]["out"], out["bumps"][i]) for i in wrong[:2]]))
+
+    # (CHANGE 162) the five functions: the same bits in both languages, and close to the system's
+    py_bits = [bits(MATH_FUNCS[f](*args)) for f, *args in maths]
+    wrong = [i for i, (a, b) in enumerate(zip(py_bits, out["math"])) if a != b]
+    check(f"kart_math.py and pymath.js give the same bits ({len(maths)} arguments to sin, cos, exp, atan2 and hypot)",
+          not wrong and len(out["math"]) == len(maths), "; ".join(f"{maths[i]} py {py_bits[i]} js {out['math'][i]}"
+                                                                   for i in wrong[:3]))
+    far_off = {}
+    for f, *args in maths:
+        mine, theirs = MATH_FUNCS[f](*args), SYSTEM[f](*args)
+        if mine != theirs and not (mine != mine and theirs != theirs):
+            far_off[f] = max(far_off.get(f, 0), ulps(mine, theirs))
+    check(f"...and within two ulps of the system's (worst: {far_off or 'none differ'})",
+          all(u <= 2 for u in far_off.values()), str(far_off))
+    fingerprint = {"sim_version": kart_sim.SIM_VERSION, "drives": md5([d["md5"] for d in drives]), "math": md5(py_bits)}
+    if "--record" in sys.argv:
+        with open(GOLDEN, "w", encoding="utf-8") as f:
+            json.dump(fingerprint, f, indent=1)
+        print(f"  recorded the fingerprint for SIM_VERSION {kart_sim.SIM_VERSION}: {GOLDEN}")
+    try:
+        with open(GOLDEN, encoding="utf-8") as f:
+            golden = json.load(f)
+    except OSError:
+        golden = {}
+    if golden.get("sim_version") != kart_sim.SIM_VERSION:
+        check("the drives' numbers are the recorded ones for this SIM_VERSION", False,
+              f"kart_sim_golden.json is for SIM_VERSION {golden.get('sim_version')}, the step is "
+              f"{kart_sim.SIM_VERSION}: run this with --record in the same commit as the change")
+    else:
+        check(f"the drives' numbers and the functions' are the ones recorded for SIM_VERSION {kart_sim.SIM_VERSION} "
+              f"(the same on every computer: a change that moves them needs a new SIM_VERSION)",
+              golden == fingerprint, f"recorded {golden}, now {fingerprint}")
 
     # the prediction
     errs_same, corr, final_ok, offs_ok, mult_ok, worst_off, exact = True, 0, True, True, True, 0.0, 0

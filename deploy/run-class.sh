@@ -35,6 +35,21 @@ if [ -f "$CLUBCODERS_LIVE_POINTER" ]; then
         echo "$CLASS runs live update $LIVE_ID of $GAME"
     fi
 fi
+# (CHANGE 168) a live update is tried first (engine/canary.py: its server on a port of this machine only, with data
+# of its own, must let a teacher in and send 30 snapshots without an error); one that doesn't, the class runs the
+# release's own code instead, and the teacher's live update waits to be fixed
+case "$GAME" in
+    robotlab) SCRIPT=lab_server.py ;;
+    fightlab) SCRIPT=fight_server.py ;;
+    kartlab) SCRIPT=kart_server.py ;;
+esac
+if [ "$CODE" != "$APP/games/$GAME" ] && [ -f "$APP/engine/canary.py" ]; then
+    if ! (cd "$CODE" && "$PY" "$APP/engine/canary.py" "$SCRIPT" --seconds 20); then
+        echo "$CLASS: live update $LIVE_ID of $GAME didn't pass its check, so the class runs the release's code" >&2
+        export CLUBCODERS_LIVE_FAILED="$LIVE_ID"  # (the server tells the teacher, and doesn't offer it again)
+        CODE="$APP/games/$GAME"
+    fi
+fi
 cd "$CODE"
 
 case "$GAME" in

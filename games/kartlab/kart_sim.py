@@ -16,9 +16,14 @@ The design sheet: 100 points between speed, acceleration and grip (10 to 60 each
 import math
 
 import kart_version  # noqa: F401  (puts the engine, shared by every game, on the path)
+import kart_math as kmath  # (sin, cos, exp, hypot the same on every computer: CHANGE 162)
 import kart_track
 
 STEP = 1 / 60
+# (CHANGE 162) the step's numbers: raise this with any change meant to change them (the physics, the damage, the
+# items, the track), and record the tests' fixtures again in the same commit (replay_test.py --record, and
+# club-coders/web/kart_sim_test.py --record); a change that moves them without it fails both
+SIM_VERSION = 1
 POINTS_TOTAL, STAT_MIN, STAT_MAX = 100, 10, 60
 STATS = ("speed", "acceleration", "grip")
 SETTINGS = {}  # (a kart has no settings beyond its points; the engine's limits and garage expect the name)
@@ -288,15 +293,15 @@ def step(k, inp, dt, track, st, damage=False):
     # the velocity in the kart's own frame, carried round the turn: part of what was forward is now sideways.
     # The tyres kill the slide, and (arcade, not physics) the pace isn't lost with it: the kart keeps its speed
     # through a turn apart from a scrub, bigger in a drift. Without this a long drift would bleed to a crawl.
-    pace = math.hypot(v, u)
+    pace = kmath.hypot(v, u)
     r = math.radians(dyaw)
-    c, s_ = math.cos(r), math.sin(r)
+    c, s_ = kmath.cos(r), kmath.sin(r)
     v, u = v * c + u * s_, -v * s_ + u * c
-    u *= math.exp(-grip * dt)
+    u *= kmath.exp(-grip * dt)
     pace *= 1.0 - (0.12 if drifting else 0.03) * dt
     v = math.copysign(math.sqrt(max(0.0, pace * pace - u * u)), v if v else 1.0)
     yr = math.radians(yaw)
-    fx, fy = math.cos(yr), math.sin(yr)
+    fx, fy = kmath.cos(yr), kmath.sin(yr)
     x = k["x"] + (fx * v - fy * u) * dt
     y = k["y"] + (fy * v + fx * u) * dt
     # the track: where we are along it, and the barriers at its edges
@@ -310,7 +315,7 @@ def step(k, inp, dt, track, st, damage=False):
         if damage and abs(k["lat"]) < limit - 0.005 and into > HIT_SPEED:
             side = 1 if lat > 0 else -1
             heading = math.radians(yaw - track.heading(s))
-            front = abs(math.sin(heading))  # (square to the barrier: nose first)
+            front = abs(kmath.sin(heading))  # (square to the barrier: nose first)
             hurt(n, (into - HIT_SPEED) * HIT_BARRIER, side_shares(1.0 if front > 0.7 else 0.0, side))
         lat = limit if lat > 0 else -limit
         x, y, _ = track.point(s, lat)
@@ -343,7 +348,7 @@ def compare(a, b):
     if a is None or b is None:
         return math.inf
     dyaw = abs((a["yaw"] - b["yaw"] + 180.0) % 360.0 - 180.0)
-    return math.hypot(a["x"] - b["x"], a["y"] - b["y"]) + abs(a["v"] - b["v"]) * 0.05 + dyaw * 0.01
+    return kmath.hypot(a["x"] - b["x"], a["y"] - b["y"]) + abs(a["v"] - b["v"]) * 0.05 + dyaw * 0.01
 
 
 # ---------- the race (server side) ----------
@@ -355,21 +360,23 @@ def bump(a, b, reach=BUMP_DISTANCE, slow=0.3, damage=False):
     damage (CHANGE 158): closing faster than HIT_KART_SPEED damages each where it was hit, unless a bump damaged
     it in the last BUMP_GRACE ticks (CHANGE 159)."""
     dx, dy = b["x"] - a["x"], b["y"] - a["y"]
-    d = math.hypot(dx, dy)
+    d = kmath.hypot(dx, dy)
     if d >= reach or d < 1e-6:
         return False
     push = (reach - d) / 2
     nx, ny = dx / d, dy / d
     if damage:
         ya, yb = math.radians(a["yaw"]), math.radians(b["yaw"])
-        va = (math.cos(ya) * a["v"] - math.sin(ya) * a.get("u", 0.0), math.sin(ya) * a["v"] + math.cos(ya) * a.get("u", 0.0))
-        vb = (math.cos(yb) * b["v"] - math.sin(yb) * b.get("u", 0.0), math.sin(yb) * b["v"] + math.cos(yb) * b.get("u", 0.0))
+        va = (kmath.cos(ya) * a["v"] - kmath.sin(ya) * a.get("u", 0.0),
+              kmath.sin(ya) * a["v"] + kmath.cos(ya) * a.get("u", 0.0))
+        vb = (kmath.cos(yb) * b["v"] - kmath.sin(yb) * b.get("u", 0.0),
+              kmath.sin(yb) * b["v"] + kmath.cos(yb) * b.get("u", 0.0))
         closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny  # (positive: a and b coming together along a to b)
         if closing > HIT_KART_SPEED:
             amount = (closing - HIT_KART_SPEED) * HIT_KART
             for k, y, sx, sy in ((a, ya, nx, ny), (b, yb, -nx, -ny)):  # (where the other is, in k's own frame)
                 if not k.get("bg"):
-                    hurt(k, amount, side_shares(math.cos(y) * sx + math.sin(y) * sy, -math.sin(y) * sx + math.cos(y) * sy))
+                    hurt(k, amount, side_shares(kmath.cos(y) * sx + kmath.sin(y) * sy, -kmath.sin(y) * sx + kmath.cos(y) * sy))
                     k["bg"] = BUMP_GRACE
     a["x"] -= nx * push
     a["y"] -= ny * push
@@ -390,7 +397,7 @@ def coast(k, dt):
         turn = steer * rate * min(1.0, abs(v) / 6.0) * (1.0 - 0.4 * min(1.0, abs(v) / top))
         k["yaw"] += -turn * dt if v < 0 else turn * dt
     yr = math.radians(k["yaw"])
-    fx, fy, u = math.cos(yr), math.sin(yr), k.get("u", 0.0)
+    fx, fy, u = kmath.cos(yr), kmath.sin(yr), k.get("u", 0.0)
     k["x"] += (fx * k["v"] - fy * u) * dt
     k["y"] += (fy * k["v"] + fx * u) * dt
 

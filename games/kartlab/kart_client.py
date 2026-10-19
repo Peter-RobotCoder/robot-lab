@@ -31,6 +31,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import random
 import time
 import webbrowser
 
@@ -2907,15 +2908,16 @@ class Lab(hud.HudKit, ShowBase):
                 self.banner_note("The session has ended. This window will close.", 3600)
                 self.taskMgr.doMethodLater(5, lambda t: self.userExit(), "session_over")
             return
-        self.banner_note("Lost the connection: reconnecting...", 3600)
+        self.banner_note("The class server is restarting: reconnecting..." if m.get("code") == 1012 else
+                         "Lost the connection: reconnecting...", 3600)  # (1012: CHANGE 160)
         self.reconnecting = True
         if self.reconnect_thread is not None and self.reconnect_thread.is_alive():
             return
 
         def work():  # keep trying every 2 seconds; the server's welcome comes through the inbox
-            time.sleep(2)
+            time.sleep(1.0 + random.random() * 2.0)  # (not the whole class at the same moment: CHANGE 160)
             while not net.reconnect():
-                time.sleep(2)
+                time.sleep(1.5 + random.random())
         self.reconnect_thread = threading.Thread(target=work, daemon=True)
         self.reconnect_thread.start()
 

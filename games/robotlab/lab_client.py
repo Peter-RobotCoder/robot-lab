@@ -36,6 +36,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import random
 import time
 import webbrowser
 
@@ -61,6 +62,7 @@ ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=6)
 ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--no-interp", action="store_true", help="draw each snapshot as it arrives (no blending between them)")
+ap.add_argument("--no-ahead", action="store_true", help="draw the robots as sent, not ahead (engine/ahead.py: CHANGE 166)")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
 ap.add_argument("--show-code", action="store_true", help=argparse.SUPPRESS)  # (tests: open the code panel)
@@ -148,6 +150,7 @@ import rw_gfx  # noqa: E402
 from engine import rw_sound  # noqa: E402
 from engine.net import Net  # noqa: E402
 from engine import interp  # noqa: E402
+from engine import ahead  # noqa: E402  (CHANGE 166: the robots drawn where they are now)
 from rw_camera import GameCamera  # noqa: E402
 from rw_gfx import ArenaVisual, RobotVisual  # noqa: E402
 
@@ -205,6 +208,7 @@ class Lab(hud.HudKit, ShowBase):
     STAGE_WORD = "ARENA"
     GFX_TIERS = gfx_tiers.TIERS          # (CHANGE 145: the Settings tab's Graphics row and the class maximum's)
     LINE_COLOURS = rw_gfx.LINE_COLOURS
+    AHEAD_ROW = "the robots are drawn where they are now, and yours answers your keys at once"  # (CHANGE 166)
     LIMITS_TITLE = "ROBOT LIMITS"
     LIMITS_NOTE = "Size: 100 is the standard size, 12.5 is one eighth of it and 200 is double."
 
@@ -427,6 +431,7 @@ class Lab(hud.HudKit, ShowBase):
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
         # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
         self.snaps, self.latest = interp.Snapshots(interp.LAB_SPEC), None
+        self.ahead, self.drive = ahead.RobotsAhead(), {}  # (CHANGE 166) drawn ahead; each robot's drive, from the roster
         self.ctrl_seq, self.ctrl_sent, self.ctrl_ms = 0, {}, None  # numbered controls, and the measured control delay
         self.perf_at = 0.0
         self.fx_waiting = []
@@ -2861,6 +2866,10 @@ class Lab(hud.HudKit, ShowBase):
             blended = self.snaps.sample(now)
             if blended is not None:
                 self.state = self.arena_view(blended)
+                if self.ahead_on and not args.no_ahead and self.state.get("robots"):  # (CHANGE 166)
+                    self.state = dict(self.state, robots=self.ahead.adjust(
+                        self.state["robots"], now, self.snaps.clock.server_time(now), self.ping_ms / 1000,
+                        getattr(self, "my_id", None), self.drive, dt))
         self.send_controls(now)
         self.send_perf(now)
         targets = []
@@ -2919,6 +2928,8 @@ class Lab(hud.HudKit, ShowBase):
                     rebuild = True  # (the Pause button lights up: CHANGE 102)
                 self.latest = m
                 self.snaps.push(m)
+                if m.get("sm") is not None:  # (CHANGE 166: what the robots are drawn ahead from)
+                    self.ahead.snapshot(m["sm"] / 1000, self.arena_view(m).get("robots", []))
                 if args.no_interp:
                     self.state = self.arena_view(m)
                 self.fx_waiting.append(self.arena_view(m).get("fx", {}))
@@ -3069,15 +3080,16 @@ class Lab(hud.HudKit, ShowBase):
                 self.banner_note("The session has ended. This window will close.", 3600)
                 self.taskMgr.doMethodLater(5, lambda t: self.userExit(), "session_over")
             return
-        self.banner_note("Lost the connection: reconnecting...", 3600)
+        self.banner_note("The class server is restarting: reconnecting..." if m.get("code") == 1012 else
+                         "Lost the connection: reconnecting...", 3600)  # (1012: CHANGE 160)
         self.reconnecting = True
         if self.reconnect_thread is not None and self.reconnect_thread.is_alive():
             return
 
         def work():  # keep trying every 2 seconds; the server's welcome comes through the inbox
-            time.sleep(2)
+            time.sleep(1.0 + random.random() * 2.0)  # (not the whole class at the same moment: CHANGE 160)
             while not net.reconnect():
-                time.sleep(2)
+                time.sleep(1.5 + random.random())
         self.reconnect_thread = threading.Thread(target=work, daemon=True)
         self.reconnect_thread.start()
 
@@ -3116,6 +3128,7 @@ class Lab(hud.HudKit, ShowBase):
 
     def apply_roster(self, m):
         self.full_roster = m
+        self.drive = {r["id"]: tuple(r["drive"]) for r in m["robots"] if r.get("drive")}  # (CHANGE 166)
         my_id = m["mine"].get(name)
         self.my_arena = next((r.get("arena", 0) for r in m["robots"] if r["id"] == my_id), None)
         w = self.watched_arena()
@@ -3169,6 +3182,7 @@ class Lab(hud.HudKit, ShowBase):
             self.ctrl_seq = (self.ctrl_seq + 1) % 65536
             send({"type": "control", "seq": self.ctrl_seq, "throttle": control[0], "steer": control[1],
                   "fire": control[2]})
+            self.ahead.control(now, control[0], control[1])  # (CHANGE 166: your robot answers your keys at once)
             self.ctrl_sent[self.ctrl_seq] = now
             if len(self.ctrl_sent) > 90:
                 for k in sorted(self.ctrl_sent)[:30]:

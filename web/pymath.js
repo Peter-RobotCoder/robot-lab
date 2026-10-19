@@ -112,3 +112,151 @@ export function hypot(...args) {
     if (max === Infinity) return Infinity;
     return vectorNorm(vec, nan ? NaN : max);
 }
+
+// ---------- sin, cos, exp, atan2 (CHANGE 162) ----------
+// The system's sin, cos, exp and atan2 differ between Python (the C library) and each browser in the last bit, so
+// the kart step uses these, kart/kart_math.py's twins line for line: musl's algorithms (from Sun's fdlibm: a range
+// reduction and a fixed polynomial) with + - * / only, which are IEEE arithmetic and the same everywhere.
+const TOINT = 1.5 * 2 ** 52;
+const INVPIO2 = 6.36619772367581382433e-01, PIO2_1 = 1.57079632673412561417e+00, PIO2_1T = 6.07710050650619224932e-11;
+const PIO4 = 7.85398163397448278999e-01;
+const PIO2_2 = 6.07710050630396597660e-11, PIO2_2T = 2.02226624879595063154e-21;
+const PIO2_3 = 2.02226624871116645580e-21, PIO2_3T = 8.47842766036889956997e-32;
+const S1 = -1.66666666666666324348e-01, S2 = 8.33333333332248946124e-03, S3 = -1.98412698298579493134e-04;
+const S4 = 2.75573137070700676789e-06, S5 = -2.50507602534068634195e-08, S6 = 1.58969099521155010221e-10;
+const C1 = 4.16666666666666019037e-02, C2 = -1.38888888888741095749e-03, C3 = 2.48015872894767294178e-05;
+const C4 = -2.75573143513906633035e-07, C5 = 2.08757232129817482790e-09, C6 = -1.13596475577881948265e-11;
+
+function ksin(x, y) {
+    const z = x * x, w = z * z;
+    const r = S2 + z * (S3 + z * S4) + z * w * (S5 + z * S6);
+    const v = z * x;
+    return x - ((z * (0.5 * y - v * r) - y) - v * S1);
+}
+
+function kcos(x, y) {
+    const z = x * x;
+    let w = z * z;
+    const r = z * (C1 + z * (C2 + z * C3)) + w * w * (C4 + z * (C5 + z * C6));
+    const hz = 0.5 * z;
+    w = 1.0 - hz;
+    return w + (((1.0 - w) - hz) + (z * r - x * y));
+}
+
+function reduce(x) {  // x as n pi/2 + (y0 + y1): [n mod 4, y0, y1]
+    if (-PIO4 <= x && x <= PIO4) return [0, x, 0.0];
+    const fn = (x * INVPIO2 + TOINT) - TOINT;
+    let r = x - fn * PIO2_1, w = fn * PIO2_1T;
+    let y0 = r - w;
+    const ex = exponent(x);
+    if (ex - exponent(y0) > 16) {  // (x near a multiple of pi/2: a second round, good to 118 bits, then a third)
+        let t = r;
+        w = fn * PIO2_2;
+        r = t - w;
+        w = fn * PIO2_2T - ((t - r) - w);
+        y0 = r - w;
+        if (ex - exponent(y0) > 49) {
+            t = r;
+            w = fn * PIO2_3;
+            r = t - w;
+            w = fn * PIO2_3T - ((t - r) - w);
+            y0 = r - w;
+        }
+    }
+    const y1 = (r - y0) - w;
+    return [((fn % 4) + 4) % 4, y0, y1];
+}
+
+function exponent(x) {  // the double's exponent field, as C reads it from the bits
+    F64[0] = x;
+    return (U32[1] >>> 20) & 0x7ff;
+}
+
+export function sin(x) {
+    if (!Number.isFinite(x)) return NaN;
+    const [n, y0, y1] = reduce(x);
+    return n === 0 ? ksin(y0, y1) : n === 1 ? kcos(y0, y1) : n === 2 ? -ksin(y0, y1) : -kcos(y0, y1);
+}
+
+export function cos(x) {
+    if (!Number.isFinite(x)) return NaN;
+    const [n, y0, y1] = reduce(x);
+    return n === 0 ? kcos(y0, y1) : n === 1 ? -ksin(y0, y1) : n === 2 ? -kcos(y0, y1) : ksin(y0, y1);
+}
+
+const LN2HI = 6.93147180369123816490e-01, LN2LO = 1.90821492927058770002e-10, INVLN2 = 1.44269504088896338700e+00;
+const P1 = 1.66666666666666019037e-01, P2 = -2.77777777770155933842e-03, P3 = 6.61375632143793436117e-05;
+const P4 = -1.65339022054652515390e-06, P5 = 4.13813679705723846039e-08;
+
+export function exp(x) {
+    if (Number.isNaN(x)) return x;
+    if (x > 709.0 && x > 709.782712893384) return Infinity;
+    if (x < -708.0 && x < -745.1332191019411) return 0.0;
+    let hi = x, lo = 0.0, k = 0;
+    if (Math.abs(x) > 0.5 * LN2HI) {
+        k = Math.trunc(INVLN2 * x + (x >= 0 ? 0.5 : -0.5));
+        hi = x - k * LN2HI;
+        lo = k * LN2LO;
+        x = hi - lo;
+    } else if (Math.abs(x) < 2 ** -28) {
+        return 1.0 + x;
+    }
+    const xx = x * x;
+    const c = x - xx * (P1 + xx * (P2 + xx * (P3 + xx * (P4 + xx * P5))));
+    const y = 1.0 + (x * c / (2.0 - c) - lo + hi);
+    if (k === 0) return y;
+    if (-1021 <= k && k <= 1023) return y * pow2(k);
+    const half = Math.floor(k / 2);
+    return y * pow2(half) * pow2(k - half);
+}
+
+const ATANHI = [4.63647609000806093515e-01, 7.85398163397448278999e-01, 9.82793723247329054082e-01, 1.57079632679489655800e+00];
+const ATANLO = [2.26987774529616870924e-17, 3.06161699786838301793e-17, 1.39033110312309984516e-17, 6.12323399573676603587e-17];
+const AT = [3.33333333333329318027e-01, -1.99999999998764832476e-01, 1.42857142725034663711e-01, -1.11111104054623557880e-01,
+            9.09088713343650656196e-02, -7.69187620504482999495e-02, 6.66107313738753120669e-02, -5.83357013379057348645e-02,
+            4.97687799461593236017e-02, -3.65315727442169155270e-02, 1.62858201153657823623e-02];
+const PI = 3.1415926535897931160e+00, PI_LO = 1.2246467991473531772e-16;
+
+export function atan(x) {
+    if (Number.isNaN(x)) return x;
+    const neg = x < 0, ax = neg ? -x : x;
+    if (ax >= 2 ** 66) return neg ? -ATANHI[3] : ATANHI[3];
+    let i;
+    if (ax < 0.4375) {
+        if (ax < 2 ** -27) return x;
+        i = -1;
+    } else if (ax < 1.1875) {
+        if (ax < 0.6875) { i = 0; x = (2.0 * ax - 1.0) / (2.0 + ax); } else { i = 1; x = (ax - 1.0) / (ax + 1.0); }
+    } else if (ax < 2.4375) {
+        i = 2; x = (ax - 1.5) / (1.0 + 1.5 * ax);
+    } else {
+        i = 3; x = -1.0 / ax;
+    }
+    let z = x * x;
+    const w = z * z;
+    const s1 = z * (AT[0] + w * (AT[2] + w * (AT[4] + w * (AT[6] + w * (AT[8] + w * AT[10])))));
+    const s2 = w * (AT[1] + w * (AT[3] + w * (AT[5] + w * (AT[7] + w * AT[9]))));
+    if (i < 0) return x - x * (s1 + s2);
+    z = ATANHI[i] - ((x * (s1 + s2) - ATANLO[i]) - x);
+    return neg ? -z : z;
+}
+
+const negative = v => v < 0 || (v === 0 && 1 / v < 0);  // (a negative zero counts)
+
+export function atan2(y, x) {
+    if (Number.isNaN(x) || Number.isNaN(y)) return x + y;
+    if (x === 1.0) return atan(y);
+    const m = (negative(y) ? 1 : 0) | (negative(x) ? 2 : 0);
+    if (y === 0) return [y, y, PI, -PI][m];
+    if (x === 0) return m & 1 ? -PI / 2 : PI / 2;
+    const ax = Math.abs(x), ay = Math.abs(y);
+    if (ax === Infinity || ay === Infinity) return Math.atan2(y, x);  // (never in a kart's step: the system's)
+    let z;
+    if (ay > ax * 2 ** 64) z = PI / 2 + 0.5 * PI_LO;
+    else if (m & 2 && ay < ax * 2 ** -64) z = 0.0;
+    else z = atan(ay / ax);
+    if (m === 0) return z;
+    if (m === 1) return -z;
+    if (m === 2) return PI - (z - PI_LO);
+    return (z - PI_LO) - PI;
+}

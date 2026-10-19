@@ -24,6 +24,7 @@ import copy
 import hmac
 import ipaddress
 import json
+import math
 import os
 import random
 import re
@@ -35,6 +36,9 @@ import websockets
 import kart_version
 sys.path.insert(0, kart_version.ENGINE_HOME)
 from engine import club_ticket, gfx_tiers, predict, rw_sound, schema, wire  # noqa: E402
+from engine.outbox import Outboxes  # noqa: E402
+from engine.seats import Seats, dropped  # noqa: E402
+from engine import lifecycle, tick_stats  # noqa: E402
 
 import ai_pipeline  # noqa: E402
 import cpu_brains  # noqa: E402
@@ -239,6 +243,10 @@ class KartServer:
         except (OSError, ValueError, AttributeError):
             pass
         self.players = {}        # websocket -> Player
+        self.outboxes = Outboxes()  # each window's messages (CHANGE 160)
+        self.seats = Seats()  # learners whose connection dropped: their kart kept a while (CHANGE 164)
+        self.watchdog = lifecycle.Watchdog()  # (systemd's, on the VPS: CHANGE 160)
+        self.ticks = tick_stats.TickStats("Kart Lab")  # how the physics loop keeps time (CHANGE 160)
         self.cpu = None          # (the engine's Learner view looks for a computer player here: Kart Lab has none)
         self.cpu_levels = {}     # kart id -> level, for the computer karts on the grid
         self.group = []          # the launched group's learners (from the club desk), here yet or not
@@ -308,7 +316,7 @@ class KartServer:
 
     def karts_wanted(self):
         """Everyone who gets a kart: the learners, and the teacher if their kart is switched on."""
-        out = [p for p in self.learners()]
+        out = [p for p in self.learners()] + self.seats.players()  # (a dropped learner's kart races on: CHANGE 164)
         t = self.teacher()
         if t is not None and self.lesson.get("teacher_kart", True):
             out.append(t)
@@ -318,6 +326,7 @@ class KartServer:
         """The karts from the players and the lesson's computer karts, back on the grid (in practice the track
         opens at once; in race mode the teacher starts the race)."""
         L = self.lesson
+        owners_before = self.kart_owners()
         if L["track"] not in kart_track.TRACKS:
             L["track"] = "club"
         if self.track.name != kart_track.TRACKS[L["track"]]["name"]:
@@ -336,22 +345,26 @@ class KartServer:
             if p not in wanted:
                 p.kart = None
         for p in wanted:
-            if p.kart is None:
-                used = {q.kart for q in self.players.values() if q.kart is not None}
-                p.kart = next((i for i in range(MAX_KARTS) if i not in used), None)
+            if p.kart is None:  # (a free id, one no computer kart has if there is one: CHANGE 164)
+                used = {q.kart for q in wanted if q.kart is not None}
+                cpus = {kid for kid, who in owners_before.items() if who == "cpu"}
+                p.kart = next((i for i in range(MAX_KARTS) if i not in used | cpus),
+                              next((i for i in range(MAX_KARTS) if i not in used), None))
             if p.kart is None:
                 continue
             race.add(p.kart, p.design)
             p.unit = KartUnit(self, p.kart)
             race.units[p.kart] = p.unit
+        before_cpu = sorted(self.cpu_levels)
         self.cpu_levels = {}
-        used = {p.kart for p in self.players.values() if p.kart is not None}
+        used = {p.kart for p in wanted if p.kart is not None}
         n, want = 0, int(L.get("cpu_karts", 0)) if L["hazards"].get("cpu_karts") else 0
-        for i in range(MAX_KARTS):
+        # (CHANGE 164) the computer karts keep the ids they had: a learner leaving used to hand their id, and their
+        # place on the track, to a computer kart, and every computer kart after it moved up one
+        free = [i for i in range(MAX_KARTS) if i not in used]
+        for i in [i for i in before_cpu if i in free] + [i for i in free if i not in before_cpu]:
             if n >= want:
                 break
-            if i in used:
-                continue
             level = L.get("cpu_level") if L.get("cpu_level") in cpu_brains.LEVELS else "medium"
             race.add(i, sim.default_design(cpu_brains.name_for(level, n), COLOURS[i % len(COLOURS)]))
             self.cpu_levels[i] = level
@@ -360,16 +373,22 @@ class KartServer:
             race.tick, race.phase, race.go_tick = self.race.tick, self.race.phase, self.race.go_tick
             race.lap_start, race.lap_times = dict(self.race.lap_start), dict(self.race.lap_times)
             race.hits = dict(self.race.hits)
+            owners = self.kart_owners(race)
             for kid, k in self.race.karts.items():
-                if kid in race.karts:
+                if kid in race.karts and owners.get(kid) == owners_before.get(kid):  # (the same driver: CHANGE 164)
                     race.karts[kid] = k
+            old = self.race.items  # (the boxes, shots and slicks out on the track carry on too)
+            if old is not None and race.items is not None and self.race.track is race.track:
+                race.items.boxes, race.items.shots, race.items.slicks = old.boxes, old.shots, old.slicks
+                race.items.next_id = old.next_id
             race.finish = dict(self.race.finish)
             for kid in list(race.karts):
                 race.lap_start.setdefault(kid, race.tick)
         self.race = race
         self.race_recorded = False
         for p in wanted:
-            self.teaching.attach(p)
+            if not self.seats.holding(p):
+                self.teaching.attach(p)
         if practice and race.phase == sim.FLAGS_GRID:  # the track is open: no countdown, no finish line
             race.start()
             race.go_tick = race.tick
@@ -377,6 +396,12 @@ class KartServer:
             race.events[-1:] = [(race.tick, "Practice: the track is open")]
         self.roster_version += 1
         self.race_version = None
+
+    def kart_owners(self, race=None):
+        """(CHANGE 164) Who drives each kart: a player's name, or "cpu"."""
+        race = race or self.race
+        names = {p.kart: p.name for p in list(self.players.values()) + self.seats.players() if p.kart is not None}
+        return {kid: names.get(kid, "cpu" if kid in self.cpu_levels else None) for kid in race.karts}
 
     def items_allowed(self):
         """(CHANGE 159) The lesson's power-ups, {item: on}, every item there (a lesson from before them: all on)."""
@@ -389,7 +414,8 @@ class KartServer:
                 "track_name": self.track_name, "laps": self.race.laps,
                 "karts": [{"id": kid, "name": d["name"], "colour": d["colour"], "cpu": self.cpu_levels.get(kid),
                            "design": d,
-                           "owner": next((p.name for p in self.players.values() if p.kart == kid), None)}
+                           "owner": next((p.name for p in self.players.values() if p.kart == kid), None) or
+                                    next((p.name + " (away)" for p in self.seats.players() if p.kart == kid), None)}
                           for kid, d in self.race.designs.items()],
                 "mine": {p.name: p.kart for p in self.players.values()},
                 "user_mods": self.race.user_mods, "practice": self.race.practice,
@@ -487,7 +513,7 @@ class KartServer:
         old = next((q for q in self.players.values()
                     if q.role == role and kart_profiles.slug(q.name) == kart_profiles.slug(name)), None)
         if old is not None:  # logged in again (after a dropped connection): the old connection goes
-            await old.ws.close(4005, "you logged in again somewhere else")
+            await self.outboxes.close(old.ws, 4005, "you logged in again somewhere else")
             self.players.pop(old.ws, None)
         if role == "learner" and len(self.learners()) >= MAX_LEARNERS:
             await ws.close(4003, f"the class is full ({MAX_LEARNERS} learners)")
@@ -495,8 +521,12 @@ class KartServer:
         colour = COLOURS[len(self.learners()) % len(COLOURS)] if role == "learner" else TEACHER_COLOUR
         p = Player(ws, role, name, colour)
         p.profile = profile
+        held = self.seats.take(kart_profiles.slug(name)) if role == "learner" else None
         if old is not None:
             p.kart = old.kart
+        elif held is not None:  # (CHANGE 164) back within the time: the same kart, where it is now
+            p.kart = held.kart
+            print(f"  {name} is back: their kart was kept", flush=True)
         if role == "teacher":
             p.design = self.teacher_design
         else:
@@ -507,6 +537,7 @@ class KartServer:
             if self.design_for_everyone:
                 await self.build_for(p, self.design_for_everyone, quiet=True)
         self.players[ws] = p
+        self.outboxes.open(ws)  # (from now on everything to this window goes through its outbox: CHANGE 160)
         print(f"+ {name} ({role})", flush=True)
         self.rebuild()
         self.race.events.append((self.race.tick, f"{name} joined"))
@@ -522,21 +553,33 @@ class KartServer:
         try:
             async for raw in ws:
                 if isinstance(raw, bytes):
-                    self.on_binary(p, raw)
-                else:
+                    try:
+                        self.on_binary(p, raw)
+                    except Exception:  # noqa: BLE001  (a broken input frame: dropped, CHANGE 165)
+                        pass
+                    continue
+                try:
                     m = json.loads(raw)
-                    if isinstance(m, dict):
-                        await self.on_message(p, m)
-        except (websockets.ConnectionClosed, json.JSONDecodeError, ValueError):
+                except (ValueError, TypeError):
+                    continue  # (not a message: dropped, CHANGE 165)
+                if isinstance(m, dict):
+                    await lifecycle.handle(self.on_message, p, m)  # (an error over one is logged, not the end: CHANGE 165)
+        except websockets.ConnectionClosed:
             pass
         finally:
+            self.outboxes.drop(ws)
             if self.players.get(ws) is p:  # (not already replaced by the same person logging in again)
                 del self.players[ws]
                 if role == "teacher":
                     self.teacher_design = p.design
                 self.teaching.save()
-                print(f"- {name} left", flush=True)
-                self.rebuild()
+                if role == "learner" and dropped(ws) and p.kart is not None:  # (lost, not left: CHANGE 164)
+                    self.seats.hold(kart_profiles.slug(name), p)
+                    print(f"- {name} dropped: their kart is kept {self.seats.seconds:.0f} s", flush=True)
+                    self.roster_version += 1
+                else:
+                    print(f"- {name} left", flush=True)
+                    self.rebuild()
                 await self.broadcast_lesson()
 
     def on_binary(self, p, raw):
@@ -549,11 +592,10 @@ class KartServer:
         for ws, msg in replies:
             await self.send(ws, msg)
 
-    async def send(self, ws, msg):
-        try:
-            await ws.send(json.dumps(msg, separators=(",", ":")) if isinstance(msg, dict) else msg)
-        except websockets.ConnectionClosed:
-            pass
+    async def send(self, ws, msg, key=None):
+        """Into the window's outbox (engine.outbox: never waits for a slow window; CHANGE 160). key: a kind of
+        message of which only the newest matters (a snapshot), so one not sent yet is dropped for this."""
+        await self.outboxes.send(ws, json.dumps(msg, separators=(",", ":")) if isinstance(msg, dict) else msg, key)
 
     async def notice_teacher(self, text):
         t = self.teacher()
@@ -608,9 +650,11 @@ class KartServer:
                 await self.broadcast_lesson()
         elif kind == "control":  # a JSON control (tests, a brainless window): the same as a binary input
             try:
-                p.inputs.push(int(m.get("seq", 0)), (float(m.get("throttle", 0)), float(m.get("steer", 0)),
-                                                     int(m.get("buttons", 0))))
-            except (TypeError, ValueError):
+                th, st = float(m.get("throttle", 0)), float(m.get("steer", 0))
+                if math.isfinite(th) and math.isfinite(st):  # (NaN would have spoilt the whole race: CHANGE 165)
+                    p.inputs.push(int(m.get("seq", 0)), (max(-1.0, min(1.0, th)), max(-1.0, min(1.0, st)),
+                                                         int(m.get("buttons", 0)) & 0xFF))
+            except (TypeError, ValueError, OverflowError):
                 pass
         elif kind == "design":
             await self.on_design(p, m)
@@ -771,10 +815,11 @@ class KartServer:
                 for ws in list(self.players):
                     await self.send(ws, {"type": "notice", "big": True,
                                          "text": "THE GAME IS UPDATING\nback in 10 seconds: your window will reopen"})
-                asyncio.get_running_loop().call_later(10, lambda: (self.teaching.save(), self.carry_lesson(), os._exit(3)))
+                asyncio.get_running_loop().call_later(10, lambda: asyncio.ensure_future(lifecycle.exit_after_closing(
+                    self.outboxes, self.players, 3, lambda: (self.teaching.save(), self.carry_lesson()))))  # (1012: CHANGE 160)
                 return
             print("Restarting to load code changes...", flush=True)
-            os._exit(3)
+            await lifecycle.exit_after_closing(self.outboxes, self.players, 3)
         elif kind == "restart_clients":  # everyone's window reopens itself with the new code
             for ws, q in list(self.players.items()):
                 if q.role == "learner":
@@ -809,7 +854,7 @@ class KartServer:
                     return
                 try:
                     races = int(m.get("races", m.get("live", 3)))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     races = 3
                 self.tournament = Tournament(names, races=races)
                 L["mode"] = "race"
@@ -925,7 +970,7 @@ class KartServer:
             if key in update:
                 try:
                     v = max(lo, min(hi, int(update[key])))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     continue
                 rebuild |= v != L[key]
                 L[key] = v
@@ -1023,7 +1068,7 @@ class KartServer:
         for ws, q in list(self.players.items()):
             if q.role == "learner" and kart_profiles.slug(q.name) == kart_profiles.slug(name):
                 del self.players[ws]
-                await ws.close(4007, "Your account has been deleted by the teacher.")
+                await self.outboxes.close(ws, 4007, "Your account has been deleted by the teacher.")
         text = self.teaching.delete_learner(name)
         gone = kart_profiles.slug(name)
         if any(v and kart_profiles.slug(v) == gone for v in self.mod_makers.values()):  # their mods stay, unnamed
@@ -1045,14 +1090,21 @@ class KartServer:
             next_step += sim.STEP
             now = time.perf_counter()
             if next_step < now - 4 * sim.STEP:  # (a long stall: don't try to catch up; whole steps are skipped, so the
-                next_step += (now - next_step) // sim.STEP * sim.STEP  # steps' stamps stay 1/60 s apart: CHANGE 155)
+                skip = (now - next_step) // sim.STEP  # steps' stamps stay 1/60 s apart: CHANGE 155)
+                next_step += skip * sim.STEP
+                self.ticks.skip(int(skip))
             await asyncio.sleep(max(0.0, next_step - now))
+            start = time.perf_counter()
             if not self.paused:
                 self.step()
             self.step_ms = step_ms(next_step)
             steps += 1
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the league
                 self.teaching.tick(self.race.tick * sim.STEP)  # (seconds: a brain's running time is in seconds)
+                for p in self.seats.expired():  # (CHANGE 164) not back in time: their kart goes
+                    print(f"- {p.name} didn't come back: their kart has gone", flush=True)
+                    self.rebuild()
+                    await self.broadcast_lesson()
                 if self.check_race():
                     await self.broadcast_lesson()
                 if self.lesson_dirty:
@@ -1064,6 +1116,10 @@ class KartServer:
                 self.race.start()
                 self.race_version = None
                 await self.broadcast_lesson()
+            self.ticks.step(time.perf_counter() - start, max(0.0, start - next_step))
+            self.watchdog.ping()
+            if self.ticks.due() and self.players:  # (the log's line every 10 s: engine.tick_stats, CHANGE 160)
+                print(self.ticks.report(self.outboxes, {ws: p.name for ws, p in self.players.items()}), flush=True)
 
     def step(self):
         race = self.race
@@ -1081,6 +1137,9 @@ class KartServer:
                 inputs[p.kart] = (p.last_brain[0], p.last_brain[1], p.last_brain[2] | (keys[2] & sim.RESPAWN))
             else:
                 inputs[p.kart] = keys
+        for p in self.seats.players():  # (CHANGE 164) a dropped learner's kart races on, driven by the computer
+            if p.kart in race.karts:
+                inputs[p.kart] = cpu_brains.drive("easy", race.karts[p.kart], race)
         for kid, level in self.cpu_levels.items():
             if kid in race.karts:
                 th, st, bt = cpu_brains.drive(level, race.karts[kid], race)
@@ -1142,16 +1201,16 @@ class KartServer:
                     continue
                 if sent_version.get(ws) != self.roster_version:
                     roster = roster or json.dumps(self.roster(), separators=(",", ":"))
-                    await self.send(ws, roster)
+                    await self.send(ws, roster, "roster")
                     sent_version[ws] = self.roster_version
                 if race_msg:
-                    await self.send(ws, race_msg)
+                    await self.send(ws, race_msg, "race")
                 # that window's own frame: its last input applied, and how many of its inputs wait (for its lead)
                 flags = self.race.phase | (min(15, p.inputs.depth()) << 4)
                 frame = wire.pack_snapshot(SCHEMA, sm, self.snap_seq, entities, ack=p.ctrl_seq or 0, flags=flags)
-                await self.send(ws, frame)
+                await self.send(ws, frame, "state")
                 if items_msg:
-                    await self.send(ws, items_msg)
+                    await self.send(ws, items_msg, "items")
             await asyncio.sleep(0)
 
     async def watch_desk(self):
@@ -1170,19 +1229,25 @@ class KartServer:
                 # the same session, but the teacher has added someone or taken someone out (the desk's This session, the
                 # live group's learners, or the Accounts tab): who was taken out goes back to the lobby (CHANGE 141)
                 self.group = sorted(mine.get("learners", []))
+                for p in self.seats.players():
+                    if p.name not in self.group:
+                        self.seats.take(kart_profiles.slug(p.name))
+                        self.rebuild()
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in self.group:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "Your teacher took you out of this game: back to the lobby.")
+                        await self.outboxes.close(ws, 4009, "Your teacher took you out of this game: back to the lobby.")
                         self.rebuild()
             if key != seen:
                 seen, presence = key, {}
                 allowed = set(mine.get("learners", [])) if mine else set()
                 self.group, self.mod_votes, self.arena_votes = sorted(allowed), {}, {}
+                self.seats.clear()  # (CHANGE 164: a new session, or none: nobody's kart is kept)
                 for ws, p in list(self.players.items()):
                     if p.role == "learner" and p.name not in allowed:
                         self.players.pop(ws, None)
-                        await ws.close(4009, "The session has ended." if not mine else "You aren't in this group.")
+                        await self.outboxes.close(ws, 4009, "The session has ended." if not mine else
+                                                  "You aren't in this group.")
                 if mine:
                     self.teaching.apply_lesson(int(mine.get("lesson", 1)))
                     self.rebuild()
@@ -1230,6 +1295,7 @@ class KartServer:
         who restarts the class when they have warned it (see restart_server). Checked every 10 seconds."""
         pointer = os.environ.get("CLUBCODERS_LIVE_POINTER")
         self.live_ready = None
+        failed, told = os.environ.get("CLUBCODERS_LIVE_FAILED") or None, set()  # (run-class.sh: CHANGE 168)
         while pointer:
             try:
                 with open(pointer, encoding="utf-8") as f:
@@ -1237,6 +1303,12 @@ class KartServer:
             except OSError:
                 wanted = None
             ready = wanted if wanted and wanted != kart_version.CODE else None
+            if ready and ready == failed:  # (tried as this server started, and not ready: not offered again; the
+                ready = None              # teacher is told, once each time they log in)
+                for ws, p in list(self.players.items()):
+                    if p.role == "teacher" and ws not in told:
+                        told.add(ws)
+                        await self.send(ws, {"type": "notice", "text": "The live update didn't pass its check as the class server started (engine/canary.py), so the class is running the release's own code. Fix the change and make it live again."})
             if ready != self.live_ready:
                 self.live_ready = ready
                 for ws, p in list(self.players.items()):
@@ -1352,11 +1424,12 @@ async def main():
         ([autostart()] if args.autostart is not None else [])
     async with websockets.serve(server.handler, args.bind, args.port, compression=None, ping_interval=5,
                                 ping_timeout=10, max_queue=8):
+        tick_stats.start_up()  # (CHANGE 160)
         print(f"Kart Lab {'class' if CLASS_SERVER else 'laptop test'} server {kart_version.VERSION} on "
               f"{args.bind}:{args.port}, track {server.lesson['track']}."
               + ("" if CLASS_SERVER else f" Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username "
                                          f"makes a profile."), flush=True)
-        await asyncio.gather(*tasks)
+        await lifecycle.run(tasks, server.outboxes, server.players, server.teaching.save)  # (1012 at the end)
 
 
 if __name__ == "__main__":

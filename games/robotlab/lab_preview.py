@@ -34,6 +34,8 @@ ap.add_argument("--no-house", action="store_true", help="no Resident Robots")
 ap.add_argument("--window", default="1280x720")
 ap.add_argument("--novsync", action="store_true", help="a real window that draws as fast as it can")
 ap.add_argument("--offscreen", action="store_true")
+ap.add_argument("--prc", action="append", default=[],
+                help="a Panda3D setting to try, e.g. \"threading-model Cull/Draw\" (CHANGE 169: the trials)")
 ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=5.0, help="seconds before the screenshot")
 ap.add_argument("--run", type=float, default=None, help="run this many seconds, print the frame rate and quit")
@@ -49,6 +51,8 @@ from engine import full_screen, gfx_tiers  # noqa: E402
 w, h = (int(v) for v in args.window.lower().split("x"))
 loadPrcFileData("", f"win-size {w} {h}\nwindow-title Robot Lab preview\nsync-video {'false' if args.novsync else 'true'}\n")
 loadPrcFileData("", gfx_tiers.prc_for(args.gfx))
+for line in args.prc:  # (after the tier's: a trial's setting wins)
+    loadPrcFileData("", line)
 if args.offscreen:
     loadPrcFileData("", f"window-type offscreen\nwin-size {w} {h}\naudio-library-name null\n")
 
