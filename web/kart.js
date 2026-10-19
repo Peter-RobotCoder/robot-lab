@@ -178,6 +178,7 @@ export class KartGame {
         switch (m.type) {
             case "lesson":
                 if (m.track) this.setTrack(m.track);
+                this.scene.setTime(((m.lesson || S.lesson || {}).time) || "day");  // (CHANGE 172)
                 return false;
             case "items": {  // (CHANGE 159) the power-ups out on the track, drawn as late as the karts; who was hit
                 this.itemsBuf = (this.itemsBuf || []).concat([m]).slice(-12);
@@ -512,6 +513,8 @@ export class KartGame {
               <div class="row"><label>Designs</label><button id="btn-lock" class="${L.designs_locked ? "on" : ""}">${L.designs_locked ? "Locked" : "Learners may change them"}</button></div>
               <div class="row"><label>Damage</label><button id="btn-damage" class="${L.damage !== false ? "on" : ""}">${L.damage !== false ? "On: hits slow a kart till it's mended" : "Off"}</button></div>
               <div class="note">Real damage: barriers and other karts damage the front wing, the wheels and the engine. A damaged kart is slower or pulls to one side; it mends by itself, quickly driving slowly through the PIT box. Off mends every kart.</div>
+              <div class="row"><label>Time of day</label>${[["day", "Day"], ["dusk", "Dusk"], ["night", "Night"]].map(([k, t]) => `<button data-time="${k}" class="${(L.time || "day") === k ? "on" : ""}">${t}</button>`).join("")}</div>
+              <div class="note">Every window and page draws the race at that time; at dusk and night the headlights come on (CHANGE 172).</div>
               <div class="row"><label>Power-ups</label>${ITEM_NAMES.map(([k, t]) => `<button data-item="${k}" class="${(L.items || {})[k] !== false ? "on" : ""}">${t}</button>`).join("")}</div>
               <div class="note">Item boxes give a random power-up (better ones further back); E uses it. Each one on or off; with all off there are no boxes.</div>
               ${app.restartRow()}`;
@@ -531,6 +534,7 @@ export class KartGame {
             // drawn again would send the first's again
             const now = () => this.app.state.lesson || L;
             $("btn-damage").onclick = () => lessonSend({damage: now().damage === false});
+            body.querySelectorAll("button[data-time]").forEach(b => b.onclick = () => lessonSend({time: b.dataset.time}));
             body.querySelectorAll("button[data-item]").forEach(b => b.onclick = () => {  // (CHANGE 159)
                 const on = Object.fromEntries(ITEM_NAMES.map(([k]) => [k, (now().items || {})[k] !== false]));
                 lessonSend({items: {...on, [b.dataset.item]: !on[b.dataset.item]}});

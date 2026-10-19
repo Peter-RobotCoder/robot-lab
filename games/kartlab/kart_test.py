@@ -557,6 +557,14 @@ def windows():
                         "--screenshot", shot, "--after", "5"], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, (r.stdout + r.stderr)[-600:]
     assert os.path.exists(shot) and os.path.getsize(shot) > 10000, "no offline screenshot"
+    # (CHANGE 171 to 173) the sports cars, at night with their beams, braking, on the tiers that draw them differently
+    for gfx in ("lines", "low", "ultra"):
+        cars = os.path.join(TMP, f"cars_{gfx}.png")
+        r = subprocess.run([PY, "kart_preview.py", "--gfx", gfx, "--bodies", "coupe,supercar,rally,muscle", "--time",
+                            "night", "--brake", "--offscreen", "--screenshot", cars, "--after", "3"],
+                           capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, (r.stdout + r.stderr)[-600:]
+        assert os.path.exists(cars) and os.path.getsize(cars) > 10000, f"no picture of the cars on {gfx}"
     port = free_port()
     proc = start_server(port)
     try:
@@ -572,7 +580,7 @@ def windows():
 def designs_and_limits():
     """The design as variables: the schema, the checks (normal, boundary and invalid data) and the teacher's limits."""
     names = [v.name for v in sim.schema()]
-    assert names == ["speed", "acceleration", "grip", "kart_name", "colour"], names
+    assert names == ["speed", "acceleration", "grip", "kart_name", "body", "colour"], names
     d = sim.default_design("Test")
     assert sim.check_design(d) == [], sim.check_design(d)
     assert sim.check_design(dict(d, speed=60, acceleration=30, grip=10)) == []           # boundary values
@@ -580,6 +588,11 @@ def designs_and_limits():
     assert any("points used" in p for p in sim.check_design(dict(d, speed=50, acceleration=40, grip=20)))
     assert any("whole number" in p for p in sim.check_design(dict(d, speed="fast")))
     assert sim.check_design(dict(d, colour=[0, 300, 0])) and sim.check_design(dict(d, name=""))
+    # (CHANGE 173) the body: a kart or a sports car, only its look; anything else refused, or made a kart
+    assert all(sim.check_design(dict(d, body=b)) == [] for b in sim.BODIES)
+    assert any("body" in p for p in sim.check_design(dict(d, body="tank")))
+    assert sim.fit_design(dict(d, body="tank"))["body"] == "kart" and sim.fit_design(dict(d, body="rally"))["body"] == "rally"
+    assert sim.stats_of(dict(d, body="supercar")) == sim.stats_of(d), "a car drives as its points say"
     narrow = sim.clean_limits({"points": {"speed": [10, 40]}, "points_total": 90}, sim.default_limits())
     assert narrow["points"]["speed"] == [10, 40] and narrow["points_total"] == 90, narrow
     fitted = sim.fit_design(dict(d, speed=55, acceleration=25, grip=20), narrow)

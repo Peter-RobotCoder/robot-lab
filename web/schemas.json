@@ -1577,6 +1577,31 @@
     ]
    },
    {
+    "name": "body",
+    "kind": "choice",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "name_and_colour",
+    "note": "kart, coupe, supercar, rally or muscle (they all drive as their points say)",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 5,
+    "step": 0.14,
+    "always": false,
+    "path": [
+     "body"
+    ],
+    "options": "kart_bodies",
+    "fingerprints": {
+     "options": "8eedeea9c0",
+     "valid": "c18bdad6d4"
+    },
+    "valid": "kart_bodies"
+   },
+   {
     "name": "colour",
     "kind": "rgb",
     "group": "lists",
@@ -1658,6 +1683,13 @@
      230,
      230
     ]
+   ],
+   "bodies": [
+    "kart",
+    "coupe",
+    "supercar",
+    "rally",
+    "muscle"
    ]
   }
  }

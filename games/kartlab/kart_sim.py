@@ -23,7 +23,7 @@ STEP = 1 / 60
 # (CHANGE 162) the step's numbers: raise this with any change meant to change them (the physics, the damage, the
 # items, the track), and record the tests' fixtures again in the same commit (replay_test.py --record, and
 # club-coders/web/kart_sim_test.py --record); a change that moves them without it fails both
-SIM_VERSION = 1
+SIM_VERSION = 2  # (2: CHANGE 171, the brake lights' flag)
 POINTS_TOTAL, STAT_MIN, STAT_MAX = 100, 10, 60
 STATS = ("speed", "acceleration", "grip")
 SETTINGS = {}  # (a kart has no settings beyond its points; the engine's limits and garage expect the name)
@@ -43,6 +43,7 @@ USER_MODS = {}
 
 DRIFT, USE, RESPAWN = 1, 2, 4   # the input's buttons
 FLAG_DRIFT_L, FLAG_DRIFT_R, FLAG_FINISHED, FLAG_WRONG_WAY, FLAG_BOOSTING = 1, 2, 4, 8, 16
+FLAG_BRAKING = 32  # (CHANGE 171) the brake (or reverse) pressed: every window lights that kart's brake lights
 
 KART_HALF = 0.8          # half a kart's width: how close to the edge it may go (m)
 BUMP_DISTANCE = 1.7      # karts closer than this push each other apart (m)
@@ -77,8 +78,13 @@ SCHEMA_FIELDS = [("x", "i", 100), ("y", "i", 100), ("yaw", "h", 10), ("v", "h", 
                  ("bg", "B", 1)]  # (a bump's grace: ticks before another bump can damage it: CHANGE 159)
 
 
+# (CHANGE 173) what the kart looks like: the kart, or one of the sports cars (car_models.py). Only its look: every
+# body drives as its points say
+BODIES = ("kart", "coupe", "supercar", "rally", "muscle")
+
+
 def default_design(name="Kart", colour=(220, 60, 50)):
-    return {"name": name, "colour": list(colour), "speed": 34, "acceleration": 33, "grip": 33}
+    return {"name": name, "colour": list(colour), "speed": 34, "acceleration": 33, "grip": 33, "body": "kart"}
 
 
 # ---------- the kart as variables (the engine's schema: the code panel and the garage's tables) ----------
@@ -91,6 +97,9 @@ def schema():
             #  100-point table, tool "points_table")
             [Var("kart_name", ("name",), "str", "strings", tool="name_and_colour",
                  note="a string: text made of chars", max_len=12),
+             Var("body", ("body",), "choice", "strings", tool="name_and_colour", options=lambda ctx: list(BODIES),
+                 valid=lambda ctx: list(BODIES), note="kart, coupe, supercar, rally or muscle (they all drive as "
+                 "their points say)", per_row=5, step=0.14),
              Var("colour", ("colour",), "rgb", "lists", tool="name_and_colour", note="red, green, blue: 0 to 255")])
 
 
@@ -145,6 +154,8 @@ def check_design(d, limits=None):
     if not (isinstance(c, list) and len(c) == 3 and all(isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255
                                                          for v in c)):
         problems.append("colour must be three whole numbers from 0 to 255, [red, green, blue]")
+    if "body" in d and d["body"] not in BODIES:  # (CHANGE 173)
+        problems.append(f"body must be one of {', '.join(BODIES)}")
     limits = limits or default_limits()
     for k in STATS:
         lo, hi = limits["points"][k]
@@ -183,6 +194,7 @@ def fit_design(d, limits=None):
     out["name"] = str(out.get("name", "Kart"))[:12] or "Kart"
     c = out.get("colour") or [220, 60, 50]
     out["colour"] = [max(0, min(255, int(v))) for v in list(c)[:3]]
+    out["body"] = out.get("body") if out.get("body") in BODIES else "kart"  # (CHANGE 173)
     return out
 
 
@@ -249,6 +261,8 @@ def step(k, inp, dt, track, st, damage=False):
     grip *= 1.0 - 0.15 * wing
     pull = 0.25 * ((fl + rl) - (fr + rr)) / 2
     boost, slip, charge, flags = k["boost"], k["slip"], k["charge"], 0
+    if th < 0:  # (CHANGE 171) braking, or reversing: the brake lights
+        flags |= FLAG_BRAKING
     if boost:
         top, accel = top * BOOST_SPEED, accel * BOOST_ACCEL
         flags |= FLAG_BOOSTING

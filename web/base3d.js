@@ -778,22 +778,27 @@ export class BaseScene {
     // (paint, steel, tyre, diamond, hazard, concrete, tarmac, grass), opts.tile its repeats per metre and
     // opts.emission a glow given as the app gives it (linear, may be over 1). On the line tiers: black (wireFill).
     // opts.clearcoat (0 to 1) and opts.probe (CHANGE 144, ultra): a glossy coat over the paint, and the world's
-    // reflection (the scene's probe) in it
+    // reflection (the scene's probe) in it. (CHANGE 174, ultra) opts.flake: metal flakes in the paint (0 to 1);
+    // opts.alpha: see-through, both faces drawn; opts.glass: its reflection at full strength however see-through
     material(name, rgb, rough = 0.9, metal = 0.0, glow = 0, opts = {}) {
         if (this.wire) return this.wireFill();
         const tex = opts.tex || "", tile = opts.tile || 1, emission = opts.emission || null;
-        const coat = this.lighting && this.lighting.tier.ultra ? `${opts.clearcoat || 0}:${!!opts.probe}` : "";
-        const key = `${name}:${rgb.join(",")}:${rough}:${metal}:${glow}:${tex}:${tile}:${emission}${coat}`;
+        const coat = this.lighting && this.lighting.tier.ultra ? `${opts.clearcoat || 0}:${!!opts.probe}:${opts.flake || 0}:${!!opts.glass}` : "";
+        const alpha = opts.alpha ?? 1;
+        const key = `${name}:${rgb.join(",")}:${rough}:${metal}:${glow}:${tex}:${tile}:${emission}${coat}:${alpha}`;
         let m = this.materials[key];
         if (m) return m;
         if (this.lighting) {
-            m = this.lighting.material(key, {rgb, rough, metal, glow, tex, emission, clearcoat: opts.clearcoat || 0, probe: !!opts.probe});
+            m = this.lighting.material(key, {rgb, rough, metal, glow, tex, emission, clearcoat: opts.clearcoat || 0, probe: !!opts.probe,
+                                             flake: opts.flake || 0, glass: !!opts.glass, alpha});
+            if (alpha < 1) m.backFaceCulling = false;
         } else {
             m = new BABYLON.StandardMaterial(key, this.scene);
             m.diffuseColor = col(rgb);
             m.specularColor = new BABYLON.Color3(0, 0, 0);
             if (glow) m.emissiveColor = col(rgb).scale(Math.min(1, glow));
             if (emission) m.emissiveColor = col(emission.map(c => Math.min(1, c)));
+            if (alpha < 1) m.alpha = alpha;
             m.backFaceCulling = false;
         }
         m.ccTile = tile;

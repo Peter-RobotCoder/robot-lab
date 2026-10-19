@@ -93,6 +93,14 @@ uniform samplerCube probeTex;
 #ifdef CLEARCOAT
 uniform float clearcoat;
 #endif
+#ifdef FLAKES
+uniform float flake;                 // (CHANGE 174) a car's paint: metal flakes that sparkle in the light
+float flakeHash(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+#endif
 #ifdef FOG
 uniform vec3 fogColor;
 uniform float fogDensity;
@@ -231,8 +239,13 @@ void main(void) {
         float dist = length(lp);
         vec3 att = lightAtt[i];
         float attenuation = 1.0 / (att.x + att.y * dist + att.z * dist * dist);
-        float cutoff = lightSpot[i].w;
-        float spot = cutoff > 0.001 ? smoothstep(cutoff - 0.001, cutoff + 0.001, dot(lightSpot[i].xyz, -l)) : 1.0;
+        float cutoff = lightSpot[i].w, spot = 1.0;
+        if (cutoff > 1.5) {  // (soft-edged, CHANGE 172's headlights: w is 2 more than the cut-off's cosine)
+            cutoff -= 2.0;
+            spot = smoothstep(cutoff, cutoff + (1.0 - cutoff) * 0.55, dot(lightSpot[i].xyz, -l));
+        } else if (cutoff > 0.001) {
+            spot = smoothstep(cutoff - 0.001, cutoff + 0.001, dot(lightSpot[i].xyz, -l));
+        }
         float caster = 1.0;
 #ifdef SHADOWS
         if (i == 0) caster = shadowAt(vPos);
@@ -247,6 +260,11 @@ void main(void) {
         float f = ndoth * ndoth * (r2 - 1.0) + 1.0;
         float D = r2 / (PI * f * f);
         color += ndotl * lc * (diffuseColor / PI + F * vis * D) * spot * caster * attenuation;
+#ifdef FLAKES
+        vec3 cell = floor(vPos * 380.0);
+        vec3 fd = vec3(flakeHash(cell), flakeHash(cell + 19.1), flakeHash(cell + 47.7)) - 0.5;
+        color += ndotl * lc * base.rgb * pow(max(dot(normalize(n + fd * 0.7), h), 0.0), 180.0) * flake * 0.6 * spot * caster * attenuation;
+#endif
 #ifdef CLEARCOAT
         float cl = clamp(dot(nc, l), 0.0, 1.0), ch = clamp(dot(nc, h), 0.0, 1.0), cvv = clamp(dot(nc, v), 0.0, 1.0);
         const float cr2 = 0.0016;  // (the coat's roughness 0.2, squared twice as above)
@@ -276,6 +294,15 @@ void main(void) {
     float cF = (0.04 + 0.96 * pow(1.0 - cv, 5.0)) * clearcoat;
     color = color * (1.0 - cF) + coat + reflection(reflect(-v, nc), 0.0) * cF * fill.y;
 #endif
+    float alpha = base.a;
+#if defined(GLASS) && defined(IBL)
+    // (CHANGE 174) glass: its reflection at full strength however see-through it is (a reflection isn't dimmed by
+    // the glass's tint), and less see-through at a glancing angle, where it reflects more
+    float gF = 0.04 + 0.96 * pow(clamp(1.0 - ndotv, 0.0, 1.0), 5.0);
+    float aOut = alpha + (1.0 - alpha) * gF;
+    color = (color + reflection(reflect(-v, n), 0.0) * gF * fill.y) / max(aOut, 0.001);
+    alpha = aOut;
+#endif
 #ifdef GLOWMAP
     color += emission * texture2D(glowTex, vUV).rgb;
 #else
@@ -290,7 +317,7 @@ void main(void) {
     color *= exposure;
     color = max(vec3(0.0), color - vec3(0.004));
     color = (color * (vec3(6.2) * color + vec3(0.5))) / (color * (vec3(6.2) * color + vec3(1.7)) + vec3(0.06));
-    gl_FragColor = vec4(color, base.a * visibility);
+    gl_FragColor = vec4(color, alpha * visibility);
 }`;
 
 const DEPTH_VERT = `
@@ -407,7 +434,7 @@ export class Lighting {
             pos.push(p.x, p.y, p.z, 1);
             col.push(...s.colour);
             att.push(...(s.att || [1, 0, 0]));
-            spot.push(dir.x, dir.y, dir.z, Math.cos((s.fov || 40) * Math.PI / 360));
+            spot.push(dir.x, dir.y, dir.z, Math.cos((s.fov || 40) * Math.PI / 360) + (s.soft ? 2 : 0));  // (soft: CHANGE 172)
         }
         this.lights = {pos, col, att, spot, count: pos.length / 4};
         for (const m of this.materials) this.bindLights(m);
@@ -496,11 +523,13 @@ export class Lighting {
         if (tier.ultra && this.look.fog && (!this.look.fog.picked || o.haze)) defines.push("FOG");
         if (tier.ultra && tier.ibl && this.reflect && o.clearcoat) defines.push("CLEARCOAT");
         if (tier.ultra && tier.ibl && this.reflect && o.probe && this.probe) defines.push("PROBE");
+        if (tier.ultra && o.flake) defines.push("FLAKES");  // (CHANGE 174: a car's paint and glass)
+        if (tier.ultra && tier.ibl && this.reflect && o.glass) defines.push("GLASS");
         const m = new BABYLON.ShaderMaterial(key, scene, {vertex: "ccpbr", fragment: "ccpbr"}, {
             attributes: ["position", "normal", "uv"],
             uniforms: ["world", "viewProjection", "baseColor", "emission", "roughness", "metallic", "camPos", "ambient",
                        "exposure", "visibility", "lightPos", "lightCol", "lightAtt", "lightSpot", "sh", "shadowMatrix", "shadowBias",
-                       "fill", "clearcoat", "fogColor", "fogDensity"],
+                       "fill", "clearcoat", "flake", "fogColor", "fogDensity"],
             samplers: ["albedoTex", "mrTex", "normalTex", "reflectTex", "brdfTex", "shadowMap", "probeTex", "glowTex"],
             defines,
             needAlphaBlending: (o.alpha ?? 1) < 1 || !!o.blend,
@@ -515,6 +544,7 @@ export class Lighting {
         m.setFloat("visibility", 1);
         m.setVector3("fill", new BABYLON.Vector3(this.fill[0], this.fill[1], this.fill[2]));
         if (defines.includes("CLEARCOAT")) m.setFloat("clearcoat", o.clearcoat);
+        if (defines.includes("FLAKES")) m.setFloat("flake", o.flake);
         if (defines.includes("PROBE")) m.setTexture("probeTex", this.probe);
         if (defines.includes("FOG")) {
             const fc = untoneMap(this.look.fog.colour, this.exposure);  // (mixed in before the tone curve: CHANGE 144)

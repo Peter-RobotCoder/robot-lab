@@ -63,6 +63,8 @@ FUNCTIONS = {
     ("fightlab", "weapon", "unless"): "has_model_or_unarmed",
     ("fightlab", "combo", "options"): "combo_move_names",
     ("fightlab", "combo", "extra"): "combo_section",
+    ("kartlab", "body", "options"): "kart_bodies",  # (CHANGE 173: the kart or a sports car)
+    ("kartlab", "body", "valid"): "kart_bodies",
 }
 # unless=: every points row in Robot Lab, and most rows in Fight Lab, hide behind the same rule (a Resident Robot
 # or a boss: its own stats)
@@ -172,7 +174,7 @@ def constants(game, sim):
                 "specials": list(sim.SPECIALS), "combo_moves": list(sim.COMBO_MOVES),
                 "combo_min": sim.COMBO_MIN, "combo_max": sim.COMBO_MAX,
                 "bosses": {name: v[1] for name, v in sim.BOSS_BY_NAME.items()}}
-    return {"name_max": 12, "swatches": swatches}
+    return {"name_max": 12, "swatches": swatches, "bodies": list(sim.BODIES)}
 
 
 def build():

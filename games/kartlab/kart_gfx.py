@@ -35,12 +35,14 @@ from direct.gui.OnscreenText import OnscreenText  # noqa: E402
 from panda3d.core import (AmbientLight, AntialiasAttrib, BitMask32, CardMaker, ColorBlendAttrib, DirectionalLight,  # noqa: E402
                           Filename, Fog, Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat,
                           GeomVertexWriter, LineSegs, LRotationf, Material, NodePath, OmniBoundingVolume,
-                          PNMImage, PTA_uchar, SamplerState, Shader, TextNode, Texture, TextureStage, TransparencyAttrib,
-                          Vec3)
+                          LODNode, PerspectiveLens, PNMImage, PTA_uchar, SamplerState, Shader, ShaderAttrib, Spotlight,
+                          TextNode,
+                          Texture, TextureStage, TransparencyAttrib, Vec3)
 
 from engine import gfx_tiers, line_look, rw_textures  # noqa: E402
 from engine.rw_mesh import FORMAT, FORMAT_COLOUR, Mesh, bevel_box, cylinder  # noqa: E402
 import kart_models  # noqa: E402  (the ultra kart: numbers only, shared with the page)
+import car_models  # noqa: E402  (CHANGE 173: the sports cars, numbers only, shared with the page)
 import kart_scenery  # noqa: E402  (the ultra circuit: numbers only, shared with the page)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -390,12 +392,16 @@ def init(base, tier="medium", line_colour=None):
     amb_np = render.attachNewNode(amb)
     render.setLight(amb_np)
 
-    def env_map(simplepbr):
+    def env_map(simplepbr, k=None):
         try:
             cube = base.loader.loadCubeMap(Filename.fromOsSpecific(os.path.join(TEX, "sky_#.png")))
             cube.setFormat(Texture.F_srgb)  # (screen colours: the light they give is their linear colour)
             env = simplepbr.EnvMap(cube, prefiltered_size=32, prefiltered_samples=8, blocking_prepare=True)
-            scale_env(env, ENV_STRENGTH)
+            k = time_look()["env"] if k is None else k  # (CHANGE 172: the sky's reflections dim at dusk and night)
+            scale_env(env, ENV_STRENGTH * k)
+            _state["env_now"] = k
+            if "make_env" not in _state:
+                _state["make_env"] = lambda k2: env_map(simplepbr, k2)
             return env
         except Exception as e:
             print(f"gfx: no reflection map ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
@@ -404,6 +410,7 @@ def init(base, tier="medium", line_colour=None):
     def extra(t):  # ultra: the haze is compiled into simplepbr's shader
         return {"enable_fog": True} if t == "ultra" else {}
     pipeline, used = gfx_tiers.init_pipeline(base, quality, env_map, exposure=0.55, extra=extra)
+    _state["pipeline"] = pipeline  # (CHANGE 174: the cars' paint and glass shaders are made from its shader)
     if pipeline is not None:
         # 6 cm over the shadow's depth range: a kart's body shadows, flat ground doesn't speckle
         pipeline.shadow_bias = 0.06 / SHADOW_AREA.get(used, 40.0)
@@ -416,10 +423,13 @@ def init(base, tier="medium", line_colour=None):
             sun.setShadowCaster(True, gfx_tiers.SETTINGS[used]["shadow"], gfx_tiers.SETTINGS[used]["shadow"])
             sun.getLens().setFilmSize(40, 40)
             sun.getLens().setNearFar(SUN_OFFSET.length() - 20, SUN_OFFSET.length() + 20)
+    _state["fill_k"] = 1.0
     if gfx_tiers.SETTINGS[used]["env_map"]:  # (the sky's light is the fill now: the plain fill steps back)
         amb.setColor((0.22 * ENV_FILL, 0.25 * ENV_FILL, 0.32 * ENV_FILL, 1))
+        _state["fill_k"] = ENV_FILL
     if not gfx_tiers.SETTINGS[used]["simplepbr"]:
-        _state["tone"] = gfx_tiers.basic_look(base, exposure=0.55)  # (Panda's shaders: the lights come down, the tone curve is a post pass)
+        _state["tone"] = gfx_tiers.basic_look(base, exposure=0.55)
+        _state["basic"] = True  # (CHANGE 172: the time of day's lights, divided as dim_lights does)  # (Panda's shaders: the lights come down, the tone curve is a post pass)
     if s["msaa"]:
         render.setAntialias(AntialiasAttrib.MMultisample)
     if used == "ultra":
@@ -428,8 +438,11 @@ def init(base, tier="medium", line_colour=None):
         fog.setColor(*HAZE)
         fog.setExpDensity(HAZE_DENSITY)
         render.setFog(fog)
+        _state["fog"] = fog
         base.camLens.setFar(4000)  # (the hills are out to 1.3 km)
-    _state.update(quality=used, pipeline=pipeline, sun=sun_np)
+    _state.update(quality=used, pipeline=pipeline, sun=sun_np, amb=amb_np)
+    _state["headlights"] = Headlights(render)  # (CHANGE 172) the beams, given out each frame
+    apply_time()  # (CHANGE 172) the time of day as the lesson has it (kept over a tier change)
     return pipeline
 
 
@@ -692,6 +705,7 @@ class TrackVisual:
             self._ground = (np.array(self.circuit.xs), np.array(self.circuit.ys), np.array(self.circuit.z))
             self.signs = self.root.attachNewNode("signs")
             _state["sky"] = Sky(_state["base"])
+            apply_time()  # (CHANGE 172: the dome at the time of day)
             self.circuit_secs = time.perf_counter() - started
         else:
             # the grass: a grid over the track's bounds with a margin, each vertex at the height of the nearest bit
@@ -938,6 +952,9 @@ _SKY_FRAG = """#version 120
 uniform vec3 zenith;
 uniform vec3 horizon;
 uniform vec3 sun_dir;
+uniform vec3 glow;   // (CHANGE 172) the sun's (or the moon's) colour
+uniform float clouds;  // ...how lit the clouds are
+uniform float stars;   // ...and the stars, at night
 uniform float osg_FrameTime;
 varying vec3 v_dir;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -966,16 +983,230 @@ void main() {
         vec2 p = d.xy / (h + 0.12) * 1.3 + vec2(osg_FrameTime * 0.006, osg_FrameTime * 0.002);
         float c = fbm(p);
         float cover = smoothstep(0.52, 0.78, c) * smoothstep(0.0, 0.18, h);
-        vec3 cloud = mix(vec3(1.25, 1.25, 1.3), vec3(0.62, 0.66, 0.76), smoothstep(0.62, 1.0, c));
+        vec3 cloud = mix(vec3(1.25, 1.25, 1.3), vec3(0.62, 0.66, 0.76), smoothstep(0.62, 1.0, c)) * clouds;
+        vec2 cell = floor(d.xy / (h + 0.25) * 260.0);
+        col += vec3(0.9, 0.92, 1.0) * stars * step(0.9965, hash(cell)) * hash(cell + 7.1) * (1.0 - cover);
         col = mix(col, cloud * (0.85 + 0.5 * pow(s, 6.0)), cover * 0.92);
     } else {
         col = horizon * (1.0 + h * 1.5);
     }
-    col += vec3(1.0, 0.92, 0.75) * (pow(s, 900.0) * 40.0 + pow(s, 24.0) * 0.35);
+    col += glow * (pow(s, 900.0) * 40.0 + pow(s, 24.0) * 0.35);
     gl_FragColor = vec4(col, 1.0);
 }
 """
 SKY_ZENITH = (0.11, 0.26, 0.78)
+
+# (CHANGE 172) the race's time of day (the lesson's "time", the teacher's switch), as the page's (scene.js
+# TIME_LOOKS): the sky behind (and ultra's dome: its zenith, its horizon, the sun's or moon's glow, the clouds' light,
+# the stars), the sun's light, the fill, the sky's reflections (a share of the day's), the exposure, and whether the
+# lamps are on. Dusk is a low orange light; night a dim blue moon, where the headlights do the work
+TIME_LOOKS = {
+    "day": {"sky": SKY, "sun": (2.6, 2.45, 2.2), "fill": (0.22, 0.25, 0.32), "env": 1.0, "exposure": 0.55,
+            "haze": HAZE, "zenith": SKY_ZENITH, "glow": (1.0, 0.92, 0.75), "clouds": 1.0, "stars": 0.0, "lamps": False,
+            "beam": 0.0},
+    "dusk": {"sky": (0.5, 0.33, 0.36), "sun": (1.8, 0.95, 0.5), "fill": (0.12, 0.1, 0.15), "env": 0.4, "exposure": 0.62,
+             "haze": (0.72, 0.46, 0.4), "zenith": (0.12, 0.1, 0.3), "glow": (1.0, 0.5, 0.25), "clouds": 0.65,
+             "stars": 0.0, "lamps": True, "beam": 0.45},
+    "night": {"sky": (0.01, 0.014, 0.035), "sun": (0.14, 0.18, 0.3), "fill": (0.018, 0.022, 0.04), "env": 0.06,
+              "exposure": 0.75, "haze": (0.018, 0.024, 0.05), "zenith": (0.003, 0.005, 0.018), "glow": (0.5, 0.55, 0.7),
+              "clouds": 0.06, "stars": 1.0, "lamps": True, "beam": 1.0},
+}
+HEADLIGHT = (9.0, 8.6, 7.6)   # (CHANGE 172) a headlight's beam (linear: the tone curve brings it down)
+HEADLIGHTS = 4                # beams at once: your kart's and the nearest (the lights are 8 at most, with the sun)
+_time = ["day"]               # the time of day drawn (kept over a tier change: init starts _state again)
+
+
+def time_look():
+    return TIME_LOOKS.get(_time[0], TIME_LOOKS["day"])
+
+
+def light_scale():
+    """What a key light's colour is multiplied by: 1 under simplepbr; on basic, Panda's own shaders take a light's
+    colour as it is where simplepbr divides it by pi (gfx_tiers.dim_lights), so 1/pi."""
+    return 1.0 / math.pi if _state.get("basic") else 1.0
+
+
+def lamps_on():
+    """Whether the karts' lamps are lit (dusk and night): look tiers never light them."""
+    return bool(time_look()["lamps"]) and tier() not in gfx_tiers.LOOKS
+
+
+def set_time(t):
+    """(CHANGE 172) Draw the race at this time of day: "day", "dusk" or "night"."""
+    t = t if t in TIME_LOOKS else "day"
+    if t != _time[0]:
+        _time[0] = t
+        apply_time()
+
+
+def apply_time():
+    """The time of day onto the lights, the sky and the haze as they are now (after init, or a change)."""
+    L, base = time_look(), _state.get("base")
+    if base is None or tier() in gfx_tiers.LOOKS:
+        return
+    base.setBackgroundColor(*L["sky"], 1.0)
+    tone = _state.get("tone")  # (basic: its tone curve's pass draws the scene into a buffer of its own)
+    for buf in (getattr(tone, "buffers", None) or []):
+        buf.setClearColor((*L["sky"], 1.0))
+    dim = light_scale()
+    sun = _state.get("sun")
+    if sun is not None:
+        sun.node().setColor((L["sun"][0] * dim, L["sun"][1] * dim, L["sun"][2] * dim, 1))
+    amb = _state.get("amb")
+    if amb is not None:
+        k = _state.get("fill_k", 1.0)
+        amb.node().setColor((L["fill"][0] * k, L["fill"][1] * k, L["fill"][2] * k, 1))
+    pipe = _state.get("pipeline")
+    if pipe is not None:
+        try:
+            pipe.exposure = L["exposure"]
+        except Exception:  # noqa: BLE001  (an older simplepbr: the exposure stays)
+            pass
+        make_env = _state.get("make_env")
+        if make_env is not None and _state.get("env_now") != L["env"]:
+            env = make_env(L["env"])
+            if env is not None:
+                pipe.env_map = env
+                _state["env_now"] = L["env"]
+    fog = _state.get("fog")
+    if fog is not None:
+        fog.setColor(*L["haze"])
+    sky = _state.get("sky")
+    if sky is not None:
+        sky.dome.setShaderInput("zenith", Vec3(*L["zenith"]))
+        sky.dome.setShaderInput("horizon", Vec3(*L["haze"]))
+        sky.dome.setShaderInput("glow", Vec3(*L["glow"]))
+        sky.dome.setShaderInput("clouds", float(L["clouds"]))
+        sky.dome.setShaderInput("stars", float(L["stars"]))
+
+
+class Headlights:
+    """(CHANGE 172) A few spotlights, given each frame to your kart and the nearest others: their beams light the road
+    (simplepbr lights 8 things at most, the sun among them). The other karts' lamps glow without a beam."""
+
+    def __init__(self, render, count=HEADLIGHTS):
+        self.render, self.spots = render, []
+        for i in range(count):
+            light = Spotlight(f"headlight {i}")
+            lens = PerspectiveLens()
+            lens.setFov(84, 56)
+            light.setLens(lens)
+            light.setColor((*HEADLIGHT, 1))
+            light.setAttenuation((1.0, 0.02, 0.008))
+            light.setExponent(24.0)  # (bright in the middle, fading to nothing at the edge: no hard rim on the road)
+            node = render.attachNewNode(light)
+            self.spots.append([node, None, False])
+
+    def place(self, karts):
+        """karts: the KartVisuals, nearest first (only as many as there are beams are given one)."""
+        beam = time_look().get("beam", 1.0)
+        for i, spot in enumerate(self.spots):
+            node, held, on = spot
+            root = karts[i].root if i < len(karts) else None
+            if root is not None and root is not held:
+                node.reparentTo(root)
+                node.setPos(karts[i].beam_x, 0.0, 1.0)  # (above the kart: a beam that skims the road shows every bump in it)
+                node.setHpr(-90, -11, 0)  # (a Spotlight looks along +y; a kart's nose is +x; down the road)
+                spot[1] = root
+            k = beam * light_scale()
+            node.node().setColor((HEADLIGHT[0] * k, HEADLIGHT[1] * k, HEADLIGHT[2] * k, 1))
+            if (root is not None) != on:
+                if root is not None:
+                    self.render.setLight(node)
+                else:
+                    self.render.clearLight(node)
+                    node.reparentTo(self.render)
+                    spot[1] = None
+                spot[2] = root is not None
+
+
+def headlights(visuals):
+    """(CHANGE 172) Each frame: the beams to the first of these karts (yours, then the nearest), when the lamps are on."""
+    h = _state.get("headlights")
+    if h is not None:
+        h.place(list(visuals) if lamps_on() else [])
+
+
+LAMPS = {  # (CHANGE 171, 172) where a body's lamps are (x forward, y left, z up, metres; each one and its mirror)
+    "kart": {"head": (0.66, 0.24, 0.31), "tail": (-0.83, 0.26, 0.27), "size": (0.1, 0.06)},
+}
+
+
+class Lamps:
+    """(CHANGE 171, 172) A kart's lamps, drawn without light or shadow so they glow: the headlamps white, lit at dusk
+    and night, with a soft halo and a pool of light on the road ahead; the tail lamps red, dim when the lamps are on
+    and bright when the kart brakes (or reverses), day or night."""
+
+    def __init__(self, parent, spec):
+        self.root = parent.attachNewNode("lamps")
+        self.root.setLightOff(2)
+        self.root.setShaderOff(2)
+        w, h = spec["size"]
+        cm = CardMaker("lamp")
+        cm.setFrame(-w / 2, w / 2, -h / 2, h / 2)
+        tw, th = spec.get("tail_size", spec["size"])  # (CHANGE 174: a car's tail lamps their own size)
+        cm_tail = CardMaker("tail lamp")
+        cm_tail.setFrame(-tw / 2, tw / 2, -th / 2, th / 2)
+        self.heads, self.tails, self.halos, self.glows = [], [], [], []
+        for side in (1, -1):
+            hx, hy, hz = spec["head"]
+            lens = self.root.attachNewNode(cm.generate())
+            lens.setPos(hx + 0.005, hy * side, hz)
+            lens.setH(-90)  # (a card faces -y: turned to face forward)
+            lens.setTwoSided(True)
+            self.heads.append(lens)
+            tx, ty, tz = spec["tail"]
+            lens = self.root.attachNewNode(cm_tail.generate())
+            lens.setPos(tx - 0.005, ty * side, tz)
+            lens.setH(90)
+            lens.setTwoSided(True)
+            self.tails.append(lens)
+        glow = CardMaker("halo")
+        glow.setFrame(-0.5, 0.5, -0.5, 0.5)
+        add = ColorBlendAttrib.make(ColorBlendAttrib.M_add, ColorBlendAttrib.O_incoming_alpha, ColorBlendAttrib.O_one)
+        for group, out, colour in ((self.heads, self.halos, (1.0, 0.95, 0.82)), (self.tails, self.glows, (1.0, 0.08, 0.04))):
+            for lens in group:
+                g = self.root.attachNewNode(glow.generate())
+                g.setPos(lens.getPos() + Vec3(0.04 if group is self.heads else -0.04, 0, 0))
+                g.setBillboardPointEye()
+                g.setTexture(dot_texture())
+                g.setAttrib(add)
+                g.setDepthWrite(False)
+                g.setBin("fixed", 26)
+                g.setColor(*colour, 1)
+                g.hide()
+                out.append(g)
+        pool = CardMaker("light pool")
+        pool.setFrame(-0.5, 0.5, -0.5, 0.5)
+        self.pool = self.root.attachNewNode(pool.generate())
+        self.pool.setP(-90)  # (flat on the road)
+        self.pool.setPos(5.2, 0, 0.04)
+        self.pool.setScale(8.5, 1, 4.2)
+        self.pool.setTexture(dot_texture())
+        self.pool.setAttrib(add)
+        self.pool.setDepthWrite(False)
+        self.pool.setBin("fixed", 19)
+        self.pool.setColor(0.42, 0.4, 0.34, 1)
+        self.pool.hide()
+        self.state = None
+
+    def update(self, lit, braking):
+        state = (lit, braking)
+        if state == self.state:
+            return
+        self.state = state
+        for lens in self.heads:
+            lens.setColor(*((1.0, 0.98, 0.9) if lit else (0.62, 0.62, 0.6)), 1)
+        for lens in self.tails:
+            lens.setColor(*((1.0, 0.01, 0.005) if braking else (0.6, 0.04, 0.03) if lit else (0.32, 0.03, 0.03)), 1)
+        for g in self.halos:
+            g.setScale(0.32)
+            g.show() if lit else g.hide()
+        for g in self.glows:
+            g.setScale(0.34 if braking else 0.2)
+            g.setAlphaScale(0.9 if braking else 0.5)
+            g.show() if (lit or braking) else g.hide()
+        self.pool.show() if lit else self.pool.hide()
 
 
 class Sky:
@@ -997,6 +1228,9 @@ class Sky:
         self.dome.setShaderInput("sun_dir", sun)
         self.dome.setShaderInput("zenith", Vec3(*SKY_ZENITH))
         self.dome.setShaderInput("horizon", Vec3(*HAZE))
+        self.dome.setShaderInput("glow", Vec3(1.0, 0.92, 0.75))
+        self.dome.setShaderInput("clouds", 1.0)
+        self.dome.setShaderInput("stars", 0.0)
         self.dome.node().setBounds(OmniBoundingVolume())  # (never culled: it is always round the camera)
         self.dome.node().setFinal(True)
 
@@ -1197,6 +1431,28 @@ def ultra_model():
     return _state["ultra_model"]
 
 
+def car_model(name, ultra=False):
+    """(CHANGE 173) A sports car's Geoms, one per role, made once for each body: {"body": {role: Geom}, "nose": {...},
+    "wheel": {...}, "wheels": [...], "notes": {...}}; ultra (CHANGE 174): the near, detailed one (car_models.car_ultra),
+    with "brake": {"left": {...}, "right": {...}}."""
+    key = ("car ultra " if ultra else "car ") + name
+    if key not in _state:
+        model = (car_models.car_ultra if ultra else car_models.car)(name)
+        out = {"notes": model["notes"], "wheels": model["wheels"]}
+
+        def geoms(ps_):
+            roles = {}
+            for q in ps_:
+                roles.setdefault(q["role"], []).append(q)
+            return {role: geom_of(ps) for role, ps in roles.items()}
+        for part in ("body", "nose", "wheel"):
+            out[part] = geoms(model[part])
+        if "brake" in model:
+            out["brake"] = {k: geoms(v) for k, v in model["brake"].items()}
+        _state[key] = out
+    return _state[key]
+
+
 def arm_turn(shoulder, hand, to):
     """(CHANGE 157) The turn about the shoulder that points the arm (shoulder to hand) at to: the shortest one."""
     a, b = hand - shoulder, to - shoulder
@@ -1211,10 +1467,90 @@ def arm_turn(shoulder, hand, to):
 
 def role_look(role, colour):
     """(colour, rough, metal, texture set) for a role of the ultra kart; colour: the design's."""
-    look_ = kart_models.ROLES[role]
+    look_ = car_models.ROLES[role]  # (kart_models' roles, and the cars' lamp housings: CHANGE 173)
     c = tuple(look_["colour"]) if look_["colour"] else colour
     name = "steel" if role == "metal" else None  # (smooth paint and slick tyres: the robots' textures are blotchy on curves)
     return c, look_["rough"], look_["metal"], name
+
+
+# (CHANGE 174) ultra: simplepbr's own shader with three things added for the cars: a clear coat (a second, glassy
+# layer over the paint: its own sharp highlight from each light and a sharp reflection of the sky, strongest at a
+# glancing angle), metal flakes in the paint (tiny mirrors at random angles that sparkle in the sun), and glass that
+# reflects at full strength however see-through it is (a reflection isn't dimmed by the glass's tint)
+_CAR_UNIFORMS = """uniform float max_reflection_lod;
+uniform float car_coat;
+uniform float car_flake;
+uniform float car_glass;
+float car_hash(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+"""
+_CAR_LIGHT = """        color.rgb += func_params.n_dot_l * lightcol * (diffuse_contrib + spec_contrib) * shadow;
+        if (car_coat > 0.0) {
+            FunctionParamters cc = func_params;
+            cc.roughness = 0.0016;
+            cc.reflection0 = vec3(0.04);
+            color.rgb += func_params.n_dot_l * lightcol * specular_reflection(cc) * visibility_occlusion(cc)
+                * microfacet_distribution(cc) * car_coat * shadow;
+        }
+        if (car_flake > 0.0) {
+            vec3 cell = floor(v_world_position * 380.0);
+            vec3 fd = vec3(car_hash(cell), car_hash(cell + 19.1), car_hash(cell + 47.7)) - 0.5;
+            float sp = pow(max(dot(normalize(n + fd * 0.7), h), 0.0), 180.0);
+            color.rgb += func_params.n_dot_l * lightcol * base_color.rgb * sp * car_flake * 0.6 * shadow;
+        }
+"""
+_CAR_IBL = """    color.rgb += (ibl_kd * ibl_diff  + ibl_spec) * ambient_occlusion;
+    if (car_coat > 0.0 || car_glass > 0.0) {
+        float cf = 0.04 + 0.96 * pow(clamp(1.0 - n_dot_v, 0.0, 1.0), 5.0);
+        vec3 sharp = textureCubeLod(filtered_env_map, ibl_r, 0.0).rgb;
+        if (car_glass > 0.0) {
+            float a_out = color.a + (1.0 - color.a) * cf;
+            color.rgb = (color.rgb + sharp * cf) / max(a_out, 0.001);
+            color.a = a_out;
+        } else {
+            color.rgb = color.rgb * (1.0 - car_coat * cf) + sharp * cf * car_coat;
+        }
+    }
+"""
+
+
+def car_shader():
+    """The cars' shader (simplepbr's with the clear coat, flakes and glass: see above), made once from the shader
+    simplepbr made for this computer; None where it can't be (not ultra, or a simplepbr whose shader differs)."""
+    if "car_shader" not in _state:
+        _state["car_shader"] = None
+        pipe = _state.get("pipeline")
+        try:
+            shader = pipe.render_node.getAttrib(ShaderAttrib).getShader()
+            vert, frag = shader.getText(Shader.ST_vertex), shader.getText(Shader.ST_fragment)
+            marks = ("uniform float max_reflection_lod;",
+                     "        color.rgb += func_params.n_dot_l * lightcol * (diffuse_contrib + spec_contrib) * shadow;\n",
+                     "    color.rgb += (ibl_kd * ibl_diff  + ibl_spec) * ambient_occlusion;\n")
+            if all(frag.count(m) == 1 for m in marks):
+                for m, new in zip(marks, (_CAR_UNIFORMS, _CAR_LIGHT, _CAR_IBL)):
+                    frag = frag.replace(m, new)
+                made = Shader.make(Shader.SL_GLSL, vert, frag)
+                if made is not None:
+                    _state["car_shader"] = made
+            else:
+                print("gfx: simplepbr's shader isn't as expected: the cars' paint is plain", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"gfx: no car paint shader ({type(e).__name__}: {e})", file=sys.stderr, flush=True)
+    return _state["car_shader"]
+
+
+def car_paint(np_, coat=1.0, flake=1.0, glass=0.0):
+    """(CHANGE 174) ultra: a car's paint under a clear coat with metal flakes in it (or its glass: glass=1)."""
+    shader = car_shader()
+    if shader is None:
+        return
+    np_.setShader(shader, 2)
+    np_.setShaderInput("car_coat", float(coat))
+    np_.setShaderInput("car_flake", float(flake))
+    np_.setShaderInput("car_glass", float(glass))
 
 
 # ---------- the power-ups (CHANGE 159) ----------
@@ -1365,16 +1701,33 @@ class KartVisual:
         self.bubble = None               # (CHANGE 159) the shield, made when first needed
         self.smoke_timer = 0.0           # ...and the damaged engine's smoke
         self.skid_last = [None, None]    # ultra: where each rear tyre's skid mark last ended
-        if tier() == "ultra":
+        # (CHANGE 173) where its wheels are, how big, and where its lamps, its engine's smoke and its boost glow are:
+        # the kart's, or the sports car's it is
+        self.wheel_r, self.wheel_xy, lamps = WHEEL_R, list(WHEELS), LAMPS["kart"]
+        self.smoke_at, self.glow_at = (-0.45, 0.28, 0.5), (-0.9, 0.0, 0.3)
+        self.hood = (0.95, 0.62)  # (the Hood camera's spot: ChaseCamera.hood)
+        self.tag_z = 1.35         # (its name, over the driver's helmet or a car's roof)
+        body = design.get("body", "kart")
+        if body in car_models.CARS:
+            notes = self.car(colour, body)
+            lamps = notes["lamps"]
+            self.smoke_at, self.glow_at = tuple(notes["smoke"]), tuple(notes["glow"])
+            self.hood = tuple(notes["hood"])
+            self.tag_z = max(1.35, notes["height"] + 0.4)
+        elif tier() == "ultra":
             self.ultra(colour)
         else:
             self.boxes(colour)
+        # (CHANGE 171, 172) the lamps: tail lamps that light as it brakes, headlamps at dusk and night (not on the line
+        # looks, which draw no light)
+        self.lamps = None if look() else Lamps(self.body, lamps)
+        self.beam_x = max(0.6, lamps["head"][0])  # (CHANGE 172: its beam from above its headlamps, clear of a bonnet)
         # the boost glow: a soft orange disc at the back (a billboard, so it reads from any angle)
         cm = CardMaker("glow")
         cm.setFrame(-0.5, 0.5, -0.5, 0.5)
         self.glow = self.root.attachNewNode(cm.generate())
         self.glow.setTexture(dot_texture())
-        self.glow.setPos(-0.9, 0, 0.3)
+        self.glow.setPos(*self.glow_at)
         self.glow.setBillboardPointEye()
         self.glow.setLightOff(1)
         self.glow.setShaderOff(1)
@@ -1566,6 +1919,97 @@ class KartVisual:
             if x > 0:
                 self.steer_nodes.append(pivot)
 
+    def car(self, colour, name):
+        """(CHANGE 173) A sports car (car_models.py): its body and front splitter from its model on every tier; its
+        wheels the model's on ultra, medium and high, plain tyres and hubs below (as the box kart's: a car costs about what a kart
+        does on a school laptop). (CHANGE 174) On ultra the detailed car (car_models.car_ultra: the cabin through
+        see-through glass, the lamps' insides, the brakes) while it is nearer the camera than its notes' lod far, the
+        plain one beyond (a LODNode for the body, the splitter and each wheel). Returns its notes (the lamps, the
+        smoke, the glow)."""
+        model = car_model(name)
+        ultra = tier() == "ultra"
+        near = car_model(name, ultra=True) if ultra else None
+        notes, m = model["notes"], self.m
+        far = notes.get("lod", {}).get("far", 22.0)
+
+        def parts(parent, geoms):
+            for role, geom in geoms.items():
+                node = GeomNode(role)
+                node.addGeom(geom)
+                c, rough, metal, tex = role_look(role, colour)
+                np_ = part(parent, node, tex, c, rough=rough, metal=metal, materials=m)
+                look_ = car_models.ROLES.get(role, {})
+                if look_.get("emission"):
+                    mat = np_.getMaterial()
+                    mat.setEmission((*look_["emission"], 1))
+                    np_.setMaterial(mat, 1)
+                if look_.get("alpha", 1.0) < 1.0:  # (see-through glass and lenses: both their faces, drawn last)
+                    np_.setTransparency(TransparencyAttrib.M_alpha)
+                    np_.setAlphaScale(look_["alpha"])
+                    np_.setTwoSided(True)
+                    np_.setDepthWrite(False)
+                if ultra and role in ("paint", "paint2", "helmet", "stripe"):
+                    car_paint(np_, flake=0.0 if role == "stripe" else 1.0)
+                elif ultra and role in ("window", "lens", "lens_red"):
+                    car_paint(np_, coat=0.0, flake=0.0, glass=1.0)
+                elif ultra and role in ("carbon", "chrome", "rim", "rim2", "caliper"):
+                    car_paint(np_, coat=0.6, flake=0.0)
+
+        def lod(parent, name_, both):
+            """both: (the near Geoms, the far ones): a LODNode choosing between them, or the far ones alone."""
+            if near is None:
+                parts(parent, both[1])
+                return
+            node = LODNode(name_)
+            np_ = parent.attachNewNode(node)
+            for geoms_, (a, b) in zip(both, ((far, 0.0), (1e6, far))):
+                child = np_.attachNewNode(name_ + (" near" if geoms_ is both[0] else " far"))
+                if geoms_:
+                    parts(child, geoms_)
+                node.addSwitch(a, b)
+        lod(self.body, "body", (near and near["body"], model["body"]))
+        pivot = Vec3(*notes["nose"]["pivot"])  # (the front splitter, hinged at its left end: CHANGE 158's)
+        self.nose = self.body.attachNewNode("nose")
+        self.nose.setPos(pivot)
+        held = self.nose.attachNewNode("held")
+        held.setPos(-pivot)
+        lod(held, "nose", (near and near["nose"], model["nose"]))
+        if look():
+            outline(self.body)
+            outline(self.nose)
+        R = notes["wheel_radius"]
+        self.wheel_r = R
+        self.wheel_xy = [(w["x"], w["y"]) for w in model["wheels"]]
+        if ultra or tier() in ("medium", "high"):  # (CHANGE 174: the model's spoked wheel on medium and high too)
+            wheel = self.root.attachNewNode("wheel")
+            lod(wheel, "wheel", (near and near["wheel"], model["wheel"]))
+            wheel.detachNode()
+        else:
+            wheel = NodePath("wheel")
+            W = R * WHEEL_W / WHEEL_R
+            part(wheel, cylinder(R, W, axis="y", seg=20, bevel=0.03, tile=2.5).node(), "tyre", (1, 1, 1), rough=1.0,
+                 metal=0.0, materials=m)
+            part(wheel, cylinder(R * 0.6, W + 0.006, axis="y", seg=14, bevel=0.01).node(), "steel", (0.78, 0.79, 0.82),
+                 rough=0.3, metal=1.0, materials=m)
+            if look():
+                blacken(wheel)
+                outline(wheel)
+        self.wheels, self.steer_nodes = [], []
+        for w in model["wheels"]:
+            pivot_ = self.root.attachNewNode("pivot")
+            pivot_.setPos(w["x"], w["y"], R)
+            spin = pivot_.attachNewNode("spin")
+            face = spin.attachNewNode("face")
+            if w["side"] < 0:
+                face.setH(180)  # (the right-hand wheels: their outer face to the right)
+            wheel.instanceTo(face)
+            self.wheels.append(spin)
+            if w["front"]:
+                self.steer_nodes.append(pivot_)
+            if near is not None and near.get("brake"):  # (CHANGE 174) the caliper: turns with the steering, not the wheel
+                lod(pivot_, "brake", (near["brake"]["left" if w["side"] > 0 else "right"], {}))
+        return notes
+
     def set_label(self, text, colour=(1, 1, 1, 1)):
         """A name tag floating above the kart, as RobotVisual's."""
         if self.tag is None:
@@ -1574,7 +2018,7 @@ class KartVisual:
             node.setCardColor(0.03, 0.04, 0.06, 0.7)
             node.setCardAsMargin(0.35, 0.35, 0.18, 0.12)
             self.tag = self.root.attachNewNode(node)
-            self.tag.setPos(0, 0, 1.35)
+            self.tag.setPos(0, 0, self.tag_z)
             self.tag.setBillboardPointEye()
             self.tag.setScale(0.17)
             self.tag.setLightOff(1)
@@ -1586,7 +2030,7 @@ class KartVisual:
         self.tag.node().setText(text)
         self.tag.node().setTextColor(*colour)
 
-    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None, shield=False):
+    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None, shield=False, braking=False):
         """Place the kart; its body pitches with acceleration and rolls with the slide, the front wheels turn
         with steer, all four spin with v; the glow shows while boosting and smoke puffs while drifting."""
         self.root.setPos(x, y, z)
@@ -1618,7 +2062,7 @@ class KartVisual:
                               / (hand - shoulder).length())
             self.head.setHpr(self.steer_now * self.head_turn, -self.steer_now * self.head_lean, 0)
             self.skids(x, y, z, yaw_deg, drifting and abs(v) > 3.0)
-        self.spin_angle = (self.spin_angle + math.degrees(v / WHEEL_R) * dt) % 360.0
+        self.spin_angle = (self.spin_angle + math.degrees(v / self.wheel_r) * dt) % 360.0
         # (CHANGE 158) damage (each part 0 to 1: wing, fl, fr, rl, rr, engine): a damaged wheel leans and wobbles as
         # it turns, the fairing hangs from its left end, the engine smokes
         wing, *wheel_damage, engine = damage or (0.0,) * 6
@@ -1637,6 +2081,8 @@ class KartVisual:
                 near = (self.cam.getPos(self.parent) - self.root.getPos()).length() < 4.0
                 if near != self.tag.isHidden():
                     self.tag.hide() if near else self.tag.show()
+        if self.lamps is not None:  # (CHANGE 171, 172)
+            self.lamps.update(lamps_on(), braking)
         if boosting and not look():
             self.glow_t += dt
             self.glow.show()
@@ -1667,7 +2113,7 @@ class KartVisual:
                 p = self.puffs[self.next_puff]
                 self.next_puff = (self.next_puff + 1) % self.PUFFS
                 shade = 0.6 - 0.45 * engine
-                p[0].setPos(self.root, -0.45, 0.28, 0.5)
+                p[0].setPos(self.root, *self.smoke_at)
                 p[0].setScale(0.3)
                 p[0].setColor(shade, shade, shade, 0.6)
                 p[0].show()
@@ -1680,9 +2126,9 @@ class KartVisual:
             if self.puff_timer <= 0:
                 self.puff_timer = 0.07
                 p = self.puffs[self.next_puff]
-                side = 0.6 if self.next_puff % 2 else -0.6  # (each rear tyre in turn)
+                rx, ry = self.wheel_xy[2 + self.next_puff % 2]  # (each rear tyre in turn)
                 self.next_puff = (self.next_puff + 1) % self.PUFFS
-                p[0].setPos(self.root, -0.55, side, 0.15)
+                p[0].setPos(self.root, rx - 0.03, ry, 0.15)
                 p[0].setScale(0.35)
                 p[0].setColor(0.75, 0.75, 0.78, 0.55)
                 p[0].show()
@@ -1709,7 +2155,7 @@ class KartVisual:
             self.skid_last = [None, None]
             return
         c, s = math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))
-        for k, (wx, wy) in enumerate(WHEELS[2:]):
+        for k, (wx, wy) in enumerate(self.wheel_xy[2:]):
             p = Vec3(x + wx * c - wy * s, y + wx * s + wy * c, z + 0.012)
             last = self.skid_last[k]
             if last is None or (p - last).length() > 3.0:  # (a new drift, or the kart put back on the grid)
@@ -1741,6 +2187,7 @@ class ChaseCamera:
         self.pos = self.look = None
         self.fov = 70.0
         self.zoom = 1.0  # the mouse wheel: under 1 is closer (a narrower view), over 1 wider
+        self.hood = (0.95, 0.62)  # (CHANGE 173) the Hood camera's spot (forward, up): the followed kart's or car's
         self.tv_points = None
         self.tv_track = None
         self.tv_index = 0
@@ -1799,7 +2246,7 @@ class ChaseCamera:
             look = target + fwd * 5.0 + Vec3(0, 0, 0.6)
             fov, k = 72.0 + 0.25 * speed, 14.0
         elif self.mode == "hood":
-            want = target + fwd * 0.95 + Vec3(0, 0, 0.62)  # (just over the nose plate)
+            want = target + fwd * self.hood[0] + Vec3(0, 0, self.hood[1])  # (just over the nose plate, or the bonnet)
             look = target + fwd * 25.0 + Vec3(0, 0, 0.3)
             fov, k, near = 82.0, 60.0, 0.08
         else:

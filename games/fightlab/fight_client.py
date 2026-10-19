@@ -149,6 +149,7 @@ from fight_hud import FightHUD  # noqa: E402
 from engine.net import Net  # noqa: E402
 from engine import interp  # noqa: E402
 from engine import ahead  # noqa: E402  (CHANGE 167: your fighter's footwork drawn at once)
+from engine import gamepad  # noqa: E402  (CHANGE 170: a controller fights)
 
 CODE_ROWS = 19     # lines of code the code panel shows at once (longer code scrolls)
 CODE_PANEL = (-0.86, 0.12, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
@@ -182,6 +183,10 @@ AI_RULES = ("Only the teacher uses the AI.  Never put personal information in a 
 CARD_FIELDS = ("goal", "variables", "test", "predict")
 PRESS_KEYS = {"a": "punch", "s": "kick", "d": "special", "w": "throw", "space": "jump",
               "f": "cartwheel"}  # (F: the cartwheel kick user mod; it does nothing while the mod is off)
+# (CHANGE 170) a controller's buttons, by where they are: left punch, bottom kick, right special, top jump, right
+# shoulder throw, right trigger the cartwheel kick (the user mod)
+PAD_PRESS = {"west": "punch", "south": "kick", "east": "special", "north": "jump", "rb": "throw", "rt": "cartwheel"}
+PAD_ORDER = ("west", "south", "east", "north", "rb", "rt")
 ATTACK_ANIMS = {"punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam",
                 "cartwheel"}
 
@@ -421,6 +426,7 @@ class Lab(hud.HudKit, ShowBase):
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
         # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
         self.snaps, self.latest = interp.Snapshots(interp.FIGHT_SPEC), None
+        self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
         self.ahead, self.move = ahead.FighterAhead(), {}  # (CHANGE 167) your fighter drawn ahead; footwork from the roster
         self.ctrl_seq, self.ctrl_sent, self.ctrl_ms = 0, {}, None  # numbered controls, and the measured control delay
         self.perf_at = 0.0
@@ -2768,12 +2774,14 @@ class Lab(hud.HudKit, ShowBase):
         self.pending_press = action
         self.send_controls(time.perf_counter(), force=True)
 
-    def stick(self):
-        """The arrow keys as (forward, side) for your fighter: the camera decides which way is which, so right
-        always moves right on the screen."""
+    def stick(self, pad=None):
+        """The arrow keys (or a controller's stick: CHANGE 170) as (forward, side) for your fighter: the camera
+        decides which way is which, so right always moves right on the screen."""
         down = self.mouseWatcherNode.is_button_down
         sx = down(KeyboardButton.right()) - down(KeyboardButton.left())
         sy = down(KeyboardButton.up()) - down(KeyboardButton.down())
+        if pad and not sx and not sy:
+            sx, sy = round(pad.x, 2), round(pad.y, 2)  # (analogue: a little push is a slow walk)
         if not sx and not sy:
             return 0.0, 0.0
         ring = next((r for r in (self.state or {}).get("rings", []) if r["i"] == self.my_ring()), None)
@@ -2810,14 +2818,21 @@ class Lab(hud.HudKit, ShowBase):
         down = self.mouseWatcherNode.is_button_down
         press = getattr(self, "pending_press", None)
         self.pending_press = None
+        pad = self.pad.read()  # (CHANGE 170: read every frame, so a button tapped between two isn't lost)
+        if pad and not press and not (self.typing or not self.started):
+            press = next((PAD_PRESS[b] for b in PAD_ORDER if b in pad.pressed), None)
+            if "start" in pad.pressed:
+                self.toggle_panel()
         behind = getattr(self.win, "getProperties", None) and not self.win.getProperties().getForeground()
         if self.typing or behind:  # arrows and space move the text cursor, not the fighter; and a key held
             # as the window loses focus would never let go (its key-up never arrives): no input while behind
             control = (0.0, 0.0, "")
             press = None
         else:
-            fwd, side = self.stick()
+            fwd, side = self.stick(pad)
             block, crouch = down(KeyboardButton.shift()), down(KeyboardButton.asciiKey("x"))
+            if pad:  # (CHANGE 170) left shoulder: block; left trigger: crouch (both held)
+                block, crouch = block or "lb" in pad.held, crouch or "lt" in pad.held
             hold = "low_block" if block and crouch else "block" if block else "crouch" if crouch else ""
             control = (round(fwd, 2), round(side, 2), hold)
         # a change or a press goes at once; otherwise the control is repeated 30 times a second, numbered, so a message

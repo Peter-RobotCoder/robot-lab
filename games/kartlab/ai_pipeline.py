@@ -36,8 +36,9 @@ def _rules_limits():
 
 
 def _mod_files_text(sim, settings):
-    return f"""- mods/karts/*.py hold KART = {{...}}: name (up to 12 characters), colour [r, g, b] 0-255, and the three
-  points speed, acceleration and grip (whole numbers {sim.STAT_MIN}-{sim.STAT_MAX}, total at most {sim.POINTS_TOTAL}).
+    return f"""- mods/karts/*.py hold KART = {{...}}: name (up to 12 characters), colour [r, g, b] 0-255, body (its look only: one
+  of {', '.join(sim.BODIES)}), and the three points speed, acceleration and grip (whole numbers
+  {sim.STAT_MIN}-{sim.STAT_MAX}, total at most {sim.POINTS_TOTAL}).
 - mods/track.py holds TRACK = {{...}}: track (one of the tracks in kart_track.TRACKS: club, oval, straight), laps
   (1-9), name (what the track is called, up to 16 characters) and cpu_level (easy, medium or expert).
 - mods/rules.py holds RULES = {{...}}: laps, cpu_karts, countdown_seconds, bump_distance, bump_slowdown (the

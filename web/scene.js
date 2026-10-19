@@ -13,7 +13,7 @@
 import {BaseScene, TIERS, v3, mulberry, upwardNormals} from "./base3d.js";
 import "./robotfx.js";  // (CHANGE 143: its particle shader, "ccfx", with the app's tone curve, for the drift smoke)
 import {makeSky, makeLand, makeForest, AfterFx, Skids, Sparks, HAZE, loadUltraKart, ultraKartData, partMesh,
-        loadScenery, sceneryData, makeCircuit, circuitFrame, cullLists} from "./kartfx.js";
+        loadCars, carData, loadCarUltra, carUltraData, loadScenery, sceneryData, makeCircuit, circuitFrame, cullLists} from "./kartfx.js";
 import {TRACKS} from "./track.js";
 import {DAMAGE_PARTS, DAMAGE_MAX} from "./kart_sim.js";  // (CHANGE 158: each part's damage, drawn on the kart)
 
@@ -26,7 +26,7 @@ const MAX_STEER = 26 * Math.PI / 180, STEER_RATIO = 3.0, STEER_EASE = 10.0;
 const WHEELS = [[0.5, 0.6], [0.5, -0.6], [-0.52, 0.62], [-0.52, -0.62]];  // x, y: FL, FR, RL, RR
 const KERB_RED = [0.85, 0.12, 0.08, 1], KERB_WHITE = [0.95, 0.95, 0.92, 1];
 const TARMAC_TINT = [0.9, 0.9, 0.92], GRASS_TINT = [0.95, 1.0, 0.9], STEEL = [0.6, 0.6, 0.62];
-const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_BOOSTING = 16;
+const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_BOOSTING = 16, FLAG_BRAKING = 32;  // (FLAG_BRAKING: CHANGE 171)
 const PUFFS = 8, PUFF_LIFE = 0.7;  // (kart_gfx.KartVisual.PUFFS: a kart's drift smoke; the scene's pool holds 12 karts' worth)
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -42,6 +42,27 @@ const LOOK = {sky: [0.3, 0.5, 0.9], radius: 60, target: [30, 40, 0],
               pbr: {background: [0.3, 0.5, 0.9], exposure: 0.55, ambient: [0.22, 0.25, 0.32], sky: "sky",
                     envSrgb: true, shScale: [0.55, 0.65, 0.86], fill: [0.4, 0.4, 0.4], fog: {colour: HAZE, density: 0.0007},
                     sun: {colour: [2.6, 2.45, 2.2], offset: [30, -45, 45], film: 40, near: 50.4, far: 90.4, bias: 0.0015, ultraFilm: 64}}};
+
+// (CHANGE 172) the race's time of day (the lesson's "time"), as the window's (kart_gfx.TIME_LOOKS): the sky behind
+// (and blocks' plain light), the lighting's ambient, sun, exposure and fill (the sky's light and reflections fall with
+// the daylight), the haze and ultra's sky dome (screen colours, after the tone curve: the horizon, below it, the sun's
+// or moon's glow, the clouds' light, the stars), whether the lamps are lit and the beams' strength
+const TIME_LOOKS = {
+    day: {sky: [0.3, 0.5, 0.9], ambient: [0.22, 0.25, 0.32], sun: [2.6, 2.45, 2.2], exposure: 0.55, env: 1.0, blocks: 1.0,
+          horizon: HAZE, below: [0.55, 0.62, 0.6], sunCol: [1.0, 0.92, 0.75], clouds: 1.0, stars: 0.0, lamps: false, beam: 0},
+    dusk: {sky: [0.5, 0.33, 0.36], ambient: [0.12, 0.1, 0.15], sun: [1.8, 0.95, 0.5], exposure: 0.62, env: 0.4, blocks: 0.7,
+           horizon: [0.8, 0.62, 0.58], below: [0.32, 0.28, 0.3], sunCol: [1.0, 0.5, 0.25], clouds: 0.6, stars: 0.0, lamps: true, beam: 0.45},
+    night: {sky: [0.01, 0.014, 0.035], ambient: [0.018, 0.022, 0.04], sun: [0.14, 0.18, 0.3], exposure: 0.75, env: 0.06, blocks: 0.35,
+            horizon: [0.06, 0.07, 0.11], below: [0.03, 0.035, 0.05], sunCol: [0.5, 0.55, 0.7], clouds: 0.07, stars: 1.0, lamps: true, beam: 1},
+};
+const HEADLIGHT = [9.0, 8.6, 7.6], HEADLIGHTS = 4;  // (kart_gfx.HEADLIGHT, HEADLIGHTS: your kart's beams and the nearest)
+// (CHANGE 171, 172) where a body's lamps are (kart_gfx.LAMPS: x forward, y left, z up; each one and its mirror)
+const LAMPS = {kart: {head: [0.66, 0.24, 0.31], tail: [-0.83, 0.26, 0.27], size: [0.1, 0.06]}};
+// (CHANGE 173) where a kart's lamps are, its rear tyres' skids and drift smoke (x back, y out to each side), its
+// damaged engine's smoke and its exhaust's sparks (x, y, z: forward, left, up), its beam (x) and the Hood camera
+// (x, z): a sports car's from its notes (addCar)
+const KART_FIT = {lamps: LAMPS.kart, skid: [-0.52, 0.62], puff: [-0.55, 0.6], smoke: [-0.45, 0.28, 0.5],
+                  sparks: [-0.75, 0.28, 0.38], beamX: 0.6, hood: [0.95, 0.62]};
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -114,7 +135,33 @@ export class KartScene extends BaseScene {
         this.camFov = 70;
         this.camKart = undefined;
         this.tvIndex = 0;
+        this.time = "day";          // (CHANGE 172) the race's time of day
+        this.timeLook = TIME_LOOKS.day;
         this.build();
+    }
+
+    // (CHANGE 172) the race drawn at this time of day: "day", "dusk" or "night" (the scene is made again: the lighting's
+    // shaders are made for their number of lights, and at dusk and night there are the headlights' too)
+    setTime(t) {
+        t = TIME_LOOKS[t] ? t : "day";
+        if (t === this.time) return;
+        this.time = t;
+        this.applyTime();
+        this.build();
+    }
+
+    applyTime() {
+        const T = this.timeLook = TIME_LOOKS[this.time], P = this.look.pbr;
+        this.look.sky = T.sky;
+        P.background = T.sky;
+        P.ambient = T.ambient;
+        P.sun = Object.assign({}, P.sun, {colour: T.sun});
+        P.exposure = T.exposure;
+        P.fill = [0.4 * T.env, 0.4 * T.env, 0.4];
+        if (P.fog) P.fog = Object.assign({}, P.fog, {colour: T.horizon});
+        // (the beams: HEADLIGHTS spotlights, given to the karts each frame; none by day)
+        P.spots = T.beam > 0 ? Array.from({length: HEADLIGHTS}, () => ({pos: [0, 0, -100], at: [0, 1, -100], colour: [0, 0, 0], fov: 84, soft: true,
+                                                                          att: [1.0, 0.02, 0.008]})) : [];
     }
 
     build() {  // (ultra's after-effects let go before the scene they were made for: CHANGE 144)
@@ -126,6 +173,11 @@ export class KartScene extends BaseScene {
     populate(rebuild) {
         // (the arrows drive: the camera doesn't turn with them; the drift smoke's pool, none on blocks or the line tiers)
         this.camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
+        this.lampKit = null;  // (CHANGE 171, 172: the lamps' materials, made again with the scene)
+        if (!this.lit && !this.wire) {  // (blocks: one plain light, dimmed at dusk and night)
+            const hemi = this.scene.getLightByName("sky");
+            if (hemi) hemi.intensity = this.timeLook.blocks;
+        }
         this.smoke = this.lit ? new Smoke(this, PUFFS * 12) : null;
         this.lineCount = 0;
         // (ultra, CHANGE 144) the sky, the world round the kart watched as a cube for the paint to reflect (made before
@@ -572,6 +624,26 @@ export class KartScene extends BaseScene {
         const root = new BABYLON.TransformNode("kart" + id, scene);
         const body = new BABYLON.TransformNode("body" + id, scene);
         body.parent = root;
+        if (design.body && design.body !== "kart") {  // (CHANGE 173) a sports car, once models/cars.json is here
+            const car = carData(design.body);
+            if (car) {
+                // (CHANGE 174, ultra) the detailed car near the camera, once models/cars_ultra_<body>.json is here
+                const near = this.ultra ? carUltraData(design.body) : null;
+                if (this.ultra && !near) {
+                    const scene = this.scene;
+                    loadCarUltra(design.body).then(u => {
+                        const k = this.karts.get(id);
+                        if (u && this.scene === scene && k && k.car === design.body && !k.lod) this.addKart(k.design);
+                    });
+                }
+                return this.addCar(design, root, body, colour, car, near);
+            }
+            const scene = this.scene;
+            loadCars().then(d => {  // (drawn as a kart until it is: then made again)
+                const k = this.karts.get(id);
+                if (d && this.scene === scene && k && !k.car && k.design.body === design.body) this.addKart(k.design);
+            });
+        }
         if (this.ultra && ultraKartData()) return this.addCurvedKart(design, root, body, colour);
         // (on ultra the paint and the helmet have a clear coat, and they and the metal reflect the world: CHANGE 144)
         const paint = this.material("kpaint", colour, 0.5, 0.2, 0, {tex: "paint", tile: 1.5, clearcoat: 1, probe: true});
@@ -656,13 +728,122 @@ export class KartScene extends BaseScene {
         return flame;
     }
 
-    finishKart(id, design, root, body, wheels, flame, flameLines, wheelR, curved) {
+    finishKart(id, design, root, body, wheels, flame, flameLines, wheelR, curved, fit = KART_FIT) {
         const label = this.makeLabel(design.name || "", "#ffffff", 1.3);  // (about the app's size: a kart's width)
         label.parent = root;
-        label.position = v3(0, 0, 1.15);
+        label.position = v3(0, 0, fit.label || 1.15);  // (a car's: over its roof, CHANGE 173)
         this.karts.set(id, {root, body, wheels, flame, flameLines, label, design, lastYaw: 0, spin: 0, wheelR, curved,
-                            lastV: null, pitch: 0, roll: 0, glowT: 0, puffTimer: 0, nextPuff: 0, skid: null});
+                            lastV: null, pitch: 0, roll: 0, glowT: 0, puffTimer: 0, nextPuff: 0, skid: null, fit,
+                            lamps: this.wire ? null : this.makeLamps(body, fit.lamps)});  // (CHANGE 171, 172)
         this.refreshLists();
+    }
+
+    // (CHANGE 171, 172, kart_gfx.Lamps) the lamps' materials, made once a scene: unlit, so they glow; the halos and the
+    // pool of light added on top of what's behind them
+    lampMaterials() {
+        if (this.lampKit) return this.lampKit;
+        const scene = this.scene;
+        const dot = new BABYLON.DynamicTexture("lampdot", 64, scene, true);
+        const ctx = dot.getContext(), g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        g.addColorStop(0, "rgba(255,255,255,1)");
+        g.addColorStop(0.45, "rgba(255,255,255,0.35)");
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 64, 64);
+        dot.update();
+        dot.hasAlpha = true;
+        const flat = (name, c) => {
+            const m = new BABYLON.StandardMaterial(name, scene);
+            m.disableLighting = true;
+            m.emissiveColor = new BABYLON.Color3(...c);
+            m.backFaceCulling = false;
+            return m;
+        };
+        const glow = (name, c, alpha) => {
+            const m = flat(name, c);
+            m.opacityTexture = dot;
+            m.alpha = alpha;
+            m.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            m.disableDepthWrite = true;
+            return m;
+        };
+        return this.lampKit = {
+            headOff: flat("lamp head", [0.62, 0.62, 0.6]), headOn: flat("lamp head lit", [1.0, 0.98, 0.9]),
+            tailOff: flat("lamp tail", [0.32, 0.03, 0.03]), tailDim: flat("lamp tail lit", [0.6, 0.04, 0.03]),
+            tailOn: flat("lamp tail braking", [1.0, 0.01, 0.005]),
+            halo: glow("lamp halo", [1.0, 0.95, 0.82], 1.0), glowDim: glow("lamp glow", [1.0, 0.08, 0.04], 0.5),
+            glowOn: glow("lamp glow braking", [1.0, 0.08, 0.04], 0.9), pool: glow("light pool", [0.42, 0.4, 0.34], 1.0),
+        };
+    }
+
+    makeLamps(parent, spec) {
+        const kit = this.lampMaterials(), scene = this.scene, [w, h] = spec.size;
+        const [tw, th] = Array.isArray(spec.tail_size) ? spec.tail_size : spec.size;  // (CHANGE 174: a car's own)
+        const lamps = {heads: [], tails: [], halos: [], glows: [], state: null};
+        for (const side of [1, -1]) {
+            for (const [where, list, mat, dx] of [[spec.head, lamps.heads, kit.headOff, 0.005], [spec.tail, lamps.tails, kit.tailOff, -0.005]]) {
+                const tail = list === lamps.tails;
+                const lens = BABYLON.MeshBuilder.CreatePlane("lamp", {width: tail ? tw : w, height: tail ? th : h}, scene);
+                lens.parent = parent;
+                lens.position = v3(where[0] + dx, where[1] * side, where[2]);
+                lens.rotation.y = Math.PI / 2;  // (a plane faces along z: turned to face along the kart)
+                lens.material = mat;
+                lens.isPickable = false;
+                list.push(lens);
+                const g = BABYLON.MeshBuilder.CreatePlane("lamp glow", {size: 1}, scene);
+                g.parent = parent;
+                g.position = v3(where[0] + dx * 8, where[1] * side, where[2]);
+                g.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+                g.isPickable = false;
+                g.setEnabled(false);
+                (list === lamps.heads ? lamps.halos : lamps.glows).push(g);
+            }
+        }
+        const pool = lamps.pool = BABYLON.MeshBuilder.CreatePlane("light pool", {size: 1}, scene);
+        pool.parent = parent;
+        pool.position = v3(5.2, 0, 0.04);
+        pool.rotation.x = Math.PI / 2;  // (flat on the road)
+        pool.scaling.set(8.5, 4.2, 1);
+        pool.material = kit.pool;
+        pool.isPickable = false;
+        pool.setEnabled(false);
+        return lamps;
+    }
+
+    // (CHANGE 171, 172) the lamps as they are: headlamps lit at dusk and night with a halo and a pool of light ahead;
+    // tail lamps dim when lit and bright when braking (or reversing), day or night
+    lampFrame(lamps, lit, braking) {
+        const state = (lit ? 1 : 0) + (braking ? 2 : 0);
+        if (state === lamps.state) return;
+        lamps.state = state;
+        const kit = this.lampMaterials();
+        for (const m of lamps.heads) m.material = lit ? kit.headOn : kit.headOff;
+        for (const m of lamps.tails) m.material = braking ? kit.tailOn : lit ? kit.tailDim : kit.tailOff;
+        for (const g of lamps.halos) { g.material = kit.halo; g.scaling.setAll(0.32); g.setEnabled(lit); }
+        for (const g of lamps.glows) { g.material = braking ? kit.glowOn : kit.glowDim; g.scaling.setAll(braking ? 0.34 : 0.2); g.setEnabled(lit || braking); }
+        lamps.pool.setEnabled(lit);
+    }
+
+    // (CHANGE 172) the beams: HEADLIGHTS spotlights to the karts nearest the camera, the one it follows first
+    headlightFrame(states) {
+        const T = this.timeLook;
+        if (!this.lighting || !(T.beam > 0)) return;
+        const cam = this.camera.position, ids = [...this.karts.keys()].filter(id => states.has(id));
+        const far = id => {
+            const r = this.karts.get(id).root.position;
+            return id === this.follow ? -1 : (r.x - cam.x) ** 2 + (r.y - cam.y) ** 2 + (r.z - cam.z) ** 2;
+        };
+        ids.sort((a, b) => far(a) - far(b));
+        const spots = [];
+        for (let i = 0; i < HEADLIGHTS; i++) {
+            const id = ids[i], st = id !== undefined ? states.get(id) : null;
+            if (!st) { spots.push({pos: [0, 0, -100], at: [0, 1, -100], colour: [0, 0, 0], fov: 84, soft: true}); continue; }
+            const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h), k = this.karts.get(id), z = k.root.position.y;
+            const pos = [st.x + k.fit.beamX * c, st.y + k.fit.beamX * s, z + 1.0];
+            spots.push({pos, at: [pos[0] + 10 * c, pos[1] + 10 * s, z + 1.0 - 10 * Math.tan(11 * DEG)], fov: 84, soft: true,
+                        colour: HEADLIGHT.map(v => v * T.beam), att: [1.0, 0.02, 0.008]});
+        }
+        this.lighting.setLights(spots);
     }
 
     // (ultra, CHANGE 144) the curved kart from models/kart_ultra.json (kartfx.js reads it): each part in the
@@ -672,29 +853,12 @@ export class KartScene extends BaseScene {
     // and the steering wheel turning with the front wheels about the file's axis (notes.steering)
     addCurvedKart(design, root, body, colour) {
         const d = ultraKartData(), scale = Number(d.scale) || 1, notes = d.notes && typeof d.notes === "object" ? d.notes : {};
-        const roles = notes.roles && typeof notes.roles === "object" ? notes.roles : {};
-        const second = Array.isArray(design.colour2) ? design.colour2.map(v => v / 255) : colour;
-        const COAT = {paint: 1, paint2: 1, helmet: 0.8}, SHINY = ["paint", "paint2", "helmet", "metal", "chrome", "rim", "glass"];
-        const BASE = {paint: [colour, 0.32, 0.15], paint2: [second, 0.32, 0.15], dark: [[0.07, 0.07, 0.08], 0.55, 0],
-                      metal: [[0.62, 0.63, 0.66], 0.35, 1], chrome: [[0.92, 0.92, 0.94], 0.08, 1], glass: [[0.03, 0.035, 0.05], 0.04, 0],
-                      tyre: [[0.11, 0.11, 0.12], 0.8, 0], rim: [[0.78, 0.79, 0.82], 0.28, 1], seat: [[0.09, 0.09, 0.11], 0.4, 0],
-                      skin: [[0.86, 0.66, 0.53], 0.6, 0], helmet: [[0.95, 0.95, 0.95], 0.18, 0.05]};
-        const mats = {};
-        const mat = role => {
-            if (mats[role]) return mats[role];
-            const [rgb0, rough0, metal0] = BASE[role] || BASE.paint, r = roles[role] || {};
-            const rgb = Array.isArray(r.colour) && r.colour.length >= 3 ? r.colour.slice(0, 3)
-                : r.colour === null && role !== "paint2" ? colour : rgb0;  // (null: the design's colour, the helmet's too)
-            const rough = Number.isFinite(r.rough) ? r.rough : rough0, metal = Number.isFinite(r.metal) ? r.metal : metal0;
-            const opts = {clearcoat: COAT[role] || 0, probe: SHINY.includes(role)};
-            if (role === "tyre") Object.assign(opts, {tex: "tyre", tile: 2.5});
-            return (mats[role] = role === "glass" ? this.glass("kvisor", rgb, 0.75) : this.material("kc" + role, rgb, rough, metal, 0, opts));
-        };
+        const mat = this.roleMaterials(design, colour, notes.roles);
         const parts = [];
         for (const part of d.body) {
             const mesh = partMesh(this, part, scale);
             if (!mesh) continue;
-            mesh.material = mat(BASE[part.role] ? part.role : "paint");
+            mesh.material = mat(part.role, "paint");
             mesh.parent = body;
             parts.push(mesh);
         }
@@ -710,7 +874,7 @@ export class KartScene extends BaseScene {
             for (const part of d.steering) {
                 const mesh = partMesh(this, part, scale);
                 if (!mesh) continue;
-                mesh.material = mat(BASE[part.role] ? part.role : "dark");
+                mesh.material = mat(part.role, "dark");
                 mesh.parent = node;
                 mesh.position = v3(...pivot).scale(-1);  // (its vertices are the kart's: about the pivot)
                 this.shadowCast([mesh]);
@@ -727,7 +891,7 @@ export class KartScene extends BaseScene {
                 arm.rotationQuaternion = BABYLON.Quaternion.Identity();
                 const mesh = partMesh(this, part, scale);
                 if (!mesh) return;
-                mesh.material = mat(BASE[part.role] ? part.role : "dark");
+                mesh.material = mat(part.role, "dark");
                 mesh.parent = arm;
                 mesh.position = shoulder.scale(-1);
                 this.shadowCast([mesh]);
@@ -743,7 +907,7 @@ export class KartScene extends BaseScene {
                 for (const part of d.head) {
                     const mesh = partMesh(this, part, scale);
                     if (!mesh) continue;
-                    mesh.material = mat(BASE[part.role] ? part.role : "helmet");
+                    mesh.material = mat(part.role, "helmet");
                     mesh.parent = head;
                     mesh.position = neck.scale(-1);
                     this.shadowCast([mesh]);
@@ -762,7 +926,7 @@ export class KartScene extends BaseScene {
             for (const part of d.nose) {
                 const mesh = partMesh(this, part, scale);
                 if (!mesh) continue;
-                mesh.material = mat(BASE[part.role] ? part.role : "paint2");
+                mesh.material = mat(part.role, "paint2");
                 mesh.parent = nose;
                 mesh.position = hinge.scale(-1);
                 this.shadowCast([mesh]);
@@ -781,7 +945,7 @@ export class KartScene extends BaseScene {
             for (const part of d.wheel) {
                 const mesh = partMesh(this, part, scale);
                 if (!mesh) continue;
-                mesh.material = mat(BASE[part.role] ? part.role : "tyre");
+                mesh.material = mat(part.role, "tyre");
                 mesh.parent = side;
                 wheelParts.push(mesh);
             }
@@ -793,6 +957,157 @@ export class KartScene extends BaseScene {
         this.finishKart(design.id, design, root, body, wheels, this.kartFlame(root), null, wheelR, true);
         this.karts.get(design.id).steerWheel = steerWheel;
         this.karts.get(design.id).nose = nose;
+    }
+
+    // (CHANGE 144, 173) a role's material (the curved kart's and the sports cars' parts): roles, the file's notes.roles
+    // ({colour, rough, metal, alpha, emission}: a colour of null is the design's); a role neither it nor BASE knows is
+    // fallback's. The curved kart's visor is see-through; a car's low-detail windows are dark glass, as the window's;
+    // (CHANGE 174, ultra) a car's paint has metal flakes under its clear coat, its trim a thinner coat, and its
+    // see-through roles (the windows, the lamps' covers) reflect at full strength however see-through they are
+    roleMaterials(design, colour, roles, fallback = "paint", car = false) {
+        roles = roles && typeof roles === "object" ? roles : {};
+        const second = Array.isArray(design.colour2) ? design.colour2.map(v => v / 255) : colour;
+        const COAT = car ? {paint: 1, paint2: 1, helmet: 0.8, stripe: 1, carbon: 0.6, chrome: 0.6, rim: 0.6, rim2: 0.6, caliper: 0.6}
+            : {paint: 1, paint2: 1, helmet: 0.8};
+        const FLAKE = car ? {paint: 1, paint2: 1, helmet: 1} : {};
+        const SHINY = ["paint", "paint2", "helmet", "metal", "chrome", "rim", "glass", "light", "window", "lens", "lens_red",
+                       "carbon", "disc", "caliper", "rim2", "stripe"];
+        const BASE = {paint: [colour, 0.32, 0.15], paint2: [second, 0.32, 0.15], dark: [[0.07, 0.07, 0.08], 0.55, 0],
+                      metal: [[0.62, 0.63, 0.66], 0.35, 1], chrome: [[0.92, 0.92, 0.94], 0.08, 1], glass: [[0.03, 0.035, 0.05], 0.04, 0],
+                      tyre: [[0.11, 0.11, 0.12], 0.8, 0], rim: [[0.78, 0.79, 0.82], 0.28, 1], seat: [[0.09, 0.09, 0.11], 0.4, 0],
+                      skin: [[0.86, 0.66, 0.53], 0.6, 0], helmet: [[0.95, 0.95, 0.95], 0.18, 0.05],
+                      light: [[0.85, 0.85, 0.86], 0.1, 0.6]};
+        const mats = {};
+        return (role, other = fallback) => {
+            if (!BASE[role] && !roles[role]) role = other;
+            if (mats[role]) return mats[role];
+            const [rgb0, rough0, metal0] = BASE[role] || [[0.5, 0.5, 0.5], 0.5, 0], r = roles[role] || {};
+            const rgb = Array.isArray(r.colour) && r.colour.length >= 3 ? r.colour.slice(0, 3)
+                : r.colour === null && role !== "paint2" ? colour : rgb0;  // (null: the design's colour, the helmet's too)
+            const rough = Number.isFinite(r.rough) ? r.rough : rough0, metal = Number.isFinite(r.metal) ? r.metal : metal0;
+            const opts = {clearcoat: COAT[role] || 0, probe: SHINY.includes(role), flake: FLAKE[role] || 0};
+            if (role === "tyre") Object.assign(opts, {tex: "tyre", tile: 2.5});
+            if (car && Number.isFinite(r.alpha) && r.alpha < 1) Object.assign(opts, {alpha: r.alpha, glass: true, clearcoat: 0});
+            if (car && Array.isArray(r.emission)) opts.emission = r.emission;
+            return (mats[role] = role === "glass" && !car ? this.glass("kvisor", rgb, 0.75)
+                : this.material((car ? "car" : "kc") + role, rgb, rough, metal, 0, opts));
+        };
+    }
+
+    // (CHANGE 173, kart_gfx.KartVisual.car) a sports car from models/cars.json (kartfx.js reads it): its body and front
+    // splitter from the file on every tier (hinged at its left end, as the kart's: it hangs as the front wing is
+    // damaged); its wheels the file's on ultra and plain tyres and hubs below (a car costs about what a kart does on a
+    // school laptop); its lamps, smoke, sparks and boost glow where its notes say. (CHANGE 174) near: on ultra the
+    // detailed car (models/cars_ultra_<body>.json: the cabin through see-through glass, the lamps' insides, the brakes)
+    // drawn while it is nearer the camera than its notes' lod far, the plain one beyond (frame() switches them)
+    addCar(design, root, body, colour, d, near = null) {
+        const notes = d.notes && typeof d.notes === "object" ? d.notes : {};
+        const mat = this.roleMaterials(design, colour, notes.roles, "paint", true);
+        const levels = near ? [["near", near], ["far", d]] : [["far", d]];
+        const lod = near ? {far: Number(notes.lod && notes.lod.far) || 22, near: [], farNodes: [], state: null} : null;
+        const holder = (parent, level) => {
+            const node = new BABYLON.TransformNode(level, this.scene);
+            node.parent = parent;
+            if (lod) (level === "near" ? lod.near : lod.farNodes).push(node);
+            return node;
+        };
+        let merged = [], nose = null;
+        const noseParts = [], N = notes.nose || {};
+        if (Array.isArray(N.pivot)) {
+            nose = new BABYLON.TransformNode("nose", this.scene);
+            nose.parent = body;
+            nose.position = v3(...N.pivot);
+        }
+        for (const [level, m] of levels) {
+            const at = holder(body, level), parts = [];
+            for (const part of m.body) {
+                const mesh = partMesh(this, part);
+                if (!mesh) continue;
+                mesh.material = mat(part.role);
+                mesh.parent = at;
+                parts.push(mesh);
+            }
+            const mine = this.mergeParts(parts, at);
+            merged = merged.concat(mine);
+            if (nose && (m.nose || []).length) {
+                const atNose = holder(nose, level);
+                for (const part of m.nose) {
+                    const mesh = partMesh(this, part);
+                    if (!mesh) continue;
+                    mesh.material = mat(part.role, "dark");
+                    mesh.parent = atNose;
+                    mesh.position = v3(...N.pivot).scale(-1);
+                    noseParts.push(mesh);
+                }
+            }
+        }
+        const R = Math.max(0.1, Number(notes.wheel_radius) || WHEEL_R), W = R * WHEEL_W / WHEEL_R;
+        const tyreM = this.material("ktyre", [1, 1, 1], 1.0, 0, 0, {tex: "tyre", tile: 2.5});
+        const hubM = this.material("khub", [0.75, 0.75, 0.78], 0.5, 1.0, 0, {tex: "steel", probe: true});
+        const wheels = [], wheelParts = [];
+        for (const w of d.wheels) {
+            const pivot = new BABYLON.TransformNode("pivot", this.scene);
+            pivot.parent = root;
+            pivot.position = v3(w.x, w.y, R);
+            const spin = new BABYLON.TransformNode("spin", this.scene);
+            spin.parent = pivot;
+            const side = new BABYLON.TransformNode("side", this.scene);
+            side.parent = spin;
+            if (w.side < 0) side.rotation.y = Math.PI;  // (half round about the upright: its outer face to the right)
+            const mine = [];
+            if (this.ultra) {
+                for (const [level, m] of levels) {
+                    const at = holder(side, level);
+                    for (const part of m.wheel) {
+                        const mesh = partMesh(this, part);
+                        if (!mesh) continue;
+                        mesh.material = mat(part.role, "tyre");
+                        mesh.parent = at;
+                        mine.push(mesh);
+                    }
+                }
+                // (CHANGE 174) the brake caliper: on the steering pivot, so it turns with the steering, not the wheel
+                const brake = near && near.brake ? near.brake[w.side > 0 ? "left" : "right"] : null;
+                if (brake) {
+                    const at = holder(pivot, "near");
+                    for (const part of brake) {
+                        const mesh = partMesh(this, part);
+                        if (!mesh) continue;
+                        mesh.material = mat(part.role, "caliper");
+                        mesh.parent = at;
+                        mine.push(mesh);
+                    }
+                }
+            } else {
+                mine.push(this.cyl(side, R, W, "y", tyreM, 0, 0, 0, null, 20));
+                mine.push(this.cyl(side, R * 0.6, W + 0.006, "y", hubM, 0, 0, 0, null, 14));
+            }
+            wheelParts.push(mine);
+            wheels.push({pivot, spin, front: !!w.front});
+        }
+        this.shadowCast([...merged, ...wheelParts.flat(), ...noseParts]);
+        const flame = this.kartFlame(root), glow = Array.isArray(notes.glow) ? notes.glow : [-1.3, 0, 0.3];
+        flame.position = v3(glow[0] + 0.1, glow[1], glow[2]);
+        let flameLines = null;
+        if (this.wire) {  // (the line tiers: as the box kart's)
+            const lines = this.lineMaterial("kart", 1, ...this.lineFade());
+            this.linesMesh("kartlines", this.edgeLines(merged, this.wire, body), lines, body);
+            flameLines = this.linesMesh("flamelines", this.edgeLines([flame], this.wire, flame), lines, flame);
+            if (flameLines) flameLines.isVisible = false;
+            wheels.forEach((w, i) => this.linesMesh("wheellines", this.edgeLines(wheelParts[i], this.wire, w.spin), lines, w.spin));
+            if (nose) this.linesMesh("noselines", this.edgeLines(noseParts, this.wire, nose), lines, nose);
+        }
+        const rear = d.wheels.find(w => !w.front && w.y > 0) || {x: -0.76, y: 0.6}, L = notes.lamps;
+        const lamps = L && Array.isArray(L.head) && Array.isArray(L.tail) && Array.isArray(L.size) ? L : LAMPS.kart;
+        const smoke = Array.isArray(notes.smoke) ? notes.smoke : [0.75, 0, 0.62];
+        const fit = {lamps, skid: [rear.x, rear.y], puff: [rear.x - 0.03, rear.y], smoke,
+                     sparks: [glow[0] + 0.1, glow[1], glow[2] + 0.08], beamX: Math.max(0.6, lamps.head[0]),
+                     hood: Array.isArray(notes.hood) ? notes.hood : [0.85, 0.75], label: Math.max(1.15, (Number(notes.height) || 1) + 0.3)};
+        this.finishKart(design.id, design, root, body, wheels, flame, flameLines, R, this.ultra, fit);
+        const k = this.karts.get(design.id);
+        k.nose = nose;
+        k.car = design.body;
+        k.lod = lod;
     }
 
     rebuildKarts() {  // (every kart made again, as it is now: the curved kart arrived)
@@ -810,11 +1125,13 @@ export class KartScene extends BaseScene {
     }
 
     setKarts(designs) {  // the roster's karts: add new ones, drop gone ones, recolour changed ones
-        const wanted = new Map(designs.map(d => [d.id, d]));
+        // (CHANGE 173: the roster's entry carries the whole design, and its body: a kart or a sports car)
+        const wanted = new Map(designs.map(d => [d.id, d.body || !(d.design && d.design.body) ? d : {...d, body: d.design.body}]));
         for (const id of [...this.karts.keys()]) if (!wanted.has(id)) this.removeKart(id);
         for (const [id, d] of wanted) {
             const have = this.karts.get(id);
-            if (!have || have.design.name !== d.name || String(have.design.colour) !== String(d.colour)) this.addKart(d);
+            if (!have || have.design.name !== d.name || String(have.design.colour) !== String(d.colour)
+                || (have.design.body || "kart") !== (d.body || "kart")) this.addKart(d);  // (the body: CHANGE 173)
         }
     }
 
@@ -894,6 +1211,14 @@ export class KartScene extends BaseScene {
                 z = track.point(at.s)[2];
             }
             k.root.position.set(st.x, z, st.y);
+            if (k.lod) {  // (CHANGE 174) a car's near or far model, by how far it is from the camera
+                const nearNow = BABYLON.Vector3.Distance(this.camera.globalPosition, k.root.position) < k.lod.far;
+                if (nearNow !== k.lod.state) {
+                    k.lod.state = nearNow;
+                    for (const n of k.lod.near) n.setEnabled(nearNow);
+                    for (const n of k.lod.farNodes) n.setEnabled(!nearNow);
+                }
+            }
             k.root.rotation.y = -st.yaw * Math.PI / 180;
             const drift = (st.flags & FLAG_DRIFT_L) ? 1 : (st.flags & FLAG_DRIFT_R) ? -1 : 0;
             // (kart_gfx.KartVisual.update, CHANGE 143) the body pitches with the acceleration, nose up as it speeds
@@ -919,16 +1244,17 @@ export class KartScene extends BaseScene {
             if (this.skids) this.skidFrom(k, st, z, drift && Math.abs(v) > 3);
             if (this.sparks && boosting) {
                 const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
-                this.sparks.emit([st.x - 0.75 * c - 0.28 * s, st.y - 0.75 * s + 0.28 * c, z + 0.38], st.yaw, v, dt > 0.02 ? 3 : 2);
+                const [sx, sy, sz] = k.fit.sparks;
+                this.sparks.emit([st.x + sx * c - sy * s, st.y + sx * s + sy * c, z + sz], st.yaw, v, dt > 0.02 ? 3 : 2);
             }
             // drift smoke from each rear tyre in turn, every 0.07 s while drifting above 3 m/s
             if (this.smoke && drift && Math.abs(v) > 3) {
                 k.puffTimer -= dt;
                 if (k.puffTimer <= 0) {
                     k.puffTimer = 0.07;
-                    const side = k.nextPuff % 2 ? 0.6 : -0.6, h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
+                    const [px, py] = k.fit.puff, side = k.nextPuff % 2 ? py : -py, h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
                     k.nextPuff = (k.nextPuff + 1) % PUFFS;
-                    this.smoke.emit([st.x - 0.55 * c - side * s, st.y - 0.55 * s + side * c, z + 0.15]);
+                    this.smoke.emit([st.x + px * c - side * s, st.y + px * s + side * c, z + 0.15]);
                 }
             }
             k.spin += v * dt / (k.wheelR || WHEEL_R);
@@ -961,9 +1287,11 @@ export class KartScene extends BaseScene {
                 if (k.smokeTimer <= 0) {
                     k.smokeTimer = 0.32 - 0.2 * dmg[5];
                     const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
-                    this.smoke.emit([st.x - 0.45 * c - 0.28 * s, st.y - 0.45 * s + 0.28 * c, z + 0.5], 0.6 - 0.45 * dmg[5]);
+                    const [ex, ey, ez] = k.fit.smoke;
+                    this.smoke.emit([st.x + ex * c - ey * s, st.y + ex * s + ey * c, z + ez], 0.6 - 0.45 * dmg[5]);
                 }
             }
+            if (k.lamps) this.lampFrame(k.lamps, !!this.timeLook.lamps, !!(st.flags & FLAG_BRAKING));  // (CHANGE 171, 172)
             if (k.boxWheel) k.boxWheel.rotation.x = -steer * STEER_RATIO;
             if (k.steerWheel) {  // (the curved kart's steering wheel, turned as the front wheels times its ratio)
                 const sw = k.steerWheel, q = sw.node.rotationQuaternion;
@@ -985,6 +1313,7 @@ export class KartScene extends BaseScene {
             this.padMat.setVector3("emission", new BABYLON.Vector3(glow, glow * 0.55, glow * 0.07));
         }
         this.updateCamera(states, dt);
+        this.headlightFrame(states);  // (CHANGE 172)
         if (this.smoke) this.smoke.update(dt, this.camera);
         if (this.ultra) this.ultraFrame(dt);
         this.followSun();
@@ -1009,7 +1338,8 @@ export class KartScene extends BaseScene {
     skidFrom(k, st, z, on) {
         if (!on) { k.skid = null; return; }
         const h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
-        const at = side => [st.x - 0.52 * c - side * 0.62 * s, st.y - 0.52 * s + side * 0.62 * c, z + 0.035];
+        const [rx, ry] = k.fit.skid;
+        const at = side => [st.x + rx * c - side * ry * s, st.y + rx * s + side * ry * c, z + 0.035];
         const now = [at(1), at(-1)];
         if (k.skid && Math.hypot(now[0][0] - k.skid[0][0], now[0][1] - k.skid[0][1]) > 2.5) k.skid = null;  // (a respawn)
         if (!k.skid) { k.skid = now; return; }
@@ -1061,7 +1391,8 @@ export class KartScene extends BaseScene {
         const yr = st.yaw * DEG, fx = Math.cos(yr), fy = Math.sin(yr);
         let want, look, fov, rate, near = 0.2;
         if (this.mode === "hood") {
-            want = [tx + fx * 0.95, ty + fy * 0.95, tz + 0.62];  // (just over the nose plate)
+            const [hx, hz] = k.fit.hood;  // (just over the nose plate, or a car's bonnet: CHANGE 173)
+            want = [tx + fx * hx, ty + fy * hx, tz + hz];
             look = [tx + fx * 25, ty + fy * 25, tz + 0.3];
             fov = 82; rate = 60; near = 0.08;
         } else if (this.mode === "tv") {

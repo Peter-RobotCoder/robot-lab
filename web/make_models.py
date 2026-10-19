@@ -7,6 +7,10 @@ tier draws the same kart and the same circuit as the app's (CHANGE 144).
   road, kerbs, gravel, barriers, grass, buildings and country as parts, and the trees, tufts, tyre stacks, fans and
   posts as shapes placed by instances, {"version", "materials", "shapes", "tracks", "lights", "notes"}: see
   kart_scenery.py.
+- cars.json: Kart Lab's sports cars (kart/car_models.py, CHANGE 173), drawn on every tier: {"version", "bodies": {name:
+  {"body", "nose", "wheel", "wheels", "notes"}}}: see car_models.py.
+- cars_ultra_<name>.json: each sports car in detail, which ultra draws near the camera (CHANGE 174): {"version",
+  "name", "body", "nose", "wheel", "wheels", "brake", "notes"}.
 - robot_ultra.json: Robot Lab's ultra robots (shared-world-demo/robot_models.py, CHANGE 145): every piece a robot is
   put together from, {"version", "roles", "pieces", "notes"}; where they go is robot_models.layout().
 - arena_ultra.json: Robot Lab's ultra arena (shared-world-demo/arena_models.py): the floor for each set of holes, the
@@ -33,6 +37,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "models")
 FILES = {"kart_ultra.json": "kart_models", "kart_scenery.json": "kart_scenery",  # file: the module that makes it
+         "cars.json": "car_models", **{f"cars_ultra_{n}.json": "car_models" for n in ("coupe", "supercar", "rally", "muscle")},
          "robot_ultra.json": "robot_models", "arena_ultra.json": "arena_models",
          "fight_ultra.json": "fight_models", "stage_ultra.json": "stage_models"}
 
@@ -102,6 +107,35 @@ def kart_text():
         lines.append(f'"{key}": [' + ("\n" + ",\n".join(parts) + "\n" if parts else "") + "],")
     lines.append(f'"wheels": {json.dumps(m["wheels"])},')
     lines.append(f'"notes": {json.dumps(m["notes"], indent=1)}' + "}")
+    return "\n".join(lines) + "\n"
+
+
+def cars_text():
+    """cars.json's text as car_models.py makes it today (a line per part)."""
+    m = module("car_models").cars()
+    one = lambda v: json.dumps(v, separators=(",", ":"))  # noqa: E731
+    cars = []
+    for name, c in m["bodies"].items():
+        lines = [f"{json.dumps(name)}: {{"]
+        for key in ("body", "nose", "wheel"):
+            lines.append(f'"{key}": [\n' + ",\n".join(one(p) for p in c[key]) + "],")
+        lines.append(f'"wheels": {one(c["wheels"])},')
+        lines.append(f'"notes": {json.dumps(c["notes"], indent=1)}' + "}")
+        cars.append("\n".join(lines))
+    return "{" + f'"version": {json.dumps(m["version"])},\n"bodies": {{\n' + ",\n".join(cars) + "}}\n"
+
+
+def car_ultra_text(name):
+    """cars_ultra_<name>.json's text as car_models.py makes it today (a line per part)."""
+    c = module("car_models").car_ultra(name)
+    one = lambda v: json.dumps(v, separators=(",", ":"))  # noqa: E731
+    lines = ["{" + f'"version": {json.dumps(c["version"])}, "name": {json.dumps(name)},']
+    for key in ("body", "nose", "wheel"):
+        lines.append(f'"{key}": [\n' + ",\n".join(one(p) for p in c[key]) + "],")
+    lines.append('"brake": {' + ", ".join(f'"{k}": [\n' + ",\n".join(one(p) for p in v) + "]" for k, v in c["brake"].items())
+                 + "},")
+    lines.append(f'"wheels": {one(c["wheels"])},')
+    lines.append(f'"notes": {json.dumps(c["notes"], indent=1)}' + "}")
     return "\n".join(lines) + "\n"
 
 
@@ -197,7 +231,8 @@ def stage_text():
     return "\n".join(lines) + "\n"
 
 
-TEXT = {"kart_ultra.json": kart_text, "kart_scenery.json": scenery_text, "robot_ultra.json": robot_text,
+TEXT = {"kart_ultra.json": kart_text, "kart_scenery.json": scenery_text, "cars.json": cars_text,
+        **{f"cars_ultra_{n}.json": (lambda n=n: car_ultra_text(n)) for n in ("coupe", "supercar", "rally", "muscle")}, "robot_ultra.json": robot_text,
         "arena_ultra.json": arena_text, "fight_ultra.json": fight_text, "stage_ultra.json": stage_text}
 
 
@@ -226,6 +261,11 @@ def build():
             f.write(text)
         if name == "kart_ultra.json":
             print(f"wrote models/{name} ({len(text) / 1e6:.2f} MB, {data['notes']['triangles']} triangles for the whole kart)")
+        elif name.startswith("cars_ultra_"):
+            print(f"wrote models/{name} ({len(text) / 1e6:.2f} MB, {data['notes']['triangles']} triangles)")
+        elif name == "cars.json":
+            tris = ", ".join(f"{k} {v['notes']['triangles']}" for k, v in data["bodies"].items())
+            print(f"wrote models/{name} ({len(text) / 1e6:.2f} MB, triangles per car: {tris})")
         elif name in ("robot_ultra.json", "arena_ultra.json", "fight_ultra.json", "stage_ultra.json"):
             tris = data["notes"]["triangles"]
             print(f"wrote models/{name} ({len(text) / 1e6:.2f} MB, {len(tris)} pieces or groups, {sum(tris.values())} triangles)")

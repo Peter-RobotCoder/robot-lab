@@ -461,6 +461,62 @@ def main():
         check("Kart Lab: power-ups drawn from the items messages (the boxes), each switched off and on from Controls, E "
               "sends USE", kart_items)
 
+        def kart_night():  # (CHANGE 171 to 173) the time of day from Controls, the lamps, a sports car
+            chrome.js("document.getElementById('panel').classList.add('open');"
+                      "document.querySelector('#panelhead button[data-tab=\"controls\"]').click()")
+            chrome.wait_for("!!document.querySelector('button[data-time=\"night\"]')", 10, "the Time of day buttons")
+            chrome.js("document.querySelector('button[data-time=\"night\"]').click()")
+            chrome.wait_for("window.__state.lesson.time === 'night' && window.__state.scene.time === 'night'", 15, "night")
+            me = chrome.js("window.__state.game.myId()")
+            chrome.js("window.__app.send({type: 'design', design: Object.assign({}, window.__state.roster.karts.find(k => k.id === "
+                      f"{json.dumps(me)}).design, {{body: 'coupe'}})}}); true")
+            chrome.wait_for(f"(window.__state.scene.karts.get({json.dumps(me)}) || {{}}).car === 'coupe'", 20, "the coupe drawn")
+            got = chrome.js(f"""(() => {{ const sc = window.__state.scene, id = {json.dumps(me)}, k = sc.karts.get(id);
+                const st = s => new Map([[id, {{x: 0, y: 0, yaw: 0, v: 8, u: 0, flags: s, steer: 0}}]]);
+                sc.frame(st(0), 1 / 60); const lit = k.lamps.state;
+                sc.frame(st(32), 1 / 60); const braking = k.lamps.state;
+                return {{lit, braking, wheels: k.wheels.length, label: k.label.position.y, beam: sc.timeLook.beam}}; }})()""")
+            assert got["lit"] == 1 and got["braking"] == 3 and got["wheels"] == 4 and got["label"] >= 1.15 and got["beam"] == 1, got
+            chrome.js("window.__app.send({type: 'design', design: Object.assign({}, window.__state.roster.karts.find(k => k.id === "
+                      f"{json.dumps(me)}).design, {{body: 'kart'}})}}); true")
+            chrome.js("document.querySelector('button[data-time=\"day\"]').click()")
+            chrome.wait_for(f"window.__state.scene.time === 'day' && !(window.__state.scene.karts.get({json.dumps(me)}) || {{}}).car",
+                            20, "day and the kart again")
+        check("Kart Lab: Night from Controls, the headlamps on and the brake lights with the braking flag, your kart a "
+              "sports car (models/cars.json) and back", kart_night)
+
+        def controller():  # (CHANGE 170) a game controller (pad.js), a pretend one through the Gamepad API
+            got = chrome.js("""(() => {
+                const pad = {id: 'Test pad (STANDARD GAMEPAD)', connected: true, timestamp: 1, axes: [0, 0, 0, 0],
+                             buttons: Array.from({length: 17}, () => ({pressed: false, value: 0}))};
+                const was = navigator.getGamepads;
+                navigator.getGamepads = () => [null, pad];
+                const c = window.__state.ctrl, out = {}, set = (i, v) => { pad.buttons[i] = {pressed: v > 0.5, value: v}; };
+                c.tapped = [];  // (no keys: the check before left an E)
+                try {
+                    c.pad = c.pads.read(); out.idle = c.kartControl();
+                    pad.axes = [-0.8, 0, 0, 0]; set(7, 1); set(5, 1); set(4, 1);   // stick left, right trigger, both shoulders
+                    c.pad = c.pads.read(); out.kart = c.kartControl(); out.kart2 = c.kartControl();
+                    set(7, 0); set(5, 0); set(4, 0); set(1, 1); pad.axes = [0, 0, 0, 0];  // the right face button: brake
+                    c.pad = c.pads.read(); out.brake = c.kartControl();
+                    set(1, 0); pad.axes = [0, -1, 0, 0]; set(0, 1);                 // stick up, the bottom face button
+                    c.pad = c.pads.read(); out.robot = c.robotControl();
+                    set(0, 0); set(4, 1); set(6, 1); pad.axes = [0, 0, 0, 0];      // left shoulder and left trigger
+                    c.pad = c.pads.read(); out.fight = c.fightControl();
+                    set(4, 0); set(6, 0); c.pad = c.pads.read();
+                } finally { navigator.getGamepads = was; c.pad = null; }
+                return out; })()""")
+            assert got["idle"] == {"throttle": 0, "steer": 0, "buttons": 0}, got["idle"]
+            k = got["kart"]
+            assert k["throttle"] == 1 and k["steer"] > 0.6 and k["buttons"] & 1 and k["buttons"] & 2, k
+            assert got["kart2"]["buttons"] & 1 and not got["kart2"]["buttons"] & 2, ("USE goes in one tick only", got["kart2"])
+            assert got["brake"]["throttle"] == -1, got["brake"]
+            assert got["robot"] == {"throttle": 1, "steer": 0, "fire": True}, got["robot"]
+            assert got["fight"]["hold"] == "low_block", got["fight"]
+        check("A game controller (a pretend one): Kart Lab's stick steers, the right trigger goes, the right face button "
+              "brakes, the shoulders drift and use (once); Robot Lab's stick drives and the bottom button fires; Fight "
+              "Lab's left shoulder and trigger block low", controller)
+
         def controls():
             assert chrome.js("window.__state.lesson.mode") == "practice"
             chrome.js("document.getElementById('btn-start').click()")

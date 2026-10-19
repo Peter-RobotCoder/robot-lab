@@ -27,12 +27,17 @@ ap.add_argument("--steer", type=float, default=None, help="draw every kart steer
 ap.add_argument("--shield", action="store_true", help="every kart with a shield up (CHANGE 159)")
 ap.add_argument("--damage", default=None, help="draw every kart this damaged: six numbers 0 to 1, wing,fl,fr,rl,rr,engine (CHANGE 158)")
 ap.add_argument("--track", choices=["club", "oval", "straight"], default="club")
+ap.add_argument("--time", choices=["day", "dusk", "night"], default="day", help="the time of day (CHANGE 172)")
+ap.add_argument("--brake", action="store_true", help="every kart's brake lights on (CHANGE 171)")
+ap.add_argument("--rear", action="store_true", help="--closeup from behind (the tail lamps)")
+ap.add_argument("--bodies", default=None, help="the four karts' bodies, e.g. coupe,supercar,rally,muscle (CHANGE 173)")
 ap.add_argument("--camera", choices=["chase", "hood", "tv"], default="chase")
 ap.add_argument("--laps", type=int, default=None)
 ap.add_argument("--offscreen", action="store_true")
 ap.add_argument("--screenshot")
 ap.add_argument("--after", type=float, default=8.0, help="seconds before the screenshot")
 ap.add_argument("--run", type=float, default=None, help="run this many seconds, print the frame rate and quit")
+ap.add_argument("--no-vsync", action="store_true", help="draw as fast as it can (with --run: what a frame costs)")
 args = ap.parse_args()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -40,7 +45,8 @@ import kart_version  # noqa: E402
 sys.path.insert(0, kart_version.ENGINE_HOME)
 from engine import full_screen, gfx_tiers, wire  # noqa: E402
 
-loadPrcFileData("", "win-size 1600 900\nwindow-title Kart Lab preview\nsync-video true\n")
+loadPrcFileData("", "win-size 1600 900\nwindow-title Kart Lab preview\nsync-video "
+                + ("false" if args.no_vsync else "true") + "\n")
 loadPrcFileData("", gfx_tiers.prc_for(args.gfx))
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\nwin-size 1280 720\naudio-library-name null\n")
@@ -59,6 +65,8 @@ DESIGNS = [{"name": "Violet", "colour": (180, 90, 230), "speed": 45, "accelerati
            {"name": "Blue", "colour": (60, 130, 230), "speed": 30, "acceleration": 40, "grip": 30},
            {"name": "Green", "colour": (60, 190, 90), "speed": 25, "acceleration": 30, "grip": 45},
            {"name": "Yellow", "colour": (240, 190, 40), "speed": 34, "acceleration": 33, "grip": 33}]
+for _d, _b in zip(DESIGNS, (args.bodies or "").split(",") if args.bodies else []):
+    _d["body"] = _b
 
 
 def drive(track, k):
@@ -82,6 +90,7 @@ class Preview(ShowBase):
         self.disableMouse()
         self.track = kart_track.load(args.track)
         self.pipeline = kart_gfx.init(self, args.gfx, line_colour=args.lines)
+        kart_gfx.set_time(args.time)  # (CHANGE 172)
         started = time.perf_counter()
         self.track_vis = kart_gfx.TrackVisual(self.render, self.track)
         self.items_vis = kart_gfx.ItemsVisual(self.render, self.track)  # (CHANGE 159) the power-ups
@@ -184,15 +193,20 @@ class Preview(ShowBase):
             self.karts[i].update(k["x"], k["y"], z, k["yaw"], inp[1] if args.steer is None else args.steer, k["v"], k["u"], drifting,
                                  bool(k["flags"] & sim.FLAG_BOOSTING), dt,
                                  [float(v) for v in args.damage.split(",")] if args.damage else sim.damage_of(k),
-                                 args.shield or k.get("shield", 0) > 0)
+                                 args.shield or k.get("shield", 0) > 0, args.brake or bool(k["flags"] & sim.FLAG_BRAKING))
+        kart_gfx.headlights([self.karts[self.follow]] + [v for i, v in self.karts.items() if i != self.follow])  # (CHANGE 172)
         me = states[self.follow]
+        self.cam.hood = self.karts[self.follow].hood  # (CHANGE 173)
         self.cam.update(dt, me["x"], me["y"], self.track.height(me["s"]), me["yaw"], me["v"], self.track)
         if args.closeup:  # three quarters from the front, a little above
             yaw = math.radians(me["yaw"])
             fwd, left = (math.cos(yaw), math.sin(yaw)), (-math.sin(yaw), math.cos(yaw))
             z = self.track.height(me["s"])
-            self.camera.setPos(me["x"] + fwd[0] * 1.9 + left[0] * 1.3, me["y"] + fwd[1] * 1.9 + left[1] * 1.3, z + 0.95)
-            self.camera.lookAt(me["x"] - fwd[0] * 0.1, me["y"] - fwd[1] * 0.1, z + 0.38)
+            ahead = -1.0 if args.rear else 1.0  # (--rear: from behind, the tail lamps)
+            far = 1.7 if DESIGNS[self.follow].get("body", "kart") != "kart" else 1.0  # (a sports car: further off)
+            self.camera.setPos(me["x"] + fwd[0] * 1.9 * ahead * far + left[0] * 1.3 * far,
+                               me["y"] + fwd[1] * 1.9 * ahead * far + left[1] * 1.3 * far, z + 0.95 * far)
+            self.camera.lookAt(me["x"] - fwd[0] * 0.1 * ahead, me["y"] - fwd[1] * 0.1 * ahead, z + 0.38)
             self.camLens.setFov(48)
         places = self.race.places()
         mine = self.race.karts[self.follow]

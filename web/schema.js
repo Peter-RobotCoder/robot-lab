@@ -3644,6 +3644,7 @@ export const FUNCTIONS = {
     lab_weapon_valid: (game, ctx) => pyList(ctx.all_weapons).concat(houseWeapons(ctx).filter(w => !pyIn(w, pyList(ctx.all_weapons)))),
     house_names: (game, ctx) => pyList(ctx.house),
     body_names: (game, ctx) => pyList(ctx.bodies),
+    kart_bodies: (game, ctx) => pyList(game.consts.bodies),  // (CHANGE 173: the kart or a sports car)
     boss_names: (game, ctx) => pyList(ctx.bosses),
     mission_specials: (game, ctx) => ctx.specials,
     all_specials: (game, ctx) => ctx.all_specials,

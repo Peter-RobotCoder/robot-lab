@@ -151,6 +151,7 @@ from engine import rw_sound  # noqa: E402
 from engine.net import Net  # noqa: E402
 from engine import interp  # noqa: E402
 from engine import ahead  # noqa: E402  (CHANGE 166: the robots drawn where they are now)
+from engine import gamepad  # noqa: E402  (CHANGE 170: a controller drives your robot)
 from rw_camera import GameCamera  # noqa: E402
 from rw_gfx import ArenaVisual, RobotVisual  # noqa: E402
 
@@ -431,6 +432,7 @@ class Lab(hud.HudKit, ShowBase):
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
         # the server's snapshots, drawn a little in the past and blended (engine.interp); latest is the newest as sent
         self.snaps, self.latest = interp.Snapshots(interp.LAB_SPEC), None
+        self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
         self.ahead, self.drive = ahead.RobotsAhead(), {}  # (CHANGE 166) drawn ahead; each robot's drive, from the roster
         self.ctrl_seq, self.ctrl_sent, self.ctrl_ms = 0, {}, None  # numbered controls, and the measured control delay
         self.perf_at = 0.0
@@ -3167,15 +3169,24 @@ class Lab(hud.HudKit, ShowBase):
         down = self.mouseWatcherNode.is_button_down
         behind = getattr(self.win, "getProperties", None) and not self.win.getProperties().getForeground()
         tapped, self.space_tapped = self.space_tapped, False
+        pad = self.pad.read()  # (CHANGE 170: read every frame, so a button tapped between two isn't lost)
         if self.typing or behind:  # arrows and space move the text cursor, not the robot; and a key held
             # as the window loses focus would never let go (its key-up never arrives): no input while behind
             control = (0.0, 0.0, False)
         else:
             throttle = (down(KeyboardButton.up()) - down(KeyboardButton.down())) * 1.0
             steer = (down(KeyboardButton.left()) - down(KeyboardButton.right())) * 1.0
+            fire = bool(down(KeyboardButton.space())) or tapped
+            if pad and not throttle and not steer:  # (CHANGE 170) the stick (or the d-pad, or the triggers)
+                throttle = round(pad.y or pad.rt - pad.lt, 2)  # (analogue, in hundredths: half a push is half
+                steer = round(-pad.x, 2)                        # the motor's force, half the turn rate)
+            if pad:  # the bottom face button fires (Space); Start is the side panel (I)
+                fire = fire or "south" in pad.held or "south" in pad.pressed
+                if "start" in pad.pressed:
+                    self.toggle_panel()
             if throttle < 0:  # reversing: left and right arc the robot the other way, as a car does (CHANGE 113)
                 steer = -steer
-            control = (throttle, steer, bool(down(KeyboardButton.space())) or tapped)
+            control = (throttle, steer, fire)
         # a change goes at once; otherwise the control is repeated 30 times a second, numbered, so a message lost or
         # held up on the way is made good by the next one (and the server ignores one that arrives out of order)
         if control != self.last_control or now - self.last_send > 1 / 30:

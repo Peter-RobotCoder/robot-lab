@@ -81,9 +81,11 @@ GFX_MAX_FILE = os.path.join(DATA, "gfx_max_saved.json")  # ...and the class's gr
 LIMITS_FILE = os.path.join(DATA, "limits_saved.json")        # the learners' ranges, kept between sessions
 MISSIONS_FILE = os.path.join(DATA, "mission_settings.json")  # the teacher's settings for each mission, kept by
 # Save settings and used whenever that mission is chosen: these keys
-MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "damage", "items", "user_mods",
+MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "damage", "items", "time",
+                "user_mods",
                 "mods_in_vote", "arena_in_vote", "hazards", "tools", "limits")
 HAZARD_WORDS = {"bumping": "Bumping", "cpu_karts": "Computer karts"}
+TIMES = ("day", "dusk", "night")  # (CHANGE 172) the race's time of day
 STAGE_ITEMS = tuple(HAZARD_WORDS)  # what learners can vote for on the Mods tab (the track's switches)
 
 # What learners can see and change. The teacher edits this live from the teacher screen.
@@ -98,6 +100,7 @@ WEEK1_LESSON = {
     "designs_locked": False,       # stop design changes (e.g. during a tournament)
     "damage": True,                # (CHANGE 158) real damage: hits slow a kart; it mends, quickly in the PIT box
     "items": {n: True for n in kart_items.ITEMS},  # (CHANGE 159) the power-ups the item boxes give (each on or off)
+    "time": "day",                 # (CHANGE 172) the race's time of day: day, dusk or night (the headlights come on)
     "hazards": dict(km.NO_HAZARDS),
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
     "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
@@ -701,6 +704,8 @@ class KartServer:
                 new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", d["name"]).strip()[:12] or old["name"]
             if isinstance(d.get("colour"), list):
                 new["colour"] = d["colour"]
+            if d.get("body") in sim.BODIES:  # (CHANGE 173: a kart or a sports car, with the name and colour)
+                new["body"] = d["body"]
         for k in sim.STATS:
             if (everything or tools.get(k) or tools.get("points_table")) and k in d:
                 new[k] = d[k]
@@ -751,7 +756,7 @@ class KartServer:
         new = dict(p.design)
         if isinstance(d.get("name"), str):
             new["name"] = re.sub(r"[^A-Za-z0-9 ]", "", d["name"]).strip()[:12] or new["name"]
-        for key in ("colour", *sim.STATS):
+        for key in ("colour", "body", *sim.STATS):
             if key in d:
                 new[key] = d[key]
         problems = sim.check_design(new, sim.full_limits())
@@ -987,6 +992,10 @@ class KartServer:
                 self.race.items.set_allowed(L["items"])
                 on = [n for n in kart_items.ITEMS if L["items"][n]]
                 self.race.events.append((self.race.tick, "Power-ups: " + (", ".join(on) if on else "none")))
+        if update.get("time") in TIMES and update["time"] != L.get("time", "day"):  # (CHANGE 172) live: every
+            L["time"] = update["time"]  # window and page relights the race
+            self.race.events.append((self.race.tick, {"day": "Daytime", "dusk": "Dusk: lights on",
+                                                      "night": "Night falls: lights on"}[L["time"]]))
         if "damage" in update and bool(update["damage"]) != bool(L.get("damage", True)):  # (CHANGE 158) live
             L["damage"] = bool(update["damage"])
             self.race.set_damage(L["damage"])

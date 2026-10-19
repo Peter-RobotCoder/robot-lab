@@ -24,6 +24,7 @@ export const STATS = ["speed", "acceleration", "grip"];
 
 export const DRIFT = 1, USE = 2, RESPAWN = 4;  // the input's buttons
 export const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_FINISHED = 4, FLAG_WRONG_WAY = 8, FLAG_BOOSTING = 16;
+export const FLAG_BRAKING = 32;  // (CHANGE 171) the brake (or reverse) pressed: the brake lights
 
 export const KART_HALF = 0.8;          // half a kart's width: how close to the edge it may go (m)
 export const BUMP_DISTANCE = 1.7;      // karts closer than this push each other apart (m)
@@ -120,6 +121,7 @@ export function step(k, inp, dt, track, st, damage = false) {
     grip *= 1.0 - 0.15 * wing;
     const pull = 0.25 * ((fl + rl) - (fr + rr)) / 2;
     let boost = k.boost, slip = k.slip, charge = k.charge, flags = 0;
+    if (th < 0) flags |= FLAG_BRAKING;  // (CHANGE 171) braking, or reversing: the brake lights
     if (boost) {
         top = top * BOOST_SPEED;
         accel = accel * BOOST_ACCEL;

@@ -150,7 +150,7 @@ ITEM_TEXT = [("boost", "Boost"), ("oil", "Oil slick"), ("shot", "Bouncing shot")
              ("shield", "Shield")]  # (CHANGE 159: kart_items.ITEMS on the screen)
 import kart_sound  # noqa: E402
 import kart_track  # noqa: E402
-from engine import interp, predict, wire  # noqa: E402
+from engine import gamepad, interp, predict, wire  # noqa: E402  (gamepad: a controller, CHANGE 170)
 from engine.net import Net  # noqa: E402
 from engine import net as net_module  # noqa: E402
 try:
@@ -415,6 +415,7 @@ class Lab(hud.HudKit, ShowBase):
         self.lap_seen, self.lap_started, self.best_lap = None, None, None  # lap timing (see laps)
         self.accum = 0.0
         self.keys_down = {"drift": False, "respawn": False, "use": False}  # (use: E, your item: CHANGE 159)
+        self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
         self.note_text, self.note_big, self.note_until = "", False, 0.0
         self.finished = False
         self.autopilot = False
@@ -538,7 +539,8 @@ class Lab(hud.HudKit, ShowBase):
         layer's (the tools, the limits, the hazards), with defaults for anything missing."""
         L = {"lesson_number": 1, "track": args.track, "laps": 3, "cpu_karts": 3, "cpu_level": "medium", "brains": True,
              "tools": {}, "limits": None, "hazards": {}, "user_mods": {}, "mods_in_vote": {}, "arena_in_vote": {},
-             "designs_locked": False, "damage": True, "show_missions": False, "ai_card_note": "", "saved_missions": []}
+             "designs_locked": False, "damage": True, "time": "day", "show_missions": False, "ai_card_note": "",
+             "saved_missions": []}
         L.update(lesson or {})
         tools = {k: True for k in kh.TOOL_ORDER}
         tools.update(L.get("tools") or {})
@@ -1297,6 +1299,12 @@ class Lab(hud.HudKit, ShowBase):
         # (CHANGE 158) real damage: hits slow a kart till it's mended (off mends every kart)
         check(f, "Damage (hits slow a kart till it's mended)", 0.84, y, L.get("damage", True),
               lambda v: self.set_lesson({"damage": bool(v)}), 0.026)
+        y -= 0.05
+        # (CHANGE 172) the race's time of day: everyone's window and page relights; headlights at dusk and night
+        label(f, "Time of day", 0.82, y, 0.028, YELLOW)
+        for i, (key, text) in enumerate((("day", "Day"), ("dusk", "Dusk"), ("night", "Night"))):
+            button(f, text, 1.08 + i * 0.16, y + 0.008, lambda k=key: self.set_lesson({"time": k}), (), 0.024,
+                   ON if L.get("time", "day") == key else OFF)
         y -= 0.05
         # (CHANGE 159) the power-ups the item boxes give, each on or off
         label(f, "Power-ups", 0.82, y, 0.028, YELLOW)
@@ -2421,6 +2429,7 @@ class Lab(hud.HudKit, ShowBase):
                     new, m.get("class", self.class_list), m.get("tournament"), mods
                 self.obey_gfx_max()
                 self.set_track(new.get("track", self.track_name), new.get("laps"))
+                kart_gfx.set_time(new.get("time", "day"))  # (CHANGE 172: day, dusk or night, as the teacher has it)
             elif kind in ("slots", "history"):  # saved designs (CHANGE 83 to 86)
                 rebuild = self.took_slots(m) or rebuild
             elif kind == "warnings":  # teacher: a learner changed, in the code, something outside the lesson
@@ -2634,6 +2643,16 @@ class Lab(hud.HudKit, ShowBase):
         bt = (sim.DRIFT if self.keys_down["drift"] else 0) | (sim.RESPAWN if self.keys_down["respawn"] else 0) | \
             (sim.USE if self.keys_down["use"] else 0)
         self.keys_down["respawn"] = self.keys_down["use"] = False
+        pad = self.pad.read()  # (CHANGE 170) a controller: the bottom face button or the right trigger goes, the right
+        if pad:                # one or the left trigger brakes, the stick steers, the right shoulder drifts, the left
+            if not th:         # shoulder or the left face button uses your item, Back (Minus) respawns
+                th = max(pad.rt, float("south" in pad.held)) - max(pad.lt, float("east" in pad.held))
+            if not steer:
+                steer = -pad.x
+            bt |= (sim.DRIFT if "rb" in pad.held else 0) | (sim.RESPAWN if "back" in pad.pressed else 0) | \
+                (sim.USE if pad.pressed & {"lb", "west"} else 0)
+            if "start" in pad.pressed:
+                self.toggle_panel()
         return wire.quantise_input(float(th), float(steer), bt)
 
     def client_tick(self, now):
@@ -2788,9 +2807,16 @@ class Lab(hud.HudKit, ShowBase):
             flags = k.get("flags", 0)
             vis.update(k["x"], k["y"], z, k["yaw"], k.get("steer", 0.0), k["v"], k["u"],  # (steer: CHANGE 157)
                        bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), bool(flags & sim.FLAG_BOOSTING), dt,
-                       sim.damage_of(k), k.get("shield", 0) > 0)  # (CHANGE 158, 159)
+                       sim.damage_of(k), k.get("shield", 0) > 0, bool(flags & sim.FLAG_BRAKING))  # (CHANGE 158, 159, 171)
+        # (CHANGE 172) the headlight beams: your kart's, then the nearest to the camera
+        cam = self.camera.getPos(self.render)
+        near = sorted((v for kid, v in self.karts.items() if kid in states and kid != self.my_id),
+                      key=lambda v: (v.root.getPos(self.render) - cam).lengthSquared())
+        kart_gfx.headlights(([self.karts[self.my_id]] if self.my_id in self.karts and self.my_id in states else []) + near)
         if me is not None:
             seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))
+            if self.my_id in self.karts:
+                self.cam_rig.hood = self.karts[self.my_id].hood  # (CHANGE 173: over a car's bonnet)
             self.cam_rig.update(dt, me["x"], me["y"], self.track.height(s), me["yaw"], me["v"], self.track)
         r = self.race
         places = r["places"] or sorted(states)

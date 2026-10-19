@@ -57,6 +57,7 @@ def load_kart(path):
     problems = check_kart(d)
     if problems:
         raise ModError(f"{os.path.basename(path)}: " + "; ".join(problems))
+    d.setdefault("body", "kart")  # (CHANGE 173: a kart saved before the sports cars)
     return d
 
 

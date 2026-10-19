@@ -41,6 +41,8 @@ uniform vec3 below;
 uniform vec3 sunDir;
 uniform vec3 sunCol;
 uniform float time;
+uniform float clouds;  // (CHANGE 172) how lit the clouds are
+uniform float stars;   // ...and the stars, at night
 varying vec3 vDir;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -63,7 +65,9 @@ void main(void) {
         vec2 p = d.xz / (h + 0.15) * 2.2 + vec2(time * 0.006, time * 0.002);
         float n = fbm(p);
         float c = smoothstep(0.58, 0.8, n) * smoothstep(0.03, 0.35, h);
-        vec3 cloud = mix(vec3(0.72, 0.76, 0.82), vec3(0.96, 0.95, 0.93), clamp(0.4 + 0.5 * s + 2.0 * (n - 0.62), 0.0, 1.0));
+        vec3 cloud = mix(vec3(0.72, 0.76, 0.82), vec3(0.96, 0.95, 0.93), clamp(0.4 + 0.5 * s + 2.0 * (n - 0.62), 0.0, 1.0)) * clouds;
+        vec2 cell = floor(d.xz / (h + 0.25) * 260.0);
+        col += vec3(0.9, 0.92, 1.0) * stars * step(0.9965, hash(cell)) * hash(cell + 7.1) * (1.0 - c);
         col = mix(col, cloud, c * 0.85);
     }
     col += sunCol * (pow(s, 900.0) * 3.0 + pow(s, 60.0) * 0.22 + pow(s, 6.0) * 0.07);
@@ -76,14 +80,18 @@ export function makeSky(sc) {
     const P = sc.look.pbr, exposure = Math.pow(2, P.exposure || 0);
     const bg = toneMap(P.background, exposure);
     const m = new BABYLON.ShaderMaterial("ccsky", sc.scene, {vertexSource: SKY_VERT, fragmentSource: SKY_FRAG}, {
-        attributes: ["position"], uniforms: ["world", "viewProjection", "baseColor", "zenith", "horizon", "below", "sunDir", "sunCol", "time"]});
+        attributes: ["position"], uniforms: ["world", "viewProjection", "baseColor", "zenith", "horizon", "below", "sunDir", "sunCol", "time",
+                                             "clouds", "stars"]});
     m.setColor4("baseColor", new BABYLON.Color4(1, 1, 1, 1));
     m.setVector3("zenith", new BABYLON.Vector3(bg[0] * 0.55, bg[1] * 0.72, bg[2] * 0.97));
-    m.setVector3("horizon", new BABYLON.Vector3(...HAZE));
-    m.setVector3("below", new BABYLON.Vector3(0.55, 0.62, 0.6));
+    const T = sc.timeLook || {};  // (CHANGE 172: the time of day's sky; the day's without one)
+    m.setVector3("horizon", new BABYLON.Vector3(...(T.horizon || HAZE)));
+    m.setVector3("below", new BABYLON.Vector3(...(T.below || [0.55, 0.62, 0.6])));
+    m.setFloat("clouds", T.clouds ?? 1.0);
+    m.setFloat("stars", T.stars ?? 0.0);
     const o = P.sun.offset, n = Math.hypot(...o);
     m.setVector3("sunDir", new BABYLON.Vector3(o[0] / n, o[2] / n, o[1] / n));
-    m.setVector3("sunCol", new BABYLON.Vector3(1.0, 0.92, 0.75));
+    m.setVector3("sunCol", new BABYLON.Vector3(...(T.sunCol || [1.0, 0.92, 0.75])));
     m.setFloat("time", 0);
     m.backFaceCulling = false;
     m.disableDepthWrite = true;
@@ -417,6 +425,40 @@ export function loadUltraKart() {
     return ultraAsked;
 }
 export function ultraKartData() { return ultraKart; }
+
+// (CHANGE 173) the sports cars (models/cars.json: make_models.py, kart/car_models.py), drawn on every tier: {version,
+// bodies: {name: {body: [part], nose: [part], wheel: [part], wheels: [{x, y, z, front, side}], notes}}}. Fetched only
+// when a kart is one (1.2 MB); null until it has loaded (or when it isn't there or is broken)
+let cars = null, carsAsked = null;
+export function loadCars() {
+    if (!carsAsked) {
+        carsAsked = fetch("models/cars.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).then(d => {
+            cars = d && d.bodies && typeof d.bodies === "object" ? d : null;
+            return cars;
+        }).catch(() => null);
+    }
+    return carsAsked;
+}
+export function carData(name) {
+    const c = cars && Object.prototype.hasOwnProperty.call(cars.bodies, name) ? cars.bodies[name] : null;
+    return c && Array.isArray(c.body) && Array.isArray(c.wheel) && Array.isArray(c.wheels) && c.wheels.length === 4 ? c : null;
+}
+
+// (CHANGE 174) a sports car's detailed model (models/cars_ultra_<name>.json, about 4 MB: only on ultra, only for a
+// body someone is in), drawn near the camera: {version, name, body, nose, wheel, wheels, brake: {left, right}, notes}
+const ultraCars = {}, ultraCarsAsked = {};
+const CAR_NAME = /^[a-z]+$/;
+export function loadCarUltra(name) {
+    if (!CAR_NAME.test(String(name))) return Promise.resolve(null);
+    if (!ultraCarsAsked[name]) {
+        ultraCarsAsked[name] = fetch(`models/cars_ultra_${name}.json`, {cache: "no-cache"}).then(r => r.ok ? r.json() : null).then(d => {
+            ultraCars[name] = d && Array.isArray(d.body) && Array.isArray(d.wheel) && Array.isArray(d.wheels) && d.wheels.length === 4 ? d : null;
+            return ultraCars[name];
+        }).catch(() => null);
+    }
+    return ultraCarsAsked[name];
+}
+export function carUltraData(name) { return ultraCars[name] || null; }
 
 // one part as a Babylon mesh: the game's (x, y, z) as Babylon's (x, z, y), and each triangle turned round (the swap
 // is a mirror image, which turns the winding over)
