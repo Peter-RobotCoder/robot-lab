@@ -3,8 +3,9 @@
 // Robot Lab (lab_client.send_controls): the arrows drive, Space fires (a tap is kept until it is sent); reversing,
 // left and right arc the other way, as a car does. Fight Lab (fight_client): the arrows move your fighter the way
 // they point on the screen (the camera decides, so right always moves right), A punch, S kick, D special, W throw,
-// Space jump, F cartwheel, Shift blocks, X crouches. Kart Lab: the arrows (or WASD) drive, Shift or Space drifts, R
-// respawns. Each control is numbered and sent the moment it changes, and otherwise 30 times a second (60 for the
+// Space jump, F cartwheel, Shift blocks, X crouches. Kart Lab: the arrows (or WASD) drive, Shift drifts, Space (or
+// E) uses your item, B is the handbrake, the throttle tapped then held drops the clutch (CHANGE 181), R respawns.
+// Each control is numbered and sent the moment it changes, and otherwise 30 times a second (60 for the
 // kart, as its window's clock runs), so one lost on the way is made good by the next and the server ignores one
 // that comes late. While you type in the panel, or the page is behind another window, nothing is pressed.
 // (CHANGE 170) A game controller works alongside the keys (pad.js): the stick or d-pad as the arrows; Robot Lab:
@@ -30,14 +31,14 @@ export class Keys {
         };
         window.addEventListener("keydown", e => {
             if (this.typing() || e.ctrlKey || e.metaKey || e.altKey) return;
-            const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+            const k = typeof e.key !== "string" ? "" : e.key.length === 1 ? e.key.toLowerCase() : e.key;  // (a synthetic event may have no key)
             if (MOVE_KEYS.has(e.key) && this.active) e.preventDefault();  // (the arrows and Space don't scroll the page)
             if (!this.down.has(k)) this.taps.push(k);
             this.down.add(k);
             if (this.onKey) this.onKey(k, e);
         });
         window.addEventListener("keyup", e => {
-            const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+            const k = typeof e.key !== "string" ? "" : e.key.length === 1 ? e.key.toLowerCase() : e.key;  // (a synthetic event may have no key)
             this.down.delete(k);
         });
         // a key held as the page loses focus would never let go (its key-up never comes): let everything go
@@ -118,19 +119,39 @@ export class Controller {
         let throttle = (K.is("ArrowUp", "w") ? 1 : 0) - (K.is("ArrowDown", "s") ? 1 : 0);
         let steer = (K.is("ArrowLeft", "a") ? 1 : 0) - (K.is("ArrowRight", "d") ? 1 : 0);
         let buttons = 0;
-        if (K.is("Shift", " ")) buttons |= 1;          // DRIFT
+        if (K.is("Shift")) buttons |= 1;               // DRIFT
+        if (K.is("b")) buttons |= 16;                  // HANDBRAKE (CHANGE 181)
         if (this.tapped.includes("r")) buttons |= 4;   // RESPAWN (once per press)
-        if (this.tapped.includes("e")) buttons |= 2;   // USE: your item (once per press: CHANGE 159)
+        if (this.tapped.includes("e") || this.tapped.includes(" ")) buttons |= 2;  // USE: your item (once per press: CHANGE 159; Space, CHANGE 181)
         const pad = this.pad;
         if (pad) {  // (CHANGE 170)
             if (!throttle) throttle = Math.max(pad.rt, pad.held.has("south") ? 1 : 0) - Math.max(pad.lt, pad.held.has("east") ? 1 : 0);
             if (!steer) steer = -pad.x;
             if (pad.held.has("rb")) buttons |= 1;
+            if (pad.held.has("north")) buttons |= 16;
             if (pad.pressed.has("back")) buttons |= 4;
             if (pad.pressed.has("lb") || pad.pressed.has("west")) buttons |= 2;
             pad.pressed = new Set();  // (a press goes in one tick: the kart's are many a frame)
         }
+        buttons |= this.launchButton(throttle > 0);
+        this.consumed = true;
         return {throttle, steer, buttons};
+    }
+
+    // (CHANGE 181, kart_client.launch_button) the clutch dropped: the throttle let go and pressed again within 0.35 s
+    // while the kart is nearly still arms LAUNCH, held until the throttle is let go (the step spins the back wheels
+    // while the kart is under 6 m/s: a burnout, or a donut with the wheel turned)
+    launchButton(pressed) {
+        const now = performance.now(), game = this.app.game;
+        if (pressed && !this.thWas) {
+            const v = game && game.mySpeed ? game.mySpeed() : 0;
+            if (now - (this.thReleased ?? -1e9) < 350 && Math.abs(v) < 3.0) this.launchArmed = true;
+        } else if (!pressed && this.thWas) {
+            this.thReleased = now;
+            this.launchArmed = false;
+        }
+        this.thWas = pressed;
+        return this.launchArmed && pressed ? 8 : 0;
     }
 
     // called every frame: sends a control when it changed, or when it's time to repeat it
@@ -138,21 +159,30 @@ export class Controller {
         const game = this.app.game;
         if (!game || !game.myId || game.myId() === null || game.myId() === undefined) { this.keys.active = false; return; }
         this.keys.active = true;
-        this.tapped = this.keys.takeTaps();
-        this.pad = this.pads.read();  // (CHANGE 170: every frame, so a button tapped between two isn't lost)
+        // (CHANGE 181) Kart Lab's taps wait for a tick: a frame with no tick in it (a 120 Hz screen draws two frames a
+        // tick) threw the taps of that frame away, and a press of E (or R) was lost half the time
+        this.tapped = (this.kind === "kart" ? this.tapped || [] : []).concat(this.keys.takeTaps());
+        const pad = this.pads.read();  // (CHANGE 170: every frame, so a button tapped between two isn't lost)
+        if (pad && this.padCarry) for (const b of this.padCarry) pad.pressed.add(b);  // (...nor between two ticks)
+        this.padCarry = null;
+        this.pad = pad;
         if (this.pad && this.keys.typing()) this.pad = null;
         if (this.pad && this.pad.pressed.has("start") && this.keys.onKey) this.keys.onKey("i", {target: null});
         if (this.kind === "kart" && game.controlFrame) {  // (Kart Lab ticks its own inputs: its prediction needs them)
             const dt = Math.min(0.1, (now - (this.lastFrame || now)) / 1000);
             this.lastFrame = now;
+            this.consumed = false;
             game.controlFrame(now, () => { const c = this.kartControl(); this.tapped = []; return c; }, dt);
+            if (!this.consumed && this.pad && this.pad.pressed.size) this.padCarry = new Set(this.pad.pressed);
+            if (this.tapped.length > 30) this.tapped = this.tapped.slice(-30);
             return;
         }
         let msg, press = null;
         if (this.kind === "robot") msg = this.robotControl();
         else if (this.kind === "fight") {
             msg = this.fightControl();
-            const t = this.tapped.find(k => FIGHT_PRESS[k]);
+            // (CHANGE 182: Shift+F is the teacher's fix, app.js's, not a cartwheel)
+            const t = this.tapped.find(k => FIGHT_PRESS[k] && !(k === "f" && this.keys.down.has("Shift")));
             if (t) press = FIGHT_PRESS[t];
             else if (this.pad) press = (PAD_PRESS.find(([b]) => this.pad.pressed.has(b)) || [])[1] || null;
         } else msg = this.kartControl();

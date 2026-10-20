@@ -45,6 +45,8 @@ from engine.rw_mesh import FORMAT, FORMAT_COLOUR, Mesh, bevel_box, cylinder  # n
 import kart_models  # noqa: E402  (the ultra kart: numbers only, shared with the page)
 import car_models  # noqa: E402  (CHANGE 173: the sports cars, numbers only, shared with the page)
 import kart_scenery  # noqa: E402  (the ultra circuit: numbers only, shared with the page)
+import kart_track  # noqa: E402  (CHANGE 177, 179: the kerb, the gravel and the pit lane's numbers)
+from kart_track import KERB  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEX = os.path.join(HERE, "assets", "tex")
@@ -605,35 +607,78 @@ class TrackVisual:
             # kerbs along both edges (red and white, 2 m blocks) and the barrier a metre outside them (white and red
             # 4 m blocks, with an inner face, a top and an outer face): vertex colours, one mesh, one draw call
             paint = Mesh(colours=True)
+            lane = track.lane  # (CHANGE 179: the pit lane's side; its entry and exit have no kerb paint)
+            lane_side = lane[2] if lane else 0
             s = 0.0
             block = 0
             while s < L:
                 e = min(L, s + 2.0)
                 paint.colour = KERB_RED if block % 2 else KERB_WHITE
                 for side in (1, -1):
+                    if side == lane_side and track.lane_zone((s + e) / 2) == "ramp":
+                        continue
                     ribbon(paint, track, s, e, side * (half - 0.55), side * (half + 0.2), 0.03, step=2.0)
                 s = e
                 block += 1
+            # (CHANGE 177) the gravel traps: sand-coloured, from the barrier line out as far as the trap reaches
+            paint.colour = (0.74, 0.68, 0.56, 1)
+            for side in (1, -1):
+                g = track.gravel[side]
+                for i in range(track.n):
+                    j = (i + 1) % track.n
+                    if g[i] <= 0.0 and g[j] <= 0.0:
+                        continue
+                    s0, s1 = track.s[i], track.s[i] + track.seg_len[i]
+                    pts = [track.point(s0, side * (half + KERB)), track.point(s1, side * (half + KERB)),
+                           track.point(s1, side * (half + KERB + g[j])), track.point(s0, side * (half + KERB + g[i]))]
+                    quad(paint, [Vec3(p[0], p[1], p[2] + 0.02) for p in pts], [(s0, 0), (s1, 0), (s1, 1), (s0, 1)])
             s = 0.0
             block = 0
-            wall_in, wall_out, wall_h = half + 1.0, half + 1.5, 0.55
+            wall_in, wall_out, wall_h = half + KERB, half + KERB + 0.5, 0.55
+            gate = Mesh(colours=True)  # (CHANGE 179: the wall across the pit lane's entry and exit, shown while it's closed)
             while s < L:
                 e = min(L, s + 4.0)
-                paint.colour = (0.8, 0.1, 0.08, 1) if block % 3 == 2 else (0.92, 0.92, 0.9, 1)
+                colour = (0.8, 0.1, 0.08, 1) if block % 3 == 2 else (0.92, 0.92, 0.9, 1)
                 left = self.left_of((s + e) / 2)
                 for side in (1, -1):
-                    a0, a1 = Vec3(*track.point(s, side * wall_in)), Vec3(*track.point(e, side * wall_in))
-                    b0, b1 = Vec3(*track.point(s, side * wall_out)), Vec3(*track.point(e, side * wall_out))
-                    up = Vec3(0, 0, wall_h)
-                    # the wall stands on the grass, a little below the road, and its faces reach down into it
-                    for p in (a0, a1, b0, b1):
-                        p.z -= 0.3
-                    uv = [(s, 0), (e, 0), (e, wall_h), (s, wall_h)]
-                    quad(paint, [a0, a1, a1 + up, a0 + up], uv, -left * side)          # inner face: towards the road
-                    quad(paint, [b1, b0, b0 + up, b1 + up], uv, left * side)           # outer face
-                    quad(paint, [a0 + up, a1 + up, b1 + up, b0 + up], uv)             # top
+                    zone = track.lane_zone((s + e) / 2) if side == lane_side else None
+                    target = gate if zone == "ramp" else paint
+                    target.colour = colour
+                    g0 = track.gravel_at(track.segment_at(s), side) if zone is None else 0.0  # (out past the gravel)
+                    g1 = track.gravel_at(track.segment_at(e), side) if zone is None else 0.0
+                    a0, a1 = Vec3(*track.point(s, side * (wall_in + g0))), Vec3(*track.point(e, side * (wall_in + g1)))
+                    b0, b1 = Vec3(*track.point(s, side * (wall_out + g0))), Vec3(*track.point(e, side * (wall_out + g1)))
+                    self.wall_block(target, a0, a1, b0, b1, left * side, s, e, wall_h)
                 s = e
                 block += 1
+            if lane:  # (CHANGE 179) the pit lane: its asphalt, and the outer wall slanting in at each end
+                s_in, s_out, side = lane
+                lane_mesh = Mesh()
+                for a, b, inner in ((s_in, s_in + kart_track.LANE_RAMP, half + 0.3),
+                                    (s_in + kart_track.LANE_RAMP, s_out - kart_track.LANE_RAMP, track.lane_inner()),
+                                    (s_out - kart_track.LANE_RAMP, s_out, half + 0.3)):
+                    steps = max(1, int(math.ceil((b - a) / 1.5)))
+                    prev = None
+                    for j in range(steps + 1):
+                        ls = a + (b - a) * j / steps
+                        row = (Vec3(*track.point(ls, side * inner)), Vec3(*track.point(ls, side * track.lane_edge(ls))))
+                        if prev is not None:
+                            pts = [prev[0], row[0], row[1], prev[1]]
+                            quad(lane_mesh, [Vec3(p.x, p.y, p.z + 0.012) for p in pts], [(0, 0), (1, 0), (1, 1), (0, 1)])
+                        prev = row
+                part(static, lane_mesh, "tarmac", (0.5, 0.5, 0.52), rough=1.0, metal=0.0)
+                s, block = s_in, 0
+                while s < s_out:
+                    e = min(s_out, s + 4.0)
+                    paint.colour = (0.8, 0.1, 0.08, 1) if block % 3 == 2 else (0.92, 0.92, 0.9, 1)
+                    a0, a1 = Vec3(*track.point(s, side * track.lane_edge(s))), Vec3(*track.point(e, side * track.lane_edge(e)))
+                    b0, b1 = Vec3(*track.point(s, side * (track.lane_edge(s) + 0.5))), Vec3(*track.point(e, side * (track.lane_edge(e) + 0.5)))
+                    self.wall_block(paint, a0, a1, b0, b1, self.left_of((s + e) / 2) * side, s, e, wall_h)
+                    s = e
+                    block += 1
+            self.gates = part(self.root, gate, None, (1, 1, 1), rough=0.75, metal=0.0)
+            if look():
+                outline(self.gates)
             # the start line: a chequered band across the track at s = 0
             sq = 0.5
             cols = int(2 * half / sq)
@@ -689,6 +734,59 @@ class TrackVisual:
                 q.append(Vec3(pt[0], pt[1], pt[2] + 0.022))
             quad(pit, q, [(0, 0), (1, 0), (1, 1), (0, 1)])
         part(static, pit, None, (1.0, 0.8, 0.08), rough=0.7, metal=0.0)
+        # (CHANGE 179) the pit lane's bays: a white outline each, a strip at the back in its kart's colour and a board
+        # with the kart's name (set_bay_names), on every tier (ultra's scenery draws the lane itself)
+        self.bays = []
+        if track.lane:
+            marks = Mesh()
+            for corners in track.lane_marks():
+                q = []
+                for ps_, plat in corners:
+                    pt = track.point(ps_, plat)
+                    q.append(Vec3(pt[0], pt[1], pt[2] + 0.022))
+                quad(marks, q, [(0, 0), (1, 0), (1, 1), (0, 1)])
+            part(static, marks, None, (0.92, 0.92, 0.9), rough=0.7, metal=0.0)
+            self.bay_boards = self.root.attachNewNode("bay boards")
+            side = track.lane[2]
+            for kid in range(kart_track.LANE_BAYS):
+                s0, s1, lo, hi = track.bay(kid)
+                strip = Mesh()
+                for ps_, plat in (((s0 + 0.15, s1 - 0.15), (hi - 0.6, hi - 0.15)),):
+                    q = [track.point(ps_[0], side * plat[0]), track.point(ps_[1], side * plat[0]),
+                         track.point(ps_[1], side * plat[1]), track.point(ps_[0], side * plat[1])]
+                    quad(strip, [Vec3(p[0], p[1], p[2] + 0.024) for p in q], [(0, 0), (1, 0), (1, 1), (0, 1)])
+                strip_np = part(self.bay_boards, strip, None, (0.5, 0.5, 0.5), rough=0.7, metal=0.0)
+                mid = (s0 + s1) / 2
+                x, y, z = track.point(mid, side * (hi + 0.35))
+                post = part(self.bay_boards, bevel_box(0.03, 0.03, 0.6, 0.005), "steel", (0.6, 0.6, 0.62), rough=0.6,
+                            metal=1.0, pos=(x, y, z + 0.6))
+                text = TextNode(f"bay {kid}")
+                text.setAlign(TextNode.ACenter)
+                text.setText(str(kid + 1))
+                board = self.bay_boards.attachNewNode(text)
+                board.setPos(x, y, z + 1.3)
+                board.setHpr(track.heading(mid) + (180 if side < 0 else 0), 0, 0)
+                board.setScale(0.42)
+                mats().apply(board, None, (1, 1, 1), 0.5, 0, emission=(1.0, 1.0, 1.0))
+                if look():
+                    outline(post)
+                    board.setColor(*line_look.colour(), 1, 2)
+                    line_look.keep(board)
+                self.bays.append((text, strip_np))
+        if not hasattr(self, "gates"):  # (ultra: the scenery draws the open lane's walls; the closed lane's gates are ours)
+            gate = Mesh(colours=True)
+            if track.lane:
+                s_in, s_out, side = track.lane
+                for a, b in ((s_in, s_in + kart_track.LANE_RAMP), (s_out - kart_track.LANE_RAMP, s_out)):
+                    s = a
+                    while s < b - 1e-6:
+                        e = min(b, s + 4.0)
+                        gate.colour = (0.92, 0.92, 0.9, 1)
+                        a0, a1 = Vec3(*track.point(s, side * (half + KERB))), Vec3(*track.point(e, side * (half + KERB)))
+                        b0, b1 = Vec3(*track.point(s, side * (half + KERB + 0.5))), Vec3(*track.point(e, side * (half + KERB + 0.5)))
+                        self.wall_block(gate, a0, a1, b0, b1, self.left_of((s + e) / 2) * side, s, e, 0.55)
+                        s = e
+            self.gates = part(self.root, gate, None, (1, 1, 1), rough=0.75, metal=0.0)
 
         self.lamp_mats, self.lit, self.water, self.water_stages = [], -1, None, []
         if ultra:  # the circuit of kart_scenery.py, as the page draws it (models/kart_scenery.json), and the sky
@@ -906,6 +1004,32 @@ class TrackVisual:
             snp.setScale(1.1)
             mats().apply(snp, None, (1, 1, 1), 0.5, 0, emission=(1.2, 1.2, 1.2))
         del beam
+
+    @staticmethod
+    def wall_block(mesh, a0, a1, b0, b1, out, s, e, wall_h):
+        """One block of a wall from a0 to a1 (its face towards the road) and b0 to b1 (its back), wall_h high: the
+        wall stands on the grass, a little below the road, and its faces reach down into it."""
+        up = Vec3(0, 0, wall_h)
+        for p in (a0, a1, b0, b1):
+            p.z -= 0.3
+        uv = [(s, 0), (e, 0), (e, wall_h), (s, wall_h)]
+        quad(mesh, [a0, a1, a1 + up, a0 + up], uv, -out)          # inner face: towards the road
+        quad(mesh, [b1, b0, b0 + up, b1 + up], uv, out)           # outer face
+        quad(mesh, [a0 + up, a1 + up, b1 + up, b0 + up], uv)     # top
+
+    def set_pits(self, mode):
+        """(CHANGE 179) The pit lane open ("lane": its entry and exit clear) or closed ("box": walled off)."""
+        if getattr(self, "gates", None) is not None:
+            self.gates.show() if mode != "lane" else self.gates.hide()
+
+    def set_bay_names(self, names):
+        """(CHANGE 179) The bays' boards and strips: {kart id: (name, [r, g, b])} from the roster (a bay with no kart
+        keeps its number)."""
+        for kid, (text, strip) in enumerate(self.bays):
+            name, colour = names.get(kid, (None, None))
+            text.setText(str(name)[:12] if name else str(kid + 1))
+            c = tuple(v / 255 for v in colour) if colour else (0.5, 0.5, 0.5)
+            strip.setColorScale(*c, 1)
 
     def height_at(self, s):
         return self.track.height(s)
@@ -2052,9 +2176,11 @@ class KartVisual:
         self.tag.node().setText(text)
         self.tag.node().setTextColor(*colour)
 
-    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None, shield=False, braking=False):
+    def update(self, x, y, z, yaw_deg, steer, v, u, drifting, boosting, dt, damage=None, shield=False, braking=False,
+               spinning=False):
         """Place the kart; its body pitches with acceleration and rolls with the slide, the front wheels turn
-        with steer, all four spin with v; the glow shows while boosting and smoke puffs while drifting."""
+        with steer, all four spin with v; the glow shows while boosting and smoke puffs while drifting (and while
+        the back wheels spin or lock, spinning: CHANGE 181, at any speed, thicker)."""
         self.root.setPos(x, y, z)
         self.root.setH(yaw_deg)
         dt = max(1e-4, dt)
@@ -2142,20 +2268,20 @@ class KartVisual:
                 p[1] = Vec3(0, 0, 0.9)
                 p[2] = 0.7
                 p[3] = shade
-        # drift smoke from the rear tyres
-        if drifting and abs(v) > 3.0 and not look():
+        # drift smoke from the rear tyres (and the clutch dropped or the handbrake on: a burnout's cloud)
+        if ((drifting and abs(v) > 3.0) or spinning) and not look():
             self.puff_timer -= dt
             if self.puff_timer <= 0:
-                self.puff_timer = 0.07
+                self.puff_timer = 0.045 if spinning else 0.07
                 p = self.puffs[self.next_puff]
                 rx, ry = self.wheel_xy[2 + self.next_puff % 2]  # (each rear tyre in turn)
                 self.next_puff = (self.next_puff + 1) % self.PUFFS
                 p[0].setPos(self.root, rx - 0.03, ry, 0.15)
-                p[0].setScale(0.35)
-                p[0].setColor(0.75, 0.75, 0.78, 0.55)
+                p[0].setScale(0.5 if spinning else 0.35)
+                p[0].setColor(0.75, 0.75, 0.78, 0.65 if spinning else 0.55)
                 p[0].show()
                 p[1] = Vec3(0, 0, 0.6)
-                p[2] = 0.7
+                p[2] = 0.9 if spinning else 0.7
                 p[3] = 0.75
         for p in self.puffs:
             if p[2] <= 0:
@@ -2393,6 +2519,15 @@ class Hud:
         self.pit_text = _Text(r, 0, -0.42, 0.06, YELLOW)
         self.pit_text.set("PIT: REPAIRING")
         self.pit_text.np.hide()
+        self.pit_shown = ""
+        # (CHANGE 178) tyre wear: a bar under the damage panel, shown with the teacher's tyre wear on
+        self.tyre_back = DirectFrame(parent=r, frameColor=(0.05, 0.05, 0.07, 0.85), frameSize=(-0.14, 0.14, -0.04, 0.07))
+        self.tyre_label = _Text(self.tyre_back, 0, 0.035, 0.028, GREY)
+        self.tyre_label.set("TYRES")
+        DirectFrame(parent=self.tyre_back, frameColor=(0.22, 0.23, 0.27, 1), frameSize=(-0.13, 0.13, -0.02, 0.02))
+        self.tyre_bar = DirectFrame(parent=self.tyre_back, frameColor=GREEN_PART, frameSize=(-0.13, 0.13, -0.02, 0.02))
+        self.tyre_back.hide()
+        self.tyre_shown = None
         # the minimap: built once from the track's points (see minimap()); dots per kart
         self.mini = r.attachNewNode("minimap")
         self.mini_track = None
@@ -2428,6 +2563,7 @@ class Hud:
         self.status_text.pos(a - 0.05, -0.975)
         self.bar_back.setPos(right - 0.05 - self.BAR_W, 0, -0.82)
         self.dmg_back.setPos(right - 0.2, 0, -0.5)
+        self.tyre_back.setPos(right - 0.2, 0, -0.74)  # (CHANGE 178: under the damage panel)
         self.item_text.pos(right - 0.05, -0.22)
         self.mini.setPos(-a + 0.05 + self.MINI / 2, 0, -0.95 + self.MINI / 2)
 
@@ -2455,6 +2591,17 @@ class Hud:
             seg.moveTo(pts[0][0], 0, pts[0][1])
             for mx, my in pts[1:] + pts[:1]:
                 seg.drawTo(mx, 0, my)
+            self.mini.attachNewNode(seg.create())
+        if track.lane:  # (CHANGE 186) the pit lane: a thin line along its outer wall, beside the start straight
+            s_in, s_out, side = track.lane
+            seg = LineSegs("pit lane")
+            seg.setThickness(2.0)
+            seg.setColor(0.8, 0.82, 0.86, 1)
+            steps = max(2, int((s_out - s_in) / 2.0))
+            for j in range(steps + 1):
+                s = s_in + (s_out - s_in) * j / steps
+                mx, my = self.mini_xy(*track.point(s, side * track.lane_edge(s))[:2])
+                seg.moveTo(mx, 0, my) if j == 0 else seg.drawTo(mx, 0, my)
             self.mini.attachNewNode(seg.create())
         sx, sy = self.mini_xy(*track.point(0.0, 0.0)[:2])
         line = LineSegs("start")
@@ -2484,17 +2631,18 @@ class Hud:
         self.status_text.set(text)
 
     def update(self, lap, laps, place, count, kmh, countdown, wrong_way, charge, karts, results, damage=None,
-               repairing=False, item=None):
+               repairing=False, item=None, tyre=None):
         """lap/laps: the lap being driven (1-based) and how many; place/count: your place and the field; kmh: speed;
         countdown: seconds to GO or None; wrong_way: flag; charge: the drift charge (0..570+);
         karts: for the minimap, (x, y, colour) tuples or (x, y, colour, big) with big for your own kart; results: None,
         or (name, laps, seconds or None) in finishing order as kart_sim.Race.results() gives. damage (CHANGE 158): your
         kart's six parts 0 to 1 (wing, fl, fr, rl, rr, engine), None with damage off (the panel hidden); repairing: in
-        the PIT box being mended."""
+        the PIT box being mended (True, or the words to show: a pit stop's jobs, the way out of the gravel: CHANGE
+        177, 179). tyre (CHANGE 178): tyre wear 0 to 1, None with tyre wear off (its bar hidden)."""
         self.layout()
-        if item != self.item_shown:  # (CHANGE 159) the item you hold (its name), E to use it
+        if item != self.item_shown:  # (CHANGE 159) the item you hold (its name), Space to use it
             self.item_shown = item
-            self.item_text.set(f"{item.upper()}   E to use" if item else "")
+            self.item_text.set(f"{item.upper()}   Space to use" if item else "")
         shown = None if damage is None else tuple(round(d, 2) for d in damage)
         if shown != self.dmg_shown:
             self.dmg_shown = shown
@@ -2504,8 +2652,21 @@ class Hud:
                 self.dmg_back.show()
                 for frame, d in zip(self.dmg_parts, shown):
                     frame["frameColor"] = damage_colour(d)
-        if bool(repairing) != (not self.pit_text.np.isHidden()):
-            self.pit_text.np.show() if repairing else self.pit_text.np.hide()
+        words = "PIT: REPAIRING" if repairing is True else repairing or ""
+        if words != self.pit_shown:
+            self.pit_shown = words
+            self.pit_text.set(words)
+            self.pit_text.np.show() if words else self.pit_text.np.hide()
+        worn = None if tyre is None else round(min(1.0, max(0.0, tyre)), 2)
+        if worn != self.tyre_shown:  # (CHANGE 178) the tyres' bar: full and green when new, red when worn out
+            self.tyre_shown = worn
+            if worn is None:
+                self.tyre_back.hide()
+            else:
+                self.tyre_back.show()
+                self.tyre_bar["frameSize"] = (-0.13, -0.13 + 0.26 * (1.0 - worn), -0.02, 0.02)
+                self.tyre_bar["frameColor"] = damage_colour(worn)
+                self.tyre_label.set("TYRES WORN OUT" if worn >= 1.0 else "TYRES")
         now = time.perf_counter()
         self.lap.set(f"LAP {max(1, min(lap, laps))}/{laps}" if laps else "")
         self.place.set(f"{_ordinal(place)} of {count}" if place else "")

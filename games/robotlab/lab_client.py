@@ -19,6 +19,9 @@ Brain:     U upload brains/my_brain.py   P autopilot on/off (your brain drives)
 Camera:    V change view (third person, first person, zoomed arena follow, full arena, centre camera)
            O full arena   mouse wheel or + / - zoom in and out (every view)
            drag with the right mouse button (or Q / E) to swing the view round and tilt it   Home resets the view
+           L watch the next robot (round everyone in the arena, computer robots too, and back to your own: pick a
+           learner with L, then change the view of them with V)   [ and ] watch another arena
+Teacher:   F fixes your own robot (full health, every part back on, the right way up, out of the pit)
 Typing:    while you type in a text box, keys go into the box (not the game). Click away or press Esc to stop.
            Tab goes on to the next text box, and Shift+Tab back to the one before.
            In the code panel, click where you want to type, or drag to select. APPLY CODE applies your code,
@@ -428,6 +431,7 @@ class Lab(hud.HudKit, ShowBase):
         self.robots, self.roster, self.my_id, self.names = {}, None, None, {}
         self.full_roster, self.my_arena, self.watch = None, None, None  # (CHANGE 75: the arena drawn; watch =
         #                                                                 the one you chose, None = your own)
+        self.focus = None  # (CHANGE 183) the robot the camera follows (L), None = your own
         self.house = set()       # ids of the Resident Robots
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
         self.pings, self.rtt = [], None  # (CHANGE 175) the last round trips and the smoothed one drawing ahead uses
@@ -465,6 +469,9 @@ class Lab(hud.HudKit, ShowBase):
         self.key("u", self.upload_brain)
         self.key("p", self.autopilot_key)
         self.key("v", self.cam.cycle)
+        self.key("l", self.cycle_focus)  # (CHANGE 183) the camera follows the next robot
+        if TEACHER:
+            self.key("f", self.fix_mine)  # (CHANGE 182) the teacher's own robot mended
         self.key("o", self.cam.set_mode, "arena")
         self.key("wheel_left", self.cam.pan, -0.6)   # sideways scroll moves the view sideways (CHANGE 112)
         self.key("wheel_right", self.cam.pan, 0.6)
@@ -624,8 +631,9 @@ class Lab(hud.HudKit, ShowBase):
                                         mayChange=True)
         gap = "    "  # the key list: two lines of big letters (Space fires a weapon, or switches a spinner on/off)
         keys = (gap.join(["Arrows drive", "Space weapon", "I HUD", "C code"] +
-                         ([] if TEACHER else ["U upload brain", "P autopilot"])) + "\n" +
-                gap.join(["V view", "O full arena", "[ ] arena", "wheel or +/- zoom", "B bars", "N sound", "H hide keys"]))
+                         (["F fix robot"] if TEACHER else ["U upload brain", "P autopilot"])) + "\n" +
+                gap.join(["V view", "L next robot", "O full arena", "[ ] arena", "wheel or +/- zoom", "B bars", "N sound",
+                          "H hide keys"]))
         self.view_text = label(self.aspect2d, "", 0, 0.795, 0.026, GREY, TextNode.ACenter)
         self.help = OnscreenText(keys, pos=(-0.45, -0.905), scale=0.042 * min(1.15, self.text_scale()), fg=WHITE,
                                  shadow=(0, 0, 0, 0.9), align=TextNode.ACenter, parent=self.aspect2d, mayChange=True)
@@ -2880,8 +2888,9 @@ class Lab(hud.HudKit, ShowBase):
         if self.state and self.roster:
             self.draw_state(dt, now)
             targets = [Point3(*s["pos"]) for s in self.state["robots"] if not s["ko"] and s["id"] not in self.house]
-        mine = self.robots.get(self.my_id)
-        me_alive = mine is not None and any(s["id"] == self.my_id and not s["ko"]
+        followed = self.focus if self.focus in self.robots else self.my_id  # (L: another robot; else your own)
+        mine = self.robots.get(followed)
+        me_alive = mine is not None and any(s["id"] == followed and not s["ko"]
                                             for s in (self.state or {}).get("robots", []))
         intro = self.state.get("intro") if self.state and self.roster else None
         if intro is not None:  # the countdown before a battle: a slow sweep round the arena
@@ -3126,9 +3135,34 @@ class Lab(hud.HudKit, ShowBase):
         n = self.arenas_count()
         if n < 2:
             return
+        self.focus = None  # (another arena: the camera follows your own robot, or the arena)
         self.set_watch((self.watched_arena() + delta) % n)
         self.banner_note(f"Watching arena {self.watched_arena() + 1}" +
                          ("  (yours)" if self.watched_arena() == self.my_arena else ""), 2)
+
+    def cycle_focus(self):
+        """L (CHANGE 183): the camera follows the next robot in the arena you are watching, round everyone (the
+        computer robots too) and back to your own. V then changes the view of that robot. The teacher watches a
+        learner this way (they have no robot of their own unless they built one: then L goes round the learners)."""
+        ids = [r["id"] for r in (self.roster or {}).get("robots", [])]
+        if not ids:
+            return
+        cur = self.focus if self.focus in ids else self.my_id
+        i = ids.index(cur) if cur in ids else -1
+        nxt = ids[(i + 1) % len(ids)]
+        self.focus = None if nxt == self.my_id else nxt
+        if self.cam.mode in ("arena", "centre"):  # (a view that follows nobody: behind them instead)
+            self.cam.set_mode("third")
+        self.cam.pos = None  # (cut straight to them)
+        if self.focus is None:
+            self.banner_note("Camera: your robot" if self.my_id in ids else "Camera: the arena", 2)
+        else:
+            robot_name, owner = self.names.get(nxt, ("?", ""))[:2]
+            self.banner_note(f"Camera: {robot_name} ({owner})" if owner else f"Camera: {robot_name}", 2)
+
+    def fix_mine(self):
+        """F, the teacher only (CHANGE 182): the server mends the teacher's robot (lab_server's "fix")."""
+        send({"type": "fix"})
 
     def apply_roster(self, m):
         self.full_roster = m

@@ -44,6 +44,64 @@ PASSING = {}              # kart id -> (the kart it is passing, the side it chos
 FEATURE_MARGIN = 1.8      # how far outside an oil patch's radius to aim
 FEATURE_REACH = 25.0      # metres beyond the lookahead a driver starts moving across for a patch or a pad
 LATERAL_GAIN = 0.1        # steer per metre the kart is off the line it wants (pursuit alone drifts across slowly)
+# (CHANGE 186) pit stops: tyres worn past PIT_TYRE, or a part damaged past PIT_DAMAGE (with real damage on), send a
+# driver into the pit lane (its own bay, stopped until it is served) or slowly through the PIT box on the road
+PIT_TYRE, PIT_DAMAGE = 0.6, 4000
+PIT_APPROACH = 50.0       # metres before the pit entry (or the PIT box) a driver moves over to that side and slows
+PIT_LANE_SPEED = 10.0     # m/s a driver keeps in the pit lane (the lane's limiter is 12)
+PIT_BOX_SPEED = 8.0       # ...and through the PIT box (mending needs under 12)
+
+
+def needs_pit(k, race):
+    """Does this kart want a pit stop: tyres past PIT_TYRE, or (with real damage on) a part past PIT_DAMAGE?"""
+    return k.get("tyre", 0.0) >= PIT_TYRE or \
+        (race.damage and max(k.get(p, 0) for p in kart_sim.DAMAGE_PARTS) >= PIT_DAMAGE)
+
+
+def served(k):
+    """New tyres on and every part mended: the stop is over."""
+    return k.get("tyre", 0.0) <= 0.0 and not any(k.get(p, 0) for p in kart_sim.DAMAGE_PARTS)
+
+
+def pit_plan(k, race):
+    """(CHANGE 186) Where a driver pitting aims: (lateral, the speed to keep, stop) or None when it isn't pitting.
+    With the pit lane open: over to the pit side before the entry, down the entry into the lane, along it to its
+    own bay, stopped there until served (new tyres, every part mended), then on to the exit; with the PIT box: over
+    to the box's side and slowly through the box (mending needs pit speed; the tyres are renewed as it crawls)."""
+    t = race.track
+    L, s, lat = t.length, k["s"], k["lat"]
+    if t.pits == "lane" and t.lane is not None:
+        s_in, s_out, side = t.lane
+        ds, span = (s - s_in) % L, s_out - s_in
+        in_lane = ds <= span and lat * side > t.half + kart_track.KERB + kart_track.LANE_WALL / 2
+        if in_lane:
+            bay = t.bay(k["id"])
+            lane_line = side * (t.lane_inner() + 2.2)
+            if bay is None or served(k) or (k.get("tyre", 0.0) < 0.05 and not (race.damage and any(k.get(p, 0) > 500 for p in kart_sim.DAMAGE_PARTS))):
+                return lane_line, PIT_LANE_SPEED, False  # (nothing to do here: on to the exit)
+            bs0, bs1, lo, hi = bay
+            bay_line = side * (lo + hi) / 2
+            if t.in_bay(k["id"], s, lat):
+                return bay_line, 0.0, True  # (stopped in its bay until served)
+            to_bay = (bs0 - s) % L
+            if to_bay < 18.0:  # (coming up to its bay: across to it, slowly)
+                return bay_line, 4.0, False
+            if to_bay > span:  # (past its bay this time: on to the exit, and round again)
+                return lane_line, PIT_LANE_SPEED, False
+            return lane_line, PIT_LANE_SPEED, False
+        if needs_pit(k, race):
+            if ds <= kart_track.LANE_RAMP:  # (the entry: into the lane)
+                return side * (t.lane_inner() + 2.2), PIT_LANE_SPEED, False
+            before = (s_in - s) % L
+            if before < PIT_APPROACH:  # (over to the pit side, easing off)
+                return side * (t.half - kart_sim.KART_HALF - 0.4), 14.0, False
+        return None
+    if t.pit is not None and needs_pit(k, race):
+        s0, s1, side = t.pit
+        before = (s0 - s) % L
+        if before < PIT_APPROACH or s0 <= s % L <= s1:
+            return side * (t.half - kart_track.PIT_WIDTH / 2 - 0.3), 14.0 if before < PIT_APPROACH and not s0 <= s % L <= s1 else PIT_BOX_SPEED, False
+    return None
 
 
 def name_for(level, n):
@@ -160,20 +218,27 @@ def drive(level, k, race):
     if pas:  # a kart in the way: aim at the line beside it (touching costs both karts speed every tick)
         limit = track.half - kart_sim.KART_HALF - 0.5
         line = max(-limit, min(limit, pas[0]["lat"] - pas[1] * PASS_OFFSET))
-    steer, angle = pursue(track, k, st, look, line)
+    pit = pit_plan(k, race)  # (CHANGE 186) a pit stop: the pits' line and speed instead
+    if pit:
+        line = pit[0]
+    steer, angle = pursue(track, k, st, min(look, 6.0) if pit else look, line)
     # the bend ahead sets the speed: the one we're in, and the next one a little discounted (there's time to slow)
     bend = max(abs(track.curvature(s, 15.0)), 0.7 * abs(track.curvature(s + 15.0, 15.0)))
     want = corner_speed(tune, st, bend)
-    if v > want + 2.0:
+    if pit:
+        want = min(want, pit[1])
+    if v > want + 2.0 or (pit and pit[2] and v > 0.4):
         throttle = -1.0  # (kart_sim's brake is all or nothing: any negative throttle bites the same)
     elif v > want:
         throttle = 0.0
     else:
-        throttle = tune["cap"]
+        throttle = tune["cap"] if not pit else min(tune["cap"], 0.6)
+    if pit and pit[2] and v <= 0.4:
+        return 0.0, 0.0, 0  # (stopped in its bay: being served)
     if abs(angle) > 50 and v > 6.0:  # pointing well off the line: ease off and get it back first
         throttle = min(throttle, 0.2)
     buttons = 0
-    if tune["drift"] and v > DRIFT_MIN_SPEED and not k["slip"]:
+    if tune["drift"] and v > DRIFT_MIN_SPEED and not k["slip"] and not pit:
         # a drift adds its own 25 degrees a second and lets the back slide out, so only start one when fast, on
         # the line it wants and already steering into a real corner (never on oil); keep it going while the bend
         # lasts so the charge reaches a mini-turbo. The pursuit above still steers: the slide makes it ask for more

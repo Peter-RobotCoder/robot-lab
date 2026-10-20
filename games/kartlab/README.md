@@ -16,8 +16,11 @@ Double-click, in this folder (they use Robot Lab's `.venv`):
 | `4 Kart Lab offline race.bat` | a race on this laptop against five computer karts, no server |
 | `5 Check the game.bat` | the tests (`kart_test.py`) |
 
-Keys: arrows or WASD drive, **Shift** (or Space) drifts (hold it through a bend, let go for a boost), **R** puts
-you back on the track, **V** changes the camera, **Tab** opens your kart's design sheet (100 points between top
+Keys: arrows or WASD drive, **Shift** drifts (hold it through a bend, let go for a boost), **Space** (or E) uses
+your item, **B** is the handbrake (a handbrake turn), the throttle tapped then held from a standstill drops the
+clutch (a burnout, or a donut with the wheel turned), **R** puts you back on the track, **V** changes the camera,
+**L** watches the next kart (then V for the view of it), the teacher's **F** fixes their own kart, **Tab** opens
+your kart's design sheet (100 points between top
 speed, acceleration and grip; the teacher's race controls are on the same panel), **U** uploads
 `brains/my_brain.py` to drive your kart, **P** switches that autopilot on and off, the **Full screen** button (top
 right) fills the screen and **Esc** comes back out of it (it never closes the window). Sound: the engine note follows
@@ -26,8 +29,12 @@ none). Lap times show as you cross the line; offline, the best lap on each track
 
 Command line: `kart_client.py --offline --cpu 5 --level expert --track oval --stats 50,25,25 --brain brains/demo_brain.py`;
 `kart_server.py --track club --cpu 3 --level medium --laps 3 --autostart 5`. Tracks: `club` (the Club Circuit,
-372 m with a hill), `oval`, `straight` (for netcode tests). `CLUBCODERS_LAG=60,15,0.02` before a window
-pretends the network is a school's Wi-Fi.
+372 m with a hill), `oval`, `straight` (for netcode tests), `airfield` (Airfield GP: the shape of Silverstone's
+Grand Prix circuit at a sixth of its size, a 1 km lap). Beside every road: a kerb a kart may ride (it slows a
+little), gravel traps on the outside of the sharp bends (they slow a lot and hold a kart that has lost its
+momentum: R puts you back), the barrier beyond; a pit lane beside the start straight with a bay for each kart,
+opened by the teacher (Controls: Pits) in place of the PIT box on the road; tyre wear (Controls) with new tyres
+at a pit stop. `CLUBCODERS_LAG=60,15,0.02` before a window pretends the network is a school's Wi-Fi.
 
 ## How it is built
 

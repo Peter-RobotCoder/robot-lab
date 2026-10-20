@@ -1638,13 +1638,43 @@ export class RobotGame {
         return id === undefined ? null : id;
     }
 
-    // V: the camera views (behind your robot, the whole arena)
+    // the robot the camera follows: the one picked with L (while it is still in the arena watched), else your own
+    followId() {
+        const sc = this.scene, my = this.myId();
+        if (this.followMine || sc.follow === null || sc.follow === my) return my;
+        const w = this.watched(), here = ((this.app.state.roster || {}).robots || []).some(r => r.id === sc.follow && (r.arena || 0) === w);
+        return here ? sc.follow : my;
+    }
+
+    // V: the camera views (behind your robot, the whole arena); the robot followed (L) stays followed
     cycleCamera() {
         const i = RIG_MODES.indexOf(this.scene.mode);
         this.rigMode = RIG_MODES[(i + 1) % RIG_MODES.length];
-        this.scene.setMode(this.rigMode, this.myId());
+        this.scene.setMode(this.rigMode, this.followId());
         this.keepCamera();
     }
+
+    // (CHANGE 183) L: the camera follows the next robot in the arena watched, round everyone (the computer robots
+    // too) and back to your own, as the window's cycle_focus; V then changes the view of that robot. A teacher with
+    // no robot of their own goes round the learners' (and the arena, with nobody followed, between).
+    cycleWatch() {
+        const S = this.app.state, sc = this.scene, w = this.watched(), robots = (S.roster || {}).robots || [];
+        const ids = robots.filter(r => (r.arena || 0) === w).map(r => r.id);
+        if (!ids.length) return;
+        const my = this.myId(), cur = this.followId();
+        const next = ids[(ids.indexOf(cur) + 1) % ids.length];
+        this.followMine = next === my;
+        let mode = sc.mode;
+        if (mode === "arena" || mode === "centre" || mode === "overview") mode = RIG_MODES.includes(this.rigMode) && !["arena", "centre"].includes(this.rigMode) ? this.rigMode : "third";
+        if (RIG_MODES.includes(mode)) this.rigMode = mode;
+        sc.setMode(mode, next);
+        const info = robots.find(r => r.id === next) || {};
+        if (this.app.toast) this.app.toast(next === my ? "Camera: your robot" : `Camera: ${(info.design || {}).name || "?"}${info.owner ? ` (${info.owner})` : ""}`, false, 2000);
+        if (this.app.updatePills) this.app.updatePills();
+    }
+
+    // (CHANGE 182) F, the teacher only (app.js checks the role): the server mends the teacher's own robot
+    fixMine() { this.app.send({type: "fix"}); }
 
     // ---------- the window's camera controls (rw_camera, lab_client's keys: CHANGE 143) ----------
     // The canvas's own: the wheel zooms the view in use (the other way round with the profile's invert_zoom, as the
@@ -1732,7 +1762,7 @@ export class RobotGame {
     // O: the full arena view (the window's cam.set_mode("arena"))
     fullArena() {
         this.rigMode = "arena";
-        this.scene.setMode("arena", this.myId());
+        this.scene.setMode("arena", this.followId());
         this.keepCamera();
         this.app.updatePills();
     }

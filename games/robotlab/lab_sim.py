@@ -918,6 +918,34 @@ class Robot:
         if lost_weapon and self.arena.user_mods["double_flipper"]:  # (its back flipper went with its weapon)
             self.set_rear_flipper(True)
 
+    def fix(self):
+        """The teacher's F key (CHANGE 182): this robot mended like new where it stands (full health, every part
+        back on with real damage, the right way up, in the fight again if it was knocked out), or back at its start
+        spot if it is down the drop zone or a pit, over the edge or off the floor."""
+        body = self.np.node()
+        p, h = self.pos, ARENA / 2
+        down = p.z < -0.1 or abs(p.x) > h or abs(p.y) > h
+        for np_ in (self.np, self.weapon_np):
+            np_.node().setLinearVelocity(Vec3(0))
+            np_.node().setAngularVelocity(Vec3(0))
+        if down:
+            pos, heading = self.start
+            self.np.setPos(pos)
+            self.np.setHpr(heading, 0, 0)
+        else:  # the right way up, put down clear of the walls
+            room = h - self.shape["half"].y - 0.2 if self.k > 1 else h
+            self.np.setPos(max(-room, min(room, p.x)), max(-room, min(room, p.y)), 0.8)
+            self.np.setHpr(self.np.getH(), 0, 0)
+        body.setLinearVelocity(Vec3(0))
+        self.park_weapon()      # (a lost weapon is put back on its mount: repair hangs it on its hinge again)
+        self.repair()
+        self.health = self.stats["armour"]
+        self.knocked_out = False
+        self.upside_down_since = None
+        self.jump_at, self.slam_until, self.drop = None, -10.0, 0.0
+        self.melted_until = self.pushed_until = -10.0
+        self.launched = set()
+
     def rebuild(self, part):
         """Repair bay (user mod): one lost part goes back on, like new (a weapon back on its hinge, as it rests)."""
         self.lost.discard(part)

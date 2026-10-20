@@ -5,8 +5,8 @@ must give the same numbers tick for tick as when it was recorded (CHANGE 162).
     python replay_test.py --record   (record it again: after a change meant to change the numbers, with
                                        kart_sim.SIM_VERSION raised, in the same commit)
 
-The recording is six computer karts at three levels racing two laps of the club circuit with real damage and every
-power-up on: their inputs each tick (so a change to the computer drivers doesn't change the replay) and every
+The recording is six computer karts at three levels racing two laps of the club circuit with real damage, tyre
+wear and every power-up on: their inputs each tick (so a change to the computer drivers doesn't change the replay) and every
 30 ticks a hash of the whole race's state with every kart's wire numbers. A replay that differs says the first
 30 ticks it differs in, and which kart's which numbers. Factorio's build server replays its saved games every day
 for the same reason: a change to the step that wasn't meant to change it shows up at once.
@@ -43,6 +43,7 @@ def new_race():
     kart_sim.RULES.update(kart_sim.DEFAULT_RULES)  # (not mods/rules.py: the teacher's own rules aren't the step)
     race = kart_sim.Race(kart_track.load("club"), SCHEMA, laps=2)
     race.set_damage(True)
+    race.set_tyres(True, 3)  # (CHANGE 178: the tyres wear through the recording)
     for i, d in enumerate(DESIGNS):
         race.add(i + 1, d)
     race.items = kart_items.Items(race, seed=7)

@@ -118,6 +118,12 @@ def tv_cameras(track):
     for k in range(6):
         s = (k + 0.5) * track.length / 6
         side = -1 if track.curvature(s, 30) > 0 else 1  # (a left bend: the camera on the right, looking across the apex)
+        if track.lane is not None and side == track.lane[2] and track.lane_zone(s) is not None:
+            # (CHANGE 179) not in the pit lane: moved along to just past the nearer end of it
+            s_in, s_out, _ = track.lane
+            ds = (s - s_in) % track.length
+            s = (s_in - 12.0 if ds < (s_out - s_in) / 2 else s_out + 12.0) % track.length
+            side = -1 if track.curvature(s, 30) > 0 else 1
         x, y, z = track.point(s, side * (track.half + 6.0))
         out.append((x, y, z + 5.0, side, s))
     return out
@@ -678,6 +684,7 @@ FIELDS = [((0.36, 0.5, 0.2), 0.2), ((0.42, 0.56, 0.24), 0.18), ((0.3, 0.44, 0.17
           ((0.64, 0.57, 0.36), 0.07)]  # (colour, how often): pasture, meadow, wheat, barley, rapeseed, ploughed, stubble
 STAND_D0, STAND_DEPTH = 5.0, 8.2  # the grandstand: its front this far from the road's edge, and how deep it is
 PIT_D0, PIT_DEPTH = 1.5, 13.0     # the pit lane (behind the pit wall) and the garages behind it
+PIT_FRONT = 6.5                   # the garages' front, from the pit building's origin (CHANGE 179: the lane's outer wall)
 GANTRY_D = 2.2                    # the start gantry's towers, past the road's edge
 BRIDGE_CLEAR = 5.1                # (CHANGE 151) the footbridge's underside over the road's middle
 BRIDGE_IN, BRIDGE_OUT = 2.6, 4.4  # ...its stair towers from (and to) this far past the road's edge
@@ -742,6 +749,7 @@ class Circuit:
         for side in (1, -1):
             self.edge(side)
         self.grandstand()
+        self.pit_lane()  # (CHANGE 179)
         self.pit_building()
         self.gantry()
         self.bridge()
@@ -845,11 +853,28 @@ class Circuit:
             p = at(o, axes, -length / 2 + length * i / n, depth / 2, 0.0)
             self.keep.append((p[0], p[1], depth / 2 + 1.0))
 
+    def claim_box(self, o, axes, x0, x1, y0, y1, r=1.5):
+        """(CHANGE 179) The ground of a box in a building's frame taken, closely (small circles on a grid), so what
+        stands just past it (the footbridge's tower past the pit building) still has its room."""
+        nx, ny = max(1, int((x1 - x0) / r)), max(1, int((y1 - y0) / r))
+        for i in range(nx + 1):
+            for j in range(ny + 1):
+                p = at(o, axes, x0 + (x1 - x0) * i / nx, y0 + (y1 - y0) * j / ny, 0.0)
+                self.keep.append((p[0], p[1], r))
+
     def layout(self):
         """The grandstand and the pit building beside the start straight, each where it fits, on either side; the
         start gantry's towers."""
         self.stand = self.pits = None
         self.walls = {1: [], -1: []}  # (s0, s1): where the barrier is a wall (in front of the buildings)
+        lane = self.t.lane  # (CHANGE 179) the pit lane's ground is taken (along the road: it bends a little): nothing
+        if lane:            # else is built on it
+            s_in, s_out, side = lane
+            depth = self.t.lane_outer() - self.half - BARRIER
+            for s in self.lane_ss(s_in, s_out):
+                for k in range(int(depth / 1.5) + 1):
+                    x, y, _ = self.t.point(s, side * (self.half + BARRIER + min(depth, k * 1.5)))
+                    self.keep.append((x, y, 1.5))
         for side, s_mid in ((1, 8.0), (-1, 8.0), (1, 40.0), (-1, 40.0), (1, -30.0), (-1, -30.0)):
             for length in (30.0, 24.0, 18.0):
                 got = self.site(side, s_mid, length, STAND_D0, STAND_D0 + STAND_DEPTH, 1.2)
@@ -864,18 +889,27 @@ class Circuit:
             self.claim(o, axes, length + 6, STAND_DEPTH + 1)
             self.walls[side].append((s_mid - length / 2 - 3, s_mid + length / 2 + 3))
             first = -side
-        for side, s_mid in ((first, -2.0), (first, -12.0), (first, 10.0), (first, 45.0), (-first, 45.0), (-first, -40.0)):
-            for length in (36.0, 30.0, 24.0):
-                got = self.site(side, s_mid, length, PIT_D0, PIT_D0 + PIT_DEPTH, 0.4)
-                if got:
-                    self.pits = (side, s_mid, length) + got
+        if lane:  # (CHANGE 179) the pit building stands along the pit lane, its garages' front the lane's outer wall
+            s_in, s_out, side = lane
+            length = kart_track.LANE_BAYS * kart_track.LANE_BAY + 2.0  # (the garages along the bays, a metre over each end)
+            s_mid = s_in + kart_track.LANE_RAMP + 2.0 + length / 2 - 1.0
+            a, b, u = frame(math.radians(self.t.heading(s_mid)))
+            d0 = self.t.lane_outer() - self.half - PIT_FRONT + 0.1  # (the garages' front PIT_FRONT behind the origin)
+            self.pits = (side, s_mid, length, self.t.point(s_mid, side * (self.half + d0)), (a, mul(b, side), u))
+            self.claim_box(self.pits[3], self.pits[4], -length / 2 - 1.0, length / 2 + 1.0, PIT_FRONT - 0.5, PIT_DEPTH + 0.5)
+        else:
+            for side, s_mid in ((first, -2.0), (first, -12.0), (first, 10.0), (first, 45.0), (-first, 45.0), (-first, -40.0)):
+                for length in (36.0, 30.0, 24.0):
+                    got = self.site(side, s_mid, length, PIT_D0, PIT_D0 + PIT_DEPTH, 0.4)
+                    if got:
+                        self.pits = (side, s_mid, length) + got
+                        break
+                if self.pits:
                     break
             if self.pits:
-                break
-        if self.pits:
-            side, s_mid, length, o, axes = self.pits
-            self.claim(o, axes, length + 4, PIT_DEPTH + 1)
-            self.walls[side].append((s_mid - length / 2 - 2, s_mid + length / 2 + 2))
+                side, s_mid, length, o, axes = self.pits
+                self.claim(o, axes, length + 4, PIT_DEPTH + 1)
+                self.walls[side].append((s_mid - length / 2 - 2, s_mid + length / 2 + 2))
         for side in (1, -1):
             x, y, z = self.t.point(0.0, side * (self.half + GANTRY_D))
             self.keep.append((x, y, 1.2))
@@ -1107,29 +1141,23 @@ class Circuit:
         t, H, n = self.t, self.half, len(self.st)
         bend = [side * c for c in self.curv]  # (positive: bending towards this side, the inside of the bend)
         self.kerbs(side, runs([b >= 12 or b <= -16 for b in bend], self.st, 10.0, 8.0))
-        want = [GRAVEL_MAX * smooth((-b - 17.0) / 9.0) for b in bend]
-        for _ in range(2):
-            want = [sum(want[max(0, i - 6):i + 7]) / len(want[max(0, i - 6):i + 7]) for i in range(n)]
         walls = self.walls[side]
         in_wall = [any(a <= s <= b or a <= s - self.L <= b for a, b in walls) for s in self.st]
-        W = []
-        for i, s in enumerate(self.st):
-            w = 0.0 if in_wall[i] else want[i]
-            while w > 0.25:  # (narrower where the road comes back round close by: the straight's hairpins)
-                d = BARRIER + w + 1.0
-                x, y, _ = t.point(s, side * (H + d))
-                if self.dist(x, y, H + d + 1) >= H + d - 0.3:
-                    break
-                w -= 0.5
-            W.append(w if w > 0.25 else 0.0)
+        # (CHANGE 179) the pit lane's stretch: its own walls (pit_lane), no barrier and no gravel here
+        in_lane = [t.lane is not None and side == t.lane[2] and t.lane_zone(s) is not None for s in self.st]
+        # (CHANGE 177) the gravel traps are the track's own (kart_track.Track.gravel_widths: the karts are held at the
+        # barrier where this draws it), none in front of a building or along the pit lane
+        W = [0.0 if in_wall[i] or in_lane[i] else t.gravel[side][i % t.n] for i in range(n)]
         self.verge[side] = (W, in_wall)
+        in_wall = [in_wall[i] or in_lane[i] for i in range(n)]
         self.gravel(side, W)
         near = []  # (the inside of a hairpin: the barrier's line would come too near the road coming back round)
         for i, s in enumerate(self.st):
             near.append(any(self.dist(x, y, H + BARRIER + 1) < H + BARRIER - 0.05 for x, y, _ in
                             (t.point(s, side * (H + d)) for d in (BARRIER, BARRIER + 0.4))))
         cramped = [any(near[max(0, i - 1):i + 2]) for i in range(n)]
-        kinds = ["wall" if in_wall[i] else "none" if cramped[i] else "tyres" if W[i] >= 0.6 else "armco" for i in range(n)]
+        kinds = ["none" if in_lane[i] else "wall" if in_wall[i] else "none" if cramped[i] else "tyres" if W[i] >= 0.6
+                 else "armco" for i in range(n)]
         i, which = 0, 0
         while i < n:
             j = i
@@ -1259,27 +1287,32 @@ class Circuit:
 
     def wall(self, side, i0, i1):
         """A concrete wall in front of the buildings: white, a red band along the top, a debris fence above it."""
-        t, H = self.t, self.half
+        self.wall_along(side, [self.st[k] for k in range(i0, i1 + 1)], lambda s: self.half + BARRIER)
+
+    def wall_along(self, side, ss, lateral, fence=True, height=1.0):
+        """(CHANGE 179) The concrete wall along these s values at lateral(s) out from the middle (a positive lateral:
+        the wall's face), with or without the debris fence: the barrier walls, and the pit lane's."""
+        t = self.t
         concrete, steel = self.near.get("concrete"), self.near.get("steel")
         white, red = (0.92, 0.92, 0.9), (0.78, 0.1, 0.08)
-        faces = [((0.0, -0.3), (0.0, 0.82), white, -1), ((0.0, 0.82), (0.0, 1.0), red, -1), ((0.0, 1.0), (0.3, 1.0), red, 0),
-                 ((0.3, 1.0), (0.3, -0.3), white, 1)]
+        faces = [((0.0, -0.3), (0.0, height - 0.18), white, -1), ((0.0, height - 0.18), (0.0, height), red, -1),
+                 ((0.0, height), (0.3, height), red, 0), ((0.3, height), (0.3, -0.3), white, 1)]
         for (e0, h0), (e1, h1), colour, facing in faces:
             rows, normals, uvs = [], [], []
-            for k in range(i0, i1 + 1):
-                s = self.st[k]
+            for s in ss:
                 out = self.out_of(s, side)
-                x, y, z = t.point(s, side * (H + BARRIER))
+                x, y, z = t.point(s, side * lateral(s))
                 rows.append([(x + out[0] * e, y + out[1] * e, z + h) for e, h in ((e0, h0), (e1, h1))])
                 n = (0.0, 0.0, 1.0) if facing == 0 else mul(out, facing)
                 normals.append([n, n])
                 uvs.append([(s / 2.0, h0 / 2.0 + e0), (s / 2.0, h1 / 2.0 + e1)])
             sheet(concrete, rows, normals, uvs, [[colour, colour] for _ in rows])
+        if not fence:
+            return
         line = []
-        for k in range(i0, i1 + 1):
-            s = self.st[k]
+        for s in ss:
             out = self.out_of(s, side)
-            x, y, z = t.point(s, side * (H + BARRIER))
+            x, y, z = t.point(s, side * lateral(s))
             line.append((x + out[0] * 0.22, y + out[1] * 0.22, z))
         for h in (1.35, 1.7, 2.05, 2.3):
             kart_models.tube(steel, [add(p, (0, 0, h)) for p in line], 0.008, seg=4, steps=1, caps=False)
@@ -1291,6 +1324,54 @@ class Circuit:
                 self.put("pole", p[0], p[1], p[2] + 0.95, 0.0)
                 acc += 3.0
             acc -= seg
+
+    def lane_ss(self, a, b, step=1.5):
+        """s values from a to b (a may be before the start line: negative), about step apart, the ends exact."""
+        n = max(1, int(math.ceil((b - a) / step)))
+        return [a + (b - a) * k / n for k in range(n + 1)]
+
+    def pit_lane(self):
+        """(CHANGE 179) The pit lane beside the start straight (kart_track's "pit_lane"): its asphalt from the pit
+        wall's back to the outer wall (and from the road's edge over the entry and the exit, where the outer wall
+        slants out from the barrier line and back), the pit wall, the outer wall (the garages' front where the pit
+        building stands), each kart's bay outlined in white. The teacher opens and closes it: the gates across the
+        entry and the exit are the window's and the page's own (kart_gfx.TrackVisual.set_pits), as are the bays'
+        name boards."""
+        t, H, lane = self.t, self.half, self.t.lane
+        if not lane:
+            return
+        s_in, s_out, side = lane
+        asphalt, paint = self.near.get("asphalt"), self.near.get("line_paint")
+        ramp = kart_track.LANE_RAMP
+        for a, b, inner in ((s_in, s_in + ramp, H + 0.3), (s_in + ramp, s_out - ramp, t.lane_inner()),
+                            (s_out - ramp, s_out, H + 0.3)):
+            ss = self.lane_ss(a, b)
+            rows = [[add(t.point(s, side * inner), (0, 0, 0.012)), add(t.point(s, side * t.lane_edge(s)), (0, 0, 0.012))]
+                    for s in ss]
+            sheet(asphalt, rows, [[(0, 0, 1)] * 2 for _ in ss],
+                  [[(s / 4.0, inner / 4.0), (s / 4.0, t.lane_edge(s) / 4.0)] for s in ss],
+                  [[shade((0.86, 0.86, 0.88), 0.9 + 0.1 * noise(s / 5.0, side, 44))] * 2 for s in ss])
+        self.wall_along(side, self.lane_ss(s_in + ramp, s_out - ramp), lambda s: H + BARRIER, fence=False, height=0.9)
+        # the outer wall: slanting in over the entry and the exit, straight between, except behind the pit building
+        # (its front is the wall there)
+        gaps = []
+        if self.pits and self.pits[0] == side:
+            _, s_mid, length = self.pits[:3]
+            gaps.append((s_mid - length / 2, s_mid + length / 2))
+        s = s_in
+        runs_ = []
+        for g0, g1 in sorted(gaps):
+            if g0 > s:
+                runs_.append((s, g0))
+            s = max(s, g1)
+        if s < s_out:
+            runs_.append((s, s_out))
+        for a, b in runs_:
+            self.wall_along(side, self.lane_ss(a, b), lambda s: t.lane_edge(s), fence=False, height=1.2)
+        white = (0.95, 0.95, 0.92)
+        for corners in t.lane_marks():
+            pts = [add(t.point(ps, lat), (0, 0, 0.02)) for ps, lat in corners]
+            paint.quad(pts, (0, 0, 1), [(0, 0.6), (1, 0.6), (1, 0.7), (0, 0.7)], white)
 
     # ---------- the buildings ----------
     def sign(self, part, left, right, bottom, top, n, row):
@@ -1387,15 +1468,16 @@ class Circuit:
         concrete, paint, door, glass, steel, signs, lines = (self.near.get(m) for m in
                                                              ("concrete", "paint", "door", "glass", "steel", "signs", "line_paint"))
         x0, x1 = -length / 2, length / 2
-        # the pit lane: concrete from under the wall back to the garages, rising and falling with the road
-        xs = [x0 - 2.0 + (length + 4.0) * k / max(1, round((length + 4.0) / 3.0)) for k in range(round((length + 4.0) / 3.0) + 1)]
-        ys = (-0.35, 3.0, 6.6)
-        rows = [[P(x, y, t.height(s_mid + x) - z0 + 0.01) for y in ys] for x in xs]
-        sheet(concrete, rows, [[up] * 3 for _ in rows], [[(p[0] / 2, p[1] / 2) for p in row] for row in rows],
-              [[shade((0.86, 0.86, 0.84), 0.92 + 0.08 * noise(p[0] / 4, p[1] / 4, 33)) for p in row] for row in rows])
-        rows = [[P(x, y, t.height(s_mid + x) - z0 + 0.016) for y in (0.8, 0.92)] for x in xs]
-        sheet(lines, rows, [[up] * 2 for _ in rows], [[(x / 2, 0.6), (x / 2, 0.65)] for x in xs], [[(0.95, 0.95, 0.92)] * 2 for _ in rows])
-        yg0, yg1, zg, zu = 6.5, PIT_DEPTH, 4.2, 7.4
+        if not t.lane:  # (CHANGE 179: with a pit lane the asphalt is pit_lane's; this is the old apron behind a wall)
+            # the pit lane: concrete from under the wall back to the garages, rising and falling with the road
+            xs = [x0 - 2.0 + (length + 4.0) * k / max(1, round((length + 4.0) / 3.0)) for k in range(round((length + 4.0) / 3.0) + 1)]
+            ys = (-0.35, 3.0, 6.6)
+            rows = [[P(x, y, t.height(s_mid + x) - z0 + 0.01) for y in ys] for x in xs]
+            sheet(concrete, rows, [[up] * 3 for _ in rows], [[(p[0] / 2, p[1] / 2) for p in row] for row in rows],
+                  [[shade((0.86, 0.86, 0.84), 0.92 + 0.08 * noise(p[0] / 4, p[1] / 4, 33)) for p in row] for row in rows])
+            rows = [[P(x, y, t.height(s_mid + x) - z0 + 0.016) for y in (0.8, 0.92)] for x in xs]
+            sheet(lines, rows, [[up] * 2 for _ in rows], [[(x / 2, 0.6), (x / 2, 0.65)] for x in xs], [[(0.95, 0.95, 0.92)] * 2 for _ in rows])
+        yg0, yg1, zg, zu = PIT_FRONT, PIT_DEPTH, 4.2, 7.4
         tower_x = (x0, x0 + 5.5) if s_mid > 0 else (x1 - 5.5, x1)  # (the tower at the end nearer the start line)
         gx0, gx1 = (tower_x[1], x1) if s_mid > 0 else (x0, tower_x[0])
         white, dark = (0.92, 0.92, 0.9), (0.07, 0.07, 0.08)
@@ -1546,21 +1628,27 @@ class Circuit:
                     for lat in [(H + BRIDGE_OUT) * (j / 4.0 - 1.0) for j in range(9)]]
             if any(math.hypot(p[0] - cx, p[1] - cy) < CAMERA_CLEAR + 1.5 for p in span for cx, cy, *_ in self.cams):
                 continue
-            ways = {}
+            ways, extra = {}, {}
             for side in (1, -1):
                 W, in_wall = self.verge[side]
+                # (CHANGE 179) the tower stands past the gravel trap, if there is one, or past the pit lane's outer
+                # wall: extra, how much further out than the road's edge the span reaches on this side
+                lane_side = t.lane is not None and side == t.lane[2]
                 for way in (side, -side):
                     lo, hi = (-2.0, run + 3.0) if way > 0 else (-run - 3.0, 2.0)
-                    if any(W[t.segment_at(s + d)] > 0.0 or in_wall[t.segment_at(s + d)] for d in range(int(lo), int(hi) + 1)):
+                    ds = range(int(lo), int(hi) + 1)
+                    if any(in_wall[t.segment_at(s + d)] for d in ds):
                         continue
-                    pts = [at(o, (a, b, u), along, side * (H + lat), 0.0) for lat in (BRIDGE_IN, BRIDGE_OUT)
+                    out = max(t.lane_edge(s + d) - H if lane_side and t.lane_zone(s + d) is not None
+                              else W[t.segment_at(s + d)] for d in ds)
+                    pts = [at(o, (a, b, u), along, side * (H + out + lat), 0.0) for lat in (BRIDGE_IN, BRIDGE_OUT)
                            for along in [x * 0.5 for x in range(-3, 4)] + [way * (1.3 + run * f) for f in (0.25, 0.5, 0.75, 1.0)]]
-                    if all(self.dist(p[0], p[1], H + BRIDGE_IN + 2) >= H + BRIDGE_IN - 0.3 and self.free(p[0], p[1], 0.8)
+                    if all(self.dist(p[0], p[1], H + out + BRIDGE_IN + 2) >= H + out + BRIDGE_IN - 0.3 and self.free(p[0], p[1], 0.8)
                            for p in pts):
-                        ways[side] = way
+                        ways[side], extra[side] = way, out
                         break
             if len(ways) == 2:
-                best = (bend, s, run, ways)
+                best = (bend, s, run, ways, extra)
         return best[1:] if best else None
 
     def bridge(self):
@@ -1572,24 +1660,27 @@ class Circuit:
         self.footbridge = None
         if not site:
             return
-        s, run, ways = site
+        s, run, ways, extra = site
         t, H = self.t, self.half
         steel, concrete, paint, glass, signs = (self.near.get(m) for m in ("steel", "concrete", "paint", "glass", "signs"))
         a, b, u = frame(math.radians(t.heading(s)))
         axes = (a, b, u)
         o = t.point(s, 0.0)
         P = lambda along, lat, z: at(o, axes, along, lat, z)  # noqa: E731  (z from the road's middle)
-        C, L1, D = BRIDGE_CLEAR, H + BRIDGE_OUT, 1.3  # (the underside, the walkway's ends, half its width along the road)
+        C, D = BRIDGE_CLEAR, 1.3  # (the underside, half the walkway's width along the road)
+        # (CHANGE 179) the walkway's ends each side (past the gravel or the pit lane there: extra), as laterals
+        E = {1: H + extra[1], -1: -(H + extra[-1])}  # (the road's edge, or the trap's or the lane's outer edge)
+        Lp, Ln = E[1] + BRIDGE_OUT, E[-1] - BRIDGE_OUT
         deck = C + 0.45
         self.footbridge = (s, run, ways)
         white, grey = (0.93, 0.93, 0.91), (0.38, 0.4, 0.44)
         # the girders, the floor, the roof
         for y0, y1 in ((-D, -D + 0.28), (D - 0.28, D)):
-            box(steel, o, axes, y0, y1, -L1, L1, C, C + 0.3, metres=2.0)
+            box(steel, o, axes, y0, y1, Ln, Lp, C, C + 0.3, metres=2.0)
         concrete.colour = (0.8, 0.8, 0.78)
-        box(concrete, o, axes, -D, D, -L1, L1, C + 0.3, deck, metres=3.0, skip=("-z",))
+        box(concrete, o, axes, -D, D, Ln, Lp, C + 0.3, deck, metres=3.0, skip=("-z",))
         paint.colour = grey
-        box(paint, o, axes, -D - 0.15, D + 0.15, -L1 - 0.15, L1 + 0.15, C + 2.45, C + 2.65)
+        box(paint, o, axes, -D - 0.15, D + 0.15, Ln - 0.15, Lp + 0.15, C + 2.45, C + 2.65)
         # each side: the club's board over the road (one row of the signs texture, read from the karts coming that way),
         # white panels past it, glazing above on mullions
         for face in (-1, 1):
@@ -1598,19 +1689,19 @@ class Circuit:
             left, right = (P(x, H + 0.8, 0.0), P(x, -H - 0.8, 0.0)) if face < 0 else (P(x, -H - 0.8, 0.0), P(x, H + 0.8, 0.0))
             self.sign(signs, left, right, deck, C + 1.5, n, 0 if face < 0 else 1)
             paint.colour = white
-            for lo, hi in ((-L1, -H - 0.8), (H + 0.8, L1)):
+            for lo, hi in ((Ln, -H - 0.8), (H + 0.8, Lp)):
                 paint.quad([P(x, lo, deck), P(x, hi, deck), P(x, hi, C + 1.5), P(x, lo, C + 1.5)], n)
-            paint.quad([P(x * 0.99, -L1, deck), P(x * 0.99, L1, deck), P(x * 0.99, L1, C + 1.5), P(x * 0.99, -L1, C + 1.5)],
+            paint.quad([P(x * 0.99, Ln, deck), P(x * 0.99, Lp, deck), P(x * 0.99, Lp, C + 1.5), P(x * 0.99, Ln, C + 1.5)],
                        mul(n, -1))  # (its back, seen from the walkway)
-            box(steel, o, axes, face * D - 0.05, face * D + 0.05, -L1, L1, C + 1.5, C + 1.58)
-            glass.quad([P(face * D, -L1, C + 1.58), P(face * D, L1, C + 1.58), P(face * D, L1, C + 2.45), P(face * D, -L1, C + 2.45)], n)
-            lat = -L1
-            while lat <= L1 + 0.01:
+            box(steel, o, axes, face * D - 0.05, face * D + 0.05, Ln, Lp, C + 1.5, C + 1.58)
+            glass.quad([P(face * D, Ln, C + 1.58), P(face * D, Lp, C + 1.58), P(face * D, Lp, C + 2.45), P(face * D, Ln, C + 2.45)], n)
+            lat = Ln
+            while lat <= Lp + 0.01:
                 box(steel, o, axes, face * D - 0.05, face * D + 0.05, lat - 0.04, lat + 0.04, C + 1.58, C + 2.45, skip=("-z", "+z"))
                 lat += 1.5
         # the stair towers and the steps
         for side in (1, -1):
-            l0, l1 = side * (H + BRIDGE_IN), side * L1
+            l0, l1 = E[side] + side * BRIDGE_IN, E[side] + side * BRIDGE_OUT
             lo, hi = min(l0, l1), max(l0, l1)
             for along in (-D + 0.1, D - 0.1):
                 for lat in (lo + 0.1, hi - 0.1):

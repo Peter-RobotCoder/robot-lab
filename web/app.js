@@ -1024,15 +1024,16 @@ function drawPanel(body) {
 // ---------- the keys' list (CHANGE 143): the Keys tab, and H's list over the game as the windows show theirs ----------
 // The game's own (its keyList: [[key, what]]), else the windows' key lists here, then the keys every game shares
 const KEYS = {
-    robotlab: [["Arrows", "drive"], ["Space", "weapon"], ["V", "camera view"], ["O", "the full arena"], ["[ and ]", "watch another arena"],
+    robotlab: [["Arrows", "drive"], ["Space", "weapon"], ["V", "camera view"], ["L", "watch the next robot (then V for the view)"],
+               ["O", "the full arena"], ["[ and ]", "watch another arena"],
                ["Wheel, + and -", "zoom"], ["Q and E", "swing the view round"], ["Home", "the view back as it was"],
                ["B", "the health bars: small or full"], ["N", "sound on or off"]],
     fightlab: [["Arrows", "move"], ["A", "punch (again for a combo)"], ["S", "kick (forward + S: high kick)"], ["D", "special"],
                ["W", "throw"], ["Space", "jump"], ["F", "cartwheel (when it's on)"], ["Shift", "block"], ["X", "crouch (X + Shift: low block)"],
                ["V", "camera view"], ["Q and E", "swing the view round"], ["Wheel, + and -", "zoom"], ["Home", "the view back as it was"],
                ["O", "every ring"], ["[ and ]", "watch another ring"], ["B", "the rings box: small or full"], ["N", "sound on or off"]],
-    kartlab: [["Arrows or WASD", "drive"], ["Shift or Space", "drift"], ["R", "respawn"], ["V", "camera view"], ["Wheel, + and -", "zoom"],
-              ["N", "sound on or off"]],
+    kartlab: [["Arrows or WASD", "drive"], ["Shift", "drift"], ["Space", "use your item"], ["B", "handbrake"], ["R", "respawn"],
+              ["V", "camera view"], ["L", "watch the next kart"], ["Wheel, + and -", "zoom"], ["N", "sound on or off"]],
 };
 
 function keyList() {
@@ -1042,6 +1043,7 @@ function keyList() {
     // (a key already in the game's rows, alone or as "Tab/I", "I or Tab"..., isn't listed twice)
     const has = k => list.some(([x]) => String(x).split(/\s*(?:\/|,| or | and )\s*/).includes(k));
     if (state.role !== "learner" && g.id === "kartlab" && !has("Enter")) list.push(["Enter", "start the race"], ["G", "everyone to the grid"], ["T", "the next track"]);
+    if (state.role !== "learner" && g.fixMine && !has("F") && !has("Shift+F")) list.push([g.id === "fightlab" ? "Shift+F" : "F", "fix your own " + (g.id === "robotlab" ? "robot" : g.id === "fightlab" ? "fighter" : "kart")]);  // (CHANGE 182)
     for (const [k, what] of [["U", "upload your brain"], ["P", "autopilot on or off (your brain drives)"], ["N", "sound on or off"],
                              ["I", "the panel (or Tab)"], ["C", "your code"], ["H", "the key list over the game: shown or hidden"]]) {
         if (!has(k)) list.push([k, what]);
@@ -1172,6 +1174,8 @@ keys.onKey = (k, e) => {
     else if (k === "u" && g) uploadMyBrain(appApi, pickBrain);
     else if (k === "h") toggleKeyHelp();
     else if (k === "v" && g && g.cycleCamera) { g.cycleCamera(); updatePills(); }
+    else if (k === "l" && g && g.cycleWatch) { g.cycleWatch(); updatePills(); }  // (CHANGE 183) the camera on the next player
+    else if (k === "f" && teacher && g && g.fixMine && (g.id === "fightlab" ? e.shiftKey : !e.shiftKey)) g.fixMine();  // (CHANGE 182)
     else if (k === "b" && g && g.toggleBoard) g.toggleBoard();  // (Robot Lab's health bars, Fight Lab's rings box)
     else if (k === "n") { sound.toggleMute(); toast(sound.muted ? "Sound off (N)" : "Sound on (N)"); if (state.tab === "graphics") renderPanel(); }
     else if (!g) return;

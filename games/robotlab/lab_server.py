@@ -1165,6 +1165,15 @@ class LabServer:
             if t:
                 await self.send(t.ws, {"type": "notice", "text": text})
             return
+        if kind == "fix":  # (CHANGE 182) the teacher's F key: their own robot mended, like new (Robot.fix)
+            t = self.teacher()
+            r = t.robot if t is not None else None
+            if r is None or r not in self.arena.robots:
+                await self.notice_teacher("You have no robot in the arena to fix.")
+                return
+            r.fix()
+            self.arena.events.append((self.arena.time, f"{r.name} is fixed (the teacher's robot)"))
+            return
         if kind == "pit":  # open or close the drop zone, straight away (no restart)
             self.lesson["hazards"]["pit"] = bool(m.get("open"))
             self.arena.set_pit(self.lesson["hazards"]["pit"])

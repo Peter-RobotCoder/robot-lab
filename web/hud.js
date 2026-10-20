@@ -149,8 +149,9 @@ export class KartHud {
     }
 
     // me: our kart's state (interpolated or predicted), states: every kart, race: the race message, track
-    // damageOn (CHANGE 158): the lesson's real damage, the panel shown; inPit: in the PIT box being mended
-    update(me, states, race, track, myId, colours, damageOn = false, inPit = false) {
+    // damageOn (CHANGE 158): the lesson's real damage, the panel shown; pitNote: the pit line's words (a pit stop's jobs,
+    // the way out of the gravel: CHANGE 177, 179) or false; tyre (CHANGE 178): tyre wear 0 to 1, null with it off
+    update(me, states, race, track, myId, colours, damageOn = false, pitNote = false, tyre = null) {
         const el = box();
         if (!me || !race) { el.innerHTML = ""; this.built = false; return; }  // (emptied: built again when there's a kart)
         el.className = "hud karthud";
@@ -172,10 +173,10 @@ export class KartHud {
         const note = performance.now() < this.noteUntil ? this.noteText : "";
         if ($("kh-note").textContent !== note) $("kh-note").textContent = note;
         this.drawMap(states, myId, colours);
-        // (CHANGE 159) your item, E to use it
-        const item = ITEMS[(me.item || 0) - 1], itemText = item ? `${item.toUpperCase()}   E to use` : "";
+        // (CHANGE 159) your item, Space to use it
+        const item = ITEMS[(me.item || 0) - 1], itemText = item ? `${item.toUpperCase()}   Space to use` : "";
         if ($("kh-item") && $("kh-item").textContent !== itemText) $("kh-item").textContent = itemText;
-        // (CHANGE 158) the damage panel: your kart from above, each part green to red; PIT: REPAIRING while mended
+        // (CHANGE 158) the damage panel: your kart from above, each part green to red; the pit line's words
         const panel = $("kh-dmg");
         if (panel) {
             panel.style.display = damageOn ? "" : "none";
@@ -183,7 +184,21 @@ export class KartHud {
                 const b = $("kh-d" + i), col = damageColour(Math.min(1, Math.max(0, (me[p] || 0) / DAMAGE_MAX)));
                 if (b && b.style.background !== col) b.style.background = col;
             });
-            $("kh-pit").style.display = damageOn && inPit ? "block" : "none";
+            const words = pitNote === true ? "PIT: REPAIRING" : pitNote || "";
+            if ($("kh-pit").textContent !== words) $("kh-pit").textContent = words;
+            $("kh-pit").style.display = words ? "block" : "none";
+        }
+        // (CHANGE 178) the tyres' bar: full and green when new, red when worn out
+        const tyres = $("kh-tyres");
+        if (tyres) {
+            tyres.style.display = tyre === null ? "none" : "";
+            if (tyre !== null) {
+                const worn = Math.min(1, Math.max(0, tyre)), bar = $("kh-tyre");
+                bar.style.width = `${(1 - worn) * 100}%`;
+                bar.style.background = damageColour(worn);
+                const label = worn >= 1 ? "TYRES WORN OUT" : "TYRES";
+                if ($("kh-tlabel").textContent !== label) $("kh-tlabel").textContent = label;
+            }
         }
     }
 
@@ -198,6 +213,7 @@ export class KartHud {
           <div id="kh-dmg"><span>DAMAGE</span><div class="kshape"><i class="kbody"></i>${DAMAGE_BOXES.map((b, i) =>
               `<b id="kh-d${i}" style="left:${b[0]}px;top:${b[1]}px;width:${b[2]}px;height:${b[3]}px"></b>`).join("")}</div></div>
           <div id="kh-pit">PIT: REPAIRING</div>
+          <div id="kh-tyres" style="display:none"><span id="kh-tlabel">TYRES</span><div class="kmeter"><b id="kh-tyre"></b></div></div>
           <div id="kh-item"></div>`;
         this.track = track;
         this.mapKey = track.name;
@@ -216,6 +232,17 @@ export class KartHud {
         track.pts.forEach((p, i) => { const [mx, my] = this.toMap(p[0], p[1]); if (i) c.lineTo(mx, my); else c.moveTo(mx, my); });
         c.closePath();
         c.stroke();
+        if (track.lane) {  // (CHANGE 186) the pit lane: a thin line along its outer wall, beside the start straight
+            const [sIn, sOut, side] = track.lane, steps = Math.max(2, Math.floor((sOut - sIn) / 2));
+            c.lineWidth = 2;
+            c.beginPath();
+            for (let j = 0; j <= steps; j++) {
+                const s = sIn + (sOut - sIn) * j / steps, p = track.point(s, side * track.laneEdge(s));
+                const [mx, my] = this.toMap(p[0], p[1]);
+                if (j) c.lineTo(mx, my); else c.moveTo(mx, my);
+            }
+            c.stroke();
+        }
         const a = track.point(0, track.half), b = track.point(0, -track.half);
         c.strokeStyle = "#fff";
         c.lineWidth = 3;

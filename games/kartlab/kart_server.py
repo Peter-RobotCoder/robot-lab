@@ -82,7 +82,7 @@ LIMITS_FILE = os.path.join(DATA, "limits_saved.json")        # the learners' ran
 MISSIONS_FILE = os.path.join(DATA, "mission_settings.json")  # the teacher's settings for each mission, kept by
 # Save settings and used whenever that mission is chosen: these keys
 MISSION_KEYS = ("mode", "track", "laps", "cpu_karts", "cpu_level", "teacher_kart", "designs_locked", "damage", "items", "time",
-                "user_mods",
+                "pits", "tyres", "tyre_laps", "user_mods",
                 "mods_in_vote", "arena_in_vote", "hazards", "tools", "limits")
 HAZARD_WORDS = {"bumping": "Bumping", "cpu_karts": "Computer karts"}
 TIMES = ("day", "dusk", "night")  # (CHANGE 172) the race's time of day
@@ -101,6 +101,9 @@ WEEK1_LESSON = {
     "damage": True,                # (CHANGE 158) real damage: hits slow a kart; it mends, quickly in the PIT box
     "items": {n: True for n in kart_items.ITEMS},  # (CHANGE 159) the power-ups the item boxes give (each on or off)
     "time": "day",                 # (CHANGE 172) the race's time of day: day, dusk or night (the headlights come on)
+    "pits": "box",                 # (CHANGE 179) where a kart is mended: the PIT box on the road, or the pit lane ("lane")
+    "tyres": False,                # (CHANGE 178) tyre wear on: a set lasts tyre_laps laps flat out, new ones at a pit stop
+    "tyre_laps": 5,
     "hazards": dict(km.NO_HAZARDS),
     "ai_card_note": "",            # the teacher's own instructions, shown on every learner's AI request card
     "gfx_max": None,               # the best graphics a learner may draw (engine.gfx_tiers.class_max; CHANGE 139)
@@ -349,6 +352,8 @@ class KartServer:
         race.practice = practice
         race.set_user_mods(L.get("user_mods"))
         race.set_damage(L.get("damage", True))
+        race.set_pits(L.get("pits", "box"))  # (CHANGE 179)
+        race.set_tyres(L.get("tyres"), L.get("tyre_laps", 5))  # (CHANGE 178)
         race.items = kart_items.Items(race, self.items_allowed())  # (CHANGE 159)
         wanted = self.karts_wanted()
         for p in self.players.values():
@@ -457,7 +462,8 @@ class KartServer:
                 "max_karts": MAX_KARTS,
                 # (CHANGE 155) the page predicts its kart's bumps as the race makes them (mods/rules.py may change them)
                 "bump": {"distance": sim.RULES.get("bump_distance", sim.BUMP_DISTANCE),
-                         "slowdown": sim.RULES.get("bump_slowdown", 0.3)}}
+                         "slowdown": sim.RULES.get("bump_slowdown", 0.3),
+                         "transfer": sim.RULES.get("bump_transfer", sim.BUMP_TRANSFER)}}  # (CHANGE 176)
 
     def limits_for(self, player):
         """The ranges a design is held to: the learners' (as the teacher has set them), or the widest ones for the
@@ -905,6 +911,11 @@ class KartServer:
             self.paused = not self.paused
             self.race.events.append((self.race.tick, "PAUSED" if self.paused else "GO!"))
             self.race_version = None
+        elif kind == "fix":  # (CHANGE 182) F: the teacher's own kart mended at once, new tyres on
+            t = self.teacher()
+            if t is not None and t.kart is not None and self.race.fix(t.kart):
+                self.race.events.append((self.race.tick, f"{self.race.designs[t.kart]['name']} fixed"))
+                self.race_version = None
         elif kind == "save_lesson":  # every control, for this mission: used whenever the mission is chosen
             self.save_mission_settings()
             try:
@@ -1005,6 +1016,22 @@ class KartServer:
             L["time"] = update["time"]  # window and page relights the race
             self.race.events.append((self.race.tick, {"day": "Daytime", "dusk": "Dusk: lights on",
                                                       "night": "Night falls: lights on"}[L["time"]]))
+        if update.get("pits") in kart_track.PITS and update["pits"] != L.get("pits", "box"):  # (CHANGE 179) live
+            L["pits"] = update["pits"]
+            self.race.set_pits(L["pits"])
+            self.race.events.append((self.race.tick, "The pit lane is open" if L["pits"] == "lane" else
+                                     "The PIT box on the road mends (the pit lane is closed)"))
+        if "tyres" in update or "tyre_laps" in update:  # (CHANGE 178) live
+            try:
+                laps = max(1, min(20, int(update.get("tyre_laps", L.get("tyre_laps", 5)))))
+            except (TypeError, ValueError, OverflowError):
+                laps = int(L.get("tyre_laps", 5))
+            on = bool(update.get("tyres", L.get("tyres")))
+            if on != bool(L.get("tyres")) or laps != L.get("tyre_laps"):
+                L["tyres"], L["tyre_laps"] = on, laps
+                self.race.set_tyres(on, laps)
+                self.race.events.append((self.race.tick, f"Tyre wear on: a set lasts {laps} lap{'s' if laps != 1 else ''}"
+                                         if on else "Tyre wear off: new tyres all round"))
         if "damage" in update and bool(update["damage"]) != bool(L.get("damage", True)):  # (CHANGE 158) live
             L["damage"] = bool(update["damage"])
             self.race.set_damage(L["damage"])

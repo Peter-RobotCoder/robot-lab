@@ -79,7 +79,7 @@ const REACT_GAP = {ooh: 2.5, cheer: 3.0, applause: 0.0};
 const SPIN_SOUNDS = {spinner: "spin", drum: "spin_drum", vdisc: "spin_disc"};  // rw_sound.SPIN_SOUNDS
 const INTRO = [2.5, 5.0, 8.0];  // lab_client.INTRO: the arena's name, who is fighting, then 3, 2, 1
 const HOUSE_WEAPONS = {BLAZE: "flame", CRUSHER: "hammer", RIPSAW: "chainsaw", VORTEX: "vdisc"};
-const FLAGS_RACE = 1, FLAG_DRIFT = 1 | 2, FLAG_FINISHED = 4, FLAG_BOOSTING = 16;  // kart_sim.py
+const FLAGS_RACE = 1, FLAG_DRIFT = 1 | 2, FLAG_FINISHED = 4, FLAG_BOOSTING = 16, FLAG_SPINNING = 64 | 128;  // kart_sim.py (CHANGE 181: wheelspin, the handbrake)
 const BUMP_DISTANCE = 1.7;  // kart_sim.BUMP_DISTANCE
 const MAX_SAME = 6;         // copies of one sound playing at once (the app's pool: 3 versions x 2)
 const STALE_MS = 500;       // a loop not set again for this long stops
@@ -642,13 +642,15 @@ export class Sound {
         else this.layers("off", 0, racing, 0.3 * rel("crowd"), false, 0);  // (the crowd murmurs while there is a race on)
         if (me) {
             const flags = me.flags || 0, top = opts.top || 24.3;  // (24.3: kart_sim.stats_of for the default 33 points)
-            const boosting = !!(flags & FLAG_BOOSTING), drifting = !!(flags & FLAG_DRIFT);
+            const boosting = !!(flags & FLAG_BOOSTING), drifting = !!(flags & FLAG_DRIFT), spinning = !!(flags & FLAG_SPINNING);
             const v = me.v || 0, speed = Math.min(1, Math.abs(v) / Math.max(1, top));
             const e = this._pitch("motor").kart, sk = this._pitch("k_skid");
-            if (!this.muted) {  // KartSounds.update
-                this.loop("engine", "motor", (e.volume[0] + e.volume[1] * speed + (boosting ? e.boost_volume : 0)) * motors,
-                          e.rate[0] + e.rate[1] * speed + (boosting ? e.boost_rate : 0));
-                if (drifting && Math.abs(v) > sk.min_speed) this.loop("skid", "k_skid", (sk.volume[0] + sk.volume[1] * speed) * motors, sk.rate[0] + sk.rate[1] * speed);
+            if (!this.muted) {  // KartSounds.update (CHANGE 181: the back wheels spinning or locked squeal at any speed, the engine screams)
+                const revs = spinning && Math.abs(v) < 6 ? 0.35 : 0;
+                this.loop("engine", "motor", (e.volume[0] + e.volume[1] * speed + (boosting ? e.boost_volume : 0) + revs * 0.4) * motors,
+                          e.rate[0] + e.rate[1] * speed + (boosting ? e.boost_rate : 0) + revs * 2.0);
+                if (spinning) this.loop("skid", "k_skid", (0.5 + 0.1 * speed) * motors, 1.05 + 0.2 * speed);
+                else if (drifting && Math.abs(v) > sk.min_speed) this.loop("skid", "k_skid", (sk.volume[0] + sk.volume[1] * speed) * motors, sk.rate[0] + sk.rate[1] * speed);
                 else this.stop("skid");
             }
             if (boosting && !K.wasBoosting) this.play("k_boost", {volume: 0.8 * fx});

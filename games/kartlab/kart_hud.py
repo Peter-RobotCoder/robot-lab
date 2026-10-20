@@ -169,5 +169,5 @@ class Overlay:
 
 
 def keys_text(teacher):
-    return ("Arrows/WASD drive  Shift drift  E item  R respawn  V view  Tab/I HUD  C code  " +
-            ("Enter start  G grid  T track  " if teacher else "U brain  P autopilot  ") + "N sound  H help")
+    return ("Arrows/WASD drive  Shift drift  Space item  B handbrake  R respawn  V view  L watch  Tab/I HUD  C code  " +
+            ("F fix  Enter start  G grid  T track  " if teacher else "U brain  P autopilot  ") + "N sound  H help")

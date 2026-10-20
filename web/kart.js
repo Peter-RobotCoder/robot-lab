@@ -5,7 +5,8 @@ import {KART_FIELDS, KIND_SNAPSHOT, kindOf, unpackSnapshot} from "./wire.js";
 import {Track, TRACKS} from "./track.js";
 import {KartScene} from "./scene.js";
 import {KartHud} from "./hud.js";
-import {STEP, FLAGS_RACE, FLAG_FINISHED, BUMP_DISTANCE, DAMAGE_PARTS, PIT_SPEED, statsOf, fullState, makeStep, compare, coast} from "./kart_sim.js";
+import {STEP, FLAGS_RACE, FLAG_FINISHED, BUMP_DISTANCE, BUMP_TRANSFER, DAMAGE_PARTS, PIT_SPEED, BAY_STOP, statsOf, fullState, makeStep,
+        compare, coast, surface, wearRate} from "./kart_sim.js";
 import {Predictor, InputLog, ErrorSmoother, LeadController, quantiseInput, packInput} from "./predict.js";
 import {Sound} from "./sound.js";
 
@@ -46,7 +47,8 @@ export class KartGame {
         this.predStats = null;  // the stats the prediction steps with (a new design or track: predicted afresh)
         // (CHANGE 155) the other karts as the prediction sees them: from each snapshot, carried on a tick a step, so
         // a bump against one is predicted as the server makes it (bump_distance and bump_slowdown: the rules')
-        this.world = {others: [], reach: BUMP_DISTANCE, slow: 0.3};
+        this.world = {others: [], reach: BUMP_DISTANCE, slow: 0.3, transfer: BUMP_TRANSFER, wear: 0};
+        this.watch = null;  // (CHANGE 183) the kart the camera follows instead of yours (L), null = your own
     }
 
     // the other karts in a snapshot, as copies the prediction may move
@@ -54,6 +56,8 @@ export class KartGame {
         const R = this.app.state.rules || {}, b = R.bump || {};
         this.world.reach = Number.isFinite(b.distance) ? b.distance : BUMP_DISTANCE;
         this.world.slow = Number.isFinite(b.slowdown) ? b.slowdown : 0.3;
+        this.world.transfer = Number.isFinite(b.transfer) ? b.transfer : BUMP_TRANSFER;  // (CHANGE 176)
+        this.applyPits();  // (CHANGE 178, 179: the tyres' wear and the pit lane as the lesson has them now)
         const karts = new Map((((this.app.state.roster || {}).karts) || []).map(k => [k.id, k]));
         this.world.others = snap.entities.filter(e => e.id !== id).map(e => {  // (their steering and stats: CHANGE 159)
             const st = statsOf((karts.get(e.id) || {}).design || {});
@@ -85,11 +89,53 @@ export class KartGame {
         return this.mine;
     }
 
-    cycleCamera() {  // V: chasing your kart, the TV camera, the whole track
+    cycleCamera() {  // V: chasing your kart (or the one picked with L), the TV camera, the whole track
         const id = this.myId(), order = id !== null ? ["chase", "hood", "tv"] : ["chase", "tv", "overview"];  // (the window's: chase, hood, TV)
         const next = order[(order.indexOf(this.scene.mode) + 1) % order.length];
-        this.scene.setMode(next, next !== "overview" ? id : null);
+        this.scene.setMode(next, next !== "overview" ? (this.watch ?? id) : null);
         this.keepCamera();
+    }
+
+    // (CHANGE 183) L: the camera follows the next kart (round every kart, then your own again); V changes the view
+    // of it (kart_client.cycle_watch). The HUD stays yours.
+    cycleWatch() {
+        const roster = this.app.state.roster || {}, mine = this.myId();
+        let ids = (roster.karts || []).map(k => k.id);
+        if (!ids.length) return;
+        if (ids.includes(mine)) ids = ids.slice(ids.indexOf(mine)).concat(ids.slice(0, ids.indexOf(mine)));
+        const cur = this.watch !== null && ids.includes(this.watch) ? this.watch : mine;
+        const at = ids.indexOf(cur);
+        const next = ids[(at + 1) % ids.length];
+        this.watch = next === mine ? null : next;
+        const sc = this.scene, mode = ["chase", "hood", "tv"].includes(sc.mode) ? sc.mode : "chase";
+        sc.setMode(mode, this.watch ?? mine);
+        const name = ((roster.karts || []).find(k => k.id === this.watch) || {}).name;
+        this.app.toast(this.watch === null ? "Camera: your kart" : `Camera: ${name ?? this.watch}  (L next, V view)`);
+    }
+
+    // (CHANGE 182) F, the teacher: the server mends the teacher's own kart at once (new tyres too)
+    fixMine() {
+        this.app.send({type: "fix"});
+    }
+
+    // (CHANGE 181) your kart's speed now, for the clutch drop's arming (play.js)
+    mySpeed() {
+        return this.predictor ? this.predictor.state.v || 0 : 0;
+    }
+
+    // (CHANGE 178, 179) the lesson's tyre wear into the prediction, and the pit lane open or closed into the track
+    // it steps on and into the picture (the gates); the bays' name boards from the roster
+    applyPits() {
+        const L = this.app.state.lesson || {}, roster = this.app.state.roster || {};
+        this.world.wear = L.tyres ? wearRate(this.track, L.tyre_laps || 5) : 0;
+        const mode = L.pits === "lane" ? "lane" : "box";
+        if (this.track.pits !== mode) this.track.setPits(mode);
+        this.scene.setPits(mode);
+        const names = JSON.stringify((roster.karts || []).map(k => [k.id, k.name, k.colour]));
+        if (names !== this.bayNames) {
+            this.bayNames = names;
+            this.scene.setBayNames(new Map((roster.karts || []).map(k => [k.id, [k.name, k.colour]])));
+        }
     }
 
     keepCamera() {  // (in the window's format, so the window and the page each find the other's: CHANGE 143)
@@ -148,7 +194,7 @@ export class KartGame {
     // H: the window's key list (kart_hud.keys_text), a row a key, with the camera's zoom and Home after it
     keyList() {
         const teacher = this.app.state.role !== "learner";
-        return [["Arrows/WASD", "drive"], ["Shift", "drift"], ["E", "use your item"], ["R", "respawn"], ["V", "view"], ["Tab/I", "HUD"], ["C", "code"],
+        return [["Arrows/WASD", "drive"], ["Shift", "drift"], ["Space", "use your item"], ["B", "handbrake"], ["R", "respawn"], ["V", "view"], ["L", "watch the next kart"], ["Tab/I", "HUD"], ["C", "code"],
                 ...(teacher ? [["Enter", "start"], ["G", "grid"], ["T", "track"]] : [["U", "brain"], ["P", "autopilot"]]),
                 ["N", "sound"], ["H", "help"], ["+/- or the wheel", "zoom"], ["Home", "the camera back to normal"]];
     }
@@ -179,6 +225,7 @@ export class KartGame {
             case "lesson":
                 if (m.track) this.setTrack(m.track);
                 this.scene.setTime(((m.lesson || S.lesson || {}).time) || "day");  // (CHANGE 172)
+                this.applyPits();  // (CHANGE 178, 179)
                 return false;
             case "items": {  // (CHANGE 159) the power-ups out on the track, drawn as late as the karts; who was hit
                 this.itemsBuf = (this.itemsBuf || []).concat([m]).slice(-12);
@@ -192,6 +239,7 @@ export class KartGame {
             case "roster":
                 this.scene.setKarts(m.karts || []);
                 this.renderPlaces();
+                this.applyPits();  // (CHANGE 179: the bays' name boards)
                 // (a new design for our kart, from the Garage or the teacher: predicted afresh, as the window does)
                 if (this.predictor && this.mine !== null && JSON.stringify(this.myStats(this.myId())) !== this.predStats) this.predictor = null;
                 return true;
@@ -349,14 +397,22 @@ export class KartGame {
         if (id !== null) {
             const colours = new Map([...designs].map(([k, d]) => [k, `rgb(${(d.colour || [200, 200, 200]).join(",")})`]));
             this.laps(states.get(id), Date.now());
-            // (CHANGE 158) the damage panel with the lesson's real damage on; PIT: REPAIRING in the PIT box at pit speed
-            const me = states.get(id), damageOn = ((this.app.state.lesson || {}).damage ?? true) !== false;
-            let inPit = false;
-            if (damageOn && me && DAMAGE_PARTS.some(p => me[p] > 0) && Math.abs(me.v || 0) < PIT_SPEED) {
-                const at = this.track.locate(me.x, me.y, me.seg ?? null);
-                inPit = this.track.inPit(at.s, at.lateral);
+            // (CHANGE 158) the damage panel with the lesson's real damage on; the pit line: a pit stop's jobs (mending,
+            // new tyres: CHANGE 178, 179), or the way out of the gravel (CHANGE 177); the tyres' bar with tyre wear on
+            const me = states.get(id), L = this.app.state.lesson || {}, damageOn = (L.damage ?? true) !== false;
+            let note = false;
+            if (me) {
+                const at = this.track.locate(me.x, me.y, me.seg ?? null), v = Math.abs(me.v || 0);
+                const surf = surface(this.track, at.seg, at.s, at.lateral);
+                const pitting = (v < PIT_SPEED && this.track.inPit(at.s, at.lateral)) ||
+                    (v < BAY_STOP && surf === "lane" && this.track.inBay(id, at.s, at.lateral));
+                if (pitting) {
+                    const jobs = (damageOn && DAMAGE_PARTS.some(p => me[p] > 0) ? ["REPAIRING"] : []).concat((me.tyre || 0) > 0 ? ["NEW TYRES"] : []);
+                    note = jobs.length ? "PIT: " + jobs.join(", ") : this.track.pits === "lane" ? "PIT STOP" : false;
+                } else if (surf === "gravel" && v < 2.0) note = "IN THE GRAVEL: crawl out, or R puts you back";
+                else if (surf === "lane" && this.track.pits === "lane" && this.track.laneZone(at.s) === "wall") note = "PIT LANE: stop in your bay";
             }
-            this.hud.update(me, states, this.race, this.track, id, colours, damageOn, inPit);
+            this.hud.update(me, states, this.race, this.track, id, colours, damageOn, note, L.tyres ? (me ? me.tyre || 0 : 0) : null);
         }
         if (this.app.sound) {
             const me = followed !== null && followed !== undefined ? states.get(followed) || null : null;
@@ -523,8 +579,13 @@ export class KartGame {
               <div class="note">Real damage: barriers and other karts damage the front wing, the wheels and the engine. A damaged kart is slower or pulls to one side; it mends by itself, quickly driving slowly through the PIT box. Off mends every kart.</div>
               <div class="row"><label>Time of day</label>${[["day", "Day"], ["dusk", "Dusk"], ["night", "Night"]].map(([k, t]) => `<button data-time="${k}" class="${(L.time || "day") === k ? "on" : ""}">${t}</button>`).join("")}</div>
               <div class="note">Every window and page draws the race at that time; at dusk and night the headlights come on (CHANGE 172).</div>
+              <div class="row"><label>Pits</label>${[["box", "PIT box on the road"], ["lane", "Pit lane open"]].map(([k, t]) => `<button data-pits="${k}" class="${(L.pits || "box") === k ? "on" : ""}">${t}</button>`).join("")}</div>
+              <div class="note">Where a kart is mended (CHANGE 179): the PIT box painted on the road (drive through it slowly), or the pit lane beside the start straight, open, with a bay for each kart: stop in yours for repairs and new tyres. The lane has a speed limit.</div>
+              <div class="row"><label>Tyre wear</label><button id="btn-tyres" class="${L.tyres ? "on" : ""}">${L.tyres ? "On" : "Off"}</button>
+                <select id="sel-tyre-laps">${Array.from({length: 20}, (_, i) => i + 1).map(n => `<option ${n === (L.tyre_laps || 5) ? "selected" : ""}>${n}</option>`).join("")}</select> laps a set lasts</div>
+              <div class="note">Tyre wear (CHANGE 178): the tyres lose grip as they wear (faster sliding), worn out after that many laps flat out; a pit stop puts new ones on. The computer karts pit too.</div>
               <div class="row"><label>Power-ups</label>${ITEM_NAMES.map(([k, t]) => `<button data-item="${k}" class="${(L.items || {})[k] !== false ? "on" : ""}">${t}</button>`).join("")}</div>
-              <div class="note">Item boxes give a random power-up (better ones further back); E uses it. Each one on or off; with all off there are no boxes.</div>
+              <div class="note">Item boxes give a random power-up (better ones further back); Space uses it. Each one on or off; with all off there are no boxes.</div>
               ${app.restartRow()}`;
             const lessonSend = patch => send({type: "lesson", lesson: patch});
             app.wireMissionRow(body);
@@ -543,6 +604,9 @@ export class KartGame {
             const now = () => this.app.state.lesson || L;
             $("btn-damage").onclick = () => lessonSend({damage: now().damage === false});
             body.querySelectorAll("button[data-time]").forEach(b => b.onclick = () => lessonSend({time: b.dataset.time}));
+            body.querySelectorAll("button[data-pits]").forEach(b => b.onclick = () => lessonSend({pits: b.dataset.pits}));  // (CHANGE 179)
+            $("btn-tyres").onclick = () => lessonSend({tyres: !now().tyres});  // (CHANGE 178)
+            $("sel-tyre-laps").onchange = e => lessonSend({tyre_laps: Number(e.target.value)});
             body.querySelectorAll("button[data-item]").forEach(b => b.onclick = () => {  // (CHANGE 159)
                 const on = Object.fromEntries(ITEM_NAMES.map(([k]) => [k, (now().items || {})[k] !== false]));
                 lessonSend({items: {...on, [b.dataset.item]: !on[b.dataset.item]}});

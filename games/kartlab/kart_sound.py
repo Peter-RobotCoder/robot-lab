@@ -66,14 +66,19 @@ class KartSounds(rw_sound.Sounds):
         self.pool["k_boost"] = [self._load("k_boost") for _ in range(2)]
         self.racing = False
 
-    def update(self, now, v, top, drifting, boosting, racing):
-        """Your own kart, every frame: the engine note follows the speed; the tyres squeal while drifting."""
+    def update(self, now, v, top, drifting, boosting, racing, spinning=False):
+        """Your own kart, every frame: the engine note follows the speed; the tyres squeal while drifting, and
+        (CHANGE 181) while the back wheels spin or the handbrake locks them (spinning), at any speed, the engine
+        revving with the clutch dropped."""
         if not self.on:
             return
         speed = min(1.0, abs(v) / max(1.0, top))
-        self.loop("engine", "motor", 0.18 + 0.3 * speed + (0.12 if boosting else 0.0),
-                  0.55 + 1.3 * speed + (0.25 if boosting else 0.0))
-        if drifting and abs(v) > 6:
+        revs = 0.35 if spinning and abs(v) < 6 else 0.0  # (the wheels spinning: the engine screams)
+        self.loop("engine", "motor", 0.18 + 0.3 * speed + (0.12 if boosting else 0.0) + revs * 0.4,
+                  0.55 + 1.3 * speed + (0.25 if boosting else 0.0) + revs * 2.0)
+        if spinning:
+            self.loop("skid", "k_skid", 0.5 + 0.1 * speed, 1.05 + 0.2 * speed)
+        elif drifting and abs(v) > 6:
             self.loop("skid", "k_skid", 0.35 + 0.2 * speed, 0.9 + 0.3 * speed)
         else:
             self.stop("skid")

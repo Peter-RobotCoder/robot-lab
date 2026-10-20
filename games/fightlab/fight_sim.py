@@ -505,6 +505,26 @@ class Fighter:
         self.low_guard = False          # was crouching when a hit or block stunned it (it stays down)
         self.hurt_how = "head"          # how the last clean hit landed: head, body, low, launch or trip
 
+    def fix(self):
+        """The teacher's Shift+F (CHANGE 182): this fighter mended where it stands: full health, on its feet and in
+        the fight again (out of a knockout); back at its start spot if it had fallen out of the ring."""
+        if self.state == "ringout" or self.z < 0:
+            cx, cy = self.ring.centre
+            side = -1 if self.slot == 0 else 1
+            self.x, self.y = cx + side * 1.6, cy
+            self.fx, self.fy = -side * 1.0, 0.0
+        self.z = 0.0
+        self.vx = self.vy = self.vz = 0.0
+        self.health = self.stats["health"]
+        self.set_state("idle")
+        self.move_t = 0.0
+        self.hit_done = set()
+        self.combo_step, self.chain_open, self.chained = 0, False, False
+        self.juggles = self.combo_taken = 0
+        self.jumped_attack = self.throw_anim = self.low_guard = False
+        self.knocked_out, self.ko_reason = False, ""
+        self.invincible_until = self.ring.stage.time + 1.0  # (a moment's grace to get going again)
+
     @property
     def radius(self):
         return self.RADIUS * self.stats["size"]

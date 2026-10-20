@@ -26,7 +26,8 @@ ap.add_argument("--closeup", action="store_true", help="the camera close to the 
 ap.add_argument("--steer", type=float, default=None, help="draw every kart steering this much (-1 right to 1 left: CHANGE 157)")
 ap.add_argument("--shield", action="store_true", help="every kart with a shield up (CHANGE 159)")
 ap.add_argument("--damage", default=None, help="draw every kart this damaged: six numbers 0 to 1, wing,fl,fr,rl,rr,engine (CHANGE 158)")
-ap.add_argument("--track", choices=["club", "oval", "straight"], default="club")
+ap.add_argument("--track", choices=["club", "oval", "straight", "airfield"], default="club")
+ap.add_argument("--pits", choices=["box", "lane"], default="box", help="the pit lane open (CHANGE 179)")
 ap.add_argument("--time", choices=["day", "dusk", "night"], default="day", help="the time of day (CHANGE 172)")
 ap.add_argument("--brake", action="store_true", help="every kart's brake lights on (CHANGE 171)")
 ap.add_argument("--rear", action="store_true", help="--closeup from behind (the tail lamps)")
@@ -89,10 +90,14 @@ class Preview(ShowBase):
         super().__init__()
         self.disableMouse()
         self.track = kart_track.load(args.track)
+        self.track.set_pits(args.pits)  # (CHANGE 179)
         self.pipeline = kart_gfx.init(self, args.gfx, line_colour=args.lines)
         kart_gfx.set_time(args.time)  # (CHANGE 172)
         started = time.perf_counter()
         self.track_vis = kart_gfx.TrackVisual(self.render, self.track)
+        self.track_vis.set_pits(args.pits)
+        self.track_vis.set_bay_names({i: (n, c) for i, (n, c) in enumerate((("Violet", [180, 90, 230]), ("Ash", [60, 130, 230]),
+                                                                           ("Teacher", [240, 190, 40]), ("Expert 1", [60, 190, 90])))})
         self.items_vis = kart_gfx.ItemsVisual(self.render, self.track)  # (CHANGE 159) the power-ups
         extra = [f"{k} {getattr(self.track_vis, a):.2f} s" for k, a in (("lines", "lines_secs"), ("circuit", "circuit_secs"))
                  if hasattr(self.track_vis, a)]

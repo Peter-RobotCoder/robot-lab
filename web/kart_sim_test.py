@@ -47,7 +47,7 @@ from engine import predict, wire  # noqa: E402
 
 SCHEMA = wire.Schema("kart", kart_sim.SCHEMA_FIELDS)
 JS_FILES = ["pymath.js", "track.js", "kart_sim.js", "predict.js", "wire.js"]
-RUNS = {"club": 2000, "oval": 600, "straight": 400}
+RUNS = {"club": 2000, "oval": 600, "straight": 400, "airfield": 300}  # (airfield: CHANGE 180)
 TICKS = 600
 RAW_RUNS = 300            # runs whose numbers before the rounding are compared too
 PREDICT_RUNS = 40
@@ -82,7 +82,8 @@ def random_inputs(rng, ticks):
         th = 1.0 if r < 0.6 else 0.0 if r < 0.68 else -1.0 if r < 0.8 else rng.uniform(-1, 1)
         r = rng.random()
         st = rng.choice((-1.0, 1.0)) if r < 0.3 else 0.0 if r < 0.5 else rng.uniform(-1, 1)
-        bt = (kart_sim.DRIFT if rng.random() < 0.35 else 0) | (kart_sim.USE if rng.random() < 0.05 else 0)
+        bt = (kart_sim.DRIFT if rng.random() < 0.35 else 0) | (kart_sim.USE if rng.random() < 0.05 else 0) | \
+            (kart_sim.HANDBRAKE if rng.random() < 0.06 else 0) | (kart_sim.LAUNCH if rng.random() < 0.08 else 0)  # (CHANGE 181)
         t, s, b = wire.quantise_input(th, st, bt)
         for j in range(hold):
             extra = kart_sim.RESPAWN if j == 0 and rng.random() < 0.012 else 0
@@ -111,11 +112,22 @@ def random_start(rng, track):
     if rng.random() < 0.4:  # ...and some damaged
         for part in kart_sim.DAMAGE_PARTS:
             k[part] = rng.choice((0, rng.randint(0, kart_sim.DAMAGE_MAX)))
+    r = rng.random()  # (CHANGE 177, 179) some start over the kerb, in the gravel, or in the pit lane (an open one)
+    if r < 0.1:
+        k["lat"] = rng.choice((-1, 1)) * (track.half + rng.uniform(-0.7, 0.3))
+        k["x"], k["y"], _ = track.point(k["s"], k["lat"])
+    elif r < 0.25 and track.lane:
+        s0, s1, side = track.lane
+        kart_sim.place(track, k, rng.uniform(s0 + 2, s1 - 2), side * rng.uniform(track.lane_inner() + 0.9, track.lane_outer() - 0.9))
+        k["v"] = rng.uniform(-1, 14)
+    if rng.random() < 0.3:  # (CHANGE 178) ...and some on worn tyres
+        k["tyre"] = rng.uniform(0, 1)
     k.update(SCHEMA.quantise(k))
+    k["id"] = rng.randint(0, 7)  # (its pit bay)
     return design, k
 
 
-def server_tick(race, k, inp, st):
+def server_tick(race, k, inp, st, wear=0.0):
     """One kart's tick as kart_sim.Race.step_all does it (no other karts): respawn, step, quantise.
     Returns (state, the step's raw result before the rounding)."""
     th, sr, bt = inp
@@ -124,7 +136,7 @@ def server_tick(race, k, inp, st):
         k = dict(k)
         race.respawn(k)
         inp = (0.0, 0.0, 0)
-    n = kart_sim.step(k, inp, kart_sim.STEP, race.track, st, True)  # (real damage on: CHANGE 158)
+    n = kart_sim.step(k, inp, kart_sim.STEP, race.track, st, True, wear)  # (real damage on: CHANGE 158; wear: 178)
     raw = [n["x"], n["y"], n["yaw"], n["v"], n["u"], n["s"], n["lat"]]
     n.update(SCHEMA.quantise(n))
     return n, raw
@@ -133,12 +145,16 @@ def server_tick(race, k, inp, st):
 def make_drives(rng, tracks):
     drives, raws, cover = [], {}, dict.fromkeys(
         ("drift boost (super)", "drift boost (mini)", "dash pad", "oil", "barrier", "respawn", "reversing",
-         "boosting", "drifting", "wrong-way flag", "damaged", "mended in the PIT box"), 0)
+         "boosting", "drifting", "wrong-way flag", "damaged", "mended in the PIT box", "on the kerb", "in the gravel",
+         "in the pit lane", "stopped in its bay", "handbrake", "wheelspin", "tyres wearing", "new tyres"), 0)
     for name, count in RUNS.items():
         track = tracks[name]
         race = kart_sim.Race(track, SCHEMA)
         limit = track.half - kart_sim.KART_HALF
         for _ in range(count):
+            pits = rng.choice(("box", "lane", "lane")) if track.lane else "box"  # (CHANGE 179: the lane open or not)
+            track.set_pits(pits)
+            wear = kart_sim.wear_rate(track, rng.randint(1, 8)) if rng.random() < 0.5 else 0.0  # (CHANGE 178)
             design, k = random_start(rng, track)
             st = kart_sim.stats_of(design)
             inputs = random_inputs(rng, TICKS)
@@ -146,13 +162,22 @@ def make_drives(rng, tracks):
             lines, segs, where, raw = [], [], [], []
             for inp in inputs:
                 was = k
-                k, r = server_tick(race, k, inp, st)
+                k, r = server_tick(race, k, inp, st, wear)
                 lines.append(wire_line(k))
                 segs.append(str(k["seg"]))
                 where.append((k["s"], k["lat"]))
                 if len(drives) < RAW_RUNS:
                     raw.append(r)
                 # (what happened, so the printout shows the drives went everywhere they should)
+                surf = kart_sim.surface(track, k["seg"], k["s"], k["lat"])
+                cover["on the kerb"] += surf == "kerb"
+                cover["in the gravel"] += surf == "gravel"
+                cover["in the pit lane"] += surf == "lane"
+                cover["stopped in its bay"] += surf == "lane" and abs(k["v"]) < kart_sim.BAY_STOP and track.in_bay(k["id"], k["s"], k["lat"])
+                cover["handbrake"] += bool(k["flags"] & kart_sim.FLAG_HANDBRAKE)
+                cover["wheelspin"] += bool(k["flags"] & kart_sim.FLAG_WHEELSPIN)
+                cover["tyres wearing"] += k["tyre"] > was.get("tyre", 0.0)
+                cover["new tyres"] += 0.0 < k["tyre"] < was.get("tyre", 0.0)
                 if inp[2] & kart_sim.RESPAWN:
                     cover["respawn"] += 1
                 elif k["boost"] == kart_sim.SUPER_BOOST - 1 and was["charge"] >= kart_sim.SUPER_TURBO:
@@ -163,7 +188,7 @@ def make_drives(rng, tracks):
                     cover["dash pad"] += 1
                 if k["slip"] == kart_sim.OIL_TICKS - 1:
                     cover["oil"] += 1
-                if abs(k["lat"]) == limit:
+                if abs(k["lat"]) >= limit + kart_track.KERB - 1e-9 and surf != "lane":  # (CHANGE 177: past the kerb, held)
                     cover["barrier"] += 1
                 cover["reversing"] += k["v"] < 0
                 cover["boosting"] += bool(k["flags"] & kart_sim.FLAG_BOOSTING)
@@ -173,9 +198,10 @@ def make_drives(rng, tracks):
                 cover["mended in the PIT box"] += any(was.get(p, 0) - k[p] == kart_sim.REPAIR_PIT for p in kart_sim.DAMAGE_PARTS)
             if raw:
                 raws[len(drives)] = raw
-            drives.append({"track": name, "design": design, "start": start, "inputs": inputs,
+            drives.append({"track": name, "design": design, "start": start, "inputs": inputs, "pits": pits, "wear": wear,
                            "md5": md5(lines), "md5_seg": md5(segs), "raw": len(drives) < RAW_RUNS,
                            "_lines": lines, "_segs": segs, "_where": where})
+        track.set_pits("box")
     return drives, raws, cover
 
 
@@ -318,7 +344,8 @@ const out = {tracks: {}, drives: [], packs: [], predicts: [], bumps: []};
 const tracks = {};
 for (const name of Object.keys(TRACKS)) {
     const t = tracks[name] = new Track(TRACKS[name]);
-    out.tracks[name] = {pts: t.pts, seg_len: t.segLen, tan: t.tan, s: t.s, length: t.length, gate_s: t.gateS};
+    out.tracks[name] = {pts: t.pts, seg_len: t.segLen, tan: t.tan, s: t.s, length: t.length, gate_s: t.gateS,
+                        gravel: [t.gravel[1], t.gravel["-1"]]};  // (CHANGE 177: the traps, so the barriers)
 }
 
 // the drives, as the server ticks a kart: respawn, step, quantise
@@ -326,6 +353,7 @@ const t0 = performance.now();
 let steps = 0;
 for (const d of job.drives) {
     const track = tracks[d.track], st = sim.statsOf(d.design);
+    track.setPits(d.pits || "box");  // (CHANGE 179)
     let k = d.start;
     const lines = [], segs = [], where = [], raw = [];
     for (const [th, sr, bt] of d.inputs) {
@@ -334,7 +362,7 @@ for (const d of job.drives) {
             k = sim.respawn(k, track);
             inp = [0.0, 0.0, 0];
         }
-        const n = sim.step(k, inp, sim.STEP, track, st, true);  // (real damage on: CHANGE 158)
+        const n = sim.step(k, inp, sim.STEP, track, st, true, d.wear || 0.0);  // (real damage on: CHANGE 158; wear: 178)
         steps++;
         if (d.raw) raw.push([n.x, n.y, n.yaw, n.v, n.u, n.s, n.lat]);
         Object.assign(n, sim.quantise(n));
@@ -486,8 +514,8 @@ def main():
         js = out["tracks"][name]
         same = (js["pts"] == [list(p) for p in t.pts] and js["seg_len"] == t.seg_len and
                 js["tan"] == [list(p) for p in t.tan] and js["s"] == t.s and js["length"] == t.length and
-                js["gate_s"] == t.gate_s)
-        check(f"track.js builds '{name}' to the last bit ({t.n} points, {t.length:.2f} m)", same)
+                js["gate_s"] == t.gate_s and js["gravel"] == [t.gravel[1], t.gravel[-1]])
+        check(f"track.js builds '{name}' to the last bit ({t.n} points, {t.length:.2f} m, the gravel traps too)", same)
 
     # the drives
     bad = []
@@ -525,7 +553,8 @@ def main():
           len(flips) <= seg_ticks * 1e-4 and worst_s < 1e-9 and worst_lat < 0.01 and
           all("(neighbours)" in f for f in flips), "; ".join(flips[:3]))
     print("  what the drives did (ticks):", ", ".join(f"{k} {v}" for k, v in cover.items()))
-    check("the drives covered drift turbos, dash pads, oil, barriers, respawns, reversing, the wrong way, damage and the PIT box",
+    check("the drives covered drift turbos, dash pads, oil, barriers, respawns, reversing, the wrong way, damage, the PIT "
+          "box, the kerb, the gravel, the pit lane and its bays, the handbrake, wheelspin and the tyres",
           all(cover.values()), str(cover))
 
     # before the rounding: how far apart, and the closest any value came to rounding differently

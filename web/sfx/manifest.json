@@ -1,6 +1,6 @@
 {
  "versions": {
-  "rw_sound": "8",
+  "rw_sound": "9",
   "kart_sound": "1",
   "fight_sound": "1",
   "maker": "1"
@@ -9,8 +9,8 @@
  "encoding": "MP3, mono, 44.1 kHz, LAME VBR -q:a 5 (ffmpeg)",
  "loop_pad": 0.5,
  "onset_threshold": 0.05,
- "bytes": 1561559,
- "seconds": 203.8,
+ "bytes": 1542993,
+ "seconds": 201.6,
  "left_out": {
   "yours": "the teacher's own music files (engine/music): never copied to the page"
  },
@@ -536,7 +536,7 @@
     "kartlab"
    ],
    "loop_start": 0.25,
-   "loop_len": 14.699977
+   "loop_len": 12.5
   },
   "ooh": {
    "files": [
@@ -550,7 +550,7 @@
     "fightlab"
    ],
    "onset": [
-    0.07018
+    0.06206
    ],
    "seconds": [
     3.4
@@ -569,7 +569,7 @@
     "kartlab"
    ],
    "onset": [
-    0.09034
+    0.08492
    ],
    "seconds": [
     5.3
@@ -588,7 +588,7 @@
     "kartlab"
    ],
    "onset": [
-    0.09268
+    0.06914
    ],
    "seconds": [
     7.5

@@ -4,8 +4,8 @@ writes them to models/) draw the same ones.
 
 A car is only its look: it drives as the design's points say (kart_sim.stats_of), exactly as a kart does, so a
 race stays fair whatever everyone picks. Each is a real car's shape and proportions (its length, width, height,
-wheelbase, track and wheels as a real one's) made SCALE times its size, so it sits among the karts: about 2.5 to
-2.9 m long.
+wheelbase, track and wheels as a real one's) made SCALE times its size, so it sits among the karts: about 3.1 to
+3.6 m long (CHANGE 184: a quarter bigger than at first, which felt too small beside a kart).
 
 One builder makes each car at two levels of detail:
 
@@ -46,8 +46,8 @@ import math
 import kart_models as km
 from kart_models import Part, add, sub, mul, dot, cross, norm, spow
 
-VERSION = 2  # (2: real cars' shapes and proportions, and the ultra cars: CHANGE 174)
-SCALE = 0.6  # a real car made this much of its size
+VERSION = 3  # (2: real cars' shapes and proportions, and the ultra cars: CHANGE 174; 3: a quarter bigger, CHANGE 184)
+SCALE = 0.75  # a real car made this much of its size (0.6 felt too small beside the karts: CHANGE 184)
 BODIES = ("kart", "coupe", "supercar", "rally", "muscle")  # (kart: the kart itself, as before)
 TITLES = {"kart": "Kart", "coupe": "GT coupe", "supercar": "Supercar", "rally": "Rally hatch", "muscle": "Muscle car"}
 ROLES = dict(km.ROLES,

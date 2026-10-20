@@ -392,6 +392,7 @@ export class FightScene extends BaseScene {
         this.list = [];
         this.cam = new FightCamera("fight");  // (fight_camera.FightCamera: the five views, each with its zoom)
         this.myId = null;                     // (your fighter: the one the camera's own views follow)
+        this.focusId = null;                  // (CHANGE 183: a fighter picked with L is followed instead)
         this.ringMeshes = new Map();
         this.stageT = 0;                      // (the stage's clock: the jets' puffs, the ropes' and edges' pulses)
         this.zapUntil = {};
@@ -1244,7 +1245,8 @@ export class FightScene extends BaseScene {
         if (this.snapCamera) { this.cam.pos = null; this.snapCamera = false; }
         const ring = rings.find(r => r.i === watched) || null;
         const here = fs.filter(s => s.ri === watched && (s.a !== "ringout" || s.pos[2] > -1.5));
-        const first = here.find(s => s.id === this.myId) || here[0] || null, other = here.find(s => s !== first) || null;
+        const first = (this.focusId !== null ? here.find(s => s.id === this.focusId) : null) || here.find(s => s.id === this.myId) || here[0] || null,
+              other = here.find(s => s !== first) || null;
         const centreOf = r => r.c || RING_CENTRES[r.i] || [0, 0];
         const v = this.cam.update(dt, first ? first.pos.slice() : null, other ? other.pos.slice() : null,
                                   ring ? centreOf(ring) : [0, 0], rings.map(centreOf));
@@ -1278,6 +1280,7 @@ export class FightGame {
         this.word = "fighter";
         this.scene = new FightScene(app.canvas, app.tier, app.engine);
         this.watch = null;
+        this.focus = null;  // (CHANGE 183) the fighter the camera follows (L), null = your own
         this.mods = ["mods/stage.py", "mods/rules.py", "mods/fighters/<username>.py"];
         this.last = null;
         this.events = new Set();
@@ -1304,7 +1307,9 @@ export class FightGame {
                 ["W", "throw"], ["Space", "jump"], ["F", "cartwheel (when it's on)"], ["Shift", "block"], ["X", "crouch (X + Shift: low block)"],
                 ...(learner ? [["P", "autopilot"], ["U", "upload a brain"]] : []),
                 ["V", "camera view"], ["Q and E, or drag", "swing the view round (drag up and down tilts it)"], ["Wheel, + and -", "zoom"],
-                ["Home", "the view back as it was"], ["O", "every ring"], ["[ and ]", "watch another ring"], ["B", "the rings box: small or full"],
+                ["Home", "the view back as it was"], ["O", "every ring"], ["L", "watch the next fighter (then V for the view)"],
+                ["[ and ]", "watch another ring"], ["B", "the rings box: small or full"],
+                ...(learner ? [] : [["Shift+F", "fix your fighter"]]),
                 ["N", "sound on or off"]];
     }
 
@@ -1353,11 +1358,41 @@ export class FightGame {
         const cur = rings.indexOf(this.watched()), next = rings[((cur < 0 ? 0 : cur) + delta + rings.length) % rings.length];
         const r = this.roster, id = this.myId(), mine = r && id !== null ? ((r.fighters || []).find(x => x.id === id) || {}).ring : undefined;
         this.watch = next === mine ? null : next;
+        this.focus = null;  // (another ring: the camera follows your own fighter, or the ring's first)
         this.scene.setMode(this.scene.mode !== "all" ? this.scene.mode : "fight");
         this.renderBoard();
         if (this.app.toast) this.app.toast(`Watching ring ${next + 1}${next === mine ? "  (yours)" : ""}`);
         this.app.updatePills();
     }
+
+    // (CHANGE 183) L: the camera follows the next fighter: round the ring watched, then the next ring's fighters
+    // (watching that ring), and back to your own, as the window's cycle_focus; V then changes the view of them.
+    cycleWatch() {
+        const rings = (this.last || {}).rings || [], w = this.watched();
+        const k = Math.max(0, rings.findIndex(r => r.i === w));
+        const order = rings.slice(k).concat(rings.slice(0, k)).flatMap(r => (r.f || []).map(f => [r.i, f.id]));  // (from the watched ring on)
+        if (!order.length) return;
+        const ids = order.map(x => x[1]), my = this.myId();
+        const cur = this.focus !== null && ids.includes(this.focus) ? this.focus : my;
+        const [ringI, next] = order[(ids.indexOf(cur) + 1) % order.length];
+        if (this.scene.mode === "ring" || this.scene.mode === "all") this.scene.setMode("me");  // (a view that follows nobody: on them instead)
+        if (ringI !== w) {
+            const mine = this.myRing();
+            this.watch = ringI === mine ? null : ringI;
+            this.scene.watchRing = this.watched();
+            this.renderBoard();
+        }
+        this.focus = next === my ? null : next;
+        this.scene.focusId = this.focus;
+        this.scene.snapCamera = true;  // (cut straight to them)
+        const info = ((this.roster || {}).fighters || []).find(x => x.id === next) || {};
+        if (this.app.toast) this.app.toast(this.focus === null ? (my !== null && ids.includes(my) ? "Camera: your fighter" : "Camera: the ring")
+                                           : `Camera: ${(info.design || {}).name || "?"}${info.owner ? ` (${info.owner})` : ""}`);
+        this.app.updatePills();
+    }
+
+    // (CHANGE 182) Shift+F, the teacher only (app.js checks the role): the server mends the teacher's own fighter
+    fixMine() { this.app.send({type: "fix"}); }
 
     welcome(m) {
         const p = this.app.params;
@@ -1479,6 +1514,7 @@ export class FightGame {
         }
         this.scene.watchRing = this.watched();
         this.scene.myId = my;
+        this.scene.focusId = this.focus;  // (L: another fighter followed)
         this.scene.frame(fighters, (b || a).rings || [], dt, now / 1000);
         // the fight screen (hud.js): the watched ring's two fighters, from the newest snapshot
         const watched = this.watched(), ring = this.last ? (this.last.rings || []).find(r => r.i === watched) : null;

@@ -250,6 +250,9 @@ body.light #panel .warn { color: #b25f00; }
 .karthud #kh-dmg .kshape b { position: absolute; border-radius: 2px; }
 .karthud #kh-dmg .kbody { position: absolute; left: 23px; top: 4px; width: 24px; height: 74px; background: #383a45; border-radius: 3px; }
 .karthud #kh-item { position: absolute; right: 28px; bottom: 300px; font-size: 22px; font-weight: 800; color: var(--yellow); text-shadow: 0 2px 6px #000; }
+.karthud #kh-tyres { position: absolute; right: 28px; bottom: 118px; width: 90px; background: rgba(12,12,18,0.85); border-radius: 6px; padding: 6px 10px 8px; text-align: center; }
+.karthud #kh-tyres span { display: block; font-size: 12px; color: #c0cce6; margin-bottom: 5px; }
+.karthud #kh-tyres .kmeter { width: 86px; height: 10px; }
 .karthud #kh-pit { display: none; position: absolute; top: 58%; left: 0; right: 0; text-align: center; font-size: 34px; font-weight: 800; color: var(--yellow); text-shadow: 0 2px 6px #000; }
 body.fightscreen #places, body.fightscreen #race { display: none; }  /* (a player's fight screen has its own bars and banner) */
 #race .big .sub { font-size: 16px; font-weight: 400; color: #fff; }

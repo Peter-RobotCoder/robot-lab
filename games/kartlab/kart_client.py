@@ -6,8 +6,11 @@ Offline:  python kart_client.py --offline --cpu 5        no server: a race on th
 Class server: add --host wss://... Learners come through the Club Coders app (a ticket from the club desk); the
 teacher's code comes from --code or KARTLAB_TEACHER_CODE; on a laptop test server it is the demo code.
 
-Driving:   arrows or WASD drive, Shift (or Space) drifts (hold it through a bend, let go for a boost), R puts you
-           back on the track, V changes the camera (chase, hood, TV), the mouse wheel zooms
+Driving:   arrows or WASD drive, Shift drifts (hold it through a bend, let go for a boost), Space (or E) uses your
+           item, B is the handbrake (a handbrake turn), the throttle tapped then held from a standstill drops the
+           clutch (a burnout; a donut with the wheel turned), R puts you back on the track, V changes the camera
+           (chase, hood, TV), L watches the next kart (then V for the view of it), the mouse wheel zooms
+Teacher:   F fixes your own kart at once (every part mended, new tyres)
 Panels:    Tab or I opens and closes the HUD (the Mission, Garage, AI card, My card, Mods and Settings tabs; the
            teacher's Controls, Races, Learners, Accounts, Outcomes, AI cards, Changes, Limits, Warnings and more)
            C your kart as code (edit it, then APPLY CODE)   H the key list
@@ -414,7 +417,11 @@ class Lab(hud.HudKit, ShowBase):
         self.cd_last, self.was_boosting, self.was_finished = None, False, False
         self.lap_seen, self.lap_started, self.best_lap = None, None, None  # lap timing (see laps)
         self.accum = 0.0
-        self.keys_down = {"drift": False, "respawn": False, "use": False}  # (use: E, your item: CHANGE 159)
+        self.keys_down = {"drift": False, "respawn": False, "use": False, "handbrake": False}  # (use: Space or E,
+        #                                                                                      your item: CHANGE 159, 181)
+        self.th_was, self.th_released, self.launch_armed = False, -10.0, False  # (CHANGE 181) the throttle tapped
+        #                                                                          then held: the clutch dropped
+        self.watch = None  # (CHANGE 183) the kart the camera follows instead of yours (L), None = your own
         self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
         self.note_text, self.note_big, self.note_until = "", False, 0.0
         self.finished = False
@@ -458,12 +465,16 @@ class Lab(hud.HudKit, ShowBase):
         self.perf_label = None
         self.prefs_sent, self.prefs_at = "", 0.0
         self.key("v", self.cam_rig.cycle)
+        self.key("l", self.cycle_watch)  # (CHANGE 183) the camera follows the next kart
         self.key("shift", self.key_down, "drift", True)
         self.accept("shift-up", self.key_down, ["drift", False])
-        self.key("space", self.key_down, "drift", True)
-        self.accept("space-up", self.key_down, ["drift", False])
+        self.key("space", self.key_down, "use", True)  # (CHANGE 181) Space is the weapon: your item
+        self.key("b", self.key_down, "handbrake", True)  # (CHANGE 181) the handbrake
+        self.accept("b-up", self.key_down, ["handbrake", False])
         self.key("r", self.key_down, "respawn", True)
         self.key("e", self.key_down, "use", True)  # (CHANGE 159) your item
+        if TEACHER:
+            self.key("f", self.fix_mine)  # (CHANGE 182) the teacher's own kart mended at once
         self.key("i", self.toggle_panel)
         self.key("c", self.toggle_code)
         self.key("h", self.toggle_help)
@@ -583,12 +594,14 @@ class Lab(hud.HudKit, ShowBase):
         self.local = sim.Race(self.track, SCHEMA, args.laps)
         self.local.set_damage(self.lesson.get("damage", True))  # (CHANGE 158: real damage offline too)
         self.local.items = kart_items.Items(self.local)  # (CHANGE 159: power-ups offline too, every one on)
+        self.local.set_tyres(self.lesson.get("tyres"), self.lesson.get("tyre_laps", 5))  # (CHANGE 178)
         self.local.add(0, self.design)
         self.local_cpu = {}
         for n in range(max(0, min(7, args.cpu))):
             kid = n + 1
             self.local.add(kid, sim.default_design(cpu_brains.name_for(args.level, n), COLOURS[kid % len(COLOURS)]))
             self.local_cpu[kid] = args.level
+        self.apply_pits()
         self.local_brain = None
         if args.brain:
             import kart_brain
@@ -1306,6 +1319,19 @@ class Lab(hud.HudKit, ShowBase):
             button(f, text, 1.08 + i * 0.16, y + 0.008, lambda k=key: self.set_lesson({"time": k}), (), 0.024,
                    ON if L.get("time", "day") == key else OFF)
         y -= 0.05
+        # (CHANGE 179) where a kart is mended: the PIT box painted on the road, or the pit lane with a bay each
+        label(f, "Pits", 0.82, y, 0.028, YELLOW)
+        for i, (key, text) in enumerate((("box", "PIT box on the road"), ("lane", "Pit lane open"))):
+            button(f, text, 1.08 + i * 0.36, y + 0.008, lambda k=key: self.set_lesson({"pits": k}), (), 0.024,
+                   ON if L.get("pits", "box") == key else OFF)
+        y -= 0.05
+        # (CHANGE 178) tyre wear: a set lasts so many laps flat out; new tyres at a pit stop
+        tl = int(L.get("tyre_laps", 5))
+        check(f, f"Tyre wear (a set lasts {tl} lap{'s' if tl != 1 else ''})", 0.84, y, bool(L.get("tyres")),
+              lambda v: self.set_lesson({"tyres": bool(v)}), 0.026)
+        button(f, "-", 1.56, y + 0.008, self.set_lesson, [{"tyre_laps": tl - 1}], 0.024)
+        button(f, "+", 1.64, y + 0.008, self.set_lesson, [{"tyre_laps": tl + 1}], 0.024)
+        y -= 0.05
         # (CHANGE 159) the power-ups the item boxes give, each on or off
         label(f, "Power-ups", 0.82, y, 0.028, YELLOW)
         items = L.get("items") if isinstance(L.get("items"), dict) else {}
@@ -1377,8 +1403,8 @@ class Lab(hud.HudKit, ShowBase):
                    (0.6, 0.2, 0.15, 1))
         y -= 0.055
         label(f, "Track", 0.82, y, 0.026)
-        for i, t in enumerate(kart_track.TRACKS):
-            button(f, kart_track.TRACKS[t]["name"], 1.0 + i * 0.25, y + 0.008, self.set_lesson, [{"track": t}], 0.024,
+        for i, t in enumerate(kart_track.TRACKS):  # (four since CHANGE 180: a little closer together)
+            button(f, kart_track.TRACKS[t]["name"], 0.98 + i * 0.22, y + 0.008, self.set_lesson, [{"track": t}], 0.022,
                    ON if t == L.get("track") else OFF)
         y -= 0.05
         laps = int(L.get("laps", 3))
@@ -2362,6 +2388,19 @@ class Lab(hud.HudKit, ShowBase):
             self.snaps = interp.Snapshots(SNAP_SPEC)
         if laps:
             self.race["laps"] = laps
+        self.apply_pits()
+
+    def apply_pits(self):
+        """(CHANGE 179) The lesson's pits (the PIT box on the road, or the pit lane open) into the track the
+        prediction steps on and into the picture (the lane's gates), and the bays' name boards from the roster."""
+        mode = self.lesson.get("pits", "box") if self.lesson else "box"
+        if self.local is not None:
+            self.local.set_pits(mode)
+        else:
+            self.track.set_pits(mode)
+        if self.track_vis is not None:
+            self.track_vis.set_pits(self.track.pits)
+            self.track_vis.set_bay_names({k["id"]: (k["name"], k["colour"]) for k in (self.roster or {}).get("karts", [])})
 
     def read_network(self):
         rebuild = False
@@ -2393,6 +2432,7 @@ class Lab(hud.HudKit, ShowBase):
                 mine = (m.get("mine") or {}).get(self.my_name)
                 if mine is not None:
                     self.my_id = mine
+                self.apply_pits()  # (CHANGE 179: the bays' name boards)
                 rebuild = rebuild or self.tab == "races"
             elif kind == "welcome":  # back after a dropped connection (or a server restart)
                 self.reconnecting = False
@@ -2431,6 +2471,7 @@ class Lab(hud.HudKit, ShowBase):
                     new, m.get("class", self.class_list), m.get("tournament"), mods
                 self.obey_gfx_max()
                 self.set_track(new.get("track", self.track_name), new.get("laps"))
+                self.apply_pits()  # (CHANGE 179)
                 kart_gfx.set_time(new.get("time", "day"))  # (CHANGE 172: day, dusk or night, as the teacher has it)
             elif kind in ("slots", "history"):  # saved designs (CHANGE 83 to 86)
                 rebuild = self.took_slots(m) or rebuild
@@ -2606,13 +2647,15 @@ class Lab(hud.HudKit, ShowBase):
         track, st, others = self.track, sim.stats_of(self.design), self.others
         reach = self.rules.get("bump", {}).get("distance", sim.BUMP_DISTANCE)
         slow = self.rules.get("bump", {}).get("slowdown", 0.3)
+        transfer = self.rules.get("bump", {}).get("transfer", sim.BUMP_TRANSFER)  # (CHANGE 176)
 
         def step(state, inp, dt):
             damage = bool(self.lesson.get("damage", True))  # (CHANGE 158: real damage, as the lesson has it now)
-            n = sim.step(state, inp, dt, track, st, damage)
+            wear = sim.wear_rate(track, self.lesson.get("tyre_laps", 5)) if self.lesson.get("tyres") else 0.0  # (CHANGE 178)
+            n = sim.step(state, inp, dt, track, st, damage, wear)
             for o in others:  # (CHANGE 155: the other karts carried on a tick, and bumped as the race bumps them)
                 sim.coast(o, dt)
-                sim.bump(n, o, reach, slow, damage)
+                sim.bump(n, o, reach, slow, damage, transfer)
             n.update(SCHEMA.quantise(n))  # (as the server does: the same numbers next tick)
             return n
         return step
@@ -2636,26 +2679,65 @@ class Lab(hud.HudKit, ShowBase):
             return (0.0, 0.0, 0)
         behind = getattr(self.win, "getProperties", None) and not self.win.getProperties().getForeground()
         if behind and not args.offscreen:
-            self.keys_down["drift"] = False
+            self.keys_down["drift"] = self.keys_down["handbrake"] = False
+            self.th_was, self.launch_armed = False, False
             return (0.0, 0.0, 0)
         down = self.mouseWatcherNode.is_button_down
         k = KeyboardButton
         th = (down(k.up()) or down(k.asciiKey("w"))) - (down(k.down()) or down(k.asciiKey("s")))
         steer = (down(k.left()) or down(k.asciiKey("a"))) - (down(k.right()) or down(k.asciiKey("d")))
         bt = (sim.DRIFT if self.keys_down["drift"] else 0) | (sim.RESPAWN if self.keys_down["respawn"] else 0) | \
-            (sim.USE if self.keys_down["use"] else 0)
+            (sim.USE if self.keys_down["use"] else 0) | (sim.HANDBRAKE if self.keys_down["handbrake"] else 0)
         self.keys_down["respawn"] = self.keys_down["use"] = False
         pad = self.pad.read()  # (CHANGE 170) a controller: the bottom face button or the right trigger goes, the right
         if pad:                # one or the left trigger brakes, the stick steers, the right shoulder drifts, the left
-            if not th:         # shoulder or the left face button uses your item, Back (Minus) respawns
-                th = max(pad.rt, float("south" in pad.held)) - max(pad.lt, float("east" in pad.held))
-            if not steer:
+            if not th:         # shoulder or the left face button uses your item, Back (Minus) respawns, the top
+                th = max(pad.rt, float("south" in pad.held)) - max(pad.lt, float("east" in pad.held))  # button is
+            if not steer:      # the handbrake (CHANGE 181)
                 steer = -pad.x
             bt |= (sim.DRIFT if "rb" in pad.held else 0) | (sim.RESPAWN if "back" in pad.pressed else 0) | \
-                (sim.USE if pad.pressed & {"lb", "west"} else 0)
+                (sim.USE if pad.pressed & {"lb", "west"} else 0) | (sim.HANDBRAKE if "north" in pad.held else 0)
             if "start" in pad.pressed:
                 self.toggle_panel()
+        bt |= self.launch_button(th > 0)
         return wire.quantise_input(float(th), float(steer), bt)
+
+    def launch_button(self, pressed):
+        """(CHANGE 181) The clutch dropped: the throttle let go and pressed again within 0.35 s while the kart is
+        nearly still arms LAUNCH, held until the throttle is let go (the step spins the back wheels while the kart
+        is under 6 m/s: a burnout, or a donut with the wheel turned)."""
+        now = time.perf_counter()
+        if pressed and not self.th_was:
+            state = self.predictor.state if self.predictor is not None else (self.local.karts.get(self.my_id) if self.local else None)
+            if now - self.th_released < 0.35 and abs((state or {}).get("v", 0.0)) < 3.0:
+                self.launch_armed = True
+        elif not pressed and self.th_was:
+            self.th_released, self.launch_armed = now, False
+        self.th_was = pressed
+        return sim.LAUNCH if self.launch_armed and pressed else 0
+
+    def cycle_watch(self):
+        """(CHANGE 183) L: the camera follows the next kart (round every kart, then your own again); V changes the
+        view of it. The HUD stays yours."""
+        ids = [k["id"] for k in (self.roster or {}).get("karts", [])] or sorted(self.karts)
+        if not ids:
+            return
+        if self.my_id in ids:  # (your own first, so the order round is the same from any start)
+            ids = ids[ids.index(self.my_id):] + ids[:ids.index(self.my_id)]
+        at = ids.index(self.watch if self.watch in ids else self.my_id) if (self.watch in ids or self.my_id in ids) else -1
+        nxt = ids[(at + 1) % len(ids)]
+        self.watch = None if nxt == self.my_id else nxt
+        self.cam_rig.pos = None  # (cut straight to them)
+        names = {k["id"]: k["name"] for k in (self.roster or {}).get("karts", [])}
+        self.banner_note("Camera: your kart" if self.watch is None else f"Camera: {names.get(self.watch, self.watch)}  (L next, V view)", 2)
+
+    def fix_mine(self):
+        """(CHANGE 182) F, the teacher: the server mends the teacher's own kart at once (new tyres too)."""
+        if self.local is not None:
+            if self.my_id in self.local.karts:
+                self.local.fix(self.my_id)
+        elif net is not None:
+            net.send({"type": "fix"})
 
     def client_tick(self, now):
         """One predicted tick of our own kart, and its input to the server."""
@@ -2768,12 +2850,24 @@ class Lab(hud.HudKit, ShowBase):
             self.snd.bump(0.5 if blocked else 1.0)
 
     def damage_readout(self, me):
-        """(CHANGE 158) Your kart's damage for the panel (None with damage off) and whether the PIT box is mending it."""
-        if me is None or not self.lesson.get("damage", True):
+        """(CHANGE 158) Your kart's damage for the panel (None with damage off) and the pit line: what a pit stop is
+        doing (mending, new tyres), or (CHANGE 177) how to get out of the gravel; False for nothing."""
+        if me is None:
             return None, False
-        damage = sim.damage_of(me)
+        damage = sim.damage_of(me) if self.lesson.get("damage", True) else None
         seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))
-        return damage, any(damage) and abs(me["v"]) < sim.PIT_SPEED and self.track.in_pit(s, lat)
+        surf = sim.surface(self.track, seg, s, lat)
+        pitting = (abs(me["v"]) < sim.PIT_SPEED and self.track.in_pit(s, lat)) or \
+            (abs(me["v"]) < sim.BAY_STOP and surf == "lane" and self.track.in_bay(me.get("id", self.my_id), s, lat))
+        note = False
+        if pitting:
+            jobs = (["REPAIRING"] if damage and any(damage) else []) + (["NEW TYRES"] if me.get("tyre", 0.0) > 0.0 else [])
+            note = "PIT: " + ", ".join(jobs) if jobs else ("PIT STOP" if self.track.pits == "lane" else False)
+        elif surf == "gravel" and abs(me["v"]) < 2.0:
+            note = "IN THE GRAVEL: crawl out, or R puts you back"
+        elif surf == "lane" and self.track.pits == "lane" and self.track.lane_zone(s) == "wall":
+            note = "PIT LANE: stop in your bay"
+        return damage, note
 
     def sync_designs(self, designs):
         for kid, d in designs.items():
@@ -2812,17 +2906,21 @@ class Lab(hud.HudKit, ShowBase):
             flags = k.get("flags", 0)
             vis.update(k["x"], k["y"], z, k["yaw"], k.get("steer", 0.0), k["v"], k["u"],  # (steer: CHANGE 157)
                        bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), bool(flags & sim.FLAG_BOOSTING), dt,
-                       sim.damage_of(k), k.get("shield", 0) > 0, bool(flags & sim.FLAG_BRAKING))  # (CHANGE 158, 159, 171)
+                       sim.damage_of(k), k.get("shield", 0) > 0, bool(flags & sim.FLAG_BRAKING),  # (CHANGE 158, 159, 171)
+                       bool(flags & (sim.FLAG_WHEELSPIN | sim.FLAG_HANDBRAKE)))  # (CHANGE 181: tyre smoke)
         # (CHANGE 172) the headlight beams: your kart's, then the nearest to the camera
         cam = self.camera.getPos(self.render)
         near = sorted((v for kid, v in self.karts.items() if kid in states and kid != self.my_id),
                       key=lambda v: (v.root.getPos(self.render) - cam).lengthSquared())
         kart_gfx.headlights(([self.karts[self.my_id]] if self.my_id in self.karts and self.my_id in states else []) + near)
-        if me is not None:
-            seg, s, lat = self.track.locate(me["x"], me["y"], me.get("seg"))
-            if self.my_id in self.karts:
-                self.cam_rig.hood = self.karts[self.my_id].hood  # (CHANGE 173: over a car's bonnet)
-            self.cam_rig.update(dt, me["x"], me["y"], self.track.height(s), me["yaw"], me["v"], self.track)
+        # (CHANGE 183) the camera follows your kart, or the one picked with L
+        watched = self.watch if self.watch is not None and self.watch in states else self.my_id
+        target = states.get(watched) if watched is not None else me
+        if target is not None:
+            seg, s, lat = self.track.locate(target["x"], target["y"], target.get("seg"))
+            if watched in self.karts:
+                self.cam_rig.hood = self.karts[watched].hood  # (CHANGE 173: over a car's bonnet)
+            self.cam_rig.update(dt, target["x"], target["y"], self.track.height(s), target["yaw"], target["v"], self.track)
         r = self.race
         places = r["places"] or sorted(states)
         place = places.index(self.my_id) + 1 if self.my_id in places else 0
@@ -2836,7 +2934,8 @@ class Lab(hud.HudKit, ShowBase):
                            abs(me["v"]) * 3.6 if me else 0.0, cd if r["phase"] == sim.FLAGS_RACE else None,
                            bool(me and me.get("flags", 0) & sim.FLAG_WRONG_WAY), me["charge"] if me else 0,
                            minimap, r["results"], *self.damage_readout(me),
-                           kart_items.ITEMS[me["item"] - 1] if me and me.get("item") else None)  # (CHANGE 159)
+                           kart_items.ITEMS[me["item"] - 1] if me and me.get("item") else None,  # (CHANGE 159)
+                           me.get("tyre", 0.0) if me and self.lesson.get("tyres") else None)  # (CHANGE 178)
         text = f"{self.clock.getAverageFrameRate():.0f} fps   gfx {self.gfx_tier}"
         if net is not None:
             rep = self.snaps.report()
@@ -2853,7 +2952,11 @@ class Lab(hud.HudKit, ShowBase):
         waiting = (r["phase"] == sim.FLAGS_GRID and self.local is None and now > self.note_until)
         self.overlay.note("Waiting for the teacher to start the race" if waiting else
                           self.note_text if now < self.note_until else "", self.note_big and now < self.note_until)
-        self.overlay.set_view(f"view: {self.cam_rig.name}  (V to change)" + ("   typing - Esc to stop" if self.typing else ""))
+        who = ""
+        if self.watch is not None:  # (CHANGE 183)
+            names = {k["id"]: k["name"] for k in (self.roster or {}).get("karts", [])}
+            who = f", watching {names.get(self.watch, self.watch)}  (L next)"
+        self.overlay.set_view(f"view: {self.cam_rig.name}  (V to change){who}" + ("   typing - Esc to stop" if self.typing else ""))
 
     def laps(self, me, now):
         """Your lap times: told as you cross the line; offline, the best on each track is kept on this computer."""
@@ -2885,7 +2988,7 @@ class Lab(hud.HudKit, ShowBase):
             top = sim.stats_of(self.design)["top"]
             boosting = bool(flags & sim.FLAG_BOOSTING)
             self.snd.update(now, me.get("v", 0.0), top, bool(flags & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R)), boosting,
-                            racing)
+                            racing, bool(flags & (sim.FLAG_WHEELSPIN | sim.FLAG_HANDBRAKE)))  # (CHANGE 181)
             if boosting and not self.was_boosting:
                 self.snd.boost()
             self.was_boosting = boosting

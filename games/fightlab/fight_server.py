@@ -977,6 +977,15 @@ class FightServer:
         if kind == "cpu_robot" or (kind == "design_for" and m.get("learner") == CPU_NAME):  # the computer fighter
             await self.cpu_fighter_command(m)
             return
+        if kind == "fix":  # (CHANGE 182) the teacher's Shift+F: their own fighter mended, like new (Fighter.fix)
+            t = self.teacher()
+            f = t.fighter if t is not None else None
+            if f is None or f not in self.stage.fighters():
+                await self.notice_teacher("You have no fighter in a ring to fix.")
+                return
+            f.fix()
+            self.stage_event(f"{f.name} is fixed (the teacher's fighter)")
+            return
         if kind == "design_for_all":  # CHANGE 85: every learner gets exactly this fighter (and anyone who joins later)
             d = m.get("design", {}) if isinstance(m.get("design"), dict) else {}
             built, failed = [], []

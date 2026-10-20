@@ -7,23 +7,32 @@ small dict, costs about 4 microseconds, and both ends round the result to the wi
 start every tick from the same numbers (engine.wire.Schema.quantise).
 
 A kart's state is a dict (see new_kart). Its input is (throttle, steer, buttons) with throttle and steer from -1
-to 1 and the buttons DRIFT, USE and RESPAWN. step() is pure: it reads the track and the kart's stats, touches no
-other kart, and returns a new dict. Everything between karts (bumping) and the race itself (gates, laps, places,
-the countdown) is in Race, on the server only; a window learns of it from the server's snapshots.
+to 1 and the buttons DRIFT, USE, RESPAWN, LAUNCH and HANDBRAKE. step() is pure: it reads the track and the kart's
+stats, touches no other kart, and returns a new dict. Everything between karts (bumping) and the race itself
+(gates, laps, places, the countdown) is in Race, on the server only; a window learns of it from the server's
+snapshots.
 
 The design sheet: 100 points between speed, acceleration and grip (10 to 60 each), as Robot Lab's robots.
+
+(CHANGE 176 to 181) Beside the road: the kerb slows a kart a little, the gravel a lot (and holds one without the
+momentum to get out), the barrier is where the gravel ends. A kart hit from behind is pushed on (it gains the
+speed the one behind loses). The handbrake locks the back wheels (a handbrake turn); the throttle tapped then held
+from a standstill drops the clutch (wheelspin: a burnout, a donut with the wheel turned). Tyres wear with the
+teacher's switch and are changed at a pit stop; the pit lane, when the teacher opens it, has a bay for each kart.
 """
 import math
 
 import kart_version  # noqa: F401  (puts the engine, shared by every game, on the path)
 import kart_math as kmath  # (sin, cos, exp, hypot the same on every computer: CHANGE 162)
 import kart_track
+from kart_track import KERB, LANE_WALL
 
 STEP = 1 / 60
 # (CHANGE 162) the step's numbers: raise this with any change meant to change them (the physics, the damage, the
 # items, the track), and record the tests' fixtures again in the same commit (replay_test.py --record, and
 # club-coders/web/kart_sim_test.py --record); a change that moves them without it fails both
-SIM_VERSION = 2  # (2: CHANGE 171, the brake lights' flag)
+SIM_VERSION = 3  # (2: CHANGE 171, the brake lights' flag; 3: CHANGE 176 to 181, the kerbs, gravel, bumps, handbrake,
+#                   launch, tyres, the pit lane and the tyre field on the wire)
 POINTS_TOTAL, STAT_MIN, STAT_MAX = 100, 10, 60
 STATS = ("speed", "acceleration", "grip")
 SETTINGS = {}  # (a kart has no settings beyond its points; the engine's limits and garage expect the name)
@@ -34,7 +43,8 @@ LIMITS = None  # the engine's limits Spec (made below, once the engine can be im
 
 # Rules an approved AI request may change (mods/rules.py): the race's, on the server only. Nothing a window
 # predicts with is here, so a rule change can't make a window and the server disagree about a kart.
-DEFAULT_RULES = {"laps": 3, "cpu_karts": 3, "countdown_seconds": 4.0, "bump_distance": 1.7, "bump_slowdown": 0.3}
+DEFAULT_RULES = {"laps": 3, "cpu_karts": 3, "countdown_seconds": 4.0, "bump_distance": 1.7, "bump_slowdown": 0.3,
+                 "bump_transfer": 0.7}
 RULES = dict(DEFAULT_RULES)
 
 # Features learners asked for through AI cards that the teacher switches on and off (the engine's user mods):
@@ -42,11 +52,15 @@ RULES = dict(DEFAULT_RULES)
 USER_MODS = {}
 
 DRIFT, USE, RESPAWN = 1, 2, 4   # the input's buttons
+LAUNCH, HANDBRAKE = 8, 16       # (CHANGE 181) the clutch dropped (the throttle tapped, then held); the handbrake
 FLAG_DRIFT_L, FLAG_DRIFT_R, FLAG_FINISHED, FLAG_WRONG_WAY, FLAG_BOOSTING = 1, 2, 4, 8, 16
-FLAG_BRAKING = 32  # (CHANGE 171) the brake (or reverse) pressed: every window lights that kart's brake lights
+FLAG_BRAKING = 32    # (CHANGE 171) the brake (or reverse) pressed: every window lights that kart's brake lights
+FLAG_WHEELSPIN = 64  # (CHANGE 181) the back wheels spinning (a burnout, a donut): smoke and a squeal
+FLAG_HANDBRAKE = 128  # ...and locked by the handbrake
 
 KART_HALF = 0.8          # half a kart's width: how close to the edge it may go (m)
 BUMP_DISTANCE = 1.7      # karts closer than this push each other apart (m)
+BUMP_TRANSFER = 0.7      # (CHANGE 176) the share of the speed two karts close at that passes from the one behind to the one in front
 MINI_TURBO, SUPER_TURBO = 270, 570             # drift charge needed (Mario Kart's numbers)
 MINI_BOOST, SUPER_BOOST = 37, 100              # ...and the boosts they pay out, in ticks (0.62 s, 1.67 s)
 PAD_BOOST = 90                                 # a dash pad's boost (1.5 s)
@@ -65,7 +79,17 @@ BUMP_GRACE = 60          # (CHANGE 159) ticks after a bump has damaged a kart be
                          # touch every tick: each tick's touch was a new hit, and a pack wrecked itself in a lap)
 REPAIR_TICK = 1          # mended a tick by itself on the road (a whole part in 2.8 minutes)
 REPAIR_PIT = 80          # ...and in the PIT box, slower than PIT_SPEED (a whole part in 2 s)
-PIT_SPEED = 12.0         # m/s: faster than this through the PIT box mends nothing (43 km/h)
+PIT_SPEED = 12.0         # m/s: faster than this through the PIT box mends nothing (43 km/h); the pit lane's limiter
+# (CHANGE 177) beside the road: the kerb (the rumble strip and the verge to the barrier) and the gravel trap
+KERB_DRAG, KERB_GRIP = 0.25, 0.75        # the kerb: a share of the speed lost each second (a rumble: a quarter), the tyres' grip
+GRAVEL_DRAG, GRAVEL_ACCEL, GRAVEL_GRIP = 2.0, 0.3, 0.5  # the gravel: hard drag, little pull (a crawl of about 1 m/s)
+# (CHANGE 181) the handbrake and the clutch dropped
+HB_GRIP, HB_BRAKE, HB_TURN, HB_SCRUB = 0.25, 1.2, 1.5, 0.2  # the back locked: a slide, braking at accel * 1.2, a sharper turn
+LAUNCH_SPEED, LAUNCH_ACCEL, LAUNCH_GRIP, LAUNCH_SPIN = 6.0, 0.35, 0.3, 150.0  # wheelspin below 6 m/s; the donut's rate
+# (CHANGE 178) tyre wear: 0 (new) to 1 (worn out), a share of the grip, the top speed and the pull gone with it
+TYRE_GRIP, TYRE_TOP, TYRE_ACCEL = 0.5, 0.08, 0.1
+TYRE_FRESH = 2.5         # seconds a pit stop takes to put new tyres on
+BAY_STOP = 1.5           # m/s: stopped in your pit bay (the lane's stop mends and changes the tyres)
 FLAGS_GRID, FLAGS_RACE, FLAGS_OVER = 0, 1, 2   # the snapshot's flags byte: the race's phase
 
 # the wire record for one kart (engine.wire): both ends round their numbers to this every tick
@@ -75,7 +99,8 @@ SCHEMA_FIELDS = [("x", "i", 100), ("y", "i", 100), ("yaw", "h", 10), ("v", "h", 
                  ("dw", "H", 1), ("dfl", "H", 1), ("dfr", "H", 1), ("drl", "H", 1), ("drr", "H", 1),
                  ("de", "H", 1),  # (each part's damage, 0 to DAMAGE_MAX: CHANGE 158)
                  ("item", "B", 1), ("shield", "H", 1),  # (the item held, kart_items' code; shield ticks left: CHANGE 159)
-                 ("bg", "B", 1)]  # (a bump's grace: ticks before another bump can damage it: CHANGE 159)
+                 ("bg", "B", 1),  # (a bump's grace: ticks before another bump can damage it: CHANGE 159)
+                 ("tyre", "H", 10000)]  # (CHANGE 178) tyre wear, 0 to 1
 
 
 # (CHANGE 173) what the kart looks like: the kart, or one of the sports cars (car_models.py). Only its look: every
@@ -211,7 +236,8 @@ def stats_of(design):
 def new_kart(kid, design, s, lateral, heading):
     track_free = {"id": kid, "x": 0.0, "y": 0.0, "yaw": heading, "v": 0.0, "u": 0.0, "charge": 0, "boost": 0,
                   "slip": 0, "lap": 0, "cp": 0, "flags": 0, "steer": 0.0, "seg": 0, "s": s, "lat": lateral,
-                  "dw": 0, "dfl": 0, "dfr": 0, "drl": 0, "drr": 0, "de": 0, "item": 0, "shield": 0, "bg": 0}
+                  "dw": 0, "dfl": 0, "dfr": 0, "drl": 0, "drr": 0, "de": 0, "item": 0, "shield": 0, "bg": 0,
+                  "tyre": 0.0}
     return track_free
 
 
@@ -244,9 +270,26 @@ def side_shares(front, left):
     return {"dfl": 0.45, "drl": 0.4, "de": 0.15} if left > 0 else {"dfr": 0.45, "drr": 0.4, "de": 0.15}
 
 
-def step(k, inp, dt, track, st, damage=False):
+def surface(track, seg, s, lat):
+    """(CHANGE 177, 179) What is under a kart at (seg, s, lat): "road"; "kerb" (its outer wheels over the edge, on
+    the rumble strip and the verge); "gravel" (the trap beyond, where there is one); or "lane" (the pit lane's
+    asphalt, its entry and exit too)."""
+    a = abs(lat)
+    if a <= track.half - KART_HALF:
+        return "road"
+    if track.lane_side(lat):
+        zone = track.lane_zone(s)
+        if zone is not None and (a > track.half + KERB + LANE_WALL / 2 or (zone == "ramp" and track.pits == "lane")):
+            return "lane"
+    if a > track.half + KERB - KART_HALF and track.gravel_at(seg, 1 if lat > 0 else -1) > 0.0:
+        return "gravel"
+    return "kerb"
+
+
+def step(k, inp, dt, track, st, damage=False, wear=0.0):
     """One tick of one kart: the new state. k: the kart, inp: (throttle, steer, buttons), st: stats_of(design).
-    damage (CHANGE 158): barrier hits damage the kart (its damage always slows it, and it always mends)."""
+    damage (CHANGE 158): barrier hits damage the kart (its damage always slows it, and it always mends).
+    wear (CHANGE 178): tyre wear for each metre driven (0: the tyres last for ever)."""
     th, steer, bt = inp
     n = dict(k)
     v, u, yaw = k["v"], k["u"], k["yaw"]
@@ -260,6 +303,18 @@ def step(k, inp, dt, track, st, damage=False):
     steer_rate *= 1.0 - 0.3 * wing
     grip *= 1.0 - 0.15 * wing
     pull = 0.25 * ((fl + rl) - (fr + rr)) / 2
+    # (CHANGE 178) worn tyres: less grip, a little less speed and pull
+    tyre = k.get("tyre", 0.0)
+    grip *= 1.0 - TYRE_GRIP * tyre
+    top *= 1.0 - TYRE_TOP * tyre
+    accel *= 1.0 - TYRE_ACCEL * tyre
+    # (CHANGE 177) what is under the wheels (where the last tick left it): the kerb and the gravel take their toll
+    surf = surface(track, k["seg"], k["s"], k["lat"])
+    if surf == "kerb":
+        grip *= KERB_GRIP
+    elif surf == "gravel":
+        accel *= GRAVEL_ACCEL
+        grip *= GRAVEL_GRIP
     boost, slip, charge, flags = k["boost"], k["slip"], k["charge"], 0
     if th < 0:  # (CHANGE 171) braking, or reversing: the brake lights
         flags |= FLAG_BRAKING
@@ -269,10 +324,22 @@ def step(k, inp, dt, track, st, damage=False):
     if slip:  # on oil: the tyres have little to say
         grip *= 0.15
         steer_rate *= 0.5
+    # (CHANGE 181) the handbrake locks the back wheels: a slide, hard braking, the back swinging round; the clutch
+    # dropped (the throttle tapped, then held, from near a standstill): the back wheels spin, little goes into speed,
+    # and with the wheel turned the kart spins round on the spot (a donut)
+    hb = bool(bt & HANDBRAKE) and abs(v) > 0.5
+    launch = bool(bt & LAUNCH) and th > 0 and abs(v) < LAUNCH_SPEED and not hb
+    if hb:
+        flags |= FLAG_HANDBRAKE | FLAG_BRAKING
+        grip *= HB_GRIP
+    if launch:
+        flags |= FLAG_WHEELSPIN
+        accel *= LAUNCH_ACCEL
+        grip *= LAUNCH_GRIP
     # drifting: holding DRIFT while steering above a trot. The back steps out (less grip), the kart turns tighter,
     # and a charge builds that pays out as a boost when the drift ends (Mario Kart's mini-turbo)
     drift_dir = 1 if k["flags"] & FLAG_DRIFT_L else -1 if k["flags"] & FLAG_DRIFT_R else 0
-    drifting = bool(bt & DRIFT) and v > 7.0 and (drift_dir != 0 or steer != 0)
+    drifting = bool(bt & DRIFT) and v > 7.0 and (drift_dir != 0 or steer != 0) and not hb and surf != "lane"
     if drifting:
         if drift_dir == 0:
             drift_dir = 1 if steer > 0 else -1
@@ -287,21 +354,33 @@ def step(k, inp, dt, track, st, damage=False):
         charge = 0
         drift_dir = 0
     # speed: the motor pushes towards th * top (the drag term makes full throttle settle at the top speed); the
-    # brake bites harder; reverse is slow
-    if th >= 0 or v <= 0:
+    # brake bites harder; reverse is slow; the handbrake brakes whatever the throttle says
+    if hb:
+        v = math.copysign(max(0.0, abs(v) - accel * HB_BRAKE * dt), v)
+    elif th >= 0 or v <= 0:
         v += (th * accel - accel * v / top) * dt if th >= 0 else (th * accel * 0.5 - accel * v / top) * dt
     else:
         v -= accel * 1.6 * dt
-    if th == 0:  # (CHANGE 156) the drag alone fades with the speed, and below 0.8 m/s the rounding to the wire each
-        v = math.copysign(max(0.0, abs(v) - ROLL * dt), v)  # tick undid it: a kart let go crept on for ever
+    if th == 0 and not hb:  # (CHANGE 156) the drag alone fades with the speed, and below 0.8 m/s the rounding to the
+        v = math.copysign(max(0.0, abs(v) - ROLL * dt), v)  # wire each tick undid it: a kart let go crept on for ever
+    if surf == "kerb":  # (CHANGE 177) the rumble strip: a little speed lost
+        v *= max(0.0, 1.0 - KERB_DRAG * dt)
+    elif surf == "gravel":  # ...the gravel: a lot
+        v *= max(0.0, 1.0 - GRAVEL_DRAG * dt)
     v = max(-0.3 * top, min(top, v))
+    if surf == "lane":  # (CHANGE 179) the pit lane's speed limiter
+        v = max(-PIT_SPEED, min(PIT_SPEED, v))
     # steering: a rate that needs some speed to work and eases off at the top, tighter in a drift (and pulled to a
     # side with damaged wheels: CHANGE 158)
     turn = max(-1.0, min(1.0, steer + pull)) * steer_rate * min(1.0, abs(v) / 6.0) * (1.0 - 0.4 * min(1.0, abs(v) / top))
     if drifting:
         turn = turn * 1.3 + drift_dir * 25.0
+    if hb:
+        turn *= HB_TURN
     if v < 0:
         turn = -turn
+    if launch and steer != 0:  # (CHANGE 181) the donut: the back wheels spinning, the kart turns on the spot
+        turn = max(-1.0, min(1.0, steer)) * LAUNCH_SPIN
     dyaw = turn * dt
     yaw = (yaw + dyaw + 180.0) % 360.0 - 180.0
     # the velocity in the kart's own frame, carried round the turn: part of what was forward is now sideways.
@@ -312,26 +391,40 @@ def step(k, inp, dt, track, st, damage=False):
     c, s_ = kmath.cos(r), kmath.sin(r)
     v, u = v * c + u * s_, -v * s_ + u * c
     u *= kmath.exp(-grip * dt)
-    pace *= 1.0 - (0.12 if drifting else 0.03) * dt
+    pace *= 1.0 - (HB_SCRUB if hb else 0.12 if drifting else 0.03) * dt
     v = math.copysign(math.sqrt(max(0.0, pace * pace - u * u)), v if v else 1.0)
     yr = math.radians(yaw)
     fx, fy = kmath.cos(yr), kmath.sin(yr)
     x = k["x"] + (fx * v - fy * u) * dt
     y = k["y"] + (fy * v + fx * u) * dt
-    # the track: where we are along it, and the barriers at its edges
+    # the track: where we are along it, and the barriers at its edges (CHANGE 177: beyond the kerb and the gravel;
+    # CHANGE 179: the pit wall, the lane's walls, and nothing between the road and the lane at its entry and exit)
     seg, s, lat = track.locate(x, y, k.get("seg"))
-    limit = track.half - KART_HALF
-    if abs(lat) > limit:  # into the barrier: held at the edge, the slide stopped, speed scrubbed off
+    a, side = abs(lat), 1 if lat > 0 else -1
+    zone = track.lane_zone(s) if track.lane_side(lat) else None
+    in_lane = zone is not None and a > track.half + KERB + LANE_WALL / 2
+    if in_lane:  # (between the pit wall and the outer wall; at its ends the outer wall slants back to the road)
+        lo, hi = (0.0, track.lane_edge(s) - KART_HALF) if zone == "ramp" else \
+            (track.lane_inner() + KART_HALF, track.lane_outer() - KART_HALF)
+    elif zone == "ramp" and track.pits == "lane":  # (the lane open: the way in, and out)
+        lo, hi = 0.0, track.lane_edge(s) - KART_HALF
+    elif zone is not None:  # (the pit wall, or the closed lane's gate)
+        lo, hi = 0.0, track.half + KERB - KART_HALF
+    else:
+        lo, hi = 0.0, track.barrier(seg, side) - KART_HALF
+    if a > hi or a < lo:  # into a barrier: held at it, the slide stopped, speed scrubbed off
         # (CHANGE 158) how fast it went into the barrier (across the track): over HIT_SPEED, damage, on that side,
         # the wing too for a kart pointing at it
         # (only as it arrives: held at the barrier, scraping along or pushing into it, it isn't hit again)
-        into = (abs(lat) - abs(k["lat"])) / dt
-        if damage and abs(k["lat"]) < limit - 0.005 and into > HIT_SPEED:
-            side = 1 if lat > 0 else -1
+        was = abs(k["lat"])
+        into = (a - was) / dt if a > hi else (was - a) / dt
+        clear = was < hi - 0.005 if a > hi else was > lo + 0.005
+        if damage and clear and into > HIT_SPEED:
             heading = math.radians(yaw - track.heading(s))
             front = abs(kmath.sin(heading))  # (square to the barrier: nose first)
-            hurt(n, (into - HIT_SPEED) * HIT_BARRIER, side_shares(1.0 if front > 0.7 else 0.0, side))
-        lat = limit if lat > 0 else -limit
+            hurt(n, (into - HIT_SPEED) * HIT_BARRIER, side_shares(1.0 if front > 0.7 else 0.0, side if a > hi else -side))
+        a = hi if a > hi else lo
+        lat = side * a
         x, y, _ = track.point(s, lat)
         u = 0.0
         v *= max(0.0, 1.0 - 3.0 * dt)
@@ -341,8 +434,11 @@ def step(k, inp, dt, track, st, damage=False):
         boost = max(boost, PAD_BOOST)
     if track.near(track.oil, s, lat, kart_track.OIL_RADIUS):
         slip = OIL_TICKS
-    # (CHANGE 158) mending: a little every tick, quickly in the PIT box at pit speed
-    mend = REPAIR_PIT if abs(v) < PIT_SPEED and track.in_pit(s, lat) else REPAIR_TICK
+    # (CHANGE 158) mending: a little every tick, quickly in the PIT box at pit speed; (CHANGE 179) or stopped in your
+    # own bay in the pit lane, where (CHANGE 178) new tyres go on too
+    pitting = (abs(v) < PIT_SPEED and track.in_pit(s, lat)) or \
+        (abs(v) < BAY_STOP and in_lane and track.in_bay(k.get("id", -1), s, lat))  # (its bay is its id's)
+    mend = REPAIR_PIT if pitting else REPAIR_TICK
     if n.get("shield"):  # (CHANGE 159) a shield wears off
         n["shield"] -= 1
     if n.get("bg"):  # (CHANGE 159) ...and a bump's grace
@@ -350,9 +446,15 @@ def step(k, inp, dt, track, st, damage=False):
     for part in DAMAGE_PARTS:
         if n.get(part):
             n[part] = max(0, n[part] - mend)
+    # (CHANGE 178) the tyres wear with the metres driven, faster sliding (a drift, the handbrake, oil, wheelspin)
+    if wear > 0.0:
+        load = 1.0 + (2.0 if drifting else 0.0) + (3.0 if hb else 0.0) + (1.0 if slip else 0.0) + (2.0 if launch else 0.0)
+        tyre = min(1.0, tyre + wear * abs(k["v"]) * dt * load)
+    if pitting:
+        tyre = max(0.0, tyre - dt / TYRE_FRESH)
     n.update(x=x, y=y, yaw=yaw, v=v, u=u, charge=charge, boost=max(0, boost - 1), slip=max(0, slip - 1),
              flags=flags | (k["flags"] & (FLAG_FINISHED | FLAG_WRONG_WAY)), seg=seg, s=s, lat=lat,
-             steer=steer)  # (what the driver is doing with the wheel: every window turns the kart's front wheels by it)
+             steer=steer, tyre=tyre)  # (steer: what the driver is doing with the wheel: every window turns the kart's front wheels by it)
     return n
 
 
@@ -367,37 +469,47 @@ def compare(a, b):
 
 # ---------- the race (server side) ----------
 
-def bump(a, b, reach=BUMP_DISTANCE, slow=0.3, damage=False):
-    """Two karts closer than reach pushed apart, a bounded nudge with no spin, and the faster one losing a little
-    speed to the slower (bounded, so nobody is sent flying): one pair of Race.contacts, and what the windows' and the
-    pages' prediction does against the other karts (CHANGE 155). Changes both; True when they touched.
-    damage (CHANGE 158): closing faster than HIT_KART_SPEED damages each where it was hit, unless a bump damaged
-    it in the last BUMP_GRACE ticks (CHANGE 159)."""
+def bump(a, b, reach=BUMP_DISTANCE, slow=0.3, damage=False, transfer=BUMP_TRANSFER):
+    """Two karts closer than reach pushed apart, a bounded nudge with no spin: one pair of Race.contacts, and what
+    the windows' and the pages' prediction does against the other karts (CHANGE 155). Changes both; True when they
+    touched. (CHANGE 176) The speed they close at passes along the line between them from the one coming on to the
+    one in front (transfer of it each: a bounce that costs a little), so a kart hit from behind is pushed on and the
+    one behind slows; the faster one rubs off up to slow m/s more. (It used to take 3% off both every tick they
+    touched, and the kart in front slowed as it was pushed.) damage (CHANGE 158): closing faster than HIT_KART_SPEED
+    damages each where it was hit, unless a bump damaged it in the last BUMP_GRACE ticks (CHANGE 159)."""
     dx, dy = b["x"] - a["x"], b["y"] - a["y"]
     d = kmath.hypot(dx, dy)
     if d >= reach or d < 1e-6:
         return False
     push = (reach - d) / 2
     nx, ny = dx / d, dy / d
-    if damage:
-        ya, yb = math.radians(a["yaw"]), math.radians(b["yaw"])
-        va = (kmath.cos(ya) * a["v"] - kmath.sin(ya) * a.get("u", 0.0),
-              kmath.sin(ya) * a["v"] + kmath.cos(ya) * a.get("u", 0.0))
-        vb = (kmath.cos(yb) * b["v"] - kmath.sin(yb) * b.get("u", 0.0),
-              kmath.sin(yb) * b["v"] + kmath.cos(yb) * b.get("u", 0.0))
-        closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny  # (positive: a and b coming together along a to b)
-        if closing > HIT_KART_SPEED:
-            amount = (closing - HIT_KART_SPEED) * HIT_KART
-            for k, y, sx, sy in ((a, ya, nx, ny), (b, yb, -nx, -ny)):  # (where the other is, in k's own frame)
-                if not k.get("bg"):
-                    hurt(k, amount, side_shares(kmath.cos(y) * sx + kmath.sin(y) * sy, -kmath.sin(y) * sx + kmath.cos(y) * sy))
-                    k["bg"] = BUMP_GRACE
+    ya, yb = math.radians(a["yaw"]), math.radians(b["yaw"])
+    ca, sa, cb, sb = kmath.cos(ya), kmath.sin(ya), kmath.cos(yb), kmath.sin(yb)
+    ua, ub = a.get("u", 0.0), b.get("u", 0.0)
+    va = (ca * a["v"] - sa * ua, sa * a["v"] + ca * ua)
+    vb = (cb * b["v"] - sb * ub, sb * b["v"] + cb * ub)
+    closing = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny  # (positive: a and b coming together along a to b)
+    if damage and closing > HIT_KART_SPEED:
+        amount = (closing - HIT_KART_SPEED) * HIT_KART
+        for k, y, sx, sy in ((a, ya, nx, ny), (b, yb, -nx, -ny)):  # (where the other is, in k's own frame)
+            if not k.get("bg"):
+                hurt(k, amount, side_shares(kmath.cos(y) * sx + kmath.sin(y) * sy, -kmath.sin(y) * sx + kmath.cos(y) * sy))
+                k["bg"] = BUMP_GRACE
     a["x"] -= nx * push
     a["y"] -= ny * push
     b["x"] += nx * push
     b["y"] += ny * push
-    a["v"], b["v"] = a["v"] * 0.97 - slow * min(1.0, max(0.0, a["v"] - b["v"])), \
-        b["v"] * 0.97 - slow * min(1.0, max(0.0, b["v"] - a["v"]))
+    if closing > 0.0:
+        dv = closing * transfer
+        a["v"] -= dv * (ca * nx + sa * ny)
+        a["u"] = ua - dv * (-sa * nx + ca * ny)
+        b["v"] += dv * (cb * nx + sb * ny)
+        b["u"] = ub + dv * (-sb * nx + cb * ny)
+        rub = slow * min(1.0, closing)
+        if a["v"] > b["v"]:
+            a["v"] -= rub
+        else:
+            b["v"] -= rub
     return True
 
 
@@ -414,6 +526,7 @@ def coast(k, dt):
     fx, fy, u = kmath.cos(yr), kmath.sin(yr), k.get("u", 0.0)
     k["x"] += (fx * k["v"] - fy * u) * dt
     k["y"] += (fy * k["v"] + fx * u) * dt
+
 
 class Race:
     """Every kart on one track, the countdown, gates, laps, places and bumps between karts."""
@@ -437,6 +550,8 @@ class Race:
         self.lap_start = {}     # id -> the tick its current lap began
         self.practice = True    # a practice (free driving) or a race that counts (the teaching layer reads it)
         self.user_mods = {}     # the engine's user mods switched on (USER_MODS): nothing uses them yet
+        self.wear_rate = 0.0    # (CHANGE 178) tyre wear for each metre driven (0: off), see set_tyres
+        self.no_wear = set()    # ...karts whose tyres never wear (none by default: the computer karts pit too, CHANGE 186)
 
     @property
     def time(self):
@@ -450,6 +565,28 @@ class Race:
             for k in self.karts.values():
                 for part in DAMAGE_PARTS:
                     k[part] = 0
+
+    def set_tyres(self, on, laps):
+        """(CHANGE 178) Tyre wear on (the tyres worn out after laps laps of flat-out driving) or off (every kart's
+        tyres new at once)."""
+        self.wear_rate = wear_rate(self.track, laps) if on else 0.0
+        if not on:
+            for k in self.karts.values():
+                k["tyre"] = 0.0
+
+    def set_pits(self, mode):
+        """(CHANGE 179) "box": the PIT box on the road mends; "lane": the pit lane is open, its bays mend."""
+        self.track.set_pits(mode)
+
+    def fix(self, kid):
+        """(CHANGE 182) Mend kart kid at once: every part like new, new tyres, its wheels gripping."""
+        k = self.karts.get(kid)
+        if k is None:
+            return False
+        for part in DAMAGE_PARTS:
+            k[part] = 0
+        k["tyre"], k["slip"] = 0.0, 0
+        return True
 
     def set_user_mods(self, switches):
         self.user_mods = {k: bool(v) for k, v in (switches or {}).items() if k in USER_MODS}
@@ -465,6 +602,7 @@ class Race:
     def remove(self, kid):
         for d in (self.karts, self.designs, self.stats, self.finish, self.hits, self.lap_times, self.lap_start):
             d.pop(kid, None)
+        self.no_wear.discard(kid)
 
     def to_grid(self):
         """Everyone back on the grid, in the order they finished last time (or joined)."""
@@ -472,7 +610,7 @@ class Race:
         for n, kid in enumerate(order):
             k = self.karts[kid]
             s, lat = self.track.grid(n)
-            k.update(lap=0, cp=0, flags=0, charge=0, item=0, shield=0)
+            k.update(lap=0, cp=0, flags=0, charge=0, item=0, shield=0, tyre=0.0)
             place(self.track, k, s, lat)
         if self.items is not None:  # (CHANGE 159) nothing left out on the track
             self.items.shots, self.items.slicks, self.items.changed = [], [], True
@@ -508,7 +646,8 @@ class Race:
             if inp[2] & RESPAWN and not frozen:
                 self.respawn(k)
                 inp = (0.0, 0.0, 0)
-            n = step(k, inp, STEP, self.track, self.stats[kid], self.damage)
+            n = step(k, inp, STEP, self.track, self.stats[kid], self.damage,
+                     0.0 if kid in self.no_wear else self.wear_rate)
             self.karts[kid] = n
         self.contacts()
         if self.items is not None:  # (CHANGE 159) boxes, items used, shots and slicks
@@ -536,7 +675,8 @@ class Race:
             a = self.karts[ids[i]]
             for j in range(i + 1, len(ids)):
                 b = self.karts[ids[j]]
-                if not bump(a, b, RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3), self.damage):
+                if not bump(a, b, RULES.get("bump_distance", BUMP_DISTANCE), RULES.get("bump_slowdown", 0.3), self.damage,
+                            RULES.get("bump_transfer", BUMP_TRANSFER)):
                     continue
                 self.bumps.append((self.tick, ids[i], ids[j]))
                 self.hits[ids[i]] = self.hits.get(ids[i], 0) + 1
@@ -593,3 +733,9 @@ class Race:
             t = None if kid not in self.finish or self.go_tick is None else (self.finish[kid] - self.go_tick) * STEP
             out.append((self.designs[kid]["name"], k["lap"], t))
         return out
+
+
+def wear_rate(track, laps):
+    """(CHANGE 178) Tyre wear for each metre driven when a set lasts laps laps flat out (the same sum on the server
+    and in every window and page: kart_sim.js's wearRate)."""
+    return 1.0 / (max(1, int(laps)) * track.length)

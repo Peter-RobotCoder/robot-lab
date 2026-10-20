@@ -26,7 +26,10 @@ import kart_sim as sim
 
 ITEMS = ("boost", "oil", "shot", "homing", "shield")  # item code: its index + 1 (0: holding nothing)
 CODE = {name: i + 1 for i, name in enumerate(ITEMS)}
-BOX_RADIUS = 1.5         # how close to a box's middle a kart takes it (m)
+BOX_RADIUS = 1.5         # how close to a box's middle a kart takes it (m): along the road
+BOX_REACH = 1.6          # (CHANGE 178) ...and across it: a kart's half width and the box's, so one along the barrier
+#                          takes the outer box too (the test was a circle of 1.5 m, and a kart 1.6 m from a box's
+#                          middle, its wheel over the box, drove through it and got nothing)
 BOX_BACK = 180           # ticks before a taken box is there again (3 s)
 ITEM_BOOST = 75          # a boost item's boost (1.25 s)
 SLICK_LIFE = 60 * 20     # an oil slick lasts 20 s, or until someone drives over it
@@ -61,10 +64,10 @@ class Items:
         self.race, self.track = race, race.track
         self.allowed = {name: True for name in ITEMS} if allowed is None else {n: bool(allowed.get(n)) for n in ITEMS}
         self.rng = random.Random(seed)
-        self.boxes = []  # [x, y, z, ticks until it's back (0: there)]
+        self.boxes = []  # [x, y, z, ticks until it's back (0: there), s, lateral]
         for s, lat in self.track.box_spots():
             x, y, z = self.track.point(s, lat)
-            self.boxes.append([x, y, z, 0])
+            self.boxes.append([x, y, z, 0, s, lat])
         self.shots = []   # {"id", "kind" (shot/homing), "x", "y", "h" (heading, degrees), "s" (track s), "owner", "age", "target"}
         self.slicks = []  # {"id", "x", "y", "owner", "age"}
         self.next_id = 1
@@ -106,8 +109,10 @@ class Items:
         places = race.places()
         for kid, k in race.karts.items():
             # a box: taken by a kart driving through it (holding nothing gets an item; holding one just breaks it)
+            # (CHANGE 178: within BOX_RADIUS along the road and BOX_REACH across it)
             for b in self.boxes:
-                if b[3] == 0 and math.hypot(k["x"] - b[0], k["y"] - b[1]) < BOX_RADIUS:
+                ds = (k["s"] - b[4] + self.track.length / 2) % self.track.length - self.track.length / 2
+                if b[3] == 0 and abs(ds) < BOX_RADIUS and abs(k["lat"] - b[5]) < BOX_REACH:
                     b[3] = BOX_BACK
                     self.changed = True
                     if not k.get("item"):

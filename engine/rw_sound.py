@@ -24,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SFX = os.path.join(HERE, "assets", "sfx")
 MUSIC_DIR = os.path.join(HERE, "music")
 RATE = 44100
-VERSION = "8"
+VERSION = "9"  # (9: CHANGE 185, the crowd's loop without its quiet moment)
 MUSIC = {"off": "Off", "chip": "8-bit", "rock": "Rock", "yours": "Your music"}
 BACKGROUNDS = MUSIC  # (older name)
 HITS = {"spinner": "smash", "drum": "launch", "hammer": "hammer", "flip": "flip", "saw": "saw", "spikes": "spikes",
@@ -347,8 +347,13 @@ def chatter(secs):
 
 def make_crowd():
     secs = 14.0
-    # 90 people chatting, heard from across a big arena: the highs are softer and there's a lot of echo
-    bed = crowd_mix(secs, 90, lambda: chatter(secs), 2.2, 0.6)
+    # 90 people chatting, heard from across a big arena: the highs are softer and there's a lot of echo.
+    # (CHANGE 185) Made twice as long and the middle kept: everyone starts talking within the first half second and
+    # stops 0.4 s before the end, so the loop's join (write folds the end onto the start) mixed a thin start with a
+    # thinning end, and the crowd went quiet for a moment every 12 s. From the middle of a longer take both ends of
+    # the loop are in full chatter.
+    take = crowd_mix(2 * secs, 90, lambda: chatter(2 * secs), 2.2, 0.6)
+    bed = take[int(RATE * secs / 2):int(RATE * secs / 2) + int(RATE * secs)]
     write("crowd", band(bed, 150, 4500), loop=True)
     write("ooh", crowd_mix(1.8, 45, reaction(1.8, lambda x: 0.25 * np.sin(np.pi * np.clip(x / 1.4, 0, 1)),
                                              ["u", "o"], 0.15, 0.6), 1.6, 0.5))

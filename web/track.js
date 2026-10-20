@@ -3,6 +3,9 @@
 // The browser asks it the same questions the window does: where is s, where on the track is (x, y), how high.
 // Its numbers are Python's to the last bit (math.hypot, % and degrees done as Python does them: pymath.js), because
 // the browser's prediction (kart_sim.js) steps a kart on it and must land where the server's step does.
+// (CHANGE 177) Beside the road a kerb KERB wide a kart may drive over, then the barrier, pushed out by a gravel trap
+// on the outside of the sharp bends (gravelWidths). (CHANGE 179) A pit lane beside the start straight, with a bay
+// for each kart (its id's), open (setPits("lane")) or walled off ("box": the PIT box on the road mends instead).
 
 import {hypot, pyMod, degrees, atan2} from "./pymath.js";  // (atan2: CHANGE 162)
 
@@ -18,23 +21,52 @@ export const TRACKS = {
         oil: [[170.0, -2.0], [268.0, 1.5]],
         pit: [12.0, 30.0, -1],  // (CHANGE 158) the PIT box: from s to s along one side (-1 right, 1 left)
         boxes: [90.0, 205.0],  // (CHANGE 159) where a row of item boxes crosses the road (s)
+        pit_lane: [-22.0, 58.0, -1],  // (CHANGE 179) the pit lane: from s to s (s before the line negative), its side
     },
     oval: {
         name: "Test Oval", width: 14.0, laps: 2,
         points: [[0, 0, 0], [40, 0, 0], [70, 10, 0], [80, 35, 0], [70, 60, 0], [40, 70, 0], [0, 70, 0],
                  [-30, 60, 0], [-40, 35, 0], [-30, 10, 0]],
-        boosts: [[60.0, 0.0]], oil: [], pit: [10.0, 28.0, -1], boxes: [110.0, 235.0],
+        boosts: [[60.0, 0.0]], oil: [], pit: [10.0, 28.0, -1], boxes: [110.0, 235.0], pit_lane: [-30.0, 46.0, -1],
     },
     straight: {
         name: "Straight Road", width: 12.0, laps: 1,
         points: [[0, 0, 0], [60, 0, 0], [120, 0, 0], [140, 10, 0], [120, 20, 0], [60, 20, 0], [0, 20, 0], [-20, 10, 0]],
-        boosts: [], oil: [], pit: [14.0, 32.0, -1], boxes: [80.0, 250.0],
+        boosts: [], oil: [], pit: [14.0, 32.0, -1], boxes: [80.0, 250.0], pit_lane: [8.0, 104.0, -1],
+    },
+    // (CHANGE 180) a circuit the shape of Silverstone's Grand Prix loop at one sixth of its size (kart_track.py)
+    airfield: {
+        name: "Airfield GP", width: 12.0, laps: 2,
+        points: [[0.0, 0.0, 0], [66.5, -0.5, 0], [91.4, -31.4, 0], [130.2, -43.2, 0], [120.6, -64.6, 0],
+                 [127.2, -67.6, 0], [142.0, -62.2, 0], [151.5, -54.4, 0], [160.7, 54.3, 0], [157.8, 62.0, 0],
+                 [151.8, 66.0, 0], [135.5, 58.2, 0], [128.2, 58.9, 0], [124.2, 64.9, 0], [126.5, 72.7, 0],
+                 [155.1, 80.2, 0], [174.0, 78.1, 0], [184.2, 71.0, 0], [220.6, 32.0, 0], [230.0, 21.3, 0],
+                 [233.2, 13.7, 0], [233.6, 4.6, 0], [230.0, -1.9, 0], [211.5, -24.4, 0], [180.2, -51.8, 0],
+                 [170.8, -68.4, 0], [147.2, -78.5, 0], [138.6, -96.1, 0], [130.9, -100.5, 0],
+                 [105.3, -94.2, 0], [4.1, -110.1, 0], [-20.9, -111.6, 0], [-29.4, -108.9, 0],
+                 [-34.8, -102.6, 0], [-35.6, -94.4, 0], [-25.7, -70.7, 0], [-18.3, -33.9, 0],
+                 [-29.7, -27.1, 0], [-29.6, -17.5, 0], [-25.6, -8.3, 0], [-19.0, -0.9, 0]],
+        boosts: [[40.0, 0.0], [300.0, 0.0], [520.0, 0.0], [740.0, 0.0]],
+        oil: [[205.0, -2.0], [470.0, 2.0], [690.0, -1.5]],
+        pit: [10.0, 28.0, -1],
+        boxes: [130.0, 420.0, 640.0, 860.0],
+        pit_lane: [-16.0, 60.0, -1],
     },
 };
 
 export const BOOST_RADIUS = 2.6;
 export const OIL_RADIUS = 2.2;
 export const PIT_WIDTH = 4.0, PIT_KERB = 0.6;  // (CHANGE 158) the PIT box's width in from the barrier; its paint short of the kerb
+// (CHANGE 177) beside the road, in metres out from its edge (kart_track.py)
+export const KERB = 1.2, GRAVEL_MAX = 4.0, GRAVEL_LEAST = 0.25;
+// (CHANGE 179) the pit lane
+export const LANE_WALL = 0.5, LANE_WIDTH = 7.0, LANE_RAMP = 12.0, LANE_BAY = 5.5, LANE_BAY_DEPTH = 3.5, LANE_BAYS = 8;
+export const PITS = ["box", "lane"];
+
+export function smooth(t) {  // (kart_scenery's: 0 to 1, eased)
+    t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
+    return t * t * (3 - 2 * t);
+}
 
 function dist2d(a, b) {  // (math.dist)
     return hypot(a[0] - b[0], a[1] - b[1]);
@@ -86,8 +118,13 @@ export class Track {
         this.boosts = (data.boosts || []).map(([s, lat]) => [Number(s), Number(lat)]);
         this.oil = (data.oil || []).map(([s, lat]) => [Number(s), Number(lat)]);
         this.boxRows = (data.boxes || []).map(Number);  // (CHANGE 159) the item boxes' rows
-        const p = data.pit;  // (CHANGE 158) the PIT box: [from s, to s, side], or null
-        this.pit = Array.isArray(p) ? [Number(p[0]), Number(p[1]), p[2] > 0 ? 1 : -1] : null;
+        let p = data.pit;  // (CHANGE 158) the PIT box: [from s, to s, side], or null
+        this.pitBox = Array.isArray(p) ? [Number(p[0]), Number(p[1]), p[2] > 0 ? 1 : -1] : null;
+        p = data.pit_lane;  // (CHANGE 179) the pit lane: [from s, to s, side], or null
+        this.lane = Array.isArray(p) ? [Number(p[0]), Number(p[1]), p[2] > 0 ? 1 : -1] : null;
+        this.pits = "box";
+        this.pit = this.pitBox;  // (the PIT box in use: null with the pit lane open)
+        this.gravel = {1: this.gravelWidths(1), "-1": this.gravelWidths(-1)};  // (CHANGE 177) per segment, each side
     }
 
     wrap(s) {  // (Python's s % length)
@@ -123,6 +160,11 @@ export class Track {
         return this.point(s)[2];
     }
 
+    curvature(s, ahead = 15.0) {  // degrees the track turns between s and s + ahead (positive: left), as Python's
+        const h0 = this.heading(s), h1 = this.heading(s + ahead);
+        return pyMod(h1 - h0 + 180, 360) - 180;
+    }
+
     locate(x, y, hint = null) {
         const n = this.n;
         let candidates;
@@ -148,14 +190,119 @@ export class Track {
         return {seg: i, s: this.s[i] + t, lateral: tx * cy - ty * cx, dist: Math.sqrt(d2)};
     }
 
+    // ---------- beside the road (CHANGE 177, kart_track.py) ----------
+    clear(x, y, r) {  // is (x, y) at least r from every point of the centre line?
+        const rr = r * r;
+        for (const p of this.pts) {
+            const dx = p[0] - x, dy = p[1] - y;
+            if (dx * dx + dy * dy < rr) return false;
+        }
+        return true;
+    }
+
+    gravelWidths(side) {  // the gravel trap's reach past the barrier line at each segment on one side
+        const n = this.n;
+        let want = [];
+        for (let i = 0; i < n; i++) want.push(GRAVEL_MAX * smooth((-side * this.curvature(this.s[i] - 9.0, 18.0) - 17.0) / 9.0));
+        for (let pass = 0; pass < 2; pass++) {
+            const next = [];
+            for (let i = 0; i < n; i++) {
+                const win = want.slice(Math.max(0, i - 6), i + 7);
+                let total = 0;  // (Python's sum: left to right from 0)
+                for (const v of win) total += v;
+                next.push(total / win.length);
+            }
+            want = next;
+        }
+        const out = [];
+        for (let i = 0; i < n; i++) {
+            let w = want[i];
+            while (w > GRAVEL_LEAST) {
+                const d = KERB + w + 1.0;
+                const [x, y] = this.point(this.s[i], side * (this.half + d));
+                if (this.clear(x, y, this.half + d - 0.3)) break;
+                w -= 0.5;
+            }
+            out.push(w > GRAVEL_LEAST ? w : 0.0);
+        }
+        return out;
+    }
+
+    gravelAt(seg, side) {
+        return this.gravel[side > 0 ? 1 : "-1"][seg];
+    }
+
+    barrier(seg, side) {  // how far from the middle the barrier's face is beside segment seg on that side
+        return this.half + KERB + this.gravelAt(seg, side);
+    }
+
+    // ---------- the pit lane (CHANGE 179) ----------
+    setPits(mode) {
+        this.pits = PITS.includes(mode) ? mode : "box";
+        this.pit = this.pits === "box" ? this.pitBox : null;
+    }
+
+    laneZone(s) {  // null (no lane here), "ramp" (the lane's entry or exit, its end wall on a slant) or "wall" (the pit wall)
+        if (this.lane === null) return null;
+        const [s0, s1] = this.lane;
+        const ds = pyMod(s - s0, this.length);
+        if (ds > s1 - s0) return null;
+        return ds < LANE_RAMP || ds > s1 - s0 - LANE_RAMP ? "ramp" : "wall";
+    }
+
+    laneEdge(s) {  // the lane's outer wall at s: slanting out over the entry and back in over the exit (kart_track.lane_edge)
+        const [s0, s1] = this.lane;
+        const ds = pyMod(s - s0, this.length);
+        const span = s1 - s0, inner = this.half + KERB, outer = this.laneOuter();
+        if (ds < LANE_RAMP) return inner + (outer - inner) * (ds / LANE_RAMP);
+        if (ds > span - LANE_RAMP) return inner + (outer - inner) * ((span - ds) / LANE_RAMP);
+        return outer;
+    }
+
+    laneSide(lateral) {  // the lane's side if this lateral is on it, else 0
+        return this.lane !== null && lateral * this.lane[2] > 0 ? this.lane[2] : 0;
+    }
+
+    laneInner() { return this.half + KERB + LANE_WALL; }
+
+    laneOuter() { return this.half + KERB + LANE_WALL + LANE_WIDTH; }
+
+    bay(kid) {  // kart kid's pit bay: [s0, s1, lateral in, lateral out] (laterals positive, the lane's side), or null
+        if (this.lane === null || !(kid >= 0 && kid < LANE_BAYS)) return null;
+        const s0 = this.lane[0] + LANE_RAMP + 2.0 + kid * LANE_BAY;
+        return [s0, s0 + LANE_BAY - 0.5, this.laneOuter() - LANE_BAY_DEPTH, this.laneOuter()];
+    }
+
+    inBay(kid, s, lateral) {
+        const b = this.bay(kid);
+        if (b === null) return false;
+        const [s0, s1, lo, hi] = b;
+        const ds = pyMod(s - s0, this.length);
+        return ds <= s1 - s0 && lo <= lateral * this.lane[2] && lateral * this.lane[2] <= hi;
+    }
+
+    laneMarks() {  // the bays' white outlines as quads of four [s, lateral] corners (kart_track.lane_marks)
+        if (this.lane === null) return [];
+        const side = this.lane[2], w = 0.12, quads = [];
+        for (let kid = 0; kid < LANE_BAYS; kid++) {
+            let [s0, s1, lo, hi] = this.bay(kid);
+            lo *= side; hi *= side;
+            const a = Math.min(lo, hi), b = Math.max(lo, hi);
+            quads.push([[s0, a], [s1, a], [s1, a + w], [s0, a + w]], [[s0, a], [s0 + w, a], [s0 + w, b], [s0, b]],
+                       [[s1 - w, a], [s1, a], [s1, b], [s1 - w, b]]);
+        }
+        return quads;
+    }
+
     gateZone(s) {
         return Math.min(GATES - 1, Math.floor(this.wrap(s) / (this.length / GATES)));
     }
 
-    // (CHANGE 159) each item box's [s, lateral]: four across the road in each row (kart_track.Track.box_spots)
+    // (CHANGE 159) each item box's [s, lateral]: four across the road in each row (kart_track.Track.box_spots);
+    // (CHANGE 178) the outer pair nearer the kerbs
     boxSpots() {
         const out = [];
-        for (const s of this.boxRows) for (const f of [-0.6, -0.2, 0.2, 0.6]) out.push([s, f * this.half]);
+        for (const s of this.boxRows) for (const f of [-0.7, -0.2, 0.2, 0.7]) out.push([s, f * this.half]);
         return out;
     }
 
@@ -169,8 +316,8 @@ export class Track {
 
     // (CHANGE 158) the PIT box's paint as quads, each four [s, lateral] corners (kart_track.Track.pit_marks)
     pitMarks() {
-        if (this.pit === null) return [];
-        const [s0, s1, side] = this.pit, inner = side * (this.half - PIT_WIDTH), outer = side * (this.half - PIT_KERB);
+        if (this.pitBox === null) return [];
+        const [s0, s1, side] = this.pitBox, inner = side * (this.half - PIT_WIDTH), outer = side * (this.half - PIT_KERB);
         const lo = Math.min(inner, outer), hi = Math.max(inner, outer), w = 0.12;
         const quads = [[[s0, lo], [s1, lo], [s1, lo + w], [s0, lo + w]], [[s0, hi - w], [s1, hi - w], [s1, hi], [s0, hi]],
                        [[s0, lo], [s0 + w, lo], [s0 + w, hi], [s0, hi]], [[s1 - w, lo], [s1, lo], [s1, hi], [s1 - w, hi]]];

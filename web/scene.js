@@ -14,7 +14,7 @@ import {BaseScene, TIERS, v3, mulberry, upwardNormals} from "./base3d.js";
 import "./robotfx.js";  // (CHANGE 143: its particle shader, "ccfx", with the app's tone curve, for the drift smoke)
 import {makeSky, makeLand, makeForest, AfterFx, Skids, Sparks, HAZE, loadUltraKart, ultraKartData, partMesh,
         loadCars, carData, loadCarUltra, carUltraData, loadScenery, sceneryData, makeCircuit, circuitFrame, cullLists} from "./kartfx.js";
-import {TRACKS} from "./track.js";
+import {TRACKS, KERB, LANE_RAMP, LANE_BAYS} from "./track.js";  // (KERB, the lane: CHANGE 177, 179)
 import {DAMAGE_PARTS, DAMAGE_MAX} from "./kart_sim.js";  // (CHANGE 158: each part's damage, drawn on the kart)
 
 export {TIERS};
@@ -27,6 +27,7 @@ const WHEELS = [[0.5, 0.6], [0.5, -0.6], [-0.52, 0.62], [-0.52, -0.62]];  // x, 
 const KERB_RED = [0.85, 0.12, 0.08, 1], KERB_WHITE = [0.95, 0.95, 0.92, 1];
 const TARMAC_TINT = [0.9, 0.9, 0.92], GRASS_TINT = [0.95, 1.0, 0.9], STEEL = [0.6, 0.6, 0.62];
 const FLAG_DRIFT_L = 1, FLAG_DRIFT_R = 2, FLAG_BOOSTING = 16, FLAG_BRAKING = 32;  // (FLAG_BRAKING: CHANGE 171)
+const FLAG_WHEELSPIN = 64, FLAG_HANDBRAKE = 128;  // (CHANGE 181: the back wheels spinning or locked: tyre smoke)
 const PUFFS = 8, PUFF_LIFE = 0.7;  // (kart_gfx.KartVisual.PUFFS: a kart's drift smoke; the scene's pool holds 12 karts' worth)
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -269,6 +270,58 @@ export class KartScene extends BaseScene {
             m.material = this.material("pit", [1.0, 0.8, 0.08], 0.7, 0);
             statics.push(m);
         }
+        // (CHANGE 179) the pit lane's bays: a white outline each (the road builder's or the circuit's), a strip at the
+        // back in its kart's colour and a board with the kart's name (setBayNames), on every tier; and on ultra, where
+        // the circuit draws the open lane's walls, the closed lane's gates across the entry and the exit
+        this.bays = [];
+        if (this.circuit) this.gates = null;
+        if (track.lane) {
+            const [sIn, sOut, side] = track.lane, half = track.half;
+            if (this.circuit) {
+                const gate = new Geo(true);
+                gate.colour = [0.92, 0.92, 0.9, 1];
+                for (const [a, b] of [[sIn, sIn + LANE_RAMP], [sOut - LANE_RAMP, sOut]]) {
+                    for (let s = a; s < b - 1e-6;) {
+                        const e = Math.min(b, s + 4), lower = p => [p[0], p[1], p[2] - 0.3], up = [0, 0, 0.55];
+                        const n = this.leftOf((s + e) / 2).map(v => v * side);
+                        const a0 = lower(track.point(s, side * (half + KERB))), a1 = lower(track.point(e, side * (half + KERB)));
+                        const b0 = lower(track.point(s, side * (half + KERB + 0.5))), b1 = lower(track.point(e, side * (half + KERB + 0.5)));
+                        gate.quad([a0, a1, add3(a1, up), add3(a0, up)], n.map(v => -v));
+                        gate.quad([b1, b0, add3(b0, up), add3(b1, up)], n);
+                        gate.quad([add3(a0, up), add3(a1, up), add3(b1, up), add3(b0, up)], [0, 0, 1]);
+                        s = e;
+                    }
+                }
+                this.gates = gate.mesh("gates", scene);
+                this.gates.material = this.material("paint", [1, 1, 1], 0.75);
+                this.trackMeshes.push(this.gates);
+            }
+            const marks = new Geo();
+            for (const corners of track.laneMarks()) marks.quad(corners.map(([s, l]) => { const p = track.point(s, l); return [p[0], p[1], p[2] + 0.022]; }));
+            const mk = marks.mesh("baymarks", scene);
+            mk.material = this.material("baypaint", [0.92, 0.92, 0.9], 0.7, 0);
+            statics.push(mk);
+            for (let kid = 0; kid < LANE_BAYS; kid++) {
+                const [s0, s1, lo, hi] = track.bay(kid);
+                const strip = new Geo();
+                const q = [track.point(s0 + 0.15, side * (hi - 0.6)), track.point(s1 - 0.15, side * (hi - 0.6)),
+                           track.point(s1 - 0.15, side * (hi - 0.15)), track.point(s0 + 0.15, side * (hi - 0.15))];
+                strip.quad(q.map(p => [p[0], p[1], p[2] + 0.024]));
+                const stripMesh = strip.mesh("baystrip" + kid, scene);
+                stripMesh.material = this.material("baystrip" + kid, [0.5, 0.5, 0.5], 0.7, 0);
+                stripMesh.isPickable = false;
+                this.trackMeshes.push(stripMesh);
+                const mid = (s0 + s1) / 2, [x, y, z] = track.point(mid, side * (hi + 0.35));
+                const post = this.cyl(null, 0.03, 0.6, "z", this.material("steel", [0.6, 0.6, 0.62], 0.6, 1), x, y, z + 0.6, 0, 6);
+                this.trackMeshes.push(post);
+                const board = this.signText(String(kid + 1), 2.0);
+                board.position.set(x, z + 1.35, y);
+                // (facing the lane: the plane's front is its -z in Babylon, turned by the track's heading)
+                board.rotation.y = -(track.heading(mid) + (side < 0 ? 90 : -90)) * Math.PI / 180;
+                this.trackMeshes.push(board);
+                this.bays.push({board, strip: stripMesh});
+            }
+        }
         if (this.circuit) {
             this.trackMeshes.push(...this.circuit.meshes);
             this.shadowCast(this.circuit.casters);
@@ -282,6 +335,28 @@ export class KartScene extends BaseScene {
         if (this.wire) this.trackLines();
         this.refreshLists();
         this.setMode(this.mode, this.follow);
+    }
+
+    // (CHANGE 179) the pit lane open ("lane": its entry and exit clear) or closed ("box": walled off)
+    setPits(mode) {
+        if (this.gates) this.gates.setEnabled(mode !== "lane");
+    }
+
+    // (CHANGE 179) the bays' boards and strips: Map(kart id -> [name, [r, g, b]]) from the roster
+    setBayNames(names) {
+        (this.bays || []).forEach(({board, strip}, kid) => {
+            const [name, colour] = names.get(kid) || [null, null];
+            const text = name ? String(name).slice(0, 12) : String(kid + 1);
+            if (board.ccText !== text) {
+                board.ccText = text;
+                const tex = board.material.diffuseTexture;
+                tex.getContext().clearRect(0, 0, 512, 128);
+                tex.drawText(text, null, 100, `bold ${text.length > 6 ? 64 : 100}px sans-serif`, "#ffffff", null, true, true);
+            }
+            const c = colour ? colour.map(v => v / 255) : [0.5, 0.5, 0.5];
+            strip.material.albedoColor = new BABYLON.Color3(c[0], c[1], c[2]);
+            if (strip.material.diffuseColor) strip.material.diffuseColor = new BABYLON.Color3(c[0], c[1], c[2]);
+        });
     }
 
     // (ultra, CHANGE 144) which of the file's circuits a track is (club, oval or straight: a track mod picks one of
@@ -311,28 +386,78 @@ export class KartScene extends BaseScene {
         // kerbs (red and white, 2 m blocks), the barrier a metre outside (4 m blocks, every third red), the start's
         // chequers: vertex colours, one mesh
         const paint = new Geo(true);
+        const lane = track.lane, laneSide = lane ? lane[2] : 0;  // (CHANGE 179: the pit lane's side; its entry and exit have no kerb paint)
         for (let s = 0, block = 0; s < L; block++) {
             const e = Math.min(L, s + 2);
             paint.colour = block % 2 ? KERB_RED : KERB_WHITE;
-            for (const side of [1, -1]) this.ribbon(paint, s, e, side * (half - 0.55), side * (half + 0.2), 0.03, 2.0);
-            s = e;
-        }
-        const wallIn = half + 1.0, wallOut = half + 1.5, wallH = 0.55;
-        for (let s = 0, block = 0; s < L; block++) {
-            const e = Math.min(L, s + 4);
-            paint.colour = block % 3 === 2 ? [0.8, 0.1, 0.08, 1] : [0.92, 0.92, 0.9, 1];
-            const left = this.leftOf((s + e) / 2);
             for (const side of [1, -1]) {
-                const lower = p => [p[0], p[1], p[2] - 0.3];
-                const a0 = lower(track.point(s, side * wallIn)), a1 = lower(track.point(e, side * wallIn));
-                const b0 = lower(track.point(s, side * wallOut)), b1 = lower(track.point(e, side * wallOut));
-                const up = [0, 0, wallH], n = left.map(v => v * side);
-                paint.quad([a0, a1, add3(a1, up), add3(a0, up)], n.map(v => -v));
-                paint.quad([b1, b0, add3(b0, up), add3(b1, up)], n);
-                paint.quad([add3(a0, up), add3(a1, up), add3(b1, up), add3(b0, up)], [0, 0, 1]);
+                if (side === laneSide && track.laneZone((s + e) / 2) === "ramp") continue;
+                this.ribbon(paint, s, e, side * (half - 0.55), side * (half + 0.2), 0.03, 2.0);
             }
             s = e;
         }
+        // (CHANGE 177) the gravel traps: sand-coloured, from the barrier line out as far as the trap reaches
+        paint.colour = [0.74, 0.68, 0.56, 1];
+        for (const side of [1, -1]) {
+            const g = track.gravel[side > 0 ? 1 : "-1"];
+            for (let i = 0; i < track.n; i++) {
+                const j = (i + 1) % track.n;
+                if (g[i] <= 0 && g[j] <= 0) continue;
+                const s0 = track.s[i], s1 = track.s[i] + track.segLen[i];
+                const pts = [track.point(s0, side * (half + KERB)), track.point(s1, side * (half + KERB)),
+                             track.point(s1, side * (half + KERB + g[j])), track.point(s0, side * (half + KERB + g[i]))];
+                paint.quad(pts.map(p => [p[0], p[1], p[2] + 0.02]), [0, 0, 1]);
+            }
+        }
+        const wallIn = half + KERB, wallOut = half + KERB + 0.5, wallH = 0.55;
+        const gate = new Geo(true);  // (CHANGE 179: the wall across the pit lane's entry and exit, shown while it's closed)
+        const wallBlock = (geo, a0, a1, b0, b1, n) => {
+            const lower = p => [p[0], p[1], p[2] - 0.3], up = [0, 0, wallH];
+            a0 = lower(a0); a1 = lower(a1); b0 = lower(b0); b1 = lower(b1);
+            geo.quad([a0, a1, add3(a1, up), add3(a0, up)], n.map(v => -v));
+            geo.quad([b1, b0, add3(b0, up), add3(b1, up)], n);
+            geo.quad([add3(a0, up), add3(a1, up), add3(b1, up), add3(b0, up)], [0, 0, 1]);
+        };
+        for (let s = 0, block = 0; s < L; block++) {
+            const e = Math.min(L, s + 4);
+            const colour = block % 3 === 2 ? [0.8, 0.1, 0.08, 1] : [0.92, 0.92, 0.9, 1];
+            const left = this.leftOf((s + e) / 2);
+            for (const side of [1, -1]) {
+                const zone = side === laneSide ? track.laneZone((s + e) / 2) : null;
+                const geo = zone === "ramp" ? gate : paint;
+                geo.colour = colour;
+                const g0 = zone === null ? track.gravelAt(track.segmentAt(s), side) : 0;  // (out past the gravel)
+                const g1 = zone === null ? track.gravelAt(track.segmentAt(e), side) : 0;
+                wallBlock(geo, track.point(s, side * (wallIn + g0)), track.point(e, side * (wallIn + g1)),
+                          track.point(s, side * (wallOut + g0)), track.point(e, side * (wallOut + g1)), left.map(v => v * side));
+            }
+            s = e;
+        }
+        if (lane) {  // (CHANGE 179) the pit lane: its asphalt, and the outer wall slanting in at each end
+            const [sIn, sOut, side] = lane, laneGeo = new Geo();
+            for (const [a, b, inner] of [[sIn, sIn + LANE_RAMP, half + 0.3], [sIn + LANE_RAMP, sOut - LANE_RAMP, track.laneInner()],
+                                         [sOut - LANE_RAMP, sOut, half + 0.3]]) {
+                const steps = Math.max(1, Math.ceil((b - a) / 1.5));
+                let prev = null;
+                for (let j = 0; j <= steps; j++) {
+                    const ls = a + (b - a) * j / steps;
+                    const row = [track.point(ls, side * inner), track.point(ls, side * track.laneEdge(ls))].map(p => [p[0], p[1], p[2] + 0.012]);
+                    if (prev) laneGeo.quad([prev[0], row[0], row[1], prev[1]]);
+                    prev = row;
+                }
+            }
+            put(laneGeo.mesh("lane", scene), this.material("lanetarmac", blocks ? [0.5, 0.5, 0.52] : [0.5, 0.5, 0.52], 1.0, 0, 0, {tex: "tarmac", tile: 0.125}));
+            for (let s = sIn, block = 0; s < sOut; block++) {
+                const e = Math.min(sOut, s + 4);
+                paint.colour = block % 3 === 2 ? [0.8, 0.1, 0.08, 1] : [0.92, 0.92, 0.9, 1];
+                wallBlock(paint, track.point(s, side * track.laneEdge(s)), track.point(e, side * track.laneEdge(e)),
+                          track.point(s, side * (track.laneEdge(s) + 0.5)), track.point(e, side * (track.laneEdge(e) + 0.5)),
+                          this.leftOf((s + e) / 2).map(v => v * side));
+                s = e;
+            }
+        }
+        this.gates = gate.pos.length ? put(gate.mesh("gates", scene), this.material("paint", [1, 1, 1], 0.75), true) : null;
+        if (this.gates) { this.trackMeshes.push(this.gates); statics.splice(statics.indexOf(this.gates), 1); }
         const sq = 0.5, cols = Math.round(2 * half / sq);
         for (let i = 0; i < cols; i++) {
             for (let j = 0; j < 3; j++) {
@@ -1247,11 +1372,13 @@ export class KartScene extends BaseScene {
                 const [sx, sy, sz] = k.fit.sparks;
                 this.sparks.emit([st.x + sx * c - sy * s, st.y + sx * s + sy * c, z + sz], st.yaw, v, dt > 0.02 ? 3 : 2);
             }
-            // drift smoke from each rear tyre in turn, every 0.07 s while drifting above 3 m/s
-            if (this.smoke && drift && Math.abs(v) > 3) {
+            // drift smoke from each rear tyre in turn, every 0.07 s while drifting above 3 m/s (and while the back
+            // wheels spin or lock, at any speed, thicker: CHANGE 181)
+            const spinning = !!(st.flags & (FLAG_WHEELSPIN | FLAG_HANDBRAKE));
+            if (this.smoke && ((drift && Math.abs(v) > 3) || spinning)) {
                 k.puffTimer -= dt;
                 if (k.puffTimer <= 0) {
-                    k.puffTimer = 0.07;
+                    k.puffTimer = spinning ? 0.045 : 0.07;
                     const [px, py] = k.fit.puff, side = k.nextPuff % 2 ? py : -py, h = st.yaw * DEG, c = Math.cos(h), s = Math.sin(h);
                     k.nextPuff = (k.nextPuff + 1) % PUFFS;
                     this.smoke.emit([st.x + px * c - side * s, st.y + px * s + side * c, z + 0.15]);

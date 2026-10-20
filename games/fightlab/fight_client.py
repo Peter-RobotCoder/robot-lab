@@ -20,6 +20,9 @@ Brain:     U upload brains/my_brain.py   P autopilot on/off (your brain fights)
 Camera:    V change view (fight camera, my fighter, over the shoulder, ring, all rings)   O all rings
            drag with the right mouse button (or Q / E) to swing round the ring and tilt   Home resets the view
            [ and ] watch another ring   mouse wheel or + / - zoom   B the rings list
+           L watch the next fighter (round everyone in the ring you are watching, then the next ring's, and back to
+           your own: pick a learner with L, then change the view of them with V)
+Teacher:   Shift+F fixes your own fighter (full health, on their feet, out of a knockout; F alone is the cartwheel)
 Typing:    while you type in a text box, keys go into the box (not the game). Click away or press Esc to stop.
            In the code panel, click or drag to select; APPLY CODE applies your code, Return makes a new line.
 """
@@ -423,6 +426,7 @@ class Lab(hud.HudKit, ShowBase):
         self.fighters, self.roster, self.my_id, self.names = {}, None, None, {}
         self.ring_of = {}        # fighter id -> ring index
         self.watch = None        # the ring being watched (None = your own)
+        self.focus = None        # (CHANGE 183) the fighter the camera follows (L), None = your own
         self.state, self.ping_ms, self.status_msg = None, 0.0, ("", WHITE)
         self.pings, self.rtt = [], None  # (CHANGE 175) the last round trips and the smoothed one drawing ahead uses
         self.fighter_keys = {}           # (CHANGE 175) each drawn fighter's design and owner: rebuilt only on a change
@@ -460,6 +464,9 @@ class Lab(hud.HudKit, ShowBase):
         self.key("u", self.upload_brain)
         self.key("p", self.autopilot_key)
         self.key("v", self.cam.cycle)
+        self.key("l", self.cycle_focus)  # (CHANGE 183) the camera follows the next fighter
+        if TEACHER:
+            self.key("shift-f", self.fix_mine)  # (CHANGE 182) the teacher's own fighter mended (F alone: cartwheel)
         self.key("q", self.cam.turn, 20)       # swing the view round the ring (or drag with the right mouse button)
         self.key("e", self.cam.turn, -20)
         self.key("q-repeat", self.cam.turn, 6)
@@ -581,8 +588,8 @@ class Lab(hud.HudKit, ShowBase):
         self.banner = OnscreenText("", pos=(-0.3, -0.35), scale=0.05, fg=YELLOW, shadow=(0, 0, 0, 1), mayChange=True,
                                    wordwrap=40)
         keys = ("Arrows move (up/down sidestep)  A punch/combo  S kick  D special  W throw  Space jump  Shift block  "
-                "X crouch  I HUD  C code  " + ("" if TEACHER else "U brain  P autopilot  ") +
-                "V view  [ ] ring  Q/E or right-drag turn  H help")
+                "X crouch  I HUD  C code  " + ("Shift+F fix  " if TEACHER else "U brain  P autopilot  ") +
+                "V view  L fighter  [ ] ring  Q/E or right-drag turn  H help")
         self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021 * min(1.15, self.text_scale()), GREY)
         self.panel_floor = -0.94  # (the side panel stops above the key list: CHANGE 104)
         self.layout_rings()
@@ -2497,9 +2504,40 @@ class Lab(hud.HudKit, ShowBase):
             return
         cur = self.watched_ring()
         i = rings.index(cur) if cur in rings else 0
+        self.focus = None  # (another ring: the camera follows your own fighter, or the ring's first)
         self.set_watch(rings[(i + delta) % len(rings)])
         self.banner_note(f"Watching ring {self.watched_ring() + 1}" + ("  (yours)" if self.watched_ring() ==
                                                                        self.my_ring() else ""), 2)
+
+    def cycle_focus(self):
+        """L (CHANGE 183): the camera follows the next fighter: round the ring you are watching, then the next
+        ring's fighters (watching that ring), and back to your own. V then changes the view of that fighter. The
+        teacher watches a learner this way."""
+        rings = (self.state or {}).get("rings", [])
+        w = self.watched_ring()
+        k = next((n for n, r in enumerate(rings) if r["i"] == w), 0)
+        order = [(r["i"], f["id"]) for r in rings[k:] + rings[:k] for f in r["f"]]  # (from the watched ring on)
+        if not order:
+            return
+        ids = [fid for _, fid in order]
+        cur = self.focus if self.focus in ids else self.my_id
+        i = ids.index(cur) if cur in ids else -1
+        ring_i, nxt = order[(i + 1) % len(order)]
+        if self.cam.mode in ("ring", "all"):  # (a view that follows nobody: on them instead)
+            self.cam.set_mode("me")
+        if ring_i != w:
+            self.set_watch(ring_i)
+        self.focus = None if nxt == self.my_id else nxt
+        self.cam.pos = None  # (cut straight to them)
+        if self.focus is None:
+            self.banner_note("Camera: your fighter" if self.my_id in ids else "Camera: the ring", 2)
+        else:
+            fighter_name, owner = self.names.get(nxt, ("?", ""))[:2]
+            self.banner_note(f"Camera: {fighter_name} ({owner})" if owner else f"Camera: {fighter_name}", 2)
+
+    def fix_mine(self):
+        """Shift+F, the teacher only (CHANGE 182): the server mends the teacher's fighter (fight_server's "fix")."""
+        send({"type": "fix"})
 
     # ---------- every frame ----------
     def update(self, task):
@@ -2531,8 +2569,9 @@ class Lab(hud.HudKit, ShowBase):
         me = enemy = None
         if ring:
             fs = [f for f in ring["f"] if f["a"] != "ringout" or f["pos"][2] > -1.5]
+            picked = next((f for f in fs if f["id"] == self.focus), None) if self.focus is not None else None  # (L)
             mine = next((f for f in fs if f["id"] == self.my_id), None)
-            first = mine or (fs[0] if fs else None)
+            first = picked or mine or (fs[0] if fs else None)
             other = next((f for f in fs if f is not first), None)
             me = Point3(*first["pos"]) if first else None
             enemy = Point3(*other["pos"]) if other else None
