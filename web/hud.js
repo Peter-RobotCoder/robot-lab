@@ -174,7 +174,7 @@ export class KartHud {
         if ($("kh-note").textContent !== note) $("kh-note").textContent = note;
         this.drawMap(states, myId, colours);
         // (CHANGE 159) your item, Space to use it
-        const item = ITEMS[(me.item || 0) - 1], itemText = item ? `${item.toUpperCase()}   Space to use` : "";
+        const item = ITEMS[(me.item || 0) - 1], itemText = item ? `${item.toUpperCase()}${document.body.classList.contains("touch") ? "" : "   Space to use"}` : "";  // (CHANGE 187: the touch button says it)
         if ($("kh-item") && $("kh-item").textContent !== itemText) $("kh-item").textContent = itemText;
         // (CHANGE 158) the damage panel: your kart from above, each part green to red; the pit line's words
         const panel = $("kh-dmg");
@@ -209,7 +209,7 @@ export class KartHud {
           <div class="kbottom"><div class="kdrift"><span id="kh-dlabel">DRIFT</span><div class="kmeter"><b id="kh-drift"></b>
             <i style="left:${MINI_TURBO / CHARGE_MAX * 100}%"></i></div></div>
             <div id="kh-speed"></div></div>
-          <canvas id="kh-map" width="220" height="220"></canvas>
+          <div id="kh-mapbox"><canvas id="kh-map" width="220" height="220"></canvas></div>
           <div id="kh-dmg"><span>DAMAGE</span><div class="kshape"><i class="kbody"></i>${DAMAGE_BOXES.map((b, i) =>
               `<b id="kh-d${i}" style="left:${b[0]}px;top:${b[1]}px;width:${b[2]}px;height:${b[3]}px"></b>`).join("")}</div></div>
           <div id="kh-pit">PIT: REPAIRING</div>

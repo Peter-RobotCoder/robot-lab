@@ -12,6 +12,7 @@ reflections, and the window's circuit from models/kart_scenery.json, fetched on 
 (CHANGE 144); Robot Lab's line tiers and ultra too (the window's robots and arena from models/robot_ultra.json and
 arena_ultra.json, fetched on ultra alone: CHANGE 145), and Fight Lab's (its fighters, the detailed model's lines
 bending with it, and hall from models/fight_ultra.json and stage_ultra.json, fetched on ultra alone: CHANGE 147);
+a game controller and a phone's touch controls, pretended (CHANGE 170, 187);
 START A RACE, TO THE GRID, a mission button and the track picker reach the server and come back in the lesson; the
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
 a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
@@ -19,7 +20,8 @@ game's schema, her code panel (APPLY CODE changes a value, a mistake is shown on
 server); the teacher's own garage in Robot Lab and Fight Lab; lessons.json, schemas.json and tex/ are up to date,
 and schema_test.py passes (schema.js against the windows' Python). Screenshots are
 kept in the test folder. Exit code 0 = every check passed; the test
-says so and passes if no Chrome or Edge is installed.
+says so and passes if no Chrome or Edge is installed. WEB_TEST_STOP_AFTER="a few words of a check's name" ends the
+run after that check (a short run while working on the early checks).
 """
 import base64
 import json
@@ -129,6 +131,13 @@ class StaticServer:
         self.server.server_close()
 
 
+STOP_AFTER = os.environ.get("WEB_TEST_STOP_AFTER", "")  # (a few words of a check's name: the run ends after it, a short run)
+
+
+class StopRun(Exception):
+    pass
+
+
 def check(name, fn):
     t0 = time.perf_counter()
     try:
@@ -138,6 +147,8 @@ def check(name, fn):
     except Exception as e:
         results.append((name, False, f"{type(e).__name__}: {e}"))
         print(f"FAIL {name}: {type(e).__name__}: {e}", flush=True)
+    if STOP_AFTER and STOP_AFTER in name:
+        raise StopRun(name)
 
 
 def free_port():
@@ -516,6 +527,114 @@ def main():
         check("A game controller (a pretend one): Kart Lab's stick steers, the right trigger goes, the right face button "
               "brakes, the shoulders drift and use (once); Robot Lab's stick drives and the bottom button fires; Fight "
               "Lab's left shoulder and trigger block low", controller)
+
+        def touch():  # (CHANGE 187) a phone's touch controls (touch.js), pretend fingers through pointer events
+            got = chrome.js("""(() => {
+                const A = window.__app, c = window.__state.ctrl, out = {};
+                A.setTouch("on");
+                const pad = document.getElementById("touchpad");
+                out.shown = !!pad && !pad.hidden && document.body.classList.contains("touch");
+                const q = sel => document.querySelector('#touchpad ' + sel);
+                const mid = el => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2, r]; };
+                const ev = (type, el, x, y, id) => el.dispatchEvent(new PointerEvent(type, {pointerId: id, pointerType: "touch", clientX: x, clientY: y, bubbles: true, isPrimary: id === 1}));
+                const go = q('[data-btn="go"]'), brake = q('[data-btn="brake"]'), item = q('[data-btn="item"]'), drift = q('[data-btn="drift"]'), steer = q('#tp-steer');
+                out.sizes = [go, brake, item, drift, steer].map(el => Math.round(Math.min(el.getBoundingClientRect().width, el.getBoundingClientRect().height)));
+                c.tapped = [];
+                c.pad = A.touch.read(); out.idle = c.kartControl();
+                const [gx, gy] = mid(go), [sx, sy, sr] = mid(steer), [ix, iy] = mid(item), [dx, dy] = mid(drift), [bx, by] = mid(brake);
+                ev("pointerdown", go, gx, gy, 1);                                   // one finger on GO
+                ev("pointerdown", steer, sx, sy, 2); ev("pointermove", steer, sr.left + sr.width * 0.97, sy, 2);  // a thumb slid to the right end
+                ev("pointerdown", item, ix, iy, 3);                                 // a tap on the item
+                ev("pointerdown", drift, dx, dy, 4);                                // DRIFT held
+                out.knob = steer.querySelector('.tp-knob').style.left;
+                c.pad = A.touch.read(); out.kart = c.kartControl();
+                c.pad = A.touch.read(); out.kart2 = c.kartControl();               // (the tap went once)
+                ev("pointermove", steer, sr.left + sr.width * 0.5, sy, 2);          // the thumb back to the middle
+                c.pad = A.touch.read(); out.mid = c.kartControl();
+                ev("pointerup", go, gx, gy, 1); ev("pointerup", steer, sx, sy, 2); ev("pointerup", item, ix, iy, 3); ev("pointerup", drift, dx, dy, 4);
+                ev("pointerdown", brake, bx, by, 5);
+                c.pad = A.touch.read(); out.brake = c.kartControl();
+                ev("pointerup", brake, bx, by, 5);
+                c.pad = A.touch.read(); out.off = c.kartControl();
+                out.on = [...document.querySelectorAll('#touchpad button.on')].length;
+                out.fullbig = !q('.tp-fullbig').hidden;
+                A.setTouch("off");
+                out.hidden = pad.hidden && !document.body.classList.contains("touch");
+                out.mode = A.touchMode();
+                c.pad = null;
+                return out; })()""")
+            assert got["shown"], got
+            assert all(s >= 56 for s in got["sizes"]), ("every control at least 56 px (a finger)", got["sizes"])
+            # a phone's screen, upright and sideways: every control and button inside it, the speed box clear of the controls
+            fit = """(() => {
+                const r = s => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+                const inside = b => b && b.left >= 0 && b.top >= 0 && b.right <= innerWidth + 0.5 && b.bottom <= innerHeight + 0.5;
+                const apart = (a, b) => !a || !b || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+                const go = r('#touchpad [data-btn="go"]'), steer = r('#tp-steer'), speed = r('.karthud .kbottom'), right = r('#touchpad .tp-right');
+                return {w: innerWidth, h: innerHeight, go: inside(go), steer: inside(steer), hud: inside(r('#hudbtn')), panel: inside(r('#toggle')),
+                        top: inside(r('#touchpad .tp-top')), speedClear: apart(speed, right) && apart(speed, steer), map: inside(r('#kh-mapbox'))}; })()"""
+            try:
+                for name, w, h in (("portrait", 390, 844), ("landscape", 844, 390)):
+                    chrome.call("Emulation.setDeviceMetricsOverride", width=w, height=h, deviceScaleFactor=2, mobile=True)
+                    chrome.js("window.__app.setTouch('on'); document.getElementById('panel').classList.remove('open')")
+                    time.sleep(0.5)
+                    f = chrome.js(fit)
+                    chrome.screenshot(os.path.join(work, f"touch_{name}.png"))
+                    assert f["w"] == w and f["h"] == h, f
+                    assert all(f[k] for k in ("go", "steer", "hud", "panel", "top", "speedClear", "map")), (name, f)
+                    # the panel open (it fills a phone's width): its button still on the screen, to close it again
+                    chrome.js("document.getElementById('panel').classList.add('open')")
+                    assert chrome.js(fit)["panel"], (name, "the PANEL button with the panel open")
+                    chrome.js("document.getElementById('panel').classList.remove('open')")
+            finally:
+                chrome.call("Emulation.clearDeviceMetricsOverride")
+                chrome.js("window.__app.setTouch('on')")
+            idle = {"throttle": 0, "steer": 0, "buttons": 0}
+            assert got["idle"] == idle, got["idle"]
+            k = got["kart"]
+            assert k["throttle"] == 1 and k["steer"] <= -0.95 and k["buttons"] & 2 and k["buttons"] & 1, ("GO, full right, the item, DRIFT", k)
+            assert got["kart2"]["buttons"] & 1 and not got["kart2"]["buttons"] & 2, ("the item once", got["kart2"])
+            assert got["mid"]["steer"] == 0 and got["mid"]["throttle"] == 1, got["mid"]
+            assert got["knob"] != "" and got["knob"] != "50%", ("the knob moved", got["knob"])
+            assert got["brake"]["throttle"] == -1 and got["brake"]["steer"] == 0, got["brake"]
+            assert got["off"] == idle and got["on"] == 0, ("every finger lifted", got["off"], got["on"])
+            assert got["fullbig"], "the big FULL SCREEN button shows until the page is full screen"
+            assert got["hidden"] and got["mode"] == "off", got
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("A phone's touch controls (pretend fingers): the slider steers and springs back, GO and BRAKE, DRIFT held, the "
+              "item once a tap, every control finger-sized, the big FULL SCREEN button, Off hides them", touch)
+
+        def folded():  # (CHANGE 187) each box's – folds it to a pill, the HUD button hides them all; both kept
+            got = chrome.js("""(() => {
+                const A = window.__app, out = {};
+                A.setTouch("off");  // (touch mode hides the log itself)
+                A.hudMini.apply();
+                const tap = el => el.dispatchEvent(new PointerEvent("pointerdown", {pointerId: 9, pointerType: "touch", bubbles: true}));
+                const ev = document.getElementById("events"), btn = ev.querySelector(":scope > .mini-btn");
+                out.hasBtn = !!btn;
+                tap(btn);
+                out.folded = ev.classList.contains("mini") && getComputedStyle(ev.querySelector("div")).display === "none" && getComputedStyle(ev.querySelector(".mini-pill")).display !== "none";
+                out.kept = localStorage.getItem("hud_mini");
+                tap(ev.querySelector(".mini-pill"));
+                out.back = !ev.classList.contains("mini") && getComputedStyle(ev.querySelector("div")).display !== "none";
+                out.lapBtn = !!document.querySelector(".karthud .ktop > .mini-btn") && !!document.querySelector("#kh-mapbox > .mini-btn");
+                document.getElementById("hudbtn").click();
+                out.clean = document.body.classList.contains("clean") && getComputedStyle(ev).display === "none" && getComputedStyle(document.getElementById("kh-mapbox")).display === "none";
+                out.cleanKept = localStorage.getItem("hud_clean");
+                out.countdownStays = getComputedStyle(document.getElementById("race")).display !== "none";
+                out.words = document.getElementById("hudbtn").textContent;
+                document.getElementById("hudbtn").click();
+                out.cleanOff = !document.body.classList.contains("clean") && getComputedStyle(ev).display !== "none";
+                return out; })()""")
+            assert got["hasBtn"] and got["folded"] and got["kept"] == '["LOG"]', got
+            assert got["back"] and got["lapBtn"], got
+            assert got["clean"] and got["cleanKept"] == "1" and got["countdownStays"] and got["words"] == "HUD OFF", got
+            assert got["cleanOff"], got
+            errors = chrome.js("JSON.stringify(window.__errors)")
+            assert errors == "[]", f"JavaScript errors: {errors}"
+        check("The information over the game folds away: a box's minus to a pill and back, the HUD button hides every box and "
+              "brings them back, both kept on this computer", folded)
 
         def controls():
             assert chrome.js("window.__state.lesson.mode") == "practice"
@@ -1751,6 +1870,8 @@ def main():
             assert r.returncode == 0, r.stdout + r.stderr
         check("sfx/ (the games' sounds) is up to date with the games' sound generators", sounds_current)
         print(f"Screenshot and test data: {work}")
+    except StopRun as e:
+        print(f"Stopped after that check, as WEB_TEST_STOP_AFTER asked. Screenshot and test data: {work}")
     finally:
         if chrome:
             chrome.close()

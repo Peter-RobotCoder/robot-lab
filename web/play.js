@@ -12,7 +12,9 @@
 // the bottom face button fires; Fight Lab: left punch, bottom kick, right special, top jump, right shoulder throw,
 // right trigger cartwheel, left shoulder blocks, left trigger crouches; Kart Lab: the bottom button or right trigger
 // goes, the right button or left trigger brakes, the right shoulder drifts, the left shoulder or left button uses
-// your item, Back (Minus) respawns; Start is I (the side panel) in all three.
+// your item, Back (Minus) respawns; Start is I (the side panel) in all three. (CHANGE 187) A phone's touch controls
+// (touch.js) are read in the pad's shape, so they drive the same way: the slider steers, GO and BRAKE the triggers, DRIFT
+// the right shoulder, HANDBRAKE the top button, the item button the left one, RESET Back.
 
 import {Pads} from "./pad.js";
 
@@ -84,6 +86,7 @@ export class Controller {
         };
         this.pads = new Pads();      // (CHANGE 170) a USB or Bluetooth controller
         this.pad = null;             // ...as read this frame
+        this.touch = null;           // (CHANGE 187) the phone's touch controls (app.js sets it), read as a pad
     }
 
     robotControl() {
@@ -162,7 +165,9 @@ export class Controller {
         // (CHANGE 181) Kart Lab's taps wait for a tick: a frame with no tick in it (a 120 Hz screen draws two frames a
         // tick) threw the taps of that frame away, and a press of E (or R) was lost half the time
         this.tapped = (this.kind === "kart" ? this.tapped || [] : []).concat(this.keys.takeTaps());
-        const pad = this.pads.read();  // (CHANGE 170: every frame, so a button tapped between two isn't lost)
+        let pad = this.pads.read();  // (CHANGE 170: every frame, so a button tapped between two isn't lost)
+        const t = this.touch && this.touch.shown ? this.touch.read() : null;  // (CHANGE 187: a finger down, or no pad: the touch controls)
+        if (t && (t.active || !pad)) pad = t;
         if (pad && this.padCarry) for (const b of this.padCarry) pad.pressed.add(b);  // (...nor between two ticks)
         this.padCarry = null;
         this.pad = pad;

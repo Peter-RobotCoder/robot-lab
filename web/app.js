@@ -9,12 +9,14 @@
 //
 // Query string: ?host=ws://127.0.0.1:8782 for a laptop test server (the class picker is then "another server"),
 // ?code=TEACH99 to prefill the code, ?tier=mesh|lines|blocks|low|medium|high|ultra, ?version=1.9.1 (a class server wants the release's
-// number; on the VPS the page reads it from /live/version).
+// number; on the VPS the page reads it from /live/version), ?touch=1 or 0 for Kart Lab's touch controls (CHANGE 187, touch.js).
 
 import {TIERS, GAME_TIERS, LINE_TIERS, TIER_SETTINGS, PARTS, SCREEN, AutoTier, pageEngine, engineInfo, setSkyData, setGraphics,
         cappedTier, tierSettings, cleanParts, gameTier, LINE_COLOURS, getLineColour, setLineColour, cleanColour} from "./base3d.js";
 import {DeskLink, LearnerLink, renderDesk} from "./desk.js";
 import {KartGame} from "./kart.js";
+import {TouchPad, coarsePointer} from "./touch.js";
+import {HudMini} from "./hudmini.js";
 import {RobotGame} from "./robot.js";
 import {FightGame} from "./fight.js";
 import {TEACHER_TABS, renderTeacherTab, missionRow, wireMissionRow, restartRow, wireRestartRow, download, esc, twice, claudeChanged} from "./teacher.js";
@@ -354,12 +356,15 @@ function reconnect() {
 function showLogin() {
     $("login").style.display = "flex";
     $("toggle").hidden = true;
+    $("hudbtn").hidden = true;
+    touch.hide();  // (CHANGE 187)
     $("panel").classList.remove("open");
 }
 
 function hideLogin() {
     $("login").style.display = "none";
     $("toggle").hidden = false;
+    $("hudbtn").hidden = false;
 }
 
 function send(msg) {
@@ -423,6 +428,7 @@ function onMessage(data) {
             sound.setLesson((m.lesson || {}).sound);
             hideLogin();
             hideDesk();
+            applyTouch();  // (CHANGE 187) Kart Lab on a phone: the touch controls
             buildTabs();
             $("where").textContent = `${g.title} · ${state.url.replace(/^wss?:\/\//, "")} · ${m.role}`;
             addEvent(`Logged in to ${g.title} as ${m.name} (${m.role})`);
@@ -648,6 +654,7 @@ function loop() {
     if (state.game && !covered) {
         state.game.frame(now, dt);
         state.game.scene.render();
+        hudMini.apply();  // (CHANGE 187) the boxes' – and pills, and the ones folded, after the game drew them
     }
     requestAnimationFrame(loop);
 }
@@ -979,11 +986,14 @@ function drawPanel(body) {
           <div class="row">Mouse wheel <button data-iscroll="0" class="${state.invertScroll ? "" : "on"}">Normal</button><button data-iscroll="1" class="${state.invertScroll ? "on" : ""}">Inverted</button></div>
           <div class="note">Inverted: the wheel slides the panel and scrolls the code the other way up (old school).</div>
           <div class="row">Wheel zoom <button data-izoom="0" class="${state.invertZoom ? "" : "on"}">Normal</button><button data-izoom="1" class="${state.invertZoom ? "on" : ""}">Inverted</button></div>
-          <div class="note">Normal: wheel up zooms in. Inverted: wheel up zooms out. ${state.role === "learner" ? "Yours: kept with your profile, as in the game windows." : "Kept on this computer."}</div>`);
+          <div class="note">Normal: wheel up zooms in. Inverted: wheel up zooms out. ${state.role === "learner" ? "Yours: kept with your profile, as in the game windows." : "Kept on this computer."}</div>
+          <div class="row">Touch controls ${["auto", "on", "off"].map(m => `<button data-touch="${m}" class="${touchMode() === m ? "on" : ""}">${m[0].toUpperCase() + m.slice(1)}</button>`).join("")}</div>
+          <div class="note">Kart Lab on a phone or a tablet: a steering slider, GO, BRAKE, DRIFT, your item, the handbrake and RESET on the screen, and a FULL SCREEN button. Auto shows them on a touchscreen whose main pointer is a finger${coarsePointer() ? " (this one)" : " (not this one)"}; ?touch=1 in the address does the same.${params.has("touch") ? " The address has chosen for now." : ""}</div>`);
         body.querySelectorAll("button[data-tsize]").forEach(b => b.onclick = () => { setLook({textSize: Number(b.dataset.tsize)}); renderPanel(); });
         body.querySelectorAll("button[data-look]").forEach(b => b.onclick = () => { setLook({look: b.dataset.look}); renderPanel(); });
         body.querySelectorAll("button[data-iscroll]").forEach(b => b.onclick = () => { setLook({invertScroll: b.dataset.iscroll === "1"}); renderPanel(); });
         body.querySelectorAll("button[data-izoom]").forEach(b => b.onclick = () => { setLook({invertZoom: b.dataset.izoom === "1"}); renderPanel(); });
+        body.querySelectorAll("button[data-touch]").forEach(b => b.onclick = () => { setTouch(b.dataset.touch); renderPanel(); });  // (CHANGE 187)
         // the sound (the windows' Settings rows: each sound with its switch and volume; N mutes)
         const gid = g.id, S2 = sound.settings, rows = SETTINGS_ROWS[gid] || [];
         let snd = `<h2>Sound</h2><div class="row"><button id="snd-mute" class="${sound.muted ? "" : "on"}">${sound.muted ? "Sound is off (N)" : "Sound is on (N)"}</button></div>`;
@@ -1078,6 +1088,7 @@ const appApi = {
     twice: (key, text, then) => twice(appApi, key, text, then), keepPrefs: p => keepPrefs(p),
     sendBinary: buf => { if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.send(buf); },
     get keys() { return keys; }, get ctrl() { return state.ctrl; }, get role() { return state.role; }, get sound() { return sound; },
+    get touch() { return touch; }, touchMode: () => touchMode(), setTouch: m => setTouch(m), get hudMini() { return hudMini; },  // (CHANGE 187)
     openCode: () => toggleCode(appApi),
     // (CHANGE 143) the brain editor (learner.js's Brain button), a panel dragged and kept (Robot Lab's health bars), and
     // the Settings' Wheel zoom: wheelZoom(e) is the factor a wheel turn zooms by (under 1: in), turned round when inverted
@@ -1161,6 +1172,29 @@ sound.onChange = s => { if (state.role === "learner") keepPrefs({sound: s}); }; 
 
 // the keyboard: playing (play.js), and the windows' keys for the panel and the rest
 const keys = new Keys();
+// (CHANGE 187) a phone's touch controls for Kart Lab (touch.js): the setting Auto (shown on a touchscreen whose main
+// pointer is a finger), On or Off, kept on this computer; ?touch=1 or ?touch=0 in the address overrides it
+const touch = new TouchPad();
+const hudMini = new HudMini();  // (the information over the game folded a box at a time, or all: hudmini.js)
+touch.onKey = k => keys.onKey(k, {target: null, shiftKey: false});
+touch.onToast = t => toast(t, false, 6000);
+function touchMode() {
+    if (params.has("touch")) return params.get("touch") === "0" ? "off" : "on";
+    let kept = null;
+    try { kept = localStorage.getItem("touch"); } catch (e) { /* storage blocked */ }
+    return ["on", "off"].includes(kept) ? kept : "auto";
+}
+function touchWanted() { const m = touchMode(); return m === "on" || (m === "auto" && coarsePointer()); }
+function setTouch(mode) {
+    try { localStorage.setItem("touch", mode); } catch (e) { /* private window */ }
+    applyTouch();
+}
+function applyTouch() {  // (shown over Kart Lab, playing, when wanted; the controller reads it as a pad)
+    const g = state.game;
+    if (g && g.id === "kartlab" && state.connected && touchWanted() && $("login").style.display === "none") touch.show();
+    else touch.hide();
+    if (state.ctrl) state.ctrl.touch = touch;
+}
 // (CHANGE 143) as each window binds them: U and P for the teacher's own robot, kart or fighter too; the camera's keys
 // (O, [ and ], Home, + and -, Q and E) call the game's own (Fight Lab's camera keys are fight.js's own listener, so
 // FightGame has none of these names); the teacher's Kart Lab keys (Enter, G, T); H the key list
@@ -1288,6 +1322,7 @@ function setupUi() {
         setStatus("Logged out.", true);
     };
     $("toggle").onclick = () => { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); };
+    $("hudbtn").onclick = () => hudMini.toggleClean();  // (CHANGE 187)
     $("btn-desk").onclick = () => showDesk();
     $("btn-lobby").onclick = () => leaveToLobby();  // (CHANGE 143)
     document.addEventListener("wheel", invertedWheel, {passive: false, capture: true});
@@ -1336,6 +1371,7 @@ async function main() {
         engine = state.engine = pageEngine($("view"), state.gfx.aa);
         const info = engineInfo(engine);
         if (!params.get("tier") && !TIERS.includes(kept) && /NVIDIA|Radeon RX|Apple M|Arc\(TM\) A|RTX|GTX/i.test(info.renderer || "")) state.tier = "high";
+        if (!params.get("tier") && !TIERS.includes(kept) && coarsePointer()) state.tier = "low";  // (CHANGE 187) a phone: low first; Auto steps it
         // (CHANGE 161) no graphics card in use (Chrome's software drawing: hardware acceleration off or blocked on a
         // school computer): blocks, which Auto can't step up from, and the teacher's Learners table says so
         state.softwareGl = SOFTWARE_GL.test(info.renderer || "");

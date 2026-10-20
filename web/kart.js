@@ -413,6 +413,10 @@ export class KartGame {
                 else if (surf === "lane" && this.track.pits === "lane" && this.track.laneZone(at.s) === "wall") note = "PIT LANE: stop in your bay";
             }
             this.hud.update(me, states, this.race, this.track, id, colours, damageOn, note, L.tyres ? (me ? me.tyre || 0 : 0) : null);
+            if (this.app.touch && this.app.touch.shown) {  // (CHANGE 187) the phone's item button says what you hold
+                const it = me && me.item ? ITEM_NAMES[me.item - 1] : null;
+                this.app.touch.setItem(it ? it[1] : "");
+            }
         }
         if (this.app.sound) {
             const me = followed !== null && followed !== undefined ? states.get(followed) || null : null;

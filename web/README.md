@@ -35,6 +35,14 @@ What it does now:
     banner and timer; the woman, the man and Robin with the app's own skinned models and Mixamo moves on the lit
     tiers and on mesh and lines (`fightmodels.js`: `fight_model.py`'s clips, frames, blending, cartwheel and
     dressing, ported), the primitive stand-in until a model is loaded and on blocks;
+- (CHANGE 187) Kart Lab on a phone or a tablet (`touch.js`): on-screen controls over the race, a steering slider
+  (the thumb slid left or right, springing back), GO, BRAKE, DRIFT, your item (the button says what you hold), HANDBRAKE
+  and RESET, VIEW and WATCH, and FULL SCREEN (a big button until the page is: the browser's bars gone and the phone
+  sideways where it allows; an iPhone has no page full screen, so added to the home screen the page opens that way,
+  `manifest.webmanifest`). Read by `play.js` as a game controller is. Settings: Touch controls Auto (a touchscreen
+  whose main pointer is a finger), On, Off; `?touch=1`. A phone starts on the low tier. Every box over the game
+  (the log, the stats, the standings, LAP, speed, the minimap, damage, tyres, the item) has a – that folds it to a
+  pill, and the HUD button beside ≡ PANEL hides them all and brings them back, both kept (`hudmini.js`);
 - each game's own controls (Kart Lab: race, track, laps, grand prix; Robot Lab: practice or battle, restart, time,
   computer robots (up to four, CHANGE 140: each the teacher's to set up in Learners, in every arena or one) and their brain, real damage, the drop zone, arenas and who is where (CHANGE 142: a row
   for every robot, the teacher's, each learner's and each computer robot's, its name renamed there and its arena;

@@ -75,6 +75,7 @@ a { color: var(--blue); }
 #panel .ok { color: var(--green); }
 #toggle { position: fixed; right: 12px; top: 8px; z-index: 6; }
 #panel.open ~ #toggle { right: min(452px, calc(100vw - 60px)); }
+@media (max-width: 520px) { #panel.open ~ #toggle { right: auto; left: 8px; } }  /* (CHANGE 187: a phone's panel fills the width; the button stayed off its left edge) */
 @media (max-width: 700px) {
     #places { display: none; }
     #events { max-width: 70vw; }
@@ -242,7 +243,8 @@ body.light #panel .warn { color: #b25f00; }
 .karthud .kmeter { position: relative; width: 260px; height: 14px; background: rgba(12,12,18,0.85); border: 2px solid rgba(12,12,18,0.85); }
 .karthud .kmeter b { display: block; height: 100%; }
 .karthud .kmeter i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; }
-.karthud #kh-map { position: absolute; left: 16px; bottom: 60px; background: rgba(12,12,18,0.55); border-radius: 6px; }
+.karthud #kh-mapbox { position: absolute; left: 16px; bottom: 60px; width: 220px; height: 220px; background: rgba(12,12,18,0.55); border-radius: 6px; }
+.karthud #kh-map { display: block; width: 100%; height: 100%; }
 /* (CHANGE 158) the damage panel above the speed, and PIT: REPAIRING over the track */
 .karthud #kh-dmg { position: absolute; right: 28px; bottom: 170px; background: rgba(12,12,18,0.85); border-radius: 6px; padding: 6px 10px 10px; text-align: center; }
 .karthud #kh-dmg span { display: block; font-size: 12px; color: #c0cce6; margin-bottom: 5px; }
@@ -467,3 +469,77 @@ body.light #brain-text { background: #ffffff; color: #1f1f1f; caret-color: #000;
 #panel button.link.on { color: var(--yellow); }
 #panel .whodone { gap: 4px 12px; font-size: 13px; }
 body.light #panel .orange { color: #b25f00; }
+
+/* (CHANGE 187) Kart Lab's touch controls on a phone (touch.js): the steering slider bottom left, the pedals and buttons
+   bottom right, VIEW, WATCH and FULL SCREEN at the top, a big FULL SCREEN button until the page is; body.touch moves
+   the HUD out from under them (the minimap and the countdown to the top middle, the speed and drift meter to the
+   bottom middle, the damage panel and tyres under LAP, the item over the meter) and hides what a phone has no room for */
+html, body { overscroll-behavior: none; }
+#touchpad { inset: 0; z-index: 4; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+#touchpad[hidden] { display: none; }
+#touchpad button { font-weight: 700; font-size: 14px; letter-spacing: 0.03em; border-radius: 14px; background: rgba(38, 42, 53, 0.82); border: 2px solid rgba(255, 255, 255, 0.22); color: #fff; padding: 0; text-shadow: 0 1px 2px #000; }
+#touchpad button:hover { filter: none; }
+#touchpad button.on { filter: brightness(1.45); border-color: #fff; }
+#touchpad .tp-left { position: absolute; left: max(10px, env(safe-area-inset-left)); bottom: max(10px, env(safe-area-inset-bottom)); }
+#tp-steer { position: relative; width: clamp(150px, 34vw, 300px); height: 64px; border-radius: 32px; background: rgba(12, 12, 18, 0.62); border: 2px solid rgba(255, 255, 255, 0.25); touch-action: none; }
+#tp-steer .tp-arrow { position: absolute; top: 50%; left: 14px; transform: translateY(-50%); color: rgba(255, 255, 255, 0.45); font-size: 18px; }
+#tp-steer .tp-arrow.r { left: auto; right: 14px; }
+#tp-steer .tp-knob { position: absolute; top: 5px; left: 50%; width: 50px; height: 50px; margin-left: -25px; border-radius: 50%; background: var(--yellow); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
+#touchpad .tp-right { position: absolute; right: max(10px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 78px 88px; grid-template-rows: 38px 64px 64px; grid-template-areas: "small go" "drift go" "item brake"; gap: 8px; }
+#touchpad .tp-small { grid-area: small; display: flex; gap: 6px; }
+#touchpad .tp-small button { flex: 1; font-size: 10px; line-height: 1.1; border-radius: 10px; }
+#touchpad .tp-drift { grid-area: drift; background: rgba(47, 95, 143, 0.88); }
+#touchpad .tp-item { grid-area: item; font-size: 12px; }
+#touchpad .tp-item.has { border-color: var(--yellow); color: var(--yellow); }
+#touchpad .tp-go { grid-area: go; background: rgba(47, 143, 74, 0.9); font-size: 20px; }
+#touchpad .tp-brake { grid-area: brake; background: rgba(143, 47, 47, 0.9); }
+#touchpad .tp-top { position: absolute; top: 44px; right: max(8px, env(safe-area-inset-right)); display: flex; gap: 6px; }  /* (a second row: the top one has the desk or lobby button, the pills, HUD and PANEL) */
+#touchpad .tp-top button { height: 30px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
+#touchpad .tp-fullbig { position: absolute; left: 50%; top: 64%; transform: translate(-50%, -50%); padding: 14px 26px; font-size: 22px; border-radius: 16px; background: rgba(217, 166, 26, 0.95); border-color: #fff; color: #111; text-shadow: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+#touchpad .tp-fullbig small { font-size: 12px; font-weight: 500; letter-spacing: 0; }
+#touchpad .tp-fullbig[hidden] { display: none; }
+body.touch #topbar { padding: 6px 104px 6px 8px; gap: 6px; flex-wrap: wrap; }
+body.touch #lessonpill { max-width: calc(100vw - 360px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 520px) { body.touch #lessonpill { display: none; } }
+body.touch #topbar .title, body.touch #where, body.touch #camerapill { display: none; }
+body.touch #topbar .pill { font-size: 12px; padding: 3px 9px; }
+body.touch #events, body.touch #keyhelp, body.touch #places { display: none; }  /* (the HUD has your place and the map) */
+body.touch #race { left: 50%; top: 190px; transform: translateX(-50%); text-align: center; }  /* (under the minimap) */
+body.touch #race .big { font-size: 34px; }
+body.touch #perf { right: 8px; bottom: 192px; top: auto; max-width: 46vw; font-size: 10px; }  /* (above the pedals) */
+body.touch .karthud .ktop { top: 78px; padding: 0 10px; font-size: 22px; }
+body.touch .karthud #kh-mapbox { left: 50%; top: 78px; bottom: auto; transform: translateX(-50%); width: 110px; height: 110px; }
+body.touch .karthud .kbottom { right: auto; left: 50%; transform: translateX(-50%); bottom: max(8px, env(safe-area-inset-bottom)); text-align: center; }
+body.touch .karthud #kh-speed { font-size: 26px; }
+body.touch .karthud .kmeter { width: clamp(140px, 24vw, 240px); }
+body.touch .karthud #kh-dmg { right: auto; left: 8px; top: 112px; bottom: auto; transform: scale(0.72); transform-origin: top left; }
+body.touch .karthud #kh-tyres { right: auto; left: 8px; top: 200px; bottom: auto; }
+body.touch .karthud #kh-item { right: auto; left: 50%; transform: translateX(-50%); bottom: 92px; font-size: 18px; }
+body.touch .karthud #kh-pit { top: 48%; font-size: 22px; }
+body.touch .karthud #kh-note { font-size: 22px; }
+body.touch .karthud #kh-wrong { font-size: 40px; }
+body.touch #toast { top: 214px; font-size: 15px; max-width: 80vw; text-align: center; }
+@media (orientation: portrait) {  /* (upright: the meter and the item above the controls, the stats above them, the big button higher) */
+    body.touch .karthud .kbottom { bottom: 196px; }
+    body.touch .karthud #kh-item { bottom: 280px; }
+    body.touch #perf { bottom: 330px; }
+    #touchpad .tp-fullbig { top: 56%; }
+}
+
+/* (CHANGE 187) the information over the game folded away (hudmini.js): a – at each box's corner folds it to a pill
+   with its name (a tap brings it back); the HUD button beside ≡ PANEL hides every box (body.clean) and brings them
+   back; the race's own words (the countdown, WRONG WAY, the pit line, a toast, the results) stay */
+#hudbtn { position: fixed; right: 100px; top: 8px; z-index: 6; }
+#hudbtn.off { background: var(--on); color: #111; }
+#panel.open ~ #hudbtn { display: none; }
+.mini-btn { position: absolute; right: -8px; top: -8px; width: 26px; height: 26px; border-radius: 50%; padding: 0; font-size: 18px; line-height: 1;
+            background: rgba(38, 42, 53, 0.95); border: 1px solid rgba(255, 255, 255, 0.3); color: #fff; z-index: 2; pointer-events: auto; cursor: pointer; opacity: 0.75; }
+.mini-btn:hover { opacity: 1; }
+.mini-pill { display: none; }
+.mini > :not(.mini-pill) { display: none !important; }
+.mini { background: var(--panel) !important; border-radius: 12px !important; padding: 3px 10px !important; min-width: 0 !important; width: auto !important; height: auto !important; font-size: 11px; }
+.mini > .mini-pill { display: inline-block; font-style: normal; pointer-events: auto; cursor: pointer; font-size: 11px; color: var(--grey); letter-spacing: 0.05em; }
+.karthud .ktop.mini { left: 10px; right: auto; }
+.karthud .ktop > .mini-btn { right: 2px; top: -6px; }  /* (the box spans the screen: its button inside the edge) */
+body.clean #events, body.clean #perf, body.clean #places, body.clean #keyhelp, body.clean #topbar .pill, body.clean #topbar .title,
+body.clean .karthud .ktop, body.clean .karthud .kbottom, body.clean #kh-mapbox, body.clean #kh-dmg, body.clean #kh-tyres, body.clean #kh-item { display: none !important; }
