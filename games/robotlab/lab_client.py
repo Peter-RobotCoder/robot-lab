@@ -600,7 +600,7 @@ class Lab(hud.HudKit, ShowBase):
                                     state=DGG.NORMAL)
         self.hud_back.bind(DGG.B1PRESS, self.hud_drag_press)
         self.hud_back.bind(DGG.B1RELEASE, self.hud_drag_release)
-        label(self.hud_node, f"ROBOT LAB  -  {'TEACHER: ' if TEACHER else ''}{name}", -1.72, 0.91, 0.045,
+        label(self.hud_node, f"ROBOT LAB  -  {'TEACHER: ' if TEACHER else ''}{name}", -1.72, 0.91, 0.042,  # (Inter is wider)
               BLUE if TEACHER else YELLOW)
         settings = load_json(os.path.join(SETTINGS_DIR, "settings.json"))
         self.hud_small = bool(settings.get("hud_small"))
@@ -1627,7 +1627,7 @@ class Lab(hud.HudKit, ShowBase):
             check(f, PRETTY[k], 0.84 + (i % 2) * 0.46, y - (i // 2) * 0.046, L["tools"].get(k, k == "brains"),
                   lambda v, k=k: self.set_lesson({"tools": {k: bool(v)}}))
         y -= 0.046 * ((len(keys) + 1) // 2) + 0.02
-        label(f, "Weapons allowed", 0.82, y, 0.028)
+        label(f, "Weapons allowed", 0.82, y, 0.025)  # (Inter is wider: it met the first weapon at 0.028)
         makers = self.mod_info.get("makers", {})  # (a weapon a learner asked for carries their name)
         for i, w in enumerate(self.rules["weapons"]):
             button(f, f"{w} ({makers[w]})" if makers.get(w) else w, 1.1 + (i % 4) * 0.165, y + 0.008 - (i // 4) * 0.046,

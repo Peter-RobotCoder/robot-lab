@@ -2,18 +2,19 @@
 
     shared-world-demo\\.venv\\Scripts\\python club-coders\\web\\craft_sim_test.py      (from the ClubCodersAI folder)
 
-Makes two islands with craft_world (and stamps in what the step and the mesher have to deal with: slabs, beds, ladders
-up pillars, pools, doors open and shut, torches, lumen blocks, farmland and wheat, glass, leaves, holes and towers),
+Makes two islands with craft_world (and stamps in what the step and the mesher have to deal with: steps, Recharge
+Pods, ladders up pillars, pools, doors open and shut, glowsticks, Lumen blocks, Grow beds and grain, glass, leaves and
+Glowfruit leaves, a Server Rack, a Glitch rift, holes and towers),
 then runs the same things through craft/'s Python and, with node, through the page's modules, and checks:
-  - the light: the sky's and the torches' light over the whole island (craft_world.light_all), and again after a few
+  - the light: the sky's and the glowsticks' light (0 to 12) over the whole island (craft_world.light_all), and again after a few
     hundred blocks are changed (apply_changes, as the server's changes come), the same numbers in every block;
   - the meshes: every chunk of both islands, on the plain tiers and the mesh and lines looks, gives craft_mesh's
     vertices (place, texture, shade and light bytes), triangles and edges byte for byte;
   - the world's questions: blocked, touching (water, ladders), on_ground, the ray to the block looked at (and the face
     it came in through), the blocks' heights, look_dir, eye, player_box_hits and dig_time for every block with every
     tool, the same answers for thousands of cases;
-  - the player's step: hundreds of runs (600 ticks each: walking, sprinting, sneaking at edges, jumping, stepping up
-    onto slabs and beds, swimming, climbing ladders, falling, flying in creative, into walls and off towers) give the
+  - the player's step: hundreds of runs (600 ticks each: walking, running, Careful mode at edges, jumping, stepping up
+    onto steps and Recharge Pods, swimming, climbing ladders, falling, flying in creative, into walls and off towers) give the
     server's wire numbers tick for tick (step_player, then the wire's rounding, as the server and the window apply
     them), and the same numbers to the last bit before the rounding too;
   - the record: wire.js's CRAFT_FIELDS and craft_sim.js's SCHEMA_FIELDS are craft_sim.SCHEMA_FIELDS, the step's numbers
@@ -68,10 +69,10 @@ CHANGES = 300             # blocks changed in each world for the light's second 
 PREDICT_RUNS = 40
 SEED = 20261029
 GOLDEN = os.path.join(HERE, "craft_sim_golden.json")
-CONSTANTS = ["SIM_VERSION", "STEP", "HALF", "TALL", "EYE", "SNEAK_TALL", "GRAVITY", "JUMP", "TERMINAL", "WALK", "SPRINT",
-             "SNEAK", "FLY_SPEED", "FLY_FAST", "SWIM", "SWIM_UP", "SWIM_SINK", "CLIMB", "REACH", "REACH_CREATIVE", "JUMP_B",
-             "SPRINT_B", "SNEAK_B", "FLY_B", "RESPAWN_B", "F_GROUND", "F_WATER", "F_FLY", "F_SNEAK", "F_HURT", "F_SLEEP",
-             "F_SWING", "F_CLIMB"]
+CONSTANTS = ["SIM_VERSION", "STEP", "HALF", "TALL", "EYE", "CAREFUL_TALL", "CAREFUL_EYE", "GRAVITY", "JUMP", "TERMINAL",
+             "WALK", "SPRINT", "CAREFUL", "FLY_SPEED", "FLY_FAST", "SWIM", "SWIM_UP", "SWIM_SINK", "CLIMB", "REACH",
+             "REACH_CREATIVE", "JUMP_B", "SPRINT_B", "CAREFUL_B", "FLY_B", "RESPAWN_B", "F_GROUND", "F_WATER", "F_FLY",
+             "F_CAREFUL", "F_HURT", "F_SLEEP", "F_SWING", "F_CLIMB"]
 RAW = ["x", "y", "z", "vx", "vy", "vz", "fall"]
 
 results = []
@@ -104,9 +105,9 @@ def stamp(w, rng):
             continue
         kind = n % 13
         b = w.blocks
-        if kind == 0:  # slabs and beds to step up onto
+        if kind == 0:  # steps and Recharge Pods to step up onto
             for dx in range(3):
-                b[x + dx, y, z] = rng.choice((ID["slab"], ID["plank_slab"], ID["bed"]))
+                b[x + dx, y, z] = rng.choice((ID["rubble_step"], ID["board_step"], ID["pod"]))
         elif kind == 1:  # a pillar with a ladder up it
             for dz in range(6):
                 b[x, y, z + dz] = ID["stone"]
@@ -122,24 +123,24 @@ def stamp(w, rng):
             m = rng.randrange(8)
             b[x, y, z], b[x, y, z + 1] = ID["door"], ID["door_top"]
             w.meta[x, y, z] = w.meta[x, y, z + 1] = m
-        elif kind == 4:  # torches and a lumen block in a dark pocket
+        elif kind == 4:  # a glowstick in a dark pocket and a Lumen block
             for dz in range(3):
                 b[x - 1, y, z + dz] = b[x + 1, y, z + dz] = b[x, y - 1, z + dz] = b[x, y + 1, z + dz] = ID["stone"]
             b[x, y, z + 3] = ID["stone"]
-            b[x, y, z] = ID["torch"]
+            b[x, y, z] = ID["glowstick"]
             b[x + 2, y, z] = ID["lumen"]
-        elif kind == 5:  # farmland and wheat
+        elif kind == 5:  # Grow beds and grain (meta past the last stage too: the mesher's min(3, meta))
             for dx in range(3):
-                b[x + dx, y, z - 1] = ID["farmland"]
-                b[x + dx, y, z] = ID["wheat"]
-                w.meta[x + dx, y, z] = rng.randrange(8)
-        elif kind == 6:  # glass and leaves walls
+                b[x + dx, y, z - 1] = ID["grow_bed"]
+                b[x + dx, y, z] = ID["grain"]
+                w.meta[x + dx, y, z] = rng.randrange(6)
+        elif kind == 6:  # glass, leaves and Glowfruit leaves walls
             for dx in range(4):
                 for dz in range(3):
-                    b[x + dx, y, z + dz] = ID["glass"] if dx % 2 else ID["leaves"]
-        elif kind == 7:  # a tower to fall from (and sneak round the top of)
+                    b[x + dx, y, z + dz] = ID["glass"] if dx % 2 else ID["leaves"] if dx == 0 else ID["glowfruit_leaves"]
+        elif kind == 7:  # a tower to fall from (and go round the top of in Careful mode)
             for dz in range(8):
-                b[x, y, z + dz] = ID["planks"]
+                b[x, y, z + dz] = ID["boards"]
         elif kind == 8:  # a hole
             for dz in range(1, 5):
                 b[x, y, z - dz] = 0
@@ -148,13 +149,15 @@ def stamp(w, rng):
             for dx in range(4):
                 for dz in range(dx + 1):
                     b[x + dx, y, z + dz] = ID["brick"]
-        elif kind == 10:  # plants, a cactus, a smelter lit
+        elif kind == 10:  # plants, a cactus, a Refinery on, a Server Rack (its LEDs' frames) and a Glitch rift
             b[x, y, z] = ID["tall_grass"]
             b[x + 1, y, z] = ID["flower_red"]
             b[x + 2, y, z] = ID["cactus"]
-            b[x + 3, y, z] = ID["smelter_lit"]
+            b[x + 3, y, z] = ID["refinery_on"]
             b[x, y + 1, z] = ID["sapling"]
             b[x + 1, y + 1, z] = ID["berry_bush"]
+            b[x + 2, y + 1, z] = ID["server_rack"]
+            b[x + 3, y + 1, z] = ID["glitch_rift"]
         elif kind == 11:  # a low ceiling to bump your head on
             for dx in range(3):
                 for dy in range(3):
@@ -184,13 +187,13 @@ def world_job(w):
 
 # ---------- the light ----------
 def make_changes(rng, w, spots):
-    """Blocks changed near the stamped things (dug, a torch put down, a wall, water): the server's change list."""
+    """Blocks changed near the stamped things (dug, a glowstick put down, a wall, water): the server's change list."""
     ID = B.ID
     out = []
     for _ in range(CHANGES):
         x, y, z, _k = rng.choice(spots)
         x, y, z = x + rng.randint(-3, 3), y + rng.randint(-3, 3), z + rng.randint(-4, 3)
-        bid = rng.choice((0, 0, ID["torch"], ID["stone"], ID["glass"], ID["lumen"], ID["water"], ID["leaves"], ID["planks"]))
+        bid = rng.choice((0, 0, ID["glowstick"], ID["stone"], ID["glass"], ID["lumen"], ID["water"], ID["leaves"], ID["boards"]))
         out.append([x, y, z, bid, 0])
     return out
 
@@ -226,7 +229,7 @@ def make_questions(rng, w, spots):
         cases["blocked"].append({"q": [px, py, pz, px + sx, py + sy, pz + sz],
                                  "a": sim.blocked(w, px, py, pz, px + sx, py + sy, pz + sz, solid)})
         s = {"x": px, "y": py, "z": pz}
-        tall = rng.choice((sim.TALL, sim.SNEAK_TALL))
+        tall = rng.choice((sim.TALL, sim.CAREFUL_TALL))
         cases["touching"].append({"q": [px, py, pz, tall], "a": [sim.touching(w, s, liquid, tall), sim.touching(w, s, climb, tall)]})
         cases["ground"].append({"q": [px, py, pz], "a": sim.on_ground(w, s, solid)})
         yaw, pitch = rng.uniform(-400, 400), rng.uniform(-89.9, 89.9)
@@ -240,7 +243,7 @@ def make_questions(rng, w, spots):
         cases["look"].append({"q": [yaw, pitch], "a": [dx, dy, dz]})
         cases["ray"].append({"q": [px, py, pz, dx, dy, dz, reach],
                              "a": None if hit is None else [list(hit[0]), list(hit[1]), hit[2]]})
-        flags = rng.choice((0, sim.F_SNEAK, sim.F_GROUND | sim.F_SNEAK))
+        flags = rng.choice((0, sim.F_CAREFUL, sim.F_GROUND | sim.F_CAREFUL))
         cases["eye"].append({"q": [px, py, pz, flags], "a": list(sim.eye({"x": px, "y": py, "z": pz, "flags": flags}))})
         bx, by, bz = int(math.floor(px + rng.uniform(-1, 1))), int(math.floor(py + rng.uniform(-1, 1))), int(math.floor(pz + rng.uniform(-2, 2)))
         cases["box"].append({"q": [px, py, pz, bx, by, bz, tall], "a": sim.player_box_hits(s, bx, by, bz, tall)})
@@ -248,7 +251,7 @@ def make_questions(rng, w, spots):
 
 
 def dig_cases():
-    held = [None] + [it for it in B.ITEMS.values() if it.get("tool")] + [B.ITEMS[B.ITEM_ID["stick"]]]
+    held = [None] + [it for it in B.ITEMS.values() if it.get("tool")] + [B.ITEMS[B.ITEM_ID["rod"]]]
     out = []
     for b in B.BLOCKS:
         for h in held:
@@ -289,7 +292,7 @@ def run_inputs(rng, ticks, creative):
             a = rng.uniform(-math.pi, math.pi)
             mag = rng.choice((1.0, 1.0, rng.uniform(0, 1.4), rng.uniform(0.05, 0.2)))
             mx, my = math.cos(a) * mag, math.sin(a) * mag
-        held = (sim.SPRINT_B if rng.random() < 0.3 else 0) | (sim.SNEAK_B if rng.random() < 0.2 else 0) | \
+        held = (sim.SPRINT_B if rng.random() < 0.3 else 0) | (sim.CAREFUL_B if rng.random() < 0.2 else 0) | \
             (sim.JUMP_B if rng.random() < 0.25 else 0) | (sim.FLY_B if creative and rng.random() < 0.6 else 0)
         mx, my, held = wire.quantise_input(mx, my, held)
         for _ in range(hold):
@@ -300,7 +303,7 @@ def run_inputs(rng, ticks, creative):
 
 def run_players(rng, worlds):
     runs, raws = [], {}
-    cover = dict.fromkeys(("walking", "sprinting", "sneaking", "jumping", "stepping up", "in water", "climbing", "falling",
+    cover = dict.fromkeys(("walking", "running", "careful", "jumping", "stepping up", "in water", "climbing", "falling",
                            "landing", "flying", "stopped by a wall", "at an edge"), 0)
     for wi, (w, spots) in enumerate(worlds):
         for _ in range(RUNS):
@@ -319,17 +322,17 @@ def run_players(rng, worlds):
                 lines.append(wire_line(s))
                 moving = math.hypot(s["vx"], s["vy"]) > 0.2
                 cover["walking"] += moving and bool(s["flags"] & sim.F_GROUND) and not bt & sim.SPRINT_B
-                cover["sprinting"] += moving and bool(bt & sim.SPRINT_B) and not bt & sim.SNEAK_B
-                cover["sneaking"] += bool(s["flags"] & sim.F_SNEAK)
+                cover["running"] += moving and bool(bt & sim.SPRINT_B) and not bt & sim.CAREFUL_B
+                cover["careful"] += bool(s["flags"] & sim.F_CAREFUL)
                 cover["jumping"] += s["vz"] > 7 and not s["flags"] & sim.F_FLY
-                cover["stepping up"] += bool(was["flags"] & sim.F_GROUND) and 0.45 < s["z"] - was["z"] < 0.6
+                cover["stepping up"] += bool(was["flags"] & sim.F_GROUND) and 0.45 < s["z"] - was["z"] < 0.65
                 cover["in water"] += bool(s["flags"] & sim.F_WATER)
                 cover["climbing"] += bool(s["flags"] & sim.F_CLIMB)
                 cover["falling"] += s["fall"] > 1
                 cover["landing"] += bool(s["flags"] & sim.F_GROUND) and not was["flags"] & sim.F_GROUND
                 cover["flying"] += bool(s["flags"] & sim.F_FLY)
                 cover["stopped by a wall"] += (abs(th) > 50 or abs(sr) > 50) and s["vx"] == 0.0 and s["vy"] == 0.0
-                cover["at an edge"] += bool(s["flags"] & sim.F_SNEAK) and bool(s["flags"] & sim.F_GROUND) and (s["vx"] == 0.0) != (s["vy"] == 0.0)
+                cover["at an edge"] += bool(s["flags"] & sim.F_CAREFUL) and bool(s["flags"] & sim.F_GROUND) and (s["vx"] == 0.0) != (s["vy"] == 0.0)
             if keep_raw:
                 raws[len(runs)] = raw
             runs.append({"world": wi, "start": {n: start[n] for n in SCHEMA.names}, "inputs": inputs, "creative": creative,
@@ -680,11 +683,11 @@ def main():
     py_consts = {k: getattr(sim, k) for k in CONSTANTS}
     wrong = {k: (v, out["constants"].get(k)) for k, v in py_consts.items() if out["constants"].get(k) != v}
     check(f"craft_sim.js's {len(py_consts)} numbers (the speeds, the box, the buttons and flags) are craft_sim's", not wrong, str(wrong))
-    check("the blocks' heights (slabs, beds, farmland) are craft_sim.heights' for every block id", out["heights"] == heights_cases())
+    check("the blocks' heights (steps, Recharge Pods, Grow beds) are craft_sim.heights' for every block id", out["heights"] == heights_cases())
 
     for i, ((w, spots), res) in enumerate(zip(worlds, out["worlds"])):
         name = f"island {SEEDS[i]}"
-        check(f"{name}: the sky's and the torches' light in all {w.X * w.Y * w.Z} blocks is craft_world.light_all's "
+        check(f"{name}: the sky's and the glowsticks' light in all {w.X * w.Y * w.Z} blocks is craft_world.light_all's "
               f"({len(spots)} things stamped in)", res["light"] == lights[i], f"python {lights[i]} js {res['light']}")
         check(f"{name}: the light after {CHANGES} blocks changed at once (apply_changes) and 25 more one at a time (set) is "
               f"craft_world's", res["lightAfter"] == after[i] and res["lightSingles"] == after_singles[i])
@@ -723,8 +726,8 @@ def main():
             bad.append(f"run {i} first differs at tick {n}: python {d['_lines'][n]} js {js['lines'][n]}")
     check(f"{len(runs)} players' runs of {TICKS} ticks give the server's wire numbers tick for tick", not bad, "; ".join(bad[:3]))
     print("  what the players did (ticks):", ", ".join(f"{k} {v}" for k, v in cover.items()))
-    check("the players walked, sprinted, sneaked (stopping at edges), jumped, stepped up, swam, climbed, fell, landed, "
-          "flew and met walls", all(cover.values()), str(cover))
+    check("the players walked, ran, went in Careful mode (stopping at edges), jumped, stepped up, swam, climbed, fell, "
+          "landed, flew and met walls", all(cover.values()), str(cover))
     diff, total = 0, 0
     worst = [0.0] * len(RAW)
     for i, raw in raws.items():

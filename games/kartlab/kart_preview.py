@@ -44,7 +44,8 @@ args = ap.parse_args()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kart_version  # noqa: E402
 sys.path.insert(0, kart_version.ENGINE_HOME)
-from engine import full_screen, gfx_tiers, wire  # noqa: E402
+from engine import club_fonts, full_screen, gfx_tiers, wire  # noqa: E402
+club_fonts.use_default()  # (the windows' letters: Inter, SIL OFL, not Panda3D's own unlicensed font)
 
 loadPrcFileData("", "win-size 1600 900\nwindow-title Kart Lab preview\nsync-video "
                 + ("false" if args.no_vsync else "true") + "\n")

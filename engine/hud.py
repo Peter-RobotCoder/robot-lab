@@ -18,7 +18,7 @@ from direct.gui.DirectGui import (DGG, DirectButton, DirectCheckButton, DirectEn
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import MouseButton, PGItem, TextNode, WindowProperties
 
-from engine import editor, full_screen
+from engine import club_fonts, editor, full_screen
 
 APP = None  # the window (so any button click can end typing in a text box): set by setup_app
 SEND = None  # the window's send(message) to its server: set by setup_app
@@ -99,7 +99,10 @@ def window_prc(choice=None, x=None, y=80):
 
 def window_arg(choice, x=None, y=80):
     """A window opened with --window (the launcher's Window button): "1600x900" or "full". The choice is kept on
-    this computer, so the game's own Settings tab and the launcher agree; the prc lines to open with come back."""
+    this computer, so the game's own Settings tab and the launcher agree; the prc lines to open with come back.
+    Every game's window calls this before it opens, so it also makes Inter the windows' font (engine/club_fonts.py:
+    Panda3D's own font has no licence)."""
+    club_fonts.use_default()
     if choice == "full":
         SETTINGS["fullscreen"] = True
         remember("fullscreen", True)

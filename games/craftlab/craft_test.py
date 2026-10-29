@@ -1,10 +1,11 @@
-"""Craft Lab's tests (CHANGE 200).
+"""Craft Lab's tests (CHANGE 200; our own world since CHANGE 207).
 
-    python craft_test.py quick      the world, the meshes, the movement, crafting, the rules, the creatures, the Bots
+    python craft_test.py quick      the world, the meshes, the movement, the blueprints, the suit, the rules, the
+                                    creatures and the rifts, the Bots, the mods, saving
     python craft_test.py server     a real server and two learners by hand (block changes for everyone, a dig out of
-                                    reach refused, crafting, snapshots, the teacher's keys, the missions)
+                                    reach refused, a blueprint built, snapshots, the teacher's keys, the missions)
     python craft_test.py online     two windows on one server over pretend school Wi-Fi: few corrections each
-    python craft_test.py window     every graphics tier drawn offline, the night, the inventory, a Craft Bot
+    python craft_test.py window     every graphics tier drawn offline, the night, the Backpack, a Craft Bot
     python craft_test.py            all of them
 Test data goes to a temporary folder (and pictures there too). Exit code 0 = all fine.
 """
@@ -52,7 +53,7 @@ def flat_world(ground=10):
     """A small world of stone up to ground, air above: tests know exactly what is where."""
     w = W.World("small", 1, blank=True)
     w.blocks[:, :, :ground] = ID["stone"]
-    w.blocks[:, :, 0] = ID["corestone"]
+    w.blocks[:, :, 0] = ID["lab_floor"]
     w.spawn = (64.5, 64.5, float(ground))
     w.light_all()
     return w
@@ -62,6 +63,17 @@ def game_on(w, **rules):
     import craft_game
     g = craft_game.Game(w, dict({"mobs": False}, **rules))
     return g
+
+
+def bp_index(makes):
+    return next(i for i, bp in enumerate(items.blueprints()) if bp["makes"] == makes)
+
+
+def stand(g, p, x, y, z=10.0):
+    """A player put somewhere on the flat ground (p.state is a new dict each step)."""
+    p.state.update(x=x, y=y, z=z, vx=0.0, vy=0.0, vz=0.0, fall=0.0)
+    for _ in range(5):
+        g.step({})
 
 
 # ---------- quick ----------
@@ -78,14 +90,21 @@ def world_checks():
     check("The island has its biomes, its ores, caves and the sea, and you start on dry land",
           biomes >= 4 and len(ores) == 3 and ID["water"] in kinds and a.blocks[x, y, z - 1] not in (0, ID["water"]),
           f"biomes {biomes} ores {ores} under {B.BLOCKS[a.blocks[x, y, z - 1]]['key']}")
+    m = W.World("medium", 2026)
+    lockers = [r["locker"] for r in m.ruins if m.get(*r["locker"]) == ID["locker"]]
+    heaps = [h for h in m.heaps if m.get(h[0], h[1], h[2]) in (ID["scrap_pile"], ID["rust_pile"])]
+    fruit = int((m.blocks == ID["glowfruit_leaves"]).sum())
+    check("A medium island has its own landmarks: ruined lab buildings with a Locker, 3 scrap heaps in the caves, "
+          "Glowfruit trees and the Lab floor at the bottom", len(lockers) >= 1 and len(heaps) == 3 and fruit > 0
+          and (m.blocks[:, :, 0] == ID["lab_floor"]).all(), f"lockers {lockers} heaps {m.heaps} fruit {fruit}")
     w = flat_world()
     open_sky = int(w.sky[64, 64, 12])
     w.set(64, 64, 14, ID["stone"])
     under = int(w.sky[64, 64, 13])
-    w.set(70, 70, 10, ID["torch"])
+    w.set(70, 70, 10, ID["glowstick"])
     lit = int(w.glow[70, 70, 10]), int(w.glow[73, 70, 10])
-    check("Light: an open sky is 15, a block overhead dims it, a torch lights 14 and less further off",
-          open_sky == 15 and under < 15 and lit[0] == 14 and lit[1] == 11, f"{open_sky} {under} {lit}")
+    check("Light runs from 0 to 12: an open sky is 12, a block overhead dims it, a Glowstick lights 10 and less "
+          "further off", open_sky == 12 and under < 12 and lit[0] == 10 and lit[1] == 7, f"{open_sky} {under} {lit}")
 
 
 def mesh_checks():
@@ -107,6 +126,13 @@ def mesh_checks():
         M.mesh_chunk(big, key[0], key[1], t)
     each = (time.perf_counter() - t0) / 16 * 1000
     check("A chunk of the island meshes quickly (under 60 ms)", each < 60, f"{each:.0f} ms")
+    pink = [n for n in where if (atlas[where[n][1] * 16:(where[n][1] + 1) * 16, where[n][0] * 16:(where[n][0] + 1) * 16, :3]
+                                 == (255, 0, 255)).all(axis=-1).sum() > 20]
+    cracks = [n for n in where if n.startswith("crack_")]
+    rack = [where.get(f"server_rack_{k}") for k in range(4)]
+    frames = all(r is not None for r in rack) and all(rack[k] == (rack[0][0] + k, rack[0][1]) for k in range(4))
+    check("Every tile is drawn (none left pink), no crack tiles, the Server Rack's four frames side by side",
+          not pink and not cracks and frames, f"pink {pink} cracks {cracks} rack {rack}")
 
 
 def sim_checks():
@@ -115,17 +141,23 @@ def sim_checks():
     for _ in range(120):
         s = sim.step_player(s, (1.0, 0.0, 0), sim.STEP, w)
     walked = s["x"] - 64.5
-    check("Walking: about 4.3 metres a second on flat ground", 7.5 < walked < 9.0, f"{walked:.2f} m in 2 s")
+    check("Walking: about 4.5 metres a second on flat ground", 7.9 < walked < 9.4, f"{walked:.2f} m in 2 s")
     w.blocks[70, 60:70, 10] = ID["stone"]  # (a wall one block high: a jump gets over it)
     s = sim.new_player(66.5, 64.5, 10.0)
+    most = 0.0
     for i in range(240):
         s = sim.step_player(s, (1.0, 0.0, sim.JUMP_B if s["x"] > 68.8 else 0), sim.STEP, w)
-    check("A jump gets over a block, and you stand on top", s["x"] > 70.5, f"x {s['x']:.2f} z {s['z']:.2f}")
+    s2 = sim.new_player(40.5, 40.5, 10.0)
+    for i in range(70):
+        s2 = sim.step_player(s2, (0.0, 0.0, sim.JUMP_B if i == 10 else 0), sim.STEP, w)
+        most = max(most, s2["z"] - 10.0)
+    check("A jump lifts you 1.4 blocks: over a block, and you stand on top", s["x"] > 70.5 and 1.3 < most < 1.5,
+          f"x {s['x']:.2f} z {s['z']:.2f}, highest {most:.2f}")
     w.blocks[75, 60:70, 10:13] = ID["stone"]  # (a wall three high: nothing gets over it)
     s = sim.new_player(73.5, 64.5, 10.0)
     for _ in range(240):
         s = sim.step_player(s, (1.0, 0.0, sim.JUMP_B), sim.STEP, w)
-    check("A wall three blocks high stops you", s["x"] < 74.75, f"x {s['x']:.3f}")
+    check("A wall three blocks high stops you", s["x"] < 74.66, f"x {s['x']:.3f}")
     s = sim.new_player(40.5, 40.5, 20.0)
     most = 0.0
     for _ in range(120):
@@ -145,12 +177,12 @@ def sim_checks():
     s2 = sim.new_player(30.5, 30.5, 10.0)
     for _ in range(60):
         s2 = sim.step_player(s2, (0.0, 0.0, sim.FLY_B | sim.JUMP_B), sim.STEP, w, creative=False)
-    check("Creative players fly; survival players can't", flew > 14 and s2["z"] < 12, f"{flew:.1f} {s2['z']:.1f}")
-    w.blocks[20:25, 20:25, 10] = ID["stone"]  # (a ledge: sneaking off its edge stops you)
+    check("Sandbox players fly; Challenge players can't", flew > 14 and s2["z"] < 12, f"{flew:.1f} {s2['z']:.1f}")
+    w.blocks[20:25, 20:25, 10] = ID["stone"]  # (a ledge: Careful mode stops you stepping off its edge)
     s = sim.new_player(22.5, 22.5, 11.0)
     for _ in range(180):
-        s = sim.step_player(s, (1.0, 0.0, sim.SNEAK_B), sim.STEP, w)
-    check("Sneaking, you don't walk off an edge", s["z"] > 10.99 and s["x"] < 25.4, f"x {s['x']:.2f} z {s['z']:.2f}")
+        s = sim.step_player(s, (1.0, 0.0, sim.CAREFUL_B), sim.STEP, w)
+    check("In Careful mode you don't step off an edge", s["z"] > 10.99 and s["x"] < 25.45, f"x {s['x']:.2f} z {s['z']:.2f}")
     import random
     from engine import wire
     schema = wire.Schema("craft", sim.SCHEMA_FIELDS)
@@ -176,121 +208,130 @@ def sim_checks():
           hit is not None and hit[0] == (64, 64, 9) and hit[1] == (0, 0, 1), str(hit))
 
 
-def crafting_checks():
+def blueprint_checks():
     bad = []
-    for r in items.RECIPES:
-        if "pattern" in r:
-            grid_w = 3
-            grid = [None] * 9
-            rows = r["pattern"]
-            for ri, line in enumerate(rows):
-                for ci, ch in enumerate(line):
-                    if ch not in ". ":
-                        what = r["key"][ch]
-                        grid[ri * 3 + ci] = items.new_slot(I[what[0] if isinstance(what, list) else what], 1)
-        else:
-            grid_w = 3
-            grid = [items.new_slot(I[t], 1) for t in r["takes"]] + [None] * (9 - len(r["takes"]))
-            grid = grid[::-1]  # (shapeless: any places)
-        got = items.match(grid, grid_w)
-        if got != (I[r["makes"]], r.get("count", 1)):
-            bad.append(f"{r['makes']} -> {got}")
-    check(f"Every one of the {len(items.RECIPES)} recipes makes what it says, wherever it is in the grid", not bad,
-          "; ".join(bad[:5]))
-    g2 = [items.new_slot(I["planks"], 1), items.new_slot(I["planks"], 1), items.new_slot(I["planks"], 1),
-          items.new_slot(I["planks"], 1)]
-    axe = [None, items.new_slot(I["planks"], 1), items.new_slot(I["planks"], 1),
-           None, items.new_slot(I["stick"], 1), items.new_slot(I["planks"], 1), None, items.new_slot(I["stick"], 1), None]
-    check("A workbench from four planks in the 2 x 2 grid; a mirrored axe pattern still makes an axe",
-          items.match(g2, 2) == (I["workbench"], 1) and items.match(axe, 3) == (I["wood_axe"], 1),
-          f"{items.match(g2, 2)} {items.match(axe, 3)}")
+    for bp in items.blueprints():
+        inv = [None] * items.SLOTS
+        for part, n in bp["parts"].items():
+            items.add(inv, I[items.GROUPS.get(part, (part,))[0]], n)
+        if not items.can_build(inv, bp) or not items.take_parts(inv, bp) or any(inv):
+            bad.append(bp["makes"])
+    check(f"Every one of the {len(items.blueprints())} blueprints can be built from its parts, and takes all of them",
+          not bad, ", ".join(bad[:5]))
+    hand = [bp["makes"] for bp in items.blueprints() if bp["station"] == "hand"]
+    check("The four Quick Builds (by hand) are Boards, Rods, Glowsticks and the Fabricator",
+          sorted(hand) == ["boards", "fabricator", "glowstick", "rod"], str(hand))
     inv = [None] * items.SLOTS
-    left = items.add(inv, I["rubble"], 100)
+    left = items.add(inv, I["rubble"], 120)
     cur = items.click(inv, 0, None, right=True)
-    check("Stacks: 100 rubble fill one stack of 64 and one of 36; a right click picks up half",
-          left == 0 and inv[0][1] == 32 and cur[1] == 32 and inv[1][1] == 36, f"{inv[:2]} {cur}")
+    check("Stacks of 50: 120 rubble fill two stacks and 20 more; a right click splits a stack in half",
+          left == 0 and inv[0][1] == 25 and cur[1] == 25 and inv[1][1] == 50 and inv[2][1] == 20, f"{inv[:3]} {cur}")
+    w = flat_world()
+    g = game_on(w)
+    p = g.add_player(0, "Sam")
+    stand(g, p, 64.5, 64.5)
+    p.inv = [None] * items.SLOTS
+    items.add(p.inv, I["log"], 1)
+    g.inv_changed(0)
+    g.action(0, {"type": "build", "bp": bp_index("locker")})
+    refused = not p.building
+    g.action(0, {"type": "build", "bp": bp_index("boards")})
+    for _ in range(80):
+        g.step({})
+    boards = items.count_of(p.inv, I["boards"])
+    items.add(p.inv, I["boards"], 20)
+    items.add(p.inv, I["rod"], 2)
+    g.inv_changed(0)
+    g.action(0, {"type": "build", "bp": bp_index("locker")})
+    far = not p.building
+    w.set(66, 64, 10, ID["fabricator"])
+    g.action(0, {"type": "build", "bp": bp_index("locker")})
+    for _ in range(60 * 3):
+        g.step({0: (0.5, 0.0, 0)})  # (walking away while it builds)
+    locker = items.count_of(p.inv, I["locker"])
+    check("A blueprint is greyed until each part has been held; a Quick Build works anywhere; a Locker needs a "
+          "Fabricator within 4 blocks, and finishes in your Backpack as you walk away",
+          refused and boards == 3 and far and locker == 1, f"refused {refused} boards {boards} far {far} locker {locker}")
+    p.inv = [None] * items.SLOTS
+    p.inv[0] = [I["drill_mk1"], 1, 5]
+    items.add(p.inv, I["copper_ingot"], 3)
+    g.inv_changed(0)
+    stand(g, p, 64.5, 64.5)
+    g.action(0, {"type": "build", "bp": bp_index("drill_mk2")})
+    for _ in range(60 * 5):
+        g.step({})
+    up = next((s for s in p.inv if s and s[0] == I["drill_mk2"]), None)
+    check("A Mk1 Drill and 3 Copper ingots upgrade to a Mk2 Drill, with all its uses back",
+          up is not None and up[2] == B.ITEMS[I["drill_mk2"]]["uses"] and not items.count_of(p.inv, I["drill_mk1"]),
+          str(up))
 
 
-def armour_checks():
+def suit_checks():
     w = flat_world()
     g = game_on(w)
     p = g.add_player(0, "Sam")
     for _ in range(10):
         g.step({})
     p.inv = [None] * items.SLOTS
-    made = []
-    for part, pattern in (("helmet", ["III", "I.I"]), ("chest", ["I.I", "III", "III"]), ("legs", ["III", "I.I", "I.I"]),
-                          ("boots", ["I.I", "I.I"])):
-        grid = [None] * 9
-        for ri, line in enumerate(pattern):
-            for ci, ch in enumerate(line):
-                if ch == "I":
-                    grid[ri * 3 + ci] = items.new_slot(I["iron_ingot"], 1)
-        made.append(items.match(grid, 3) == (I[f"iron_{part}"], 1))
-    cloth = [items.new_slot(I["wool_red"], 1), None, items.new_slot(I["wool"], 1),
-             items.new_slot(I["wool_blue"], 1), None, items.new_slot(I["wool"], 1)] + [None] * 3
-    check("Armour from the workbench: an iron helmet, chest guard, leg guards and boots; cloth boots from any wool",
-          all(made) and items.match(cloth, 3) == (I["cloth_boots"], 1), str(made))
-    p.inv[0] = items.new_slot(I["iron_helmet"], 1)
+    p.inv[0] = items.new_slot(I["iron_visor"], 1)
     p.selected = 0
     g.action(0, {"type": "use_item"})
-    p.inv[5] = items.new_slot(I["iron_chest"], 1)
-    p.inv[6] = items.new_slot(I["iron_legs"], 1)
-    p.inv[7] = items.new_slot(I["iron_boots"], 1)
+    p.inv[5] = items.new_slot(I["iron_vest"], 1)
+    p.inv[6] = items.new_slot(I["iron_boots"], 1)
     g.action(0, {"type": "click", "area": "inv", "slot": 5, "shift": True})
-    g.action(0, {"type": "click", "area": "inv", "slot": 6})           # (picked up...)
-    g.action(0, {"type": "click", "area": "armour", "slot": 0})        # (...won't go on your head...)
-    wrong = p.cursor is not None and p.cursor[0] == I["iron_legs"]
-    g.action(0, {"type": "click", "area": "armour", "slot": 2})        # (...goes on your legs)
-    p.selected = 7
-    g.action(0, {"type": "use_item"})
-    msg = g.inventory_msg(0)
-    worn = [B.ITEMS[a[0]]["key"] if a else None for a in p.armour]
-    check("Armour is worn three ways (right click, shift and click, into its slot), only in its own slot: iron "
-          "head to foot is 15 points", wrong and worn == ["iron_helmet", "iron_chest", "iron_legs", "iron_boots"]
-          and msg["armour_points"] == 15 and not any(p.inv[:9]), f"{worn} {msg['armour_points']}")
+    g.action(0, {"type": "click", "area": "inv", "slot": 6})            # (picked up...)
+    g.action(0, {"type": "click", "area": "suit", "slot": 0})           # (...won't go on your head...)
+    wrong = p.cursor is not None and p.cursor[0] == I["iron_boots"]
+    g.action(0, {"type": "click", "area": "suit", "slot": 2})           # (...goes on your feet)
+    worn = [B.ITEMS[a[0]]["key"] if a else None for a in p.suit]
+    check("The suit is worn three ways (right click, Shift and click, into its slot), only in its own slot: an iron "
+          "suit gives 30 Shield", wrong and worn == ["iron_visor", "iron_vest", "iron_boots"] and p.shield_max() == 30,
+          f"{worn} {p.shield_max()}")
+    for _ in range(60 * 20):  # (it fills up while nothing hurts you)
+        g.step({})
+    full = p.shield
     s = p.state
-    hp0 = s["hp"] = 20
-    for k in range(10):
+    s["hp"] = 100
+    p.hurt_at = -10.0
+    g.hurt(p, 14, "grab")
+    soaked = (s["hp"], p.shield)
+    for k in range(3):
         p.hurt_at = -10.0
-        g.hurt(p, 4, "hit")
-    took = hp0 - s["hp"]
-    uses = p.armour[0][2]
-    s["hp"] = 20
-    g.hurt(p, 4, "fell")
-    fell = 20 - s["hp"]
-    check("Iron armour keeps off 60% of a hit (ten hits of 4 cost 16 health, not 40) and wears a little each hit; "
-          "a fall still hurts in full", took == 16 and uses == B.ITEMS[I["iron_helmet"]]["uses"] - 10 and fell == 4,
-          f"took {took}, helmet uses {uses}, fall {fell}")
+        g.hurt(p, 10, "zap")
+    after = s["hp"]
+    uses = p.suit[0][2]
+    s["hp"] = 100
+    g.hurt(p, 16, "fell")
+    fell = 100 - s["hp"]
+    check("The Shield soaks hits completely until it is empty, then Health takes them; each soak wears the suit a "
+          "little; a fall isn't soaked", full == 30 and soaked == (100, 16) and after == 86 and fell == 16
+          and uses == B.ITEMS[I["iron_visor"]]["uses"] - 3, f"full {full} soaked {soaked} after {after} uses {uses}")
     saved = p.to_save()
     q = type(p)(9, "Copy", (5.0, 5.0, 11.0))
     q.load(json.loads(json.dumps(saved)))
-    check("What you wear is saved with you (and its wear)", [a[0] if a else 0 for a in q.armour] ==
-          [a[0] for a in p.armour] and q.armour[0][2] == uses)
-    p.inv[3] = [I["iron_pick"], 1, 17]
+    check("What you wear is saved with you (and its wear)", [a[0] if a else 0 for a in q.suit] ==
+          [a[0] for a in p.suit] and q.suit[0][2] == uses)
+    p.inv[3] = [I["drill_mk3"], 1, 17]
     g.action(0, {"type": "click", "area": "inv", "slot": 3, "shift": True})
-    moved = next((sl for sl in p.inv[items.HOTBAR:] if sl and sl[0] == I["iron_pick"]), None)
-    check("A worn pick moved with shift and click keeps its wear (it isn't mended)", moved is not None and moved[2] == 17,
+    moved = next((sl for sl in p.inv[items.TOOLBELT:] if sl and sl[0] == I["drill_mk3"]), None)
+    check("A worn Drill moved with Shift and click keeps its wear (it isn't mended)", moved is not None and moved[2] == 17,
           str(moved))
-    import craft_art
-    atlas, where = craft_art.build_atlas()
-    pink = [n for n in where if n.endswith(("helmet", "chest", "legs", "boots")) or n.startswith("slot_")
-            if (atlas[where[n][1] * 16:(where[n][1] + 1) * 16, where[n][0] * 16:(where[n][0] + 1) * 16, :3]
-                == (255, 0, 255)).all(axis=-1).sum() > 20]
-    check("Every armour piece and empty slot has its own picture", not pink, str(pink))
 
 
 def rules_checks():
+    import craft_game
     w = flat_world()
     g = game_on(w)
     p = g.add_player(0, "Sam")
     for _ in range(30):
         g.step({})
     x, y, z = int(p.state["x"]), int(p.state["y"]), int(p.state["z"])
+    p.inv[2] = items.new_slot(I["drill_mk1"], 1)
+    p.selected = 2
     g.action(0, {"type": "dig_start", "x": x + 1, "y": y, "z": z - 1})
     g.action(0, {"type": "dig", "x": x + 1, "y": y, "z": z - 1})
     early = w.get(x + 1, y, z - 1) == ID["stone"]
-    for _ in range(int(60 * B.dig_time(ID["stone"], None)[0])):
+    for _ in range(int(60 * B.dig_time(ID["stone"], B.ITEMS[I["drill_mk1"]])[0])):
         g.step({})
     g.action(0, {"type": "dig", "x": x + 1, "y": y, "z": z - 1})
     dug = w.get(x + 1, y, z - 1) == 0
@@ -300,17 +341,17 @@ def rules_checks():
     g.action(0, {"type": "dig", "x": x + 9, "y": y, "z": z - 1})
     check("A dig sent too soon is refused; in time it digs; out of reach is refused",
           early and dug and w.get(x + 9, y, z - 1) == ID["stone"])
-    hand, _ = B.dig_time(ID["stone"], None)
-    pick, ok = B.dig_time(ID["stone"], B.ITEMS[I["iron_pick"]])
-    _, hand_ok = B.dig_time(ID["iron_ore"], B.ITEMS[I["wood_pick"]])
-    check("A pick digs stone far faster than a hand; iron ore needs a stone pick or better to drop anything",
-          pick < hand / 4 and ok and not hand_ok, f"{hand:.1f} s by hand, {pick:.2f} s with iron")
-    def stand(x, y, z=10.0):  # (the player put somewhere on the flat ground: p.state is a new dict each step)
-        p.state.update(x=x, y=y, z=z, vx=0.0, vy=0.0, vz=0.0, fall=0.0)
-        for _ in range(5):
-            g.step({})
-    stand(30.5, 30.5)
+    hand, hand_ok = B.dig_time(ID["stone"], None)
+    drill, ok = B.dig_time(ID["stone"], B.ITEMS[I["drill_mk3"]])
+    _, mk1_neon = B.dig_time(ID["neon_ore"], B.ITEMS[I["drill_mk1"]])
+    _, mk2_neon = B.dig_time(ID["neon_ore"], B.ITEMS[I["drill_mk2"]])
+    _, cutter = B.dig_time(ID["stone"], B.ITEMS[I["cutter_mk4"]])
+    check("A Drill digs stone far faster than a hand and a hand gets nothing from it; Neon ore needs a Mk2 Drill; a "
+          "Cutter is no Drill", drill < hand / 4 and ok and not hand_ok and not mk1_neon and mk2_neon and not cutter,
+          f"{hand:.1f} s by hand, {drill:.2f} s with Mk3")
+    stand(g, p, 30.5, 30.5)
     w.set(32, 30, 10, ID["soil"])
+    p.selected = 0
     g.action(0, {"type": "dig_start", "x": 32, "y": 30, "z": 10})
     for _ in range(90):
         g.step({})
@@ -319,13 +360,13 @@ def rules_checks():
         g.step({0: (0.6, 0.0, 0)})
     check("What a block drops is picked up as you walk near it", items.count_of(p.inv, I["soil"]) == 1,
           str([sl for sl in p.inv if sl]))
-    stand(40.5, 40.5)
-    p.inv[0] = items.new_slot(I["torch"], 4)
+    stand(g, p, 40.5, 40.5)
+    p.inv[0] = items.new_slot(I["glowstick"], 4)
     p.selected = 0
     g.action(0, {"type": "right", "x": 42, "y": 40, "z": 9, "face": [0, 0, 1]})
-    check("A torch put down lights the blocks round it", w.get(42, 40, 10) == ID["torch"] and w.glow[44, 40, 10] >= 11,
+    check("A Glowstick put down lights the blocks round it", w.get(42, 40, 10) == ID["glowstick"] and w.glow[44, 40, 10] >= 8,
           f"{B.BLOCKS[w.get(42, 40, 10)]['key']} {w.glow[44, 40, 10]}")
-    p.inv[1] = items.new_slot(I["planks"], 10)
+    p.inv[1] = items.new_slot(I["boards"], 10)
     p.selected = 1
     g.action(0, {"type": "right", "x": 40, "y": 40, "z": 9, "face": [0, 0, 1]})
     check("You can't put a block where you stand", w.get(40, 40, 10) == 0)
@@ -337,80 +378,134 @@ def rules_checks():
     opened = w.get_meta(38, 40, 10) & 4
     check("A door goes in two blocks high, and a right click opens it", placed and opened,
           f"{B.BLOCKS[w.get(38, 40, 10)]['key']} {w.get_meta(38, 40, 10)}")
-    w.set(44, 42, 10, ID["smelter"])
-    g.smelters[(44, 42, 10)] = {"slots": [items.new_slot(ID["iron_ore"], 2), items.new_slot(I["coal"], 1), None],
-                                "burn": 0.0, "burn_max": 0.0, "progress": 0.0}
-    for _ in range(int(60 * (B.SMELT_SECONDS * 2 + 2))):
+    w.set(44, 42, 10, ID["refinery"])
+    rf = craft_game.new_refinery()
+    rf["slots"][0] = items.new_slot(ID["iron_ore"], 2)
+    rf["slots"][1] = items.new_slot(I["rust"], 2)
+    rf["slots"][items.POWER_SLOT] = items.new_slot(I["coal"], 1)
+    g.refineries[(44, 42, 10)] = rf
+    for _ in range(int(60 * (B.REFINE_SECONDS * 3 + 1))):
         g.step({})
-    out = g.smelters[(44, 42, 10)]["slots"][2]
-    check("A smelter with iron ore and coal makes iron ingots (and lights up while it burns)",
-          out and out[0] == I["iron_ingot"] and out[1] == 2, str(out))
-    p.state["food"] = 10
-    p.inv[3] = items.new_slot(I["bread"], 1)
+    tray = [s for s in rf["slots"][items.POWER_SLOT + 1:] if s]
+    lit = w.get(44, 42, 10) == ID["refinery_on"] or tray
+    check("A Refinery with iron ore and 2 Rust in its queue and Coal in its power slot makes 3 Iron ingots, 6 s an "
+          "item (2 Rust make one), and lights up while it works", tray and tray[0][0] == I["iron_ingot"] and
+          tray[0][1] == 3 and lit and 2.9 < rf["power"] < 3.1, f"{tray} power {rf['power']}")
+    p.energy = 40.0
+    p.inv[3] = items.new_slot(I["grain_bar"], 1)
     p.selected = 3
     g.action(0, {"type": "use_item"})
-    check("Eating bread fills you up", p.state["food"] == 15 and p.inv[3] is None, f"food {p.state['food']}")
+    check("Eating a Grain bar gives 25 Energy", 64.9 < p.energy <= 65 and p.inv[3] is None, f"energy {p.energy}")
+    p.energy = 30.0  # (no Health coming back while this is measured)
     hp = p.state["hp"]
-    stand(50.5, 50.5, 19.0)
+    stand(g, p, 50.5, 50.5, 16.0)  # (6 blocks: 8 harm a block past 4)
     for _ in range(120):
         g.step({})
-    check("A long fall hurts", p.state["hp"] < hp, f"{hp} -> {p.state['hp']}")
-    g.time = 0.75 * g.rules["day_length"]
-    stand(40.5, 44.5)
-    w.set(42, 44, 10, ID["bed"])
+    fell = hp - p.state["hp"]
+    stand(g, p, 52.5, 50.5, 14.0)  # (4 blocks: safe)
+    hp2 = p.state["hp"]
+    for _ in range(120):
+        g.step({})
+    check("A fall of 4 blocks is safe; 6 blocks costs 16 Health", fell == 16 and p.state["hp"] == hp2,
+          f"{fell} then {hp2 - p.state['hp']}")
+    p.energy = 70.0
+    for _ in range(60 * 10):
+        g.step({0: (1.0, 0.0, sim.SPRINT_B)})
+    ran = 70.0 - p.energy
+    check("Energy drains as you run (about 1 a second)", 9.0 < ran < 11.5, f"{ran:.2f} in 10 s")
+    g.time = (g.day + 0.75) * g.rules["day_length"]
+    stand(g, p, 40.5, 44.5)
+    w.set(42, 44, 10, ID["pod"])
+    t0 = g.day_t
     g.use_block(0, 42, 44, 10)
-    check("Sleeping in a bed at night skips to the morning", not g.is_night() and 0.01 < g.day_t < 0.1, f"{g.day_t:.2f}")
+    secs = 0
+    while g.is_night() and secs < 60 * 60:
+        g.step({})
+        secs += 1
+    for _ in range(30):
+        g.step({})
+    check("Resting in a Recharge Pod at night (everyone in one) speeds the night by 20 times, and sets your wake "
+          "point", not g.is_night() and p.has_pod and 4 * 60 < secs < 60 * 60 and not p.asleep,
+          f"from {t0:.2f}: {secs / 60:.1f} s, now {g.day_t:.2f}")
     w2 = flat_world()
     g2 = game_on(w2)
     q = g2.add_player(0, "Wet")
     q.state.update(x=42.5, y=42.5, z=10.0)
     g2.step({})
-    q.inv[0] = items.new_slot(I["water_bucket"], 1)
+    q.inv[0] = items.new_slot(I["water_canister"], 1)
+    q.selected = 0
     g2.action(0, {"type": "right", "x": 40, "y": 40, "z": 9, "face": [0, 0, 1]})
     for _ in range(60 * 4):
         g2.step({})
     spread = int((w2.blocks == ID["water"]).sum())
-    q.inv[0] = items.new_slot(I["bucket"], 1)
+    q.inv[0] = items.new_slot(I["canister"], 1)
     q.state.update(x=41.5, y=41.5, z=10.0)
     g2.step({})
     g2.use_block(0, 40, 40, 10)
     for _ in range(60 * 6):
         g2.step({})
     dried = int((w2.blocks == ID["water"]).sum())
-    check("Water from a bucket flows out, and dries up when the source is taken back", spread > 20 and dried == 0,
-          f"{spread} then {dried}")
+    check("Water from a canister flows 4 blocks out (41 blocks), and dries up when the source is taken back",
+          spread == 41 and dried == 0, f"{spread} then {dried}")
     w2.set(50, 50, 10, ID["soil"])
     w2.set(50, 50, 11, ID["sand"])
     w2.set(50, 50, 12, ID["sand"])
     q.state.update(x=49.5, y=48.5, z=10.0)
+    q.inv[0] = None
     g2.action(0, {"type": "dig_start", "x": 50, "y": 50, "z": 10})
     for _ in range(120):
         g2.step({})
     g2.action(0, {"type": "dig", "x": 50, "y": 50, "z": 10})
     check("Sand falls into the gap under it", w2.get(50, 50, 10) == ID["sand"] and w2.get(50, 50, 11) == ID["sand"]
           and w2.get(50, 50, 12) == 0)
-    w2.set(60, 60, 10, ID["blast"])
-    q.state.update(x=58.5, y=60.5, z=10.0)
+    w2.set(60, 60, 10, ID["overload_cell"])
+    q.state.update(x=56.5, y=60.5, z=10.0, vx=0.0, vy=0.0)
     g2.step({})
     g2.use_block(0, 60, 60, 10)
-    for _ in range(60 * 4):
+    q.look = (0.0, 0.0)
+    q.inv[0] = items.new_slot(I["glitch_shard"], 2)
+    g2.action(0, {"type": "drop"})
+    for _ in range(60 * 5):
         g2.step({})
-    check("Blast blocks are off unless the lesson switches them on", w2.get(60, 60, 10) == ID["blast"])
+    off = w2.get(60, 60, 10) == ID["overload_cell"]
+    g2.rules["blasts"] = True
+    g2.action(0, {"type": "drop"})
+    armed = False
+    for _ in range(60 * 5):
+        g2.step({})
+        armed = armed or bool(g2.overloads)
+    gone = w2.get(60, 60, 10) == 0
+    holes = sum(1 for dx in range(-3, 4) for dy in range(-3, 4) if w2.get(60 + dx, 60 + dy, 9) == 0)
+    check("An Overload Cell isn't lit by a click; a Glitch shard thrown at it arms it only when the lesson allows "
+          "Overload Cells; then it pulses, and the blocks round it become their drops",
+          off and armed and gone and holes > 4 and g2.items, f"off {off} armed {armed} gone {gone} holes {holes}")
 
 
 def mob_checks():
     w = W.World("small", 12)
     g = game_on(w, mobs=True)
-    p = g.add_player(0, "Night")
+    p = g.add_player(0, "Dusk")
     g.mobs.age = 100
-    g.time = 0.7 * g.rules["day_length"]
-    for _ in range(60 * 20):
+    g.time = 0.595 * g.rules["day_length"]
+    for _ in range(60 * 25):
         g.step({})
     kinds = {m["kind"] for m in g.mobs.mobs.values()}
-    check("At night Glitches and Rust Walkers come out in the dark", kinds & {"glitch", "rust"}, str(kinds))
-    mid = g.mobs.add("glitch", p.state["x"] + 1.5, p.state["y"], p.state["z"])
+    check("At dusk Glitch rifts open (3 to 6) and send out Glitches", 3 <= len(g.rifts) <= 6 and "glitch" in kinds,
+          f"{len(g.rifts)} rifts {kinds}")
+    rid, r = next(iter(g.rifts.items()))
+    x, y, z = r["cells"][0]
+    p.state.update(x=x + 0.5, y=y - 1.5, z=z + 1.0)
+    g.step({})
+    p.inv[0] = items.new_slot(I["patch"], 1)
+    p.selected = 0
+    g.action(0, {"type": "right", "x": x, "y": y, "z": z, "face": [0, 0, 1]})
+    check("A Patch closes a rift (the ground back as it was)", rid not in g.rifts and w.get(x, y, z) != ID["glitch_rift"]
+          and p.stats["rifts"] == 1)
+    g.mobs.mobs.clear()
+    stand(g, p, p.state["x"], p.state["y"], p.state["z"])
+    mid = g.mobs.add("glitch", p.state["x"] + 2.5, p.state["y"], p.state["z"])
     hp0 = p.state["hp"]
-    for _ in range(90):
+    for _ in range(120):
         g.step({0: (0.0, 0.0, 0)})
     hurt = p.state["hp"] < hp0
     ex, ey, ez = sim.eye(p.state)
@@ -418,19 +513,37 @@ def mob_checks():
     while mid in g.mobs.mobs and hits < 20:
         m = g.mobs.mobs[mid]["s"]
         m.update(x=p.state["x"] + 1.0, y=p.state["y"], z=p.state["z"])
-        g.mobs.hit(mid, 3, (ex, ey, ez), p)
+        g.mobs.hit(mid, 12, (ex, ey, ez), p)
         hits += 1
     for _ in range(60):
         g.step({0: (0.2, 0.0, 0)})
-    check("A Glitch hops at you and zaps; hit enough, it is defeated and drops glitch shards",
-          hurt and mid not in g.mobs.mobs and p.stats["killed"].get("glitch") == 1, f"hurt {hurt} hits {hits}")
+    check("A Glitch zaps from a few blocks away; four Mk1 Zapper hits beat it, and it drops Glitch shards",
+          hurt and mid not in g.mobs.mobs and p.stats["killed"].get("glitch") == 1 and hits == 4,
+          f"hurt {hurt} hits {hits}")
+    g.time = (g.day + 0.94) * g.rules["day_length"]
+    for _ in range(60 * 2):
+        g.step({})
+    check("At dawn the rifts seal and pull their Glitches back in", not g.rifts and not any(
+        m["kind"] == "glitch" for m in g.mobs.mobs.values()), f"{len(g.rifts)} rifts")
     g2 = game_on(W.World("small", 12), mobs=True)
-    g2.add_player(0, "Day")
+    q = g2.add_player(0, "Day")
     g2.time = 0.25 * g2.rules["day_length"]
     for _ in range(60 * 20):
         g2.step({})
     kinds = {m["kind"] for m in g2.mobs.mobs.values()}
-    check("By day Fluffs and Bleeps wander the grass", kinds & {"fluff", "bleep"} and not kinds & {"glitch"}, str(kinds))
+    check("By day Fluffs and Bleeps wander the turf (no Glitches)", kinds & {"fluff", "bleep"} and "glitch" not in kinds,
+          str(kinds))
+    fid = g2.mobs.add("fluff", q.state["x"] + 1.5, q.state["y"], q.state["z"])
+    q.inv = [None] * items.SLOTS
+    q.selected = 0
+    g2.action(0, {"type": "use_mob", "target": fid})
+    got = items.count_of(q.inv, I["fluff"])
+    g2.action(0, {"type": "use_mob", "target": fid})
+    again = items.count_of(q.inv, I["fluff"])
+    q.inv[0] = items.new_slot(I["zapper_mk1"], 1)
+    g2.action(0, {"type": "attack", "target": fid})
+    check("Brushing a Fluff with an empty hand gives Fluff (it grows back later); the Zapper won't fire at it",
+          1 <= got <= 2 and again == got and g2.mobs.mobs[fid]["s"]["hp"] == 30, f"{got} {again}")
 
 
 def bot_checks():
@@ -445,7 +558,8 @@ def bot_checks():
     bot.facing = 1
     for k in range(1, 12):
         w.set(64, 67 + k, 11, ID["soil"])
-    tower = "def brain(bot, world):\n    if bot.placed >= 5:\n        return 'wait'\n    if bot.below == 'air':\n        return ('place_down', 'planks')\n    return 'up'\n"
+    tower = ("def brain(bot, world):\n    if bot.placed >= 5:\n        return 'wait'\n    if bot.below == 'air':\n"
+             "        return ('place_down', 'planks')\n    return 'up'\n")  # (planks: an old name, still understood)
     try:
         fn, fname = craft_brain.load_brain(craft_bot.STARTER, "Coder")
         g.bot_brains[0] = craft_brain.Autopilot(fn, fname)
@@ -456,7 +570,7 @@ def bot_checks():
                 break
         tunnel = bot.stats["dug"]
         g.bot_brains[0].close()
-        bot.inv[0] = items.new_slot(I["planks"], 8)
+        bot.inv[0] = items.new_slot(I["boards"], 8)
         bot.home()
         bot.cell = [60, 60, 11]
         bot.settle()
@@ -467,7 +581,7 @@ def bot_checks():
             time.sleep(1 / 120)
             if bot.stats["placed"] >= 5:
                 break
-        built = sum(1 for z in range(9, 18) if w.get(60, 60, z) == ID["planks"])
+        built = sum(1 for z in range(9, 18) if w.get(60, 60, z) == ID["boards"])
         g.bot_brains[0].close()
         bad = "def brain(bot, world):\n    return bot.nothing_here\n"
         fn, fname = craft_brain.load_brain(bad, "Coder")
@@ -477,13 +591,28 @@ def bot_checks():
             time.sleep(1 / 120)
         error = g.bot_brains[0].error
         g.bot_brains[0].close()
+        g.rules["blasts"] = True
+        bot.home()
+        bot.facing = 0
+        w.set(65, 67, 11, ID["overload_cell"])
+        arm = "def brain(bot, world):\n    if bot.front == 'overload_cell':\n        return ('use', 'overload_cell')\n    return 'wait'\n"
+        fn, fname = craft_brain.load_brain(arm, "Coder")
+        g.bot_brains[0] = craft_brain.Autopilot(fn, fname)
+        for _ in range(60 * 3):
+            g.step({})
+            time.sleep(1 / 120)
+            if g.overloads:
+                break
+        armed = bool(g.overloads)
+        g.bot_brains[0].close()
     finally:
         for b in g.bot_brains.values():
             if b is not None:
                 b.close()
     check("A Craft Bot's brain runs safely in its own process: the starter digs a tunnel of 10, another builds a "
-          "tower, a brain with a mistake stops with its line", tunnel >= 10 and built >= 5 and error and "line 2" in error,
-          f"dug {tunnel}, tower {built}, error {error}")
+          "tower (an old block name still works), a brain with a mistake stops with its line, and ('use', "
+          "'overload_cell') arms a Cell", tunnel >= 10 and built >= 5 and error and "line 2" in error and armed,
+          f"dug {tunnel}, tower {built}, error {error}, armed {armed}")
     try:
         craft_brain.load_brain("import os\ndef brain(bot, world):\n    return 'wait'\n", "Coder")
         refused = False
@@ -495,12 +624,15 @@ def bot_checks():
 def mods_checks():
     import craft_mods
     problems = craft_mods.use_mods()
-    grid = [items.new_slot(I["soil"], 1), items.new_slot(I["sand"], 1)] + [None] * 7
-    made = items.match(grid, 3)
-    check("The mods' block and recipe are in the game (soil and sand make a club block)",
-          not problems and "club_block" in ID and made == (ID["club_block"], 2), f"{problems} {made}")
+    bp = next((b for b in items.blueprints() if b["makes"] == "club_block"), None)
+    check("The mods' block and blueprint are in the game (soil and sand build two Club blocks)",
+          not problems and "club_block" in ID and bp is not None and bp["count"] == 2, f"{problems} {bp}")
     bad = craft_mods.check_block({"key": "Bad Key", "name": "", "colour": [300, 0, 0], "hard": 99, "light": 20, "tool": "spoon"})
     check("A learner's block with mistakes is refused, each one said", len(bad) == 6, "; ".join(bad))
+    bad = craft_mods.check_blueprint({"makes": "nothing", "count": 99, "parts": {"stuff": 0}, "station": "moon"})
+    old = craft_mods.check_blueprint({"makes": "planks", "count": 4, "parts": {"log": 1}})
+    check("A learner's blueprint with mistakes is refused, each one said; one with old names (planks) still loads",
+          len(bad) == 5 and not old, "; ".join(bad) + f" | {old}")
 
 
 def save_checks():
@@ -510,7 +642,18 @@ def save_checks():
     w.save(folder, {"time": 123.0})
     back, extra = W.World.load(folder)
     check("A world saved and loaded again is the same, with the game's own things",
-          back is not None and (back.blocks == w.blocks).all() and extra.get("time") == 123.0)
+          back is not None and (back.blocks == w.blocks).all() and extra.get("time") == 123.0 and back.heaps == w.heaps)
+    with open(os.path.join(folder, "world.json"), encoding="utf-8") as f:
+        info = json.load(f)
+    info["version"] = 1
+    with open(os.path.join(folder, "world.json"), "w", encoding="utf-8") as f:
+        json.dump(info, f)
+    old, _ = W.World.load(folder)
+    import craft_game
+    p = craft_game.Player(0, "Old", (5.0, 5.0, 11.0))
+    p.load({"inv": [[3, 5, 0]] + [None] * 35, "stats": {"deaths": 2}})
+    check("A save from before CHANGE 207 is made again, not misread (an old world, an old inventory)",
+          old is None and not any(p.inv) and p.stats["deaths"] == 2)
 
 
 # ---------- the server ----------
@@ -616,15 +759,12 @@ def server_checks():
         teacher.send({"type": "time"})
         state = sam.wait("state", 5)
         check("The teacher's K gives everyone a Bot dock, T moves the time of day on", got is not None and state is not None)
-        planks = next(i for i, s in enumerate(got["inv"]) if s and s[0] == I["planks"])
-        sam.send({"type": "click", "area": "inv", "slot": planks, "right": False, "shift": False})
-        for k in range(4):
-            sam.send({"type": "click", "area": "grid", "slot": k, "right": True, "shift": False})
-        sam.send({"type": "click", "area": "inv", "slot": planks, "right": False, "shift": False})
-        sam.send({"type": "click", "area": "result", "slot": 0, "right": False, "shift": True})
-        made = sam.wait("inventory", 5, test=lambda m: any(s and s[0] == I["workbench"] for s in m["inv"]))
-        check("Crafting by clicks on the server: four planks in the grid, a shift click takes the workbench",
-              made is not None)
+        bps = sam.wait("blueprints", 5) or {"list": []}
+        rod = next((i for i, bp in enumerate(bps["list"]) if bp["makes"] == "rod"), None)
+        sam.send({"type": "build", "bp": rod})
+        made = sam.wait("inventory", 5, test=lambda m: any(s and s[0] == I["rod"] for s in m["inv"]))
+        check("Blueprints on the server: the list is sent, and BUILD makes Rods from the teacher's Boards",
+              rod is not None and made is not None, f"rod {rod}")
         sam.send({"type": "design", "design": {"name": "Digger", "colour": [60, 190, 90],
                                                "points": {"dig": 50, "build": 25, "speed": 25}}})
         res = sam.wait("design_result", 5)
@@ -723,16 +863,25 @@ def window_checks():
     check("Every graphics tier draws the island (mesh and lines: lines on black)", ok, "; ".join(notes))
     script = os.path.join(TMP, "night.json")
     with open(script, "w") as f:
-        json.dump([["time", 0.78], ["set", "torch", 3, -2, 0], ["set", "lumen", 6, 0, 0], ["wait", 1.5]], f)
+        json.dump([["time", 0.8], ["set", "glowstick", 3, -2, 0], ["set", "lumen", 6, 0, 0], ["wait", 1.5]], f)
     shot, r = picture("night", ["--gfx", "medium", "--script", script, "--no-mobs"], 2.5)
     b = brightness(shot) if os.path.exists(shot) else 0
-    check("Night is dark but torches and lumen blocks light it", r.returncode == 0 and 3 < b < 45, f"{b:.0f}")
+    check("Night is dark but Glowsticks and Lumen blocks light it", r.returncode == 0 and 3 < b < 45, f"{b:.0f}")
     script = os.path.join(TMP, "inv.json")
     with open(script, "w") as f:
-        json.dump([["give", "log", 6], ["give", "iron_pick", 1], ["wait", 0.3], ["screen", "inventory"], ["wait", 1]], f)
+        json.dump([["give", "log", 6], ["give", "drill_mk2", 1], ["give", "iron_vest", 1], ["wait", 0.3],
+                   ["screen", "inventory"], ["wait", 1]], f)
     shot, r = picture("inventory", ["--gfx", "low", "--script", script] + pose, 2.0)
-    check("The inventory screen opens with what you carry", r.returncode == 0 and os.path.exists(shot),
-          (r.stdout + r.stderr)[-300:])
+    out = r.stdout + r.stderr
+    check("The Backpack opens with what you carry", r.returncode == 0 and os.path.exists(shot) and "Traceback" not in out,
+          out[-300:])
+    script = os.path.join(TMP, "blueprints.json")
+    with open(script, "w") as f:
+        json.dump([["give", "log", 6], ["give", "rubble", 4], ["wait", 0.3], ["screen", "blueprints"], ["wait", 1]], f)
+    shot, r = picture("blueprints", ["--gfx", "low", "--script", script] + pose, 2.0)
+    out = r.stdout + r.stderr
+    check("The Blueprints tab lists what you can build", r.returncode == 0 and os.path.exists(shot) and
+          "Traceback" not in out, out[-300:])
     script = os.path.join(TMP, "bot.json")
     with open(script, "w") as f:
         json.dump([["dock", 3, 0], ["wait", 0.5], ["close"], ["call", "upload_brain"], ["wait", 1.0],
@@ -746,7 +895,7 @@ def window_checks():
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
     if what in ("quick", "all"):
-        for fn in (world_checks, mesh_checks, sim_checks, crafting_checks, armour_checks, rules_checks, mob_checks,
+        for fn in (world_checks, mesh_checks, sim_checks, blueprint_checks, suit_checks, rules_checks, mob_checks,
                    bot_checks, mods_checks, save_checks):
             run(fn.__name__, fn)
     if what in ("server", "all"):

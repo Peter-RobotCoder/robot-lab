@@ -998,7 +998,7 @@ function drawPanel(body) {
           <div class="row">Wheel zoom <button data-izoom="0" class="${state.invertZoom ? "" : "on"}">Normal</button><button data-izoom="1" class="${state.invertZoom ? "on" : ""}">Inverted</button></div>
           <div class="note">Normal: wheel up zooms in. Inverted: wheel up zooms out. ${state.role === "learner" ? "Yours: kept with your profile, as in the game windows." : "Kept on this computer."}</div>
           <div class="row">Touch controls ${["auto", "on", "off"].map(m => `<button data-touch="${m}" class="${touchMode() === m ? "on" : ""}">${m[0].toUpperCase() + m.slice(1)}</button>`).join("")}</div>
-          <div class="note">Kart Lab and City Lab on a phone or a tablet: a steering slider, GO, BRAKE, DRIFT, your item, the handbrake and RESET on the screen (City Lab on foot: a stick, RUN, JUMP, PUNCH, KICK, BLOCK and GET IN; Craft Lab: a stick, a finger dragged to look, DIG, PLACE, JUMP, SNEAK, RUN, FLY, BAG and DROP), and a FULL SCREEN button. Auto shows them on a touchscreen whose main pointer is a finger${coarsePointer() ? " (this one)" : " (not this one)"}; ?touch=1 in the address does the same.${params.has("touch") ? " The address has chosen for now." : ""}</div>`);
+          <div class="note">Kart Lab and City Lab on a phone or a tablet: a steering slider, GO, BRAKE, DRIFT, your item, the handbrake and RESET on the screen (City Lab on foot: a stick, RUN, JUMP, PUNCH, KICK, BLOCK and GET IN; Craft Lab: a stick, a finger dragged to look, DIG, PLACE, JUMP, CROUCH (Careful mode), RUN, FLY, BAG and DROP), and a FULL SCREEN button. Auto shows them on a touchscreen whose main pointer is a finger${coarsePointer() ? " (this one)" : " (not this one)"}; ?touch=1 in the address does the same.${params.has("touch") ? " The address has chosen for now." : ""}</div>`);
         body.querySelectorAll("button[data-tsize]").forEach(b => b.onclick = () => { setLook({textSize: Number(b.dataset.tsize)}); renderPanel(); });
         body.querySelectorAll("button[data-look]").forEach(b => b.onclick = () => { setLook({look: b.dataset.look}); renderPanel(); });
         body.querySelectorAll("button[data-iscroll]").forEach(b => b.onclick = () => { setLook({invertScroll: b.dataset.iscroll === "1"}); renderPanel(); });
@@ -1068,6 +1068,7 @@ function keyList() {
     for (const [k, what] of [["U", "upload your brain"], ["P", "autopilot on or off (your brain drives)"], ["N", "sound on or off"],
                              ["I", "the panel (or Tab)"], ["C", "your code"], ["H", "the key list over the game: shown or hidden"]]) {
         if (g.noBrains && (k === "U" || k === "P")) continue;  // (the Missions: no brain, CHANGE 199)
+        if (g.noCodeKey && k === "C") continue;  // (Craft Lab: the code panel is the Bot tab's CODE, CHANGE 207)
         if (!has(k)) list.push([k, what]);
     }
     return list;

@@ -1,7 +1,7 @@
 """tex/ for Club Coders Live: the app's own surfaces and skies, so the page's graphics tiers draw what the app's do
 (CHANGE 131).
 
-- the texture sets the games paint their parts with (engine/rw_textures.py: paint, steel, tyre, diamond, hazard,
+- the texture sets the games paint their parts with (engine/rw_textures.py: paint, steel, tyre, treadplate, hazard,
   concrete; Kart Lab's kart_gfx.py: tarmac, grass, and for its ultra circuit (CHANGE 144, kart_scenery.MATERIALS)
   asphalt, kerb, gravel, turf, render, bark, foliage, needles, signs, water (CHANGE 151); Robot Lab's lab_textures.py for its ultra arena
   (CHANGE 145, arena_models.MATERIALS): lab_floor, lab_signs; Fight Lab's fight_textures.py for its ultra hall
@@ -28,7 +28,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "tex")
-SETS = {"engine": ["paint", "steel", "tyre", "diamond", "hazard", "concrete"],
+SETS = {"engine": ["paint", "steel", "tyre", "treadplate", "hazard", "concrete"],
         "kart": ["tarmac", "grass", "asphalt", "kerb", "gravel", "turf", "render", "bark", "foliage", "needles", "signs",
                  "water"],
         "lab": ["lab_floor", "lab_signs"], "fight": ["fight_canvas", "fight_signs"]}
@@ -119,7 +119,8 @@ def build():
     kart_gfx._textures()
     os.makedirs(OUT, exist_ok=True)
     for f in os.listdir(OUT):
-        os.remove(os.path.join(OUT, f))
+        if not f.startswith("craft_"):  # (tex/craft_atlas.png is make_craft.py's)
+            os.remove(os.path.join(OUT, f))
     files = []
     for where, names in SETS.items():
         for name in names:

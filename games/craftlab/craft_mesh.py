@@ -3,12 +3,15 @@ vertex arrays the window draws, in numpy, no Panda here (so the tests can measur
 
 Only the faces between a block and an open neighbour are made (a hill is its skin, not its insides). Each corner of
 a face gets corner shading (darker where two blocks meet in a corner, so edges and holes read at a glance) and the
-light there (the sky's and the torches', averaged over the four open blocks it touches): the shader multiplies the
-texture by them, so day and night are one number. Cubes are done all at once with array masks; the few other
-shapes (plants, torches, doors, ladders, slabs, beds, crops, water's lowered top) one by one.
+light there (the sky's and the glowsticks', averaged over the four open blocks it touches, 0 to 12): the shader
+multiplies the texture by them, so day and night are one number. Cubes are done all at once with array masks; the
+few other shapes (plants, glowsticks, doors, ladders, steps, Recharge Pods, Grow beds, crops, water's lowered top)
+one by one.
 
 A vertex is 24 bytes: position (3 floats), texture (2 floats), and four bytes: shade (face direction and corner
-shading), sky light, block light, and the face's direction (x 32, + 16 where leaves and plants wave on ultra).
+shading), sky light, block light (each 0 to 255 for 0 to 12), and the face's direction (x 32, + 16 where leaves
+and plants wave on ultra, + 8 on a tile whose frames play one after another: craft_blocks.ANIMATED, the Server
+Rack's blinking LEDs).
 
 edges() gives the lines for the mesh and lines looks: every face's edges (mesh), or only where the surface folds or
 the block changes (lines).
@@ -36,7 +39,9 @@ SIGNS = np.array([(-1, -1), (1, -1), (1, 1), (-1, 1)])  # each corner's side alo
 FACE_SHADE = np.array([0.8, 0.8, 0.66, 0.66, 1.0, 0.5], np.float32)  # (sides a little darker than the top)
 AO = np.array([0.42, 0.62, 0.8, 1.0], np.float32)  # corner shading by how open the corner is (0 to 3)
 UV = np.array([(0, 0), (1, 0), (1, 1), (0, 1)], np.float32)
-WAVY = {"leaves", "pine_leaves", "pale_leaves"}
+WAVY = {"leaves", "pine_leaves", "pale_leaves", "glowfruit_leaves"}
+L = B.LIGHT_MAX
+LIGHT_SCALE = 255.0 / L   # (a light level to the vertex's byte)
 VERTEX = np.dtype([("pos", np.float32, 3), ("uv", np.float32, 2), ("c", np.uint8, 4)])
 
 
@@ -51,6 +56,7 @@ class Tables:
         self.pass_ = np.zeros(n, np.uint8)  # 0 solid, 1 cutout, 2 blend
         self.tile_uv = np.zeros((n, 6, 2), np.float32)  # each face's tile corner in the atlas (u0, v0)
         self.wave = np.zeros(n, bool)
+        self.anim = np.zeros(n, bool)      # a tile whose frames play (the Server Rack's LEDs)
         size = 1.0 / B.ATLAS
         self.size = size
         for b in B.BLOCKS:
@@ -59,6 +65,7 @@ class Tables:
             self.opaque[i] = b["opaque"] and b["shape"] == "cube"
             self.pass_[i] = {"cutout": 1, "blend": 2}.get(b["see"], 0)
             self.wave[i] = b["key"] in WAVY
+            self.anim[i] = any(tile in B.ANIMATED for tile in (b["tiles"] or ()))
             if b["tiles"]:
                 top, side, bottom = b["tiles"]
                 for d, t in enumerate((side, side, side, side, top, bottom)):
@@ -92,7 +99,7 @@ class Builder:
 
     def quad(self, corners, uv, shade, sky, glow, d, wave=False):
         """One quad by hand (the shapes that aren't cubes)."""
-        c = np.empty((1, 4, 4), np.uint8)  # (sky and glow here are 0 to 1: the light level over 15)
+        c = np.empty((1, 4, 4), np.uint8)  # (sky and glow here are 0 to 1: the light level over 12)
         c[0, :, 0] = int(min(1.0, shade) * 255)
         c[0, :, 1] = int(min(1.0, sky) * 255)
         c[0, :, 2] = int(min(1.0, glow) * 255)
@@ -126,10 +133,10 @@ def mesh_chunk(world, cx, cy, tables, look=None):
     x1, y1 = x0 + CHUNK, y0 + CHUNK
     Z = world.Z
     blk = padded(world.blocks, x0, y0, x1, y1, 0)
-    blk[:, :, :PAD] = B.ID["corestone"]  # (under the world: solid, so its bottom is never drawn)
-    sky = padded(world.sky, x0, y0, x1, y1, 15)
+    blk[:, :, :PAD] = B.FLOOR  # (under the world: solid, so its bottom is never drawn)
+    sky = padded(world.sky, x0, y0, x1, y1, L)
     glow = padded(world.glow, x0, y0, x1, y1, 0)
-    sky[:, :, Z + PAD:] = 15
+    sky[:, :, Z + PAD:] = L
     t = tables
     opq = t.opaque[blk]
     out = [Builder(), Builder(), Builder()]
@@ -174,9 +181,9 @@ def mesh_chunk(world, cx, cy, tables, look=None):
         uv = uv + np.where(UV[None] > 0.5, -inset, inset)
         c = np.empty((n, 4, 4), np.uint8)
         c[..., 0] = np.clip(shade * 255, 0, 255)
-        c[..., 1] = np.clip(light_s * 17, 0, 255)
-        c[..., 2] = np.clip(light_g * 17, 0, 255)
-        c[..., 3] = (d * 32 + np.where(t.wave[ids], 16, 0))[:, None]
+        c[..., 1] = np.clip(light_s * LIGHT_SCALE, 0, 255)
+        c[..., 2] = np.clip(light_g * LIGHT_SCALE, 0, 255)
+        c[..., 3] = (d * 32 + np.where(t.wave[ids], 16, 0) + np.where(t.anim[ids], 8, 0))[:, None]
         passes = t.pass_[ids]
         for p in (0, 1, 2):
             sel = passes == p
@@ -248,12 +255,12 @@ def shapes(world, x0, y0, x1, y1, blk, sky, glow, out, t, segs):
         shape = b["shape"]
         x, y, z = x0 + ix, y0 + iy, iz
         px, py, pz = ix + PAD, iy + PAD, iz + PAD
-        s = sky[px, py, pz] / 15.0
-        g = glow[px, py, pz] / 15.0
+        s = sky[px, py, pz] / L
+        g = glow[px, py, pz] / L
         meta = int(world.meta[x, y, z])
         tiles = t.tile_uv[bid]
         if shape in ("cross", "crop"):
-            uv0 = t.uv0(f"wheat_{min(7, meta)}") if shape == "crop" else tiles[0]
+            uv0 = t.uv0(f"grain_{min(3, meta)}") if shape == "crop" else tiles[0]
             uv = np.array(uv0) + UV * size
             if shape == "cross":
                 planes = [[(0.15, 0.15, 0), (0.85, 0.85, 0), (0.85, 0.85, 0.95), (0.15, 0.15, 0.95)],
@@ -282,9 +289,9 @@ def shapes(world, x0, y0, x1, y1, blk, sky, glow, out, t, segs):
                       ((0, 0, 0), (1, 0.19, 1))][side]
             _box(out[1], x, y, z, lo, hi, tiles, size, s, g, segs)
         elif shape in ("slab", "bed", "farmland"):
-            top = {"slab": 0.5, "bed": 0.56, "farmland": 0.94}[shape]
-            _box(out[0], x, y, z, (0, 0, 0), (1, 1, top), tiles, size, max(s, sky[px, py, pz + 1] / 15.0),
-                 max(g, glow[px, py, pz + 1] / 15.0), segs)
+            top = {"slab": 0.5, "bed": 0.6, "farmland": 0.875}[shape]
+            _box(out[0], x, y, z, (0, 0, 0), (1, 1, top), tiles, size, max(s, sky[px, py, pz + 1] / L),
+                 max(g, glow[px, py, pz + 1] / L), segs)
         elif b["key"] == "cactus":
             _box(out[1], x, y, z, (0.06, 0.06, 0), (0.94, 0.94, 1), tiles, size, s, g, segs)
         elif shape == "liquid":
@@ -299,8 +306,8 @@ def shapes(world, x0, y0, x1, y1, blk, sky, glow, out, t, segs):
                 corners = CORNERS[d].copy()
                 corners[:, 2] = np.where(corners[:, 2] > 0.5, top, 0)
                 pts = corners + (x, y, z)
-                ns = sky[px + dx, py + dy, pz + dz] / 15.0 if d == 4 else s
-                ng = glow[px + dx, py + dy, pz + dz] / 15.0 if d == 4 else g
+                ns = sky[px + dx, py + dy, pz + dz] / L if d == 4 else s
+                ng = glow[px + dx, py + dy, pz + dz] / L if d == 4 else g
                 uv = np.array(tiles[d]) + UV * size
                 out[p].quad(pts, uv, FACE_SHADE[d], max(s, ns), max(g, ng, 0.9 if bid == magma else 0), d,
                             wave=bid == water and d == 4)

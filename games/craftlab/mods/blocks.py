@@ -4,8 +4,8 @@
     name    the name on the screen (a string)
     colour  [red, green, blue], each from 0 to 255 (a list)
     hard    how many seconds it takes to dig by hand (a number)
-    light   how much light it gives, 0 (none) to 15 (as bright as a lumen block): an integer
-    tool    "pick", "axe", "shovel" or None (what digs it faster)
+    light   how much light it gives, 0 (none) to 12 (as bright as a Lumen block): an integer
+    tool    "drill", "cutter", "scoop" or None (what digs it faster)
 """
 
 BLOCKS = [

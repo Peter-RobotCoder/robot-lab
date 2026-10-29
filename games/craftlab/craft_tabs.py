@@ -5,13 +5,13 @@ is open, so you can click in it).
     a learner   Mission (the lesson's missions, each objective ticked as it is done, the guidance, the written
                 answers), AI card (a request to the teacher: My Craft Bot, The world, The rules), My card (the outcomes
                 shown, what was done each session), Settings (text size, the look, the window)
-    the teacher Controls (the mission, show the learners their Mission tab, survival or creative, creatures,
-                hunger, the time of day, the rules: keep your things, blasts, falls hurt; everyone to me, a Bot kit
+    the teacher Controls (the mission, show the learners their Mission tab, Challenge or Sandbox, creatures,
+                Energy, the time of day, the rules: keep your things, Overload Cells, falls hurt; everyone to me, a Bot kit
                 each, pause; locking designs, what learners can change, user mods, the restart row), User mods,
                 Warnings, Limits, Settings. The class's Learners, Outcomes, AI cards and Changes are on the
                 teacher's page.
 
-The Craft Bot's own panels stay where they were (craft_panels.py: I the garage, C the code, B the brain).
+The Craft Bot's own panels (craft_panels.py: the Garage, the code, the brain) open from the Backpack's Bot tab (B).
 """
 from direct.gui.DirectGui import DirectFrame
 
@@ -26,10 +26,10 @@ TEACHER_TABS = [("teacher", "Controls"), ("mods", "User mods"), ("warnings", "Wa
                 ("settings", "Settings")]
 OFFLINE_TABS = [("settings", "Settings")]
 PRETTY = {"points_table": "Points table", "dig": "Dig points", "build": "Build points", "speed": "Speed points",
-          "name_and_colour": "Name and colour", "code_view": "Code view (C)", "stats_readout": "Stats readout",
+          "name_and_colour": "Name and colour", "code_view": "Code view", "stats_readout": "Stats readout",
           "brains": "Brains (U and P)"}
-HAZARD_NAMES = {"mobs": "Creatures (Glitches and Rust Walkers at night)", "hunger": "Hunger"}
-RULE_NAMES = (("keep_items", "Keep your things when knocked out"), ("blasts", "Blast blocks go off"),
+HAZARD_NAMES = {"mobs": "Creatures (Glitch rifts at dusk, Rust Walkers)", "energy": "Energy drains as you work"}
+RULE_NAMES = (("keep_items", "Keep your things when knocked out"), ("blasts", "Overload Cells"),
               ("falls_hurt", "Falls hurt"))
 TIMES = (("cycle", "Day and night"), ("dawn", "Dawn"), ("day", "Day"), ("dusk", "Dusk"), ("night", "Night"))
 send = lesson_tabs.send
@@ -53,7 +53,7 @@ class CraftTabs(lesson_tabs.LessonTabs):
         self.init_lesson_tabs()
 
     def fill_lesson(self, lesson):
-        L = {"lesson_number": 1, "game_mode": "survival", "time": "cycle", "rules": {}, "hazards": {}, "tools": {},
+        L = {"lesson_number": 1, "game_mode": "challenge", "time": "cycle", "rules": {}, "hazards": {}, "tools": {},
              "limits": None, "designs_locked": False, "teacher_player": True, "show_missions": False,
              "ai_card_note": "", "user_mods": {}, "mods_in_vote": {}, "arena_in_vote": {}}
         L.update(lesson or {})
@@ -123,9 +123,9 @@ class CraftTabs(lesson_tabs.LessonTabs):
         button(f, "Pause", 1.56, y + 0.008, send, [{"type": "pause"}], 0.022)
         y -= 0.055
         label(f, "Learners play", 0.82, y, 0.028, YELLOW)
-        for i, (key, text) in enumerate((("survival", "Survival"), ("creative", "Creative"))):
+        for i, (key, text) in enumerate((("challenge", "Challenge"), ("sandbox", "Sandbox"))):
             button(f, text, 1.1 + i * 0.2, y + 0.008, self.set_lesson, [{"game_mode": key}], 0.024,
-                   ON if L.get("game_mode", "survival") == key else OFF)
+                   ON if L.get("game_mode", "challenge") == key else OFF)
         y -= 0.055
         label(f, "Time", 0.82, y, 0.028, YELLOW)
         for i, (key, text) in enumerate(TIMES):
@@ -172,7 +172,7 @@ class CraftTabs(lesson_tabs.LessonTabs):
         self.restart_row(f, y)
 
     def stage_items(self):
-        """The world's hazards, for the User mods tab: the creatures and hunger."""
+        """The world's hazards, for the User mods tab: the creatures and Energy."""
         L = self.lesson
         return [(hz, HAZARD_NAMES.get(hz, hz.replace("_", " ").capitalize()), bool(on),
                  lambda v, k=hz: self.set_lesson({"hazards": {k: bool(v)}}))

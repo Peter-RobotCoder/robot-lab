@@ -1,7 +1,8 @@
 """Craft Bots (CHANGE 200): each learner's own little robot helper, driven by their Python (brains/my_bot.py).
 
-Put a BOT DOCK down (crafted from copper and rubble, or given by the teacher) and right-click it: your Bot rolls out
-on top, and the dock shows what it carries (give it blocks to build with; take what it dug). Upload your brain (U)
+Put a BOT DOCK down (a Fabricator blueprint: copper, rubble and a Battery, or given by the teacher) and right-click
+it: your Bot rolls out on top, and the Backpack's Bot tab shows what it carries (give it blocks to build with; take
+what it dug). Upload your brain (U)
 and switch autopilot on (P): from then on the Bot asks your brain(bot, world) what to do next, does it, and asks
 again. A Bot hovers (it never falls), moves one block at a time, turns, digs the block in front, above or below
 (what it digs goes in its own 9 slots) and puts blocks down from them. How fast it digs, builds and moves is your
@@ -11,11 +12,12 @@ design's points (craft_design.py: dig, build, speed).
         "forward"  "back"  "up"  "down"             move one block (not into a solid block)
         "left"  "right"                             turn a quarter
         "dig"  "dig_up"  "dig_down"                 dig the block in front, above or below
-        ("place", "planks")  ("place_up", ...)  ("place_down", ...)     put a block it carries there
+        ("place", "boards")  ("place_up", ...)  ("place_down", ...)     put a block it carries there
+        ("use", "overload_cell")                   arm the Overload Cell in front of it (when the lesson allows them)
         "wait"                                      do nothing for half a second
         ("say", "Hello!")                           a speech bubble over the Bot
 
-A Bot can't dig corestone or another Bot's dock, can't put a block where someone stands, and does nothing at all
+A Bot can't dig the Lab floor, a Glitch rift or a Bot's dock, can't put a block where someone stands, and does nothing at all
 while its brain has an error (the error and the line go back to its owner).
 """
 import math
@@ -157,7 +159,7 @@ class Bot:
             self.action = ["dig", secs, secs, to]
         elif kind in ("place", "place_up", "place_down"):
             to = self.look_at(self.facing) if kind == "place" else (x, y, z + (1 if kind == "place_up" else -1))
-            key = str(extra).strip().lower().replace(" ", "_")
+            key = B.new_key(str(extra).strip().lower().replace(" ", "_"))
             item = I.get(key)
             slot = next((i for i, s in enumerate(self.inv) if s and s[0] == item), None)
             if item is None or slot is None or B.ITEMS[item].get("block") is None:
@@ -170,6 +172,14 @@ class Bot:
                 self.action = ["bump", BUMP_TIME, BUMP_TIME, None]
                 return
             self.action = ["place", st["build"], st["build"], (to, item, slot)]
+        elif kind == "use":  # (the block in front: an Overload Cell is armed)
+            to = self.look_at(self.facing)
+            if w.get(*to) == ID["overload_cell"] and self.game.arm(*to, who=self.owner):
+                self.note("bot_armed", "overload_cell")
+                self.action = ["wait", 0.8, 0.8, None]
+            else:
+                self.game.events.append(("bubble", self.id, "Nothing to use there"))
+                self.action = ["wait", WAIT_TIME, WAIT_TIME, None]
         elif kind == "say":
             self.bubble = str(extra)[:40]
             self.stats["said"] += 1
@@ -280,13 +290,14 @@ Press U in the game to upload this file, and P to switch the autopilot on (P aga
 
 What the Bot can see:
     bot.front, bot.above, bot.below, bot.behind, bot.left_side, bot.right_side   the blocks round it ("air", "log"...)
-    bot.facing ("east", "north", "west", "south")    bot.x, bot.y, bot.z    bot.inventory   bot.has("planks")
+    bot.facing ("east", "north", "west", "south")    bot.x, bot.y, bot.z    bot.inventory   bot.has("boards")
     bot.dug, bot.placed, bot.moves                   how much it has done
     bot.memory                                       a dictionary it keeps between turns
     world.block(dx, dy, dz)    world.find("coal_ore")    world.day
 What it can do (return one):
     "forward" "back" "up" "down" "left" "right" "dig" "dig_up" "dig_down" "wait"
-    ("place", "planks")  ("place_up", "torch")  ("place_down", "rubble")  ("say", "Hello!")
+    ("place", "boards")  ("place_up", "glowstick")  ("place_down", "rubble")  ("say", "Hello!")
+    ("use", "overload_cell")                         arm the Overload Cell in front (if the lesson allows them)
 """
 
 

@@ -66,7 +66,7 @@ class Materials:
         return self.cache[key]
 
     def apply(self, np_, name=None, colour=(1, 1, 1), rough=1.0, metal=1.0, emission=None):
-        """Give a part a PBR look: a texture set (paint, steel, diamond...) tinted by colour. (mesh and lines: the
+        """Give a part a PBR look: a texture set (paint, steel, treadplate...) tinted by colour. (mesh and lines: the
         material only, which nothing lights, so the arena's glowing parts can still be set; no textures loaded.)
         While share is on (ultra's arena, CHANGE 145), parts that look the same and don't glow share one Material, so
         flattening merges them: a few dozen draw calls fewer, in the shadow pass too."""
@@ -345,12 +345,12 @@ class ArenaVisual:
         ultra = tier() == "ultra"  # (CHANGE 145: arena_models' floor, cage, towers, rig, stands and screen: self.ultra)
         mats().share = ultra
 
-        # floor: diamond plate, with holes for the pit and the floor flipper (the same rectangles as the physics)
+        # floor: tread plate, with holes for the pit and the floor flipper (the same rectangles as the physics)
         if not ultra:
             floor = Mesh(tile=0.6)
             for x0, y0, x1, y1 in sim.floor_rects(hazards, user_mods):
                 bevel_box((x1 - x0) / 2, (y1 - y0) / 2, 0.25, 0.01, mesh=floor, offset=Vec3((x0 + x1) / 2, (y0 + y1) / 2, -0.25))
-            part(static, floor, "diamond", rough=1.0, metal=1.0)
+            part(static, floor, "treadplate", rough=1.0, metal=1.0)
         # painted markings: the corner patrol zones (Resident Robots), start squares, centre circle
         cz = sim.CPZ / 2
         for sx in (-1, 1):
@@ -521,7 +521,7 @@ class ArenaVisual:
             bevel_box(hx, hy, 0.02, 0.0, mesh=glow, offset=Vec3(px + dx, py + dy, -0.15))
         self.pit_lights = part(self.root, glow, None, (0, 0, 0), 1, 0, emission=(4, 0.3, 0.1))
         self.pit_lid = self.root.attachNewNode("pit_lid")
-        part(self.pit_lid, bevel_box(ps / 2 - 0.03, ps / 2 - 0.03, 0.25, 0.01, tile=0.6), "diamond",
+        part(self.pit_lid, bevel_box(ps / 2 - 0.03, ps / 2 - 0.03, 0.25, 0.01, tile=0.6), "treadplate",
              colour=(0.75, 0.75, 0.78), rough=1.0, metal=1.0, pos=(0, 0, -0.25))
         border = Mesh(tile=0.8)
         q = ps / 2 - 0.03
@@ -643,7 +643,7 @@ class ArenaVisual:
                 for t in (0.35, 0.5, 0.65):
                     bars.poly([on_slope(t - 0.03, cy - pw * 0.7, 0.014), on_slope(t - 0.03, cy + pw * 0.7, 0.014),
                                on_slope(t + 0.03, cy + pw * 0.7, 0.014), on_slope(t + 0.03, cy - pw * 0.7, 0.014)], n)
-                part(static, deck, "diamond", colour=(0.75, 0.75, 0.78), rough=1.0, metal=1.0)
+                part(static, deck, "treadplate", colour=(0.75, 0.75, 0.78), rough=1.0, metal=1.0)
                 part(static, body, "steel", colour=(0.3, 0.3, 0.32), rough=1.0, metal=1.0)
                 part(static, stripes, "hazard", rough=1.0, metal=0.0)
                 part(static, pad, None, (0.02, 0.05, 0.02), 0.5, 0, emission=(0.2, 0.9, 0.3))

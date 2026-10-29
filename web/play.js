@@ -22,10 +22,12 @@
 // button jumps, the left punches, the right kicks, the top gets in, the left shoulder blocks, the right runs; in a car
 // as Kart Lab's (the left button or shoulder gets out). Ticked as the kart's: every 1/60 s tick an input, predicted.
 // (CHANGE 202) Craft Lab (craft_client.read_keys): WASD or the arrows walk the way you look (the game turns them into a
-// move in the world's frame by its yaw), Space jumps (and swims up, and flies up), Shift sneaks (and flies down), W
-// twice sprints; a pad's stick walks, the bottom button jumps, the right shoulder sprints, the left sneaks, the right
-// stick looks about, the triggers dig and place, the top button opens the inventory, the left throws one. The game
-// reads them itself (keysInput): the buttons JUMP 1, SPRINT 2, SNEAK 4, FLY 8, ticked and predicted as City Lab's.
+// move in the world's frame by its yaw), Space jumps (and swims up, and flies up), Shift held runs, Ctrl on its own
+// switches Careful mode (you won't step off an edge; flying, Ctrl goes down: CHANGE 207); a pad's stick walks (pushed
+// all the way: runs), A (the bottom button) jumps, B (the right) Careful mode, X (the left) the Backpack, Y (the top)
+// its Bot tab, the shoulders along the Toolbelt, the right stick looks about, the right trigger digs and the left
+// places; Start is I (the Backpack). The game reads them itself (keysInput): the buttons JUMP 1, SPRINT 2, CAREFUL 4,
+// FLY 8, ticked and predicted as City Lab's.
 
 import {Pads} from "./pad.js";
 
@@ -202,7 +204,8 @@ export class Controller {
         return {throttle: mx, steer: my, buttons};
     }
 
-    // (CHANGE 202) Craft Lab's input: the game's own reading of the keys and the pad (CraftGame.keysInput)
+    // (CHANGE 202, 207) Craft Lab's input: the game's own reading of the keys and the pad (CraftGame.keysInput, as
+    // craft_client.read_keys: Shift runs, Careful mode is the game's own, the pad's buttons as above)
     craftControl() {
         const game = this.app.game;
         this.consumed = true;

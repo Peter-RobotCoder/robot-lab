@@ -3,10 +3,12 @@
 //
 // Only the faces between a block and an open neighbour are made (a hill is its skin, not its insides). Each corner of
 // a face gets corner shading (darker where two blocks meet in a corner) and the light there (the sky's and the
-// torches', averaged over the four open blocks it touches); the shader multiplies the atlas by them, so day and night
-// are one number. A vertex is the window's 24 bytes: its place (3 floats), its texture (2 floats) and four bytes: the
-// shade (the face's direction and the corner shading), the sky light, the block light, and the face's direction (x 32,
-// + 16 where leaves and plants wave). numpy's float32 sums are kept (Math.fround) where the window's are float32.
+// glowsticks', averaged over the four open blocks it touches, 0 to 12); the shader multiplies the atlas by them, so day
+// and night are one number. A vertex is the window's 24 bytes: its place (3 floats), its texture (2 floats) and four
+// bytes: the shade (the face's direction and the corner shading), the sky light, the block light (each 0 to 255 for 0
+// to 12), and the face's direction (x 32, + 16 where leaves and plants wave, + 8 on a tile whose frames play one after
+// another: craft_blocks.ANIMATED, the Server Rack's blinking LEDs). numpy's float32 sums are kept (Math.fround) where
+// the window's are float32.
 //
 // meshChunk(world, cx, cy, tables, look) gives the chunk's three passes (solid, cutout, blend) and, for the mesh and
 // lines looks, its edges: every face's edges (mesh), or only where the surface folds or the block changes (lines).
@@ -32,7 +34,7 @@ const SIGNS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
 export const FACE_SHADE = [0.8, 0.8, 0.66, 0.66, 1.0, 0.5].map(f32);
 const AO = [0.42, 0.62, 0.8, 1.0].map(f32);
 export const UV = [[0, 0], [1, 0], [1, 1], [0, 1]];
-const WAVY = new Set(["leaves", "pine_leaves", "pale_leaves"]);
+const WAVY = new Set(["leaves", "pine_leaves", "pale_leaves", "glowfruit_leaves"]);
 
 // what the mesher reads for each block id (craft_mesh.Tables): made again when mods add blocks
 export class Tables {
@@ -43,13 +45,16 @@ export class Tables {
         this.opaque = new Uint8Array(256);
         this.pass = new Uint8Array(256);
         this.wave = new Uint8Array(256);
+        this.anim = new Uint8Array(256);           // (a tile whose frames play: the Server Rack's LEDs)
         this.tileUV = new Float32Array(256 * 12);  // (each face's tile corner: u0, v0 for the six directions)
+        const animated = B.animated || {};
         for (const b of B.blocks) {
             const i = b.id;
             this.cube[i] = b.shape === "cube" ? 1 : 0;
             this.opaque[i] = b.opaque && b.shape === "cube" ? 1 : 0;
             this.pass[i] = {cutout: 1, blend: 2}[b.see] || 0;
             this.wave[i] = WAVY.has(b.key) ? 1 : 0;
+            this.anim[i] = (b.tiles || []).some(tile => tile in animated) ? 1 : 0;
             if (b.tiles) {
                 const [top, side, bottom] = b.tiles;
                 [side, side, side, side, top, bottom].forEach((t, d) => {
@@ -88,6 +93,7 @@ class Builder {
     }
 
     // one quad by hand (the shapes that aren't cubes): shade (f32: a float32 of the window's), sky and glow 0 to 1
+    // (the light level over 12)
     quad(pts, uvs, shade, sky, glow, d, wave = false) {
         const c0 = Math.trunc(f32(Math.min(1.0, shade) * 255)), c1 = Math.trunc((sky < 1.0 ? sky : 1.0) * 255);
         const c2 = Math.trunc((glow < 1.0 ? glow : 1.0) * 255), c3 = d * 32 + (wave ? 16 : 0);
@@ -133,12 +139,13 @@ export function meshChunk(world, cx, cy, t, look = null) {
     const x0 = cx * CHUNK, y0 = cy * CHUNK, Z = world.Z;
     const PX = CHUNK + 2 * PAD, PZ = Z + 2 * PAD;
     const P = (x, y, z) => (x * PX + y) * PZ + z;
+    const L = B.lightMax, scale = f32(255.0 / L);  // (craft_mesh.LIGHT_SCALE: a light level to the vertex's byte)
     const blk = padded(world, world.blocks, x0, y0, 0);
-    const core = B.id.corestone;
-    for (let i = 0; i < PX; i++) for (let j = 0; j < PX; j++) for (let z = 0; z < PAD; z++) blk[P(i, j, z)] = core;
-    const sky = padded(world, world.sky, x0, y0, 15);
+    const floor = B.floor;  // (under the world: solid, so its bottom is never drawn)
+    for (let i = 0; i < PX; i++) for (let j = 0; j < PX; j++) for (let z = 0; z < PAD; z++) blk[P(i, j, z)] = floor;
+    const sky = padded(world, world.sky, x0, y0, L);
     const glow = padded(world, world.glow, x0, y0, 0);
-    for (let i = 0; i < PX; i++) for (let j = 0; j < PX; j++) for (let z = Z + PAD; z < PZ; z++) sky[P(i, j, z)] = 15;
+    for (let i = 0; i < PX; i++) for (let j = 0; j < PX; j++) for (let z = Z + PAD; z < PZ; z++) sky[P(i, j, z)] = L;
     const opq = new Uint8Array(blk.length);
     for (let i = 0; i < blk.length; i++) opq[i] = t.opaque[blk[i]];
     const out = [new Builder(), new Builder(), new Builder()];
@@ -177,8 +184,8 @@ export function meshChunk(world, cx, cy, t, look = null) {
                 const ssum = sky[a] + (o1 ? 0 : sky[s1]) + (o2 ? 0 : sky[s2]) + (oc || both ? 0 : sky[co]);
                 const gsum = glow[a] + (o1 ? 0 : glow[s1]) + (o2 ? 0 : glow[s2]) + (oc || both ? 0 : glow[co]);
                 const ls = f32(ssum / cnt), lg = f32(gsum / cnt);
-                cs.push([Math.trunc(Math.min(255, f32(shade * 255))), Math.trunc(Math.min(255, f32(ls * 17))),
-                         Math.trunc(Math.min(255, f32(lg * 17))), d * 32 + (t.wave[id] ? 16 : 0)]);
+                cs.push([Math.trunc(Math.min(255, f32(shade * 255))), Math.trunc(Math.min(255, f32(ls * scale))),
+                         Math.trunc(Math.min(255, f32(lg * scale))), d * 32 + (t.wave[id] ? 16 : 0) + (t.anim[id] ? 8 : 0)]);
             }
             const pts = CORNERS[d].map(c => [c[0] + i + ox, c[1] + j + oy, c[2] + k + oz]);
             posAll.push(pts);
@@ -256,10 +263,10 @@ const CROSS = [[[0.15, 0.15, 0], [0.85, 0.85, 0], [0.85, 0.85, 0.95], [0.15, 0.1
 const CROP = [[[0.25, 0, 0], [0.25, 1, 0], [0.25, 1, 0.9], [0.25, 0, 0.9]], [[0.75, 1, 0], [0.75, 0, 0], [0.75, 0, 0.9], [0.75, 1, 0.9]],
               [[0, 0.25, 0], [1, 0.25, 0], [1, 0.25, 0.9], [0, 0.25, 0.9]], [[1, 0.75, 0], [0, 0.75, 0], [0, 0.75, 0.9], [1, 0.75, 0.9]]];
 
-// the blocks that aren't cubes: plants, crops, torches, ladders, doors, slabs, beds, farmland, water and magma, one
-// by one (craft_mesh.shapes)
+// the blocks that aren't cubes: plants, crops, glowsticks, ladders, doors, steps, Recharge Pods, Grow beds, water and
+// magma, one by one (craft_mesh.shapes)
 function shapes(world, x0, y0, blk, sky, glow, out, t, segs, P) {
-    const Z = world.Z, size = t.size, water = B.id.water, magma = B.id.magma;
+    const Z = world.Z, size = t.size, water = B.id.water, magma = B.id.magma, L = B.lightMax;
     for (let i = 0; i < CHUNK; i++) {
         for (let j = 0; j < CHUNK; j++) {
             for (let k = 0; k < Z; k++) {
@@ -268,10 +275,10 @@ function shapes(world, x0, y0, blk, sky, glow, out, t, segs, P) {
                 if (!bid || t.cube[bid]) continue;
                 const b = B.blocks[bid], shape = b.shape;
                 const x = x0 + i, y = y0 + j, z = k;
-                const s = sky[p] / 15.0, g = glow[p] / 15.0;
+                const s = sky[p] / L, g = glow[p] / L;
                 const meta = world.meta[world.at(x, y, z)];
                 if (shape === "cross" || shape === "crop") {
-                    const [u0, v0] = shape === "crop" ? t.uv0(`wheat_${Math.min(7, meta)}`) : [t.tileUV[bid * 12], t.tileUV[bid * 12 + 1]];
+                    const [u0, v0] = shape === "crop" ? t.uv0(`grain_${Math.min(3, meta)}`) : [t.tileUV[bid * 12], t.tileUV[bid * 12 + 1]];
                     const uv = UV.map(([a, c]) => [u0 + a * size, v0 + c * size]);
                     for (const q of shape === "cross" ? CROSS : CROP) {
                         const pts = q.map(c => [f32(c[0]) + x, f32(c[1]) + y, f32(c[2]) + z]);
@@ -288,8 +295,8 @@ function shapes(world, x0, y0, blk, sky, glow, out, t, segs, P) {
                     const [lo, hi] = DOOR[(facing + (opened ? 1 : 0)) % 4];
                     box(out[1], x, y, z, lo, hi, t, bid, s, g, segs);
                 } else if (shape === "slab" || shape === "bed" || shape === "farmland") {
-                    const top = {slab: 0.5, bed: 0.56, farmland: 0.94}[shape];
-                    const sa = sky[P(px, py, pz + 1)] / 15.0, ga = glow[P(px, py, pz + 1)] / 15.0;
+                    const top = {slab: 0.5, bed: 0.6, farmland: 0.875}[shape];
+                    const sa = sky[P(px, py, pz + 1)] / L, ga = glow[P(px, py, pz + 1)] / L;
                     box(out[0], x, y, z, [0, 0, 0], [1, 1, top], t, bid, sa > s ? sa : s, ga > g ? ga : g, segs);
                 } else if (b.key === "cactus") {
                     box(out[1], x, y, z, [0.06, 0.06, 0], [0.94, 0.94, 1], t, bid, s, g, segs);
@@ -302,7 +309,7 @@ function shapes(world, x0, y0, blk, sky, glow, out, t, segs, P) {
                         const q = P(px + dx, py + dy, pz + dz), nb = blk[q];
                         if (nb === bid || t.opaque[nb] || d === 5) continue;
                         const pts = CORNERS[d].map(c => [c[0] + x, c[1] + y, (c[2] > 0.5 ? top : 0) + z]);
-                        const ns = d === 4 ? sky[q] / 15.0 : s, ng = d === 4 ? glow[q] / 15.0 : g;
+                        const ns = d === 4 ? sky[q] / L : s, ng = d === 4 ? glow[q] / L : g;
                         const u0 = t.tileUV[bid * 12 + d * 2], v0 = t.tileUV[bid * 12 + d * 2 + 1];
                         const uv = UV.map(([a, c]) => [u0 + a * size, v0 + c * size]);
                         let gl = g;  // (max(g, ng, 0.9 if magma else 0): the first of equals)

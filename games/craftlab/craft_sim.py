@@ -1,11 +1,11 @@
-"""Craft Lab's movement (CHANGE 200): a player (and a creature) walking, sprinting, sneaking, jumping, swimming,
-climbing and flying among the blocks, 60 steps a second. Pure arithmetic on a few numbers, the same on the server and
+"""Craft Lab's movement (CHANGE 200): a player (and a creature) walking, running, in Careful mode, jumping,
+swimming, climbing and flying among the blocks, 60 steps a second. Pure arithmetic on a few numbers, the same on the server and
 in the windows, so a window predicts its own player and the server checks it (engine.predict).
 
-A player is a box 0.6 wide and 1.8 tall standing at (x, y, z) (z its feet), moving by (vx, vy, vz) metres a second.
+A player is a box 0.7 wide and 1.7 tall standing at (x, y, z) (z its feet), moving by (vx, vy, vz) metres a second.
 Each step it moves up or down first, then across and along, stopped by any solid block it would go into. The input is
 (mx, my, buttons): where to go in the world's frame (from the keys and the way you look, worked out by the window),
-and the buttons held: jump, sprint, sneak, fly.
+and the buttons held: jump, run, careful (you won't step off an edge), fly.
 
 Also here: the ray from your eyes to the block you look at (dig and place), and the wire record (engine.wire) every
 snapshot sends for each player and creature.
@@ -14,28 +14,30 @@ import math
 
 import craft_blocks as B
 
-SIM_VERSION = 1   # (the page's craft_sim.js steps a player as this does: club-coders/web/craft_sim_test.py's
+SIM_VERSION = 2   # (the page's craft_sim.js steps a player as this does: club-coders/web/craft_sim_test.py's
 #                   fingerprint is recorded for this number; a change that moves a step's numbers raises it)
 STEP = 1 / 60
-HALF = 0.3           # half the box's width
-TALL = 1.8
-EYE = 1.62
-SNEAK_TALL = 1.5
+HALF = 0.35          # half the box's width
+TALL = 1.7
+EYE = 1.55
+CAREFUL_TALL = 1.4
+CAREFUL_EYE = 1.3
 GRAVITY = 30.0
-JUMP = 8.6            # (a jump lifts the feet a block and a quarter)
+JUMP = 9.17           # (a jump lifts the feet 1.4 blocks)
 TERMINAL = 60.0
-WALK, SPRINT, SNEAK, FLY_SPEED, FLY_FAST = 4.3, 5.7, 1.4, 10.0, 18.0
+WALK, SPRINT, CAREFUL, FLY_SPEED, FLY_FAST = 4.5, 6.4, 1.6, 10.0, 18.0
 SWIM, SWIM_UP, SWIM_SINK = 2.2, 4.0, 1.6
 CLIMB = 2.4
 REACH, REACH_CREATIVE = 5.0, 6.5
-JUMP_B, SPRINT_B, SNEAK_B, FLY_B, RESPAWN_B = 1, 2, 4, 8, 16
+JUMP_B, SPRINT_B, CAREFUL_B, FLY_B, RESPAWN_B = 1, 2, 4, 8, 16   # (flying, CAREFUL_B is down)
 
 # the wire record: one kind of thing for players and creatures (kind 0 player, 1 fluff, 2 bleep, 3 glitch, 4 rust,
-# 5 bot); flags: on the ground, in water, flying, sneaking, hurt, asleep, swinging an arm
+# 5 bot); flags: on the ground, in water, flying, careful, hurt, asleep (in a Recharge Pod; a Fluff: brushed), swinging
+# an arm, climbing. hp, energy and shield are the server's own (0 to 100), never predicted
 SCHEMA_FIELDS = [("kind", "B", 1), ("x", "i", 1000), ("y", "i", 1000), ("z", "i", 1000), ("vx", "h", 100),
                  ("vy", "h", 100), ("vz", "h", 100), ("yaw", "H", 100), ("pitch", "h", 100), ("flags", "B", 1),
-                 ("hp", "B", 1), ("food", "B", 1), ("held", "H", 1), ("fall", "H", 100)]
-F_GROUND, F_WATER, F_FLY, F_SNEAK, F_HURT, F_SLEEP, F_SWING, F_CLIMB = 1, 2, 4, 8, 16, 32, 64, 128
+                 ("hp", "B", 1), ("energy", "B", 1), ("shield", "B", 1), ("held", "H", 1), ("fall", "H", 100)]
+F_GROUND, F_WATER, F_FLY, F_CAREFUL, F_HURT, F_SLEEP, F_SWING, F_CLIMB = 1, 2, 4, 8, 16, 32, 64, 128
 KINDS = {"player": 0, "fluff": 1, "bleep": 2, "glitch": 3, "rust": 4, "bot": 5}
 
 _solid = None
@@ -53,14 +55,14 @@ def tables():
 
 
 def heights(bid, meta=0):
-    """How tall a solid block is (a slab and a bed are lower: you walk up onto them)."""
+    """How tall a solid block is (a step and a Recharge Pod are lower: you walk up onto them; a Grow bed too)."""
     shape = B.BLOCKS[bid]["shape"]
-    return {"slab": 0.5, "bed": 0.56, "farmland": 0.94}.get(shape, 1.0)
+    return {"slab": 0.5, "bed": 0.6, "farmland": 0.875}.get(shape, 1.0)
 
 
 def new_player(x, y, z, kind=0):
-    return {"x": x, "y": y, "z": z, "vx": 0.0, "vy": 0.0, "vz": 0.0, "yaw": 0.0, "pitch": 0.0, "flags": 0, "hp": 20,
-            "food": 20, "held": 0, "fall": 0.0, "kind": kind}
+    return {"x": x, "y": y, "z": z, "vx": 0.0, "vy": 0.0, "vz": 0.0, "yaw": 0.0, "pitch": 0.0, "flags": 0, "hp": 100,
+            "energy": 100, "shield": 0, "held": 0, "fall": 0.0, "kind": kind}
 
 
 def blocked(world, x0, y0, z0, x1, y1, z1, solid):
@@ -90,7 +92,7 @@ def touching(world, s, table, tall=TALL):
 def move_axis(world, s, axis, delta, tall, solid, step_up=False):
     """Move the box along one axis by delta, stopped at the first solid block. Returns True if it was stopped.
     Going down, a stopped box stands on the top of what it landed on (a slab's top is half way up). step_up: across
-    and along, a box on the ground walks up onto a slab or a bed (half a block) without jumping."""
+    and along, a box on the ground walks up onto a step or a Recharge Pod (about half a block) without jumping."""
     if delta == 0:
         return False
     x, y, z = s["x"], s["y"], s["z"]
@@ -120,7 +122,7 @@ def move_axis(world, s, axis, delta, tall, solid, step_up=False):
         s[key] = n
         return False
     if step_up:
-        for lift in (0.5, 0.56):
+        for lift in (0.5, 0.6):
             if not blocked(world, bx0, by0, z + lift, bx0 + 2 * HALF, by0 + 2 * HALF, z + lift + tall, solid) and                     blocked(world, bx0, by0, z + lift - 0.07, bx0 + 2 * HALF, by0 + 2 * HALF, z + lift, solid):
                 s[key] = n
                 s["z"] = z + lift
@@ -139,9 +141,9 @@ def step_player(s, inp, dt, world, creative=False):
     n = dict(s)
     flags = n["flags"]
     flying = creative and bool(buttons & FLY_B)
-    sneak = bool(buttons & SNEAK_B) and not flying
-    sprint = bool(buttons & SPRINT_B) and not sneak
-    tall = SNEAK_TALL if sneak else TALL
+    careful = bool(buttons & CAREFUL_B) and not flying
+    sprint = bool(buttons & SPRINT_B) and not careful
+    tall = CAREFUL_TALL if careful else TALL
     in_water = touching(world, n, liquid, tall)
     on_ladder = touching(world, n, climb, tall)
     length = math.hypot(mx, my)
@@ -152,33 +154,33 @@ def step_player(s, inp, dt, world, creative=False):
     elif in_water:
         speed = SWIM
     else:
-        speed = SPRINT if sprint else SNEAK if sneak else WALK
+        speed = SPRINT if sprint else CAREFUL if careful else WALK
     ground = bool(flags & F_GROUND)
     k = 22.0 if (ground or flying) else 5.0 if not in_water else 8.0
     f = 1 - math.exp(-k * dt)
     n["vx"] += (mx * speed - n["vx"]) * f
     n["vy"] += (my * speed - n["vy"]) * f
     if flying:
-        want = (FLY_SPEED if buttons & JUMP_B else 0.0) - (FLY_SPEED if buttons & SNEAK_B else 0.0)
+        want = (FLY_SPEED if buttons & JUMP_B else 0.0) - (FLY_SPEED if buttons & CAREFUL_B else 0.0)
         n["vz"] += (want - n["vz"]) * (1 - math.exp(-12 * dt))
     elif in_water:
         n["vz"] = SWIM_UP if buttons & JUMP_B else max(n["vz"] - GRAVITY * 0.2 * dt, -SWIM_SINK)
     elif on_ladder:
         n["vz"] = CLIMB if (buttons & JUMP_B or length > 0.1) else max(n["vz"] - GRAVITY * dt, -CLIMB)
-        if sneak:
+        if careful:
             n["vz"] = max(0.0, n["vz"])
     else:
         if ground and buttons & JUMP_B:
             n["vz"] = JUMP
         n["vz"] = max(-TERMINAL, n["vz"] - GRAVITY * dt)
-    # move: up or down first, then across and along (a sneak keeps you on the edge you are on)
+    # move: up or down first, then across and along (Careful mode keeps you on the edge you are on)
     z_before = n["z"]
     stopped_z = move_axis(world, n, 2, n["vz"] * dt, tall, solid)
     if stopped_z:
         n["vz"] = 0.0
     for axis, key in ((0, "vx"), (1, "vy")):
         delta = n[key] * dt
-        if sneak and ground and delta:
+        if careful and ground and delta:
             test = dict(n)
             test["x" if axis == 0 else "y"] += delta
             if not on_ground(world, test, solid):
@@ -192,9 +194,9 @@ def step_player(s, inp, dt, world, creative=False):
         n["fall"] = n["fall"] if now_ground and not ground else 0.0
     else:
         n["fall"] = n["fall"] + max(0.0, z_before - n["z"])
-    flags &= ~(F_GROUND | F_WATER | F_FLY | F_SNEAK | F_CLIMB)
+    flags &= ~(F_GROUND | F_WATER | F_FLY | F_CAREFUL | F_CLIMB)
     flags |= (F_GROUND if now_ground else 0) | (F_WATER if in_water else 0) | (F_FLY if flying else 0) | \
-        (F_SNEAK if sneak else 0) | (F_CLIMB if on_ladder else 0)
+        (F_CAREFUL if careful else 0) | (F_CLIMB if on_ladder else 0)
     n["flags"] = flags
     if n["z"] < -20:  # (fallen out of the world: back on top)
         n["z"] = float(world.Z)
@@ -205,7 +207,7 @@ def step_player(s, inp, dt, world, creative=False):
 def compare(a, b):
     """How far apart two records are, for the prediction: metres (1.0 for any flag the step owns that differs)."""
     d = math.sqrt((a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2 + (a["z"] - b["z"]) ** 2)
-    if (a["flags"] ^ b["flags"]) & (F_GROUND | F_WATER | F_FLY | F_SNEAK):
+    if (a["flags"] ^ b["flags"]) & (F_GROUND | F_WATER | F_FLY | F_CAREFUL):
         d = max(d, 1.0)
     return d
 
@@ -238,7 +240,7 @@ def ray(world, ox, oy, oz, dx, dy, dz, reach):
     water = B.ID["water"]
     while t <= reach:
         bid = world.get(x, y, z)
-        if bid and bid != water and B.BLOCKS[bid]["hard"] is not None or bid == B.ID["corestone"]:
+        if bid and bid != water and B.BLOCKS[bid]["hard"] is not None or bid in (B.FLOOR, B.ID["glitch_rift"]):
             return (x, y, z), normal, t
         if bid and bid != water and B.BLOCKS[bid]["shape"] in ("cross", "crop", "torch", "ladder"):
             return (x, y, z), normal, t
@@ -264,4 +266,4 @@ def player_box_hits(s, bx, by, bz, tall=TALL):
 
 
 def eye(s):
-    return s["x"], s["y"], s["z"] + (EYE - 0.25 if s["flags"] & F_SNEAK else EYE)
+    return s["x"], s["y"], s["z"] + (CAREFUL_EYE if s["flags"] & F_CAREFUL else EYE)

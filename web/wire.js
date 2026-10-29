@@ -27,7 +27,7 @@ export const CITY_FIELDS = [["x", "i", 100], ["y", "i", 100], ["z", "h", 100], [
 // (what a thing is from its kind and its id: players 0 to 63, Bots 64 to 127, creatures 128 to 191, dropped 192 to 254)
 export const CRAFT_FIELDS = [["kind", "B", 1], ["x", "i", 1000], ["y", "i", 1000], ["z", "i", 1000], ["vx", "h", 100],
                              ["vy", "h", 100], ["vz", "h", 100], ["yaw", "H", 100], ["pitch", "h", 100], ["flags", "B", 1],
-                             ["hp", "B", 1], ["food", "B", 1], ["held", "H", 1], ["fall", "H", 100]];
+                             ["hp", "B", 1], ["energy", "B", 1], ["shield", "B", 1], ["held", "H", 1], ["fall", "H", 100]];
 
 const READ = {
     b: (dv, o) => [dv.getInt8(o), 1], B: (dv, o) => [dv.getUint8(o), 1],

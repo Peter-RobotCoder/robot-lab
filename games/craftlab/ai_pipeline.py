@@ -39,32 +39,34 @@ def _mod_files_text(sim, settings):
     return f"""- mods/bots/*.py hold BOT = {{...}}: name (up to {sim.NAME_MAX} characters), colour [r, g, b] 0-255, and
   points {{"dig", "build", "speed"}} (whole numbers {sim.STAT_MIN}-{sim.STAT_MAX}, total at most {sim.POINTS_TOTAL}).
 - mods/blocks.py holds BLOCKS = [...]: new blocks, each {{"key", "name", "colour" [r, g, b], "hard" (seconds by hand,
-  0.1-10), "light" (0-15), "tool" (pick, axe, shovel or None)}} (craft_mods.check_block says what is allowed).
-- mods/recipes.py holds RECIPES = [...]: new recipes, as craft_items.RECIPES writes them ("makes", "count", and a
-  "pattern" of letters with a "key", or "takes", a list).
-- mods/world.py holds WORLD = {{...}}: seed, size (small, medium, large), mode (survival or creative), mobs (True or
+  0.1-10), "light" (0-12), "tool" (drill, cutter, scoop or None)}} (craft_mods.check_block says what is allowed).
+- mods/blueprints.py holds BLUEPRINTS = [...]: new blueprints, as craft_items.BLUEPRINTS writes them ("makes",
+  "count", "parts" (a dictionary of part names and how many), "seconds", "station": "hand" or "fabricator").
+- mods/world.py holds WORLD = {{...}}: seed, size (small, medium, large), mode (challenge or sandbox), mobs (True or
   False), day_length (seconds, 120-3600).
-- mods/rules.py holds RULES = {{...}}: keep_items, blasts, hunger, falls_hurt (True or False)."""
+- mods/rules.py holds RULES = {{...}}: keep_items, blasts (Overload Cells), energy, falls_hurt (True or False)."""
 
 
 GAME_GUIDE = """HOW THE GAME IS BUILT (Python 3, Panda3D for the windows; the world itself is numpy arrays and plain Python)
-- craft_blocks.py: every block and item (names, textures, hardness, tools, light, drops, food, fuel, smelting).
-  craft_art.py draws every texture with code. craft_items.py: inventories, recipes, crafting.
+- craft_blocks.py: every block and item (names, textures, hardness, tools, the suit, light, drops, food, a
+  Refinery's power and what it refines). craft_art.py draws every texture with code. craft_items.py: inventories
+  and blueprints (what the Fabricator builds).
 - craft_world.py: the world (generated from a seed: heights, biomes, caves, ores, trees, water), its light and
   saving. craft_sim.py: a player's and a creature's movement, a pure deterministic step every window runs too, to
   predict its own player (no random numbers, nothing read from outside the record, the input and the world).
-- craft_game.py: the rules (digging, placing, using blocks, health and food, smelters, crops, water, blasts).
-  craft_mobs.py: the creatures. craft_bot.py: the Craft Bots that learners' brains drive.
+- craft_game.py: the rules (digging, placing, using blocks, Health, Energy and Shield, building blueprints,
+  Refineries, crops, water, Overload Cells, Glitch rifts). craft_mobs.py: the creatures. craft_bot.py: the Craft
+  Bots that learners' brains drive.
 - craft_server.py: the class server (logins, lessons, the teacher's controls, binary snapshots 30 times a second).
   craft_teaching.py: missions and evidence. craft_missions.py: lessons, missions, curriculum outcomes.
 - craft_client.py: the windows. craft_gfx.py, craft_mesh.py, craft_models.py, craft_ui.py: the drawing and the HUD.
-- mods/: plain-data files (bots, blocks, recipes, the world, the rules) checked by craft_mods.py.
+- mods/: plain-data files (bots, blocks, blueprints, the world, the rules) checked by craft_mods.py.
 
 RULES FOR A GAME CHANGE
 - Keep everything that already works working. Change as little as the request needs.
 - The game must still start. When you have finished, run the game's test with exactly this command (it is the
   only command you may run): .venv/Scripts/python craft_test.py quick
-  It checks every file compiles, the world, a player's movement, crafting and the rules behave. If anything fails,
+  It checks every file compiles, the world, a player's movement, the blueprints and the rules behave. If anything fails,
   fix it and run the test again.
 - Don't add new packages. Don't touch files outside the game folder."""
 

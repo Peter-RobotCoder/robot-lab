@@ -2,9 +2,12 @@
 
     mods/bots/<name>.py   BOT = {...}        a learner's Craft Bot design (name, colour, points)
     mods/blocks.py        BLOCKS = [...]     new blocks: key, name, colour, hard, light, tool
-    mods/recipes.py       RECIPES = [...]    new recipes, as craft_items.RECIPES writes them
+    mods/blueprints.py    BLUEPRINTS = [...] new blueprints, as craft_items.BLUEPRINTS writes them
     mods/world.py         WORLD = {...}      the seed, the size, the mode, the creatures, the length of a day
-    mods/rules.py         RULES = {...}      keep your things when knocked out, blasts, hunger, falls hurt
+    mods/rules.py         RULES = {...}      keep your things when knocked out, Overload Cells, Energy, falls hurt
+
+An old mod that uses an old name (planks, pick, survival, hunger, mods/recipes.py...) still loads: the new name is
+used and a warning says so (craft_blocks.ALIASES).
 
 They are read with ast.literal_eval, so nothing in them runs as code. Every value is checked against sensible
 limits before the game uses it.
@@ -22,10 +25,17 @@ import craft_items as items
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODS = os.path.join(HERE, "mods")
-RULE_LIMITS = {"keep_items": bool, "blasts": bool, "hunger": bool, "falls_hurt": bool}
-WORLD_LIMITS = {"seed": (0, 999_999_999), "size": ("small", "medium", "large"), "mode": ("survival", "creative"),
+RULE_LIMITS = {"keep_items": bool, "blasts": bool, "energy": bool, "falls_hurt": bool}
+WORLD_LIMITS = {"seed": (0, 999_999_999), "size": ("small", "medium", "large"), "mode": ("challenge", "sandbox"),
                 "mobs": bool, "day_length": (120, 3600)}
-TOOLS = ("pick", "axe", "shovel", None)
+TOOLS = ("drill", "cutter", "scoop", None)
+STATIONS = ("hand", "fabricator")
+WARNINGS = []       # (old names a mod used: said once by whoever loads the mods)
+
+
+def warn(text):
+    if text not in WARNINGS:
+        WARNINGS.append(text)
 
 
 class ModError(Exception):
@@ -80,39 +90,49 @@ def check_block(b):
     if not (isinstance(hard, (int, float)) and 0.1 <= hard <= 10):
         out.append("hard must be a number of seconds from 0.1 to 10")
     light = b.get("light", 0)
-    if not (isinstance(light, int) and 0 <= light <= 15):
-        out.append("light must be a whole number from 0 to 15")
-    if b.get("tool") not in TOOLS:
-        out.append("tool must be pick, axe, shovel or None")
+    if not (isinstance(light, int) and 0 <= light <= B.LIGHT_MAX):
+        out.append(f"light must be a whole number from 0 to {B.LIGHT_MAX}")
+    if b.get("tool") in B.TOOL_ALIASES:
+        warn(f"blocks.py: tool {b['tool']!r} is now {B.TOOL_ALIASES[b['tool']]!r}")
+    elif b.get("tool") not in TOOLS:
+        out.append("tool must be drill, cutter, scoop or None")
     return out
 
 
-def check_recipe(r):
+def known(name):
+    """Is name a block, an item or a part group? (An old name is warned about and counts.)"""
+    if name in B.ITEM_ID or name in items.GROUPS:
+        return True
+    if B.new_key(name) in B.ITEM_ID:
+        warn(f"blueprints.py: {name!r} is now called {B.new_key(name)!r}")
+        return True
+    return False
+
+
+def check_blueprint(r):
+    """Problems with a learner's blueprint (empty = fine)."""
     if not isinstance(r, dict):
-        return ["each recipe must be a dictionary"]
+        return ["each blueprint must be a dictionary"]
     out = []
-    if r.get("makes") not in B.ITEM_ID:
+    if not (isinstance(r.get("makes"), str) and known(r["makes"]) and r["makes"] not in items.GROUPS):
         out.append(f"makes must be the name of a block or item (not {r.get('makes')!r})")
     n = r.get("count", 1)
-    if not (isinstance(n, int) and 1 <= n <= 64):
-        out.append("count must be a whole number from 1 to 64")
-    if "pattern" in r:
-        p = r["pattern"]
-        if not (isinstance(p, list) and 1 <= len(p) <= 3 and all(isinstance(line, str) and 1 <= len(line) <= 3 for line in p)):
-            out.append("pattern must be a list of 1 to 3 strings, each 1 to 3 letters (. for an empty place)")
-        else:
-            key = r.get("key") if isinstance(r.get("key"), dict) else {}
-            for ch in set("".join(p)) - {".", " "}:
-                what = key.get(ch)
-                names = what if isinstance(what, list) else [what]
-                if what is None or any(n not in B.ITEM_ID for n in names):
-                    out.append(f"key must say what {ch!r} is (the name of a block or item)")
-    elif "takes" in r:
-        t = r["takes"]
-        if not (isinstance(t, list) and 1 <= len(t) <= 9 and all(x in B.ITEM_ID for x in t)):
-            out.append("takes must be a list of 1 to 9 names of blocks or items")
+    if not (isinstance(n, int) and 1 <= n <= B.STACK):
+        out.append(f"count must be a whole number from 1 to {B.STACK}")
+    parts = r.get("parts")
+    if not (isinstance(parts, dict) and 1 <= len(parts) <= 6):
+        out.append("parts must be a dictionary of 1 to 6 parts, each a name and how many: {\"boards\": 6}")
     else:
-        out.append("a recipe needs a pattern (and a key) or a takes list")
+        for k, v in parts.items():
+            if not (isinstance(k, str) and known(k)):
+                out.append(f"part {k!r} isn't a block, an item or a group (any_log, any_boards, any_coal, any_fluff)")
+            if not (isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= B.STACK):
+                out.append(f"how many {k!r} must be a whole number from 1 to {B.STACK}")
+    secs = r.get("seconds", 2)
+    if not (isinstance(secs, (int, float)) and not isinstance(secs, bool) and 0.5 <= secs <= 30):
+        out.append("seconds must be a number from 0.5 to 30")
+    if r.get("station", "fabricator") not in STATIONS:
+        out.append("station must be \"hand\" or \"fabricator\"")
     return out
 
 
@@ -130,29 +150,34 @@ def load_blocks():
     return blocks
 
 
-def load_recipes():
-    path = os.path.join(MODS, "recipes.py")
+def load_blueprints():
+    path = os.path.join(MODS, "blueprints.py")
     if not os.path.exists(path):
+        if os.path.exists(os.path.join(MODS, "recipes.py")):
+            warn("mods/recipes.py isn't used any more: write blueprints in mods/blueprints.py")
         return []
-    recipes = read_value(path, "RECIPES")
-    if not isinstance(recipes, list):
-        raise ModError("recipes.py: RECIPES must be a list")
-    for r in recipes:
-        problems = check_recipe(r)
+    bps = read_value(path, "BLUEPRINTS")
+    if not isinstance(bps, list):
+        raise ModError("blueprints.py: BLUEPRINTS must be a list")
+    for r in bps:
+        problems = check_blueprint(r)
         if problems:
-            raise ModError(f"recipes.py, {r.get('makes') if isinstance(r, dict) else r!r}: " + "; ".join(problems))
-    return recipes
+            raise ModError(f"blueprints.py, {r.get('makes') if isinstance(r, dict) else r!r}: " + "; ".join(problems))
+    return bps
 
 
 def load_world():
     path = os.path.join(MODS, "world.py")
-    out = {"seed": 2026, "size": "medium", "mode": "survival", "mobs": True, "day_length": 1200}
+    out = {"seed": 2026, "size": "medium", "mode": "challenge", "mobs": True, "day_length": 900}
     if not os.path.exists(path):
         return out
     w = read_value(path, "WORLD")
     if not isinstance(w, dict):
         raise ModError("world.py: WORLD must be a dictionary")
     for k, v in w.items():
+        if k == "mode" and v in B.MODE_ALIASES:
+            warn(f"world.py: the mode {v!r} is now {B.mode_of(v)!r}")
+            v = B.mode_of(v)
         lim = WORLD_LIMITS.get(k)
         if lim is None:
             raise ModError(f"world.py: {k} isn't a world setting ({', '.join(WORLD_LIMITS)})")
@@ -175,17 +200,22 @@ def load_rules():
     r = read_value(path, "RULES")
     if not isinstance(r, dict):
         raise ModError("rules.py: RULES must be a dictionary")
+    out = {}
     for k, v in r.items():
+        if k == "hunger":
+            warn("rules.py: hunger is now called energy")
+            k = "energy"
         if k not in RULE_LIMITS:
             raise ModError(f"rules.py: {k} isn't a rule ({', '.join(RULE_LIMITS)})")
         if not isinstance(v, bool):
             raise ModError(f"rules.py: {k} must be True or False")
-    return r
+        out[k] = v
+    return out
 
 
 def use_mods():
-    """The learners' blocks and recipes into the game (each block a new id and a plain tile in its colour). Returns
-    a list of messages (empty if all went in)."""
+    """The learners' blocks and blueprints into the game (each block a new id and a plain tile in its colour).
+    Returns a list of messages (empty if all went in; old names it met are said as warnings)."""
     out = []
     try:
         for b in load_blocks():
@@ -194,9 +224,11 @@ def use_mods():
     except ModError as e:
         out.append(str(e))
     try:
-        items.recipes_changed(items.RECIPES + load_recipes())
+        items.blueprints_changed(load_blueprints())
     except ModError as e:
         out.append(str(e))
+    for w in WARNINGS:  # (old names: the mod still works)
+        print("Mods:", w, flush=True)
     return out
 
 

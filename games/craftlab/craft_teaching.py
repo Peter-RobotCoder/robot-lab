@@ -1,10 +1,10 @@
 """Craft Lab's teaching (CHANGE 200): what is Craft Lab's own on top of the engine's framework (engine/teaching.py):
-which builds, crafts, nights and Bot brains complete which objectives, and where learners' Bot designs are kept.
+which builds, blueprints, nights, rifts and Bot brains complete which objectives, and where learners' Bot designs are kept.
 
 The server calls into this. Everything a learner achieves is saved as evidence against the learning outcomes in
 craft_missions.py, so the teacher can see (and export) who has shown what. What a learner has done in the world
-comes from their player's stats in the game (craft_game.Player.stats: mined, placed, crafted, smelted, defeated,
-nights, what their Bot did).
+comes from their player's stats in the game (craft_game.Player.stats: mined, placed, built, refined, defeated,
+nights, rifts patched, what their Bot did).
 """
 import os
 
@@ -30,11 +30,11 @@ class Record(teaching.Record):
 
 
 def apply_mods(t, files):
-    """Check and save changed mod files (blocks, recipes, the world, the rules, learners' Bots), then use them."""
+    """Check and save changed mod files (blocks, blueprints, the world, the rules, learners' Bots), then use them."""
     written = []
     if not isinstance(files, dict):
         return "Nothing to apply"
-    readers = {"mods/blocks.py": craft_mods.load_blocks, "mods/recipes.py": craft_mods.load_recipes,
+    readers = {"mods/blocks.py": craft_mods.load_blocks, "mods/blueprints.py": craft_mods.load_blueprints,
                "mods/world.py": craft_mods.load_world, "mods/rules.py": craft_mods.load_rules}
     for rel, text in files.items():
         rel = str(rel).replace("\\", "/")
@@ -52,7 +52,7 @@ def apply_mods(t, files):
             if rel.startswith("mods/bots/"):
                 craft_mods.load_bot(tmp)
             else:
-                var = {"mods/blocks.py": "BLOCKS", "mods/recipes.py": "RECIPES", "mods/world.py": "WORLD",
+                var = {"mods/blocks.py": "BLOCKS", "mods/blueprints.py": "BLUEPRINTS", "mods/world.py": "WORLD",
                        "mods/rules.py": "RULES"}[rel]
                 craft_mods.read_value(tmp, var)
         except craft_mods.ModError as e:
@@ -114,22 +114,22 @@ class Teaching(teaching.Teaching):
 
     def tick_checks(self, p, r, unit, world, now):
         st = unit.stats
-        crafted, placed, bot = st.get("crafted", {}), st.get("placed", {}), st.get("bot", {})
-        if crafted.get("workbench") and crafted.get("wood_pick"):
-            self.complete(p.name, "1e", "Crafted a workbench and a wooden pick")
-        if len(crafted) >= 5:
-            self.complete(p.name, "2a", "Crafted " + ", ".join(sorted(crafted)[:8]))
-        if st.get("smelted", {}).get("iron_ingot"):
-            self.complete(p.name, "2b", f"Smelted {st['smelted']['iron_ingot']} iron ingot(s)")
+        built, placed, bot = st.get("built", {}), st.get("placed", {}), st.get("bot", {})
+        if built.get("fabricator") and built.get("drill_mk1"):
+            self.complete(p.name, "1e", "Built a Fabricator and a Mk1 Drill")
+        if len(built) >= 5:
+            self.complete(p.name, "2a", "Built " + ", ".join(sorted(built)[:8]))
+        if st.get("refined", {}).get("iron_ingot"):
+            self.complete(p.name, "2b", f"Refined {st['refined']['iron_ingot']} iron ingot(s)")
         nights = st.get("nights", 0)
         if r.nights_at is None:
             r.nights_at = nights
         elif nights > r.nights_at:
             self.complete(p.name, "2c", "Survived a night")
-        mod_made = self.server.mod_recipe_outputs()
-        made = sorted(k for k in crafted if k in mod_made)
+        mod_made = self.server.mod_blueprint_outputs()
+        made = sorted(k for k in built if k in mod_made)
         if made:
-            self.complete(p.name, "2d", "Crafted a recipe of their own: " + ", ".join(made))
+            self.complete(p.name, "2d", "Built a blueprint of their own: " + ", ".join(made))
         if r.brain and r.autopilot and r.brain.seconds_running(now) >= 20:
             self.complete(p.name, "3a", f"Bot brain ran for {r.brain.seconds_running(now):.0f} s without an error")
         if bot.get("bot_dug", 0) >= 10:
@@ -141,8 +141,10 @@ class Teaching(teaching.Teaching):
         killed = st.get("killed", {})
         if killed.get("glitch") or killed.get("rust"):
             self.complete(p.name, "4e", "Defeated " + ", ".join(f"{n} {k}" for k, n in killed.items() if k in ("glitch", "rust")))
-        if sum(placed.values()) >= 100 and placed.get("door") and placed.get("bed") and placed.get("torch"):
-            self.complete(p.name, "5a", f"Placed {sum(placed.values())} blocks, with a door, a bed and torches")
+        if st.get("rifts", 0):
+            self.complete(p.name, "4f", f"Patched {st['rifts']} Glitch rift(s)")
+        if sum(placed.values()) >= 100 and placed.get("door") and placed.get("pod") and placed.get("glowstick"):
+            self.complete(p.name, "5a", f"Placed {sum(placed.values())} blocks, with a door, a Recharge Pod and Glowsticks")
         mods = self.server.mod_block_keys()
         own = sorted(k for k in placed if k in mods)
         if own:

@@ -1,18 +1,18 @@
 {
- "maker": "1",
- "art_version": "2",
+ "maker": "3",
+ "art_version": "3",
  "atlas": {
   "file": "tex/craft_atlas.png",
   "tile": 16,
   "tiles": 16,
-  "used": 174,
-  "md5": "8bca987eea35b5d4f8bb7a48daa06692",
+  "used": 178,
+  "md5": "eca05c4ccc818559b754e357265d0b85",
   "where": {
-   "grass_top": [
+   "turf_top": [
     0,
     0
    ],
-   "grass_side": [
+   "turf_side": [
     1,
     0
    ],
@@ -28,7 +28,7 @@
     4,
     0
    ],
-   "corestone": [
+   "lab_floor": [
     5,
     0
    ],
@@ -56,653 +56,669 @@
     11,
     0
    ],
-   "planks": [
+   "boards": [
     12,
     0
    ],
-   "bench_top": [
+   "fabricator_top": [
     13,
     0
    ],
-   "bench_side": [
+   "fabricator_side": [
     14,
     0
    ],
-   "smelter_top": [
+   "fabricator_bottom": [
     15,
     0
    ],
-   "smelter_front": [
+   "refinery_top": [
     0,
     1
    ],
-   "smelter_lit": [
+   "refinery_side": [
     1,
     1
    ],
-   "chest_top": [
+   "refinery_bottom": [
     2,
     1
    ],
-   "chest_side": [
+   "refinery_on": [
     3,
+    1
+   ],
+   "locker_top": [
+    4,
+    1
+   ],
+   "locker_side": [
+    5,
     1
    ],
    "glass": [
-    4,
+    6,
     1
    ],
    "brick": [
-    5,
+    7,
     1
    ],
-   "torch": [
-    6,
+   "glowstick": [
+    8,
     1
    ],
    "coal_ore": [
-    7,
+    9,
     1
    ],
    "copper_ore": [
-    8,
+    10,
     1
    ],
    "iron_ore": [
-    9,
+    11,
     1
    ],
-   "crystal_ore": [
-    10,
+   "neon_ore": [
+    12,
     1
    ],
    "lumen": [
-    11,
+    13,
     1
    ],
    "snow": [
-    12,
+    14,
     1
    ],
    "ice": [
-    13,
+    15,
     1
    ],
    "cactus_top": [
-    14,
-    1
+    0,
+    2
    ],
    "cactus_side": [
-    15,
-    1
+    1,
+    2
    ],
    "clay": [
-    0,
+    2,
     2
    ],
    "sandstone_top": [
-    1,
+    3,
     2
    ],
    "sandstone_side": [
-    2,
-    2
-   ],
-   "wool_white": [
-    3,
-    2
-   ],
-   "wool_red": [
     4,
     2
    ],
-   "wool_orange": [
+   "fluff_white": [
     5,
     2
    ],
-   "wool_yellow": [
+   "fluff_red": [
     6,
     2
    ],
-   "wool_green": [
+   "fluff_yellow": [
     7,
     2
    ],
-   "wool_blue": [
+   "fluff_green": [
     8,
     2
    ],
-   "wool_purple": [
+   "fluff_blue": [
     9,
     2
    ],
-   "wool_black": [
+   "fluff_purple": [
     10,
+    2
+   ],
+   "fluff_black": [
+    11,
     2
    ],
    "door_low": [
-    11,
+    12,
     2
    ],
    "door_high": [
-    12,
+    13,
     2
    ],
    "ladder": [
-    13,
-    2
-   ],
-   "bed_top": [
     14,
     2
    ],
-   "bed_side": [
+   "pod_top": [
     15,
     2
    ],
-   "farmland": [
+   "pod_side": [
     0,
     3
    ],
-   "wheat_7": [
+   "pod_bottom": [
     1,
+    3
+   ],
+   "grow_bed_top": [
+    2,
+    3
+   ],
+   "grow_bed_side": [
+    3,
+    3
+   ],
+   "grain_3": [
+    4,
     3
    ],
    "sapling": [
-    2,
+    5,
     3
    ],
    "berry_bush": [
-    3,
+    6,
     3
    ],
    "tall_grass": [
-    4,
+    7,
     3
    ],
    "flower_red": [
-    5,
+    8,
     3
    ],
    "flower_yellow": [
-    6,
+    9,
     3
    ],
-   "bookshelf": [
-    7,
+   "rack_top": [
+    10,
     3
    ],
-   "stone_bricks": [
-    8,
+   "rack_top_1": [
+    11,
+    3
+   ],
+   "rack_top_2": [
+    12,
+    3
+   ],
+   "rack_top_3": [
+    13,
+    3
+   ],
+   "stone_tiles": [
+    14,
     3
    ],
    "copper_block": [
-    9,
-    3
-   ],
-   "iron_block": [
-    10,
-    3
-   ],
-   "crystal_block": [
-    11,
-    3
-   ],
-   "magma": [
-    12,
-    3
-   ],
-   "blast_top": [
-    13,
-    3
-   ],
-   "blast_side": [
-    14,
-    3
-   ],
-   "dock_top": [
     15,
     3
    ],
-   "dock_side": [
+   "server_rack_0": [
     0,
+    4
+   ],
+   "server_rack_1": [
+    1,
+    4
+   ],
+   "server_rack_2": [
+    2,
+    4
+   ],
+   "server_rack_3": [
+    3,
+    4
+   ],
+   "iron_block": [
+    4,
+    4
+   ],
+   "neon_block": [
+    5,
+    4
+   ],
+   "magma": [
+    6,
+    4
+   ],
+   "overload_top": [
+    7,
+    4
+   ],
+   "overload_side": [
+    8,
+    4
+   ],
+   "overload_bottom": [
+    9,
+    4
+   ],
+   "dock_top": [
+    10,
+    4
+   ],
+   "dock_side": [
+    11,
     4
    ],
    "mossy_rubble": [
-    1,
+    12,
     4
    ],
    "pine_top": [
-    2,
+    13,
     4
    ],
    "pine_side": [
-    3,
+    14,
     4
    ],
    "pine_leaves": [
-    4,
+    15,
     4
    ],
    "pale_top": [
-    5,
-    4
+    0,
+    5
    ],
    "pale_side": [
-    6,
-    4
+    1,
+    5
    ],
    "pale_leaves": [
-    7,
-    4
+    2,
+    5
    ],
-   "pine_planks": [
-    8,
-    4
+   "pine_boards": [
+    3,
+    5
    ],
    "window": [
-    9,
-    4
+    4,
+    5
    ],
-   "stick": [
+   "rift_top": [
+    5,
+    5
+   ],
+   "rift_side": [
+    6,
+    5
+   ],
+   "scrap_pile": [
+    7,
+    5
+   ],
+   "rust_pile": [
+    8,
+    5
+   ],
+   "dead_rack": [
+    9,
+    5
+   ],
+   "glowfruit_leaves": [
     10,
-    4
+    5
+   ],
+   "rod": [
+    11,
+    5
    ],
    "coal": [
-    11,
-    4
+    12,
+    5
    ],
    "copper_ingot": [
-    12,
-    4
+    13,
+    5
    ],
    "iron_ingot": [
-    13,
-    4
-   ],
-   "crystal": [
     14,
-    4
+    5
    ],
-   "wheat_item": [
+   "neon": [
     15,
-    4
+    5
    ],
-   "seeds": [
+   "wheat": [
     0,
-    5
+    6
    ],
-   "bread": [
+   "seed_pack": [
     1,
-    5
+    6
+   ],
+   "grain_bar": [
+    2,
+    6
    ],
    "apple": [
-    2,
-    5
+    3,
+    6
    ],
    "berries": [
-    3,
-    5
-   ],
-   "roast_root": [
     4,
-    5
+    6
+   ],
+   "baked_root": [
+    5,
+    6
    ],
    "root": [
-    5,
-    5
+    6,
+    6
    ],
    "clay_ball": [
-    6,
-    5
+    7,
+    6
    ],
    "brick_item": [
-    7,
-    5
+    8,
+    6
    ],
    "scrap": [
-    8,
-    5
+    9,
+    6
    ],
    "glitch_shard": [
-    9,
-    5
+    10,
+    6
    ],
    "rust": [
-    10,
-    5
-   ],
-   "bucket": [
     11,
-    5
+    6
    ],
-   "water_bucket": [
+   "canister": [
     12,
-    5
+    6
+   ],
+   "water_canister": [
+    13,
+    6
    ],
    "bot_kit": [
-    13,
-    5
+    14,
+    6
    ],
    "charcoal": [
-    14,
-    5
-   ],
-   "wood_pick": [
-    15,
-    5
-   ],
-   "stone_pick": [
-    0,
-    6
-   ],
-   "copper_pick": [
-    1,
-    6
-   ],
-   "iron_pick": [
-    2,
-    6
-   ],
-   "crystal_pick": [
-    3,
-    6
-   ],
-   "wood_axe": [
-    4,
-    6
-   ],
-   "stone_axe": [
-    5,
-    6
-   ],
-   "copper_axe": [
-    6,
-    6
-   ],
-   "iron_axe": [
-    7,
-    6
-   ],
-   "crystal_axe": [
-    8,
-    6
-   ],
-   "wood_shovel": [
-    9,
-    6
-   ],
-   "stone_shovel": [
-    10,
-    6
-   ],
-   "copper_shovel": [
-    11,
-    6
-   ],
-   "iron_shovel": [
-    12,
-    6
-   ],
-   "crystal_shovel": [
-    13,
-    6
-   ],
-   "wood_sword": [
-    14,
-    6
-   ],
-   "stone_sword": [
     15,
     6
    ],
-   "copper_sword": [
+   "battery": [
     0,
     7
    ],
-   "iron_sword": [
+   "patch": [
     1,
     7
    ],
-   "crystal_sword": [
+   "glowfruit": [
     2,
     7
    ],
-   "wood_hoe": [
+   "drill_mk1": [
     3,
     7
    ],
-   "stone_hoe": [
+   "drill_mk2": [
     4,
     7
    ],
-   "copper_hoe": [
+   "drill_mk3": [
     5,
     7
    ],
-   "iron_hoe": [
+   "drill_mk4": [
     6,
     7
    ],
-   "crystal_hoe": [
+   "cutter_mk1": [
     7,
     7
    ],
-   "cloth_helmet": [
+   "cutter_mk2": [
     8,
     7
    ],
-   "copper_helmet": [
+   "cutter_mk3": [
     9,
     7
    ],
-   "iron_helmet": [
+   "cutter_mk4": [
     10,
     7
    ],
-   "crystal_helmet": [
+   "scoop_mk1": [
     11,
     7
    ],
-   "cloth_chest": [
+   "scoop_mk2": [
     12,
     7
    ],
-   "copper_chest": [
+   "scoop_mk3": [
     13,
     7
    ],
-   "iron_chest": [
+   "scoop_mk4": [
     14,
     7
    ],
-   "crystal_chest": [
+   "zapper_mk1": [
     15,
     7
    ],
-   "cloth_legs": [
+   "zapper_mk2": [
     0,
     8
    ],
-   "copper_legs": [
+   "zapper_mk3": [
     1,
     8
    ],
-   "iron_legs": [
+   "zapper_mk4": [
     2,
     8
    ],
-   "crystal_legs": [
+   "fluff_visor": [
     3,
     8
    ],
-   "cloth_boots": [
+   "copper_visor": [
     4,
+    8
+   ],
+   "iron_visor": [
+    5,
+    8
+   ],
+   "neon_visor": [
+    6,
+    8
+   ],
+   "fluff_vest": [
+    7,
+    8
+   ],
+   "copper_vest": [
+    8,
+    8
+   ],
+   "iron_vest": [
+    9,
+    8
+   ],
+   "neon_vest": [
+    10,
+    8
+   ],
+   "fluff_boots": [
+    11,
     8
    ],
    "copper_boots": [
-    5,
+    12,
     8
    ],
    "iron_boots": [
-    6,
-    8
-   ],
-   "crystal_boots": [
-    7,
-    8
-   ],
-   "wheat_0": [
-    8,
-    8
-   ],
-   "wheat_1": [
-    9,
-    8
-   ],
-   "wheat_2": [
-    10,
-    8
-   ],
-   "wheat_3": [
-    11,
-    8
-   ],
-   "wheat_4": [
-    12,
-    8
-   ],
-   "wheat_5": [
     13,
     8
    ],
-   "wheat_6": [
+   "neon_boots": [
     14,
     8
    ],
-   "crack_0": [
+   "grain_0": [
     15,
     8
    ],
-   "crack_1": [
+   "grain_1": [
     0,
     9
    ],
-   "crack_2": [
+   "grain_2": [
     1,
     9
    ],
-   "crack_3": [
+   "slot_visor": [
     2,
     9
    ],
-   "crack_4": [
+   "slot_vest": [
     3,
     9
    ],
-   "crack_5": [
+   "slot_boots": [
     4,
     9
    ],
-   "crack_6": [
+   "skin": [
     5,
     9
    ],
-   "crack_7": [
+   "coder_face": [
     6,
     9
    ],
-   "crack_8": [
+   "coder_side": [
     7,
     9
    ],
-   "crack_9": [
+   "coder_hair": [
     8,
     9
    ],
-   "fluff_wool": [
+   "suit": [
     9,
+    9
+   ],
+   "suit_front": [
+    10,
+    9
+   ],
+   "backpack": [
+    11,
+    9
+   ],
+   "glove": [
+    12,
+    9
+   ],
+   "boot": [
+    13,
+    9
+   ],
+   "belt": [
+    14,
+    9
+   ],
+   "visor_glow": [
+    15,
     9
    ],
    "fluff_face": [
-    10,
-    9
-   ],
-   "bleep_face": [
-    11,
-    9
-   ],
-   "bleep_body": [
-    12,
-    9
-   ],
-   "glitch_face": [
-    13,
-    9
-   ],
-   "glitch_body": [
-    14,
-    9
-   ],
-   "rust_face": [
-    15,
-    9
-   ],
-   "rust_body": [
     0,
     10
    ],
-   "skin": [
+   "fluff_foot": [
     1,
     10
    ],
-   "player_face": [
+   "glitch_body": [
     2,
     10
    ],
-   "hair": [
+   "glitch_cyan": [
     3,
     10
    ],
-   "bot_face": [
+   "glitch_eye": [
     4,
     10
    ],
-   "shirt": [
+   "rust_body": [
     5,
     10
    ],
-   "trousers": [
+   "rust_face": [
     6,
     10
    ],
-   "bot_body": [
+   "eye_coral": [
     7,
     10
    ],
-   "particle": [
+   "track": [
     8,
     10
    ],
-   "cloth_armour": [
+   "tread": [
     9,
     10
    ],
-   "slot_helmet": [
+   "magnet": [
     10,
     10
    ],
-   "slot_chest": [
+   "metal_dark": [
     11,
     10
    ],
-   "slot_legs": [
+   "bleep_face": [
     12,
     10
    ],
-   "slot_boots": [
+   "bleep_body": [
     13,
     10
+   ],
+   "bot_face": [
+    14,
+    10
+   ],
+   "logo_mark": [
+    15,
+    10
+   ],
+   "particle": [
+    0,
+    11
+   ],
+   "spark": [
+    1,
+    11
    ]
   }
  },
@@ -727,11 +743,11 @@
   },
   {
    "id": 1,
-   "key": "grass",
-   "name": "Grass",
+   "key": "turf",
+   "name": "Turf",
    "tiles": [
-    "grass_top",
-    "grass_side",
+    "turf_top",
+    "turf_side",
     "soil"
    ],
    "shape": "cube",
@@ -740,7 +756,7 @@
    "see": null,
    "light": 0,
    "hard": 0.9,
-   "tool": "shovel",
+   "tool": "scoop",
    "level": 0,
    "climb": false,
    "use": null,
@@ -762,7 +778,7 @@
    "see": null,
    "light": 0,
    "hard": 0.75,
-   "tool": "shovel",
+   "tool": "scoop",
    "level": 0,
    "climb": false,
    "use": null,
@@ -784,7 +800,7 @@
    "see": null,
    "light": 0,
    "hard": 2.2,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -806,7 +822,7 @@
    "see": null,
    "light": 0,
    "hard": 2.6,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -815,18 +831,18 @@
   },
   {
    "id": 5,
-   "key": "corestone",
-   "name": "Corestone",
+   "key": "lab_floor",
+   "name": "Lab floor",
    "tiles": [
-    "corestone",
-    "corestone",
-    "corestone"
+    "lab_floor",
+    "lab_floor",
+    "lab_floor"
    ],
    "shape": "cube",
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 0,
+   "light": 2,
    "hard": null,
    "tool": null,
    "level": 0,
@@ -850,7 +866,7 @@
    "see": null,
    "light": 0,
    "hard": 0.75,
-   "tool": "shovel",
+   "tool": "scoop",
    "level": 0,
    "climb": false,
    "use": null,
@@ -872,7 +888,7 @@
    "see": null,
    "light": 0,
    "hard": 0.9,
-   "tool": "shovel",
+   "tool": "scoop",
    "level": 0,
    "climb": false,
    "use": null,
@@ -916,7 +932,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -938,7 +954,7 @@
    "see": "cutout",
    "light": 0,
    "hard": 0.3,
-   "tool": null,
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -947,12 +963,12 @@
   },
   {
    "id": 11,
-   "key": "planks",
-   "name": "Planks",
+   "key": "boards",
+   "name": "Boards",
    "tiles": [
-    "planks",
-    "planks",
-    "planks"
+    "boards",
+    "boards",
+    "boards"
    ],
    "shape": "cube",
    "solid": true,
@@ -960,7 +976,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -969,12 +985,12 @@
   },
   {
    "id": 12,
-   "key": "workbench",
-   "name": "Workbench",
+   "key": "fabricator",
+   "name": "Fabricator",
    "tiles": [
-    "bench_top",
-    "bench_side",
-    "planks"
+    "fabricator_top",
+    "fabricator_side",
+    "fabricator_bottom"
    ],
    "shape": "cube",
    "solid": true,
@@ -982,21 +998,21 @@
    "see": null,
    "light": 0,
    "hard": 2.5,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
-   "use": "workbench",
+   "use": "fabricator",
    "falls": false,
    "hurts": 0
   },
   {
    "id": 13,
-   "key": "smelter",
-   "name": "Smelter",
+   "key": "refinery",
+   "name": "Refinery",
    "tiles": [
-    "smelter_top",
-    "smelter_front",
-    "smelter_top"
+    "refinery_top",
+    "refinery_side",
+    "refinery_bottom"
    ],
    "shape": "cube",
    "solid": true,
@@ -1004,43 +1020,43 @@
    "see": null,
    "light": 0,
    "hard": 3.5,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
-   "use": "smelter",
+   "use": "refinery",
    "falls": false,
    "hurts": 0
   },
   {
    "id": 14,
-   "key": "smelter_lit",
-   "name": "Smelter (lit)",
+   "key": "refinery_on",
+   "name": "Refinery (on)",
    "tiles": [
-    "smelter_top",
-    "smelter_lit",
-    "smelter_top"
+    "refinery_top",
+    "refinery_on",
+    "refinery_bottom"
    ],
    "shape": "cube",
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 13,
+   "light": 8,
    "hard": 3.5,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
-   "use": "smelter",
+   "use": "refinery",
    "falls": false,
    "hurts": 0
   },
   {
    "id": 15,
-   "key": "chest",
-   "name": "Chest",
+   "key": "locker",
+   "name": "Locker",
    "tiles": [
-    "chest_top",
-    "chest_side",
-    "chest_top"
+    "locker_top",
+    "locker_side",
+    "locker_top"
    ],
    "shape": "cube",
    "solid": true,
@@ -1048,10 +1064,10 @@
    "see": null,
    "light": 0,
    "hard": 2.5,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
-   "use": "chest",
+   "use": "locker",
    "falls": false,
    "hurts": 0
   },
@@ -1080,7 +1096,7 @@
   {
    "id": 17,
    "key": "brick",
-   "name": "Brick",
+   "name": "Brick block",
    "tiles": [
     "brick",
     "brick",
@@ -1092,7 +1108,7 @@
    "see": null,
    "light": 0,
    "hard": 3.0,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -1101,18 +1117,18 @@
   },
   {
    "id": 18,
-   "key": "torch",
-   "name": "Torch",
+   "key": "glowstick",
+   "name": "Glowstick",
    "tiles": [
-    "torch",
-    "torch",
-    "torch"
+    "glowstick",
+    "glowstick",
+    "glowstick"
    ],
    "shape": "torch",
    "solid": false,
    "opaque": false,
    "see": null,
-   "light": 14,
+   "light": 10,
    "hard": 0.05,
    "tool": null,
    "level": 0,
@@ -1136,7 +1152,7 @@
    "see": null,
    "light": 0,
    "hard": 3.0,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -1158,8 +1174,8 @@
    "see": null,
    "light": 0,
    "hard": 3.2,
-   "tool": "pick",
-   "level": 2,
+   "tool": "drill",
+   "level": 1,
    "climb": false,
    "use": null,
    "falls": false,
@@ -1180,8 +1196,8 @@
    "see": null,
    "light": 0,
    "hard": 3.6,
-   "tool": "pick",
-   "level": 2,
+   "tool": "drill",
+   "level": 1,
    "climb": false,
    "use": null,
    "falls": false,
@@ -1189,21 +1205,21 @@
   },
   {
    "id": 22,
-   "key": "crystal_ore",
-   "name": "Crystal ore",
+   "key": "neon_ore",
+   "name": "Neon ore",
    "tiles": [
-    "crystal_ore",
-    "crystal_ore",
-    "crystal_ore"
+    "neon_ore",
+    "neon_ore",
+    "neon_ore"
    ],
    "shape": "cube",
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 0,
+   "light": 4,
    "hard": 4.5,
-   "tool": "pick",
-   "level": 4,
+   "tool": "drill",
+   "level": 2,
    "climb": false,
    "use": null,
    "falls": false,
@@ -1222,7 +1238,7 @@
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 15,
+   "light": 12,
    "hard": 0.6,
    "tool": null,
    "level": 0,
@@ -1246,7 +1262,7 @@
    "see": null,
    "light": 0,
    "hard": 0.5,
-   "tool": "shovel",
+   "tool": "scoop",
    "level": 0,
    "climb": false,
    "use": null,
@@ -1268,7 +1284,7 @@
    "see": "blend",
    "light": 0,
    "hard": 0.8,
-   "tool": "pick",
+   "tool": "drill",
    "level": 0,
    "climb": false,
    "use": null,
@@ -1295,7 +1311,7 @@
    "climb": false,
    "use": null,
    "falls": false,
-   "hurts": 1
+   "hurts": 5
   },
   {
    "id": 27,
@@ -1312,7 +1328,7 @@
    "see": null,
    "light": 0,
    "hard": 0.9,
-   "tool": "shovel",
+   "tool": "scoop",
    "level": 0,
    "climb": false,
    "use": null,
@@ -1334,7 +1350,7 @@
    "see": null,
    "light": 0,
    "hard": 1.6,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -1343,12 +1359,12 @@
   },
   {
    "id": 29,
-   "key": "wool",
-   "name": "White wool",
+   "key": "fluff",
+   "name": "White fluff",
    "tiles": [
-    "wool_white",
-    "wool_white",
-    "wool_white"
+    "fluff_white",
+    "fluff_white",
+    "fluff_white"
    ],
    "shape": "cube",
    "solid": true,
@@ -1365,12 +1381,12 @@
   },
   {
    "id": 30,
-   "key": "wool_red",
-   "name": "Red wool",
+   "key": "fluff_red",
+   "name": "Red fluff",
    "tiles": [
-    "wool_red",
-    "wool_red",
-    "wool_red"
+    "fluff_red",
+    "fluff_red",
+    "fluff_red"
    ],
    "shape": "cube",
    "solid": true,
@@ -1387,12 +1403,12 @@
   },
   {
    "id": 31,
-   "key": "wool_orange",
-   "name": "Orange wool",
+   "key": "fluff_yellow",
+   "name": "Yellow fluff",
    "tiles": [
-    "wool_orange",
-    "wool_orange",
-    "wool_orange"
+    "fluff_yellow",
+    "fluff_yellow",
+    "fluff_yellow"
    ],
    "shape": "cube",
    "solid": true,
@@ -1409,12 +1425,12 @@
   },
   {
    "id": 32,
-   "key": "wool_yellow",
-   "name": "Yellow wool",
+   "key": "fluff_green",
+   "name": "Green fluff",
    "tiles": [
-    "wool_yellow",
-    "wool_yellow",
-    "wool_yellow"
+    "fluff_green",
+    "fluff_green",
+    "fluff_green"
    ],
    "shape": "cube",
    "solid": true,
@@ -1431,12 +1447,12 @@
   },
   {
    "id": 33,
-   "key": "wool_green",
-   "name": "Green wool",
+   "key": "fluff_blue",
+   "name": "Blue fluff",
    "tiles": [
-    "wool_green",
-    "wool_green",
-    "wool_green"
+    "fluff_blue",
+    "fluff_blue",
+    "fluff_blue"
    ],
    "shape": "cube",
    "solid": true,
@@ -1453,12 +1469,12 @@
   },
   {
    "id": 34,
-   "key": "wool_blue",
-   "name": "Blue wool",
+   "key": "fluff_purple",
+   "name": "Purple fluff",
    "tiles": [
-    "wool_blue",
-    "wool_blue",
-    "wool_blue"
+    "fluff_purple",
+    "fluff_purple",
+    "fluff_purple"
    ],
    "shape": "cube",
    "solid": true,
@@ -1475,12 +1491,12 @@
   },
   {
    "id": 35,
-   "key": "wool_purple",
-   "name": "Purple wool",
+   "key": "fluff_black",
+   "name": "Black fluff",
    "tiles": [
-    "wool_purple",
-    "wool_purple",
-    "wool_purple"
+    "fluff_black",
+    "fluff_black",
+    "fluff_black"
    ],
    "shape": "cube",
    "solid": true,
@@ -1497,28 +1513,6 @@
   },
   {
    "id": 36,
-   "key": "wool_black",
-   "name": "Black wool",
-   "tiles": [
-    "wool_black",
-    "wool_black",
-    "wool_black"
-   ],
-   "shape": "cube",
-   "solid": true,
-   "opaque": true,
-   "see": null,
-   "light": 0,
-   "hard": 0.8,
-   "tool": null,
-   "level": 0,
-   "climb": false,
-   "use": null,
-   "falls": false,
-   "hurts": 0
-  },
-  {
-   "id": 37,
    "key": "door",
    "name": "Door",
    "tiles": [
@@ -1532,7 +1526,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": "door",
@@ -1540,7 +1534,7 @@
    "hurts": 0
   },
   {
-   "id": 38,
+   "id": 37,
    "key": "door_top",
    "name": "Door",
    "tiles": [
@@ -1554,7 +1548,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": "door",
@@ -1562,7 +1556,7 @@
    "hurts": 0
   },
   {
-   "id": 39,
+   "id": 38,
    "key": "ladder",
    "name": "Ladder",
    "tiles": [
@@ -1576,7 +1570,7 @@
    "see": "cutout",
    "light": 0,
    "hard": 0.6,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": true,
    "use": null,
@@ -1584,34 +1578,34 @@
    "hurts": 0
   },
   {
-   "id": 40,
-   "key": "bed",
-   "name": "Bed",
+   "id": 39,
+   "key": "pod",
+   "name": "Recharge Pod",
    "tiles": [
-    "bed_top",
-    "bed_side",
-    "planks"
+    "pod_top",
+    "pod_side",
+    "pod_bottom"
    ],
    "shape": "bed",
    "solid": true,
    "opaque": false,
    "see": null,
-   "light": 0,
-   "hard": 0.4,
+   "light": 3,
+   "hard": 0.8,
    "tool": null,
    "level": 0,
    "climb": false,
-   "use": "bed",
+   "use": "pod",
    "falls": false,
    "hurts": 0
   },
   {
-   "id": 41,
-   "key": "farmland",
-   "name": "Farmland",
+   "id": 40,
+   "key": "grow_bed",
+   "name": "Grow bed",
    "tiles": [
-    "farmland",
-    "soil",
+    "grow_bed_top",
+    "grow_bed_side",
     "soil"
    ],
    "shape": "farmland",
@@ -1620,7 +1614,7 @@
    "see": null,
    "light": 0,
    "hard": 0.7,
-   "tool": "shovel",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -1628,13 +1622,13 @@
    "hurts": 0
   },
   {
-   "id": 42,
-   "key": "wheat",
-   "name": "Wheat",
+   "id": 41,
+   "key": "grain",
+   "name": "Grain",
    "tiles": [
-    "wheat_7",
-    "wheat_7",
-    "wheat_7"
+    "grain_3",
+    "grain_3",
+    "grain_3"
    ],
    "shape": "crop",
    "solid": false,
@@ -1650,7 +1644,7 @@
    "hurts": 0
   },
   {
-   "id": 43,
+   "id": 42,
    "key": "sapling",
    "name": "Sapling",
    "tiles": [
@@ -1672,7 +1666,7 @@
    "hurts": 0
   },
   {
-   "id": 44,
+   "id": 43,
    "key": "berry_bush",
    "name": "Berry bush",
    "tiles": [
@@ -1694,7 +1688,7 @@
    "hurts": 0
   },
   {
-   "id": 45,
+   "id": 44,
    "key": "tall_grass",
    "name": "Tall grass",
    "tiles": [
@@ -1716,7 +1710,7 @@
    "hurts": 0
   },
   {
-   "id": 46,
+   "id": 45,
    "key": "flower_red",
    "name": "Red flower",
    "tiles": [
@@ -1738,7 +1732,7 @@
    "hurts": 0
   },
   {
-   "id": 47,
+   "id": 46,
    "key": "flower_yellow",
    "name": "Yellow flower",
    "tiles": [
@@ -1760,21 +1754,21 @@
    "hurts": 0
   },
   {
-   "id": 48,
-   "key": "bookshelf",
-   "name": "Bookshelf",
+   "id": 47,
+   "key": "server_rack",
+   "name": "Server Rack",
    "tiles": [
-    "planks",
-    "bookshelf",
-    "planks"
+    "rack_top",
+    "server_rack_0",
+    "rack_top"
    ],
    "shape": "cube",
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 0,
+   "light": 2,
    "hard": 1.6,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -1782,13 +1776,13 @@
    "hurts": 0
   },
   {
-   "id": 49,
-   "key": "stone_bricks",
-   "name": "Stone bricks",
+   "id": 48,
+   "key": "stone_tiles",
+   "name": "Stone tiles",
    "tiles": [
-    "stone_bricks",
-    "stone_bricks",
-    "stone_bricks"
+    "stone_tiles",
+    "stone_tiles",
+    "stone_tiles"
    ],
    "shape": "cube",
    "solid": true,
@@ -1796,7 +1790,7 @@
    "see": null,
    "light": 0,
    "hard": 2.6,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -1804,7 +1798,7 @@
    "hurts": 0
   },
   {
-   "id": 50,
+   "id": 49,
    "key": "copper_block",
    "name": "Copper block",
    "tiles": [
@@ -1818,7 +1812,7 @@
    "see": null,
    "light": 0,
    "hard": 4.0,
-   "tool": "pick",
+   "tool": "drill",
    "level": 2,
    "climb": false,
    "use": null,
@@ -1826,7 +1820,7 @@
    "hurts": 0
   },
   {
-   "id": 51,
+   "id": 50,
    "key": "iron_block",
    "name": "Iron block",
    "tiles": [
@@ -1840,7 +1834,7 @@
    "see": null,
    "light": 0,
    "hard": 4.5,
-   "tool": "pick",
+   "tool": "drill",
    "level": 2,
    "climb": false,
    "use": null,
@@ -1848,29 +1842,29 @@
    "hurts": 0
   },
   {
-   "id": 52,
-   "key": "crystal_block",
-   "name": "Crystal block",
+   "id": 51,
+   "key": "neon_block",
+   "name": "Neon block",
    "tiles": [
-    "crystal_block",
-    "crystal_block",
-    "crystal_block"
+    "neon_block",
+    "neon_block",
+    "neon_block"
    ],
    "shape": "cube",
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 6,
+   "light": 5,
    "hard": 5.0,
-   "tool": "pick",
-   "level": 4,
+   "tool": "drill",
+   "level": 3,
    "climb": false,
    "use": null,
    "falls": false,
    "hurts": 0
   },
   {
-   "id": 53,
+   "id": 52,
    "key": "magma",
    "name": "Magma",
    "tiles": [
@@ -1882,39 +1876,39 @@
    "solid": false,
    "opaque": true,
    "see": null,
-   "light": 14,
+   "light": 11,
    "hard": null,
    "tool": null,
    "level": 0,
    "climb": false,
    "use": null,
    "falls": false,
-   "hurts": 3
+   "hurts": 15
   },
   {
-   "id": 54,
-   "key": "blast",
-   "name": "Blast block",
+   "id": 53,
+   "key": "overload_cell",
+   "name": "Overload Cell",
    "tiles": [
-    "blast_top",
-    "blast_side",
-    "blast_top"
+    "overload_top",
+    "overload_side",
+    "overload_bottom"
    ],
    "shape": "cube",
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 0,
-   "hard": 0.1,
+   "light": 3,
+   "hard": 0.3,
    "tool": null,
    "level": 0,
    "climb": false,
-   "use": "blast",
+   "use": "overload",
    "falls": false,
    "hurts": 0
   },
   {
-   "id": 55,
+   "id": 54,
    "key": "dock",
    "name": "Bot dock",
    "tiles": [
@@ -1926,9 +1920,9 @@
    "solid": true,
    "opaque": true,
    "see": null,
-   "light": 7,
+   "light": 5,
    "hard": 2.0,
-   "tool": "pick",
+   "tool": "drill",
    "level": 0,
    "climb": false,
    "use": "dock",
@@ -1936,7 +1930,7 @@
    "hurts": 0
   },
   {
-   "id": 56,
+   "id": 55,
    "key": "mossy_rubble",
    "name": "Mossy rubble",
    "tiles": [
@@ -1950,7 +1944,7 @@
    "see": null,
    "light": 0,
    "hard": 2.6,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -1958,7 +1952,7 @@
    "hurts": 0
   },
   {
-   "id": 57,
+   "id": 56,
    "key": "pine_log",
    "name": "Pine log",
    "tiles": [
@@ -1972,7 +1966,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -1980,7 +1974,7 @@
    "hurts": 0
   },
   {
-   "id": 58,
+   "id": 57,
    "key": "pine_leaves",
    "name": "Pine needles",
    "tiles": [
@@ -1994,7 +1988,7 @@
    "see": "cutout",
    "light": 0,
    "hard": 0.3,
-   "tool": null,
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -2002,7 +1996,7 @@
    "hurts": 0
   },
   {
-   "id": 59,
+   "id": 58,
    "key": "pale_log",
    "name": "Pale log",
    "tiles": [
@@ -2016,7 +2010,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -2024,7 +2018,7 @@
    "hurts": 0
   },
   {
-   "id": 60,
+   "id": 59,
    "key": "pale_leaves",
    "name": "Pale leaves",
    "tiles": [
@@ -2038,7 +2032,29 @@
    "see": "cutout",
    "light": 0,
    "hard": 0.3,
-   "tool": null,
+   "tool": "cutter",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 60,
+   "key": "pine_boards",
+   "name": "Pine boards",
+   "tiles": [
+    "pine_boards",
+    "pine_boards",
+    "pine_boards"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
@@ -2047,29 +2063,7 @@
   },
   {
    "id": 61,
-   "key": "pine_planks",
-   "name": "Pine planks",
-   "tiles": [
-    "pine_planks",
-    "pine_planks",
-    "pine_planks"
-   ],
-   "shape": "cube",
-   "solid": true,
-   "opaque": true,
-   "see": null,
-   "light": 0,
-   "hard": 2.0,
-   "tool": "axe",
-   "level": 0,
-   "climb": false,
-   "use": null,
-   "falls": false,
-   "hurts": 0
-  },
-  {
-   "id": 62,
-   "key": "glass_pane",
+   "key": "window",
    "name": "Window",
    "tiles": [
     "window",
@@ -2090,9 +2084,9 @@
    "hurts": 0
   },
   {
-   "id": 63,
-   "key": "slab",
-   "name": "Rubble slab",
+   "id": 62,
+   "key": "rubble_step",
+   "name": "Rubble step",
    "tiles": [
     "rubble",
     "rubble",
@@ -2104,7 +2098,7 @@
    "see": null,
    "light": 0,
    "hard": 2.0,
-   "tool": "pick",
+   "tool": "drill",
    "level": 1,
    "climb": false,
    "use": null,
@@ -2112,13 +2106,13 @@
    "hurts": 0
   },
   {
-   "id": 64,
-   "key": "plank_slab",
-   "name": "Plank slab",
+   "id": 63,
+   "key": "board_step",
+   "name": "Board step",
    "tiles": [
-    "planks",
-    "planks",
-    "planks"
+    "boards",
+    "boards",
+    "boards"
    ],
    "shape": "slab",
    "solid": true,
@@ -2126,10 +2120,120 @@
    "see": null,
    "light": 0,
    "hard": 1.5,
-   "tool": "axe",
+   "tool": "cutter",
    "level": 0,
    "climb": false,
    "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 64,
+   "key": "glitch_rift",
+   "name": "Glitch rift",
+   "tiles": [
+    "rift_top",
+    "rift_side",
+    "soil"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 6,
+   "hard": null,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": "rift",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 65,
+   "key": "scrap_pile",
+   "name": "Scrap heap",
+   "tiles": [
+    "scrap_pile",
+    "scrap_pile",
+    "scrap_pile"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 1.8,
+   "tool": "drill",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 66,
+   "key": "rust_pile",
+   "name": "Rust heap",
+   "tiles": [
+    "rust_pile",
+    "rust_pile",
+    "rust_pile"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 1.8,
+   "tool": "drill",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 67,
+   "key": "dead_rack",
+   "name": "Dead server rack",
+   "tiles": [
+    "rack_top",
+    "dead_rack",
+    "rack_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 1.6,
+   "tool": "cutter",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 68,
+   "key": "glowfruit_leaves",
+   "name": "Glowfruit leaves",
+   "tiles": [
+    "glowfruit_leaves",
+    "glowfruit_leaves",
+    "glowfruit_leaves"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 6,
+   "hard": 0.3,
+   "tool": "cutter",
+   "level": 0,
+   "climb": false,
+   "use": "glowfruit",
    "falls": false,
    "hurts": 0
   }
@@ -2137,11 +2241,11 @@
  "items": [
   {
    "id": 1,
-   "key": "grass",
-   "name": "Grass",
-   "icon": "grass_side",
+   "key": "turf",
+   "name": "Turf",
+   "icon": "turf_side",
    "block": 1,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 2,
@@ -2149,7 +2253,7 @@
    "name": "Soil",
    "icon": "soil",
    "block": 2,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 3,
@@ -2157,7 +2261,7 @@
    "name": "Stone",
    "icon": "stone",
    "block": 3,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 4,
@@ -2165,15 +2269,15 @@
    "name": "Rubble",
    "icon": "rubble",
    "block": 4,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 5,
-   "key": "corestone",
-   "name": "Corestone",
-   "icon": "corestone",
+   "key": "lab_floor",
+   "name": "Lab floor",
+   "icon": "lab_floor",
    "block": 5,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 6,
@@ -2181,7 +2285,7 @@
    "name": "Sand",
    "icon": "sand",
    "block": 6,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 7,
@@ -2189,7 +2293,7 @@
    "name": "Grit",
    "icon": "grit",
    "block": 7,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 8,
@@ -2197,7 +2301,7 @@
    "name": "Water",
    "icon": "water",
    "block": 8,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 9,
@@ -2205,7 +2309,7 @@
    "name": "Log",
    "icon": "log_side",
    "block": 9,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 10,
@@ -2213,47 +2317,47 @@
    "name": "Leaves",
    "icon": "leaves",
    "block": 10,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 11,
-   "key": "planks",
-   "name": "Planks",
-   "icon": "planks",
+   "key": "boards",
+   "name": "Boards",
+   "icon": "boards",
    "block": 11,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 12,
-   "key": "workbench",
-   "name": "Workbench",
-   "icon": "bench_side",
+   "key": "fabricator",
+   "name": "Fabricator",
+   "icon": "fabricator_side",
    "block": 12,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 13,
-   "key": "smelter",
-   "name": "Smelter",
-   "icon": "smelter_front",
+   "key": "refinery",
+   "name": "Refinery",
+   "icon": "refinery_side",
    "block": 13,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 14,
-   "key": "smelter_lit",
-   "name": "Smelter (lit)",
-   "icon": "smelter_lit",
+   "key": "refinery_on",
+   "name": "Refinery (on)",
+   "icon": "refinery_on",
    "block": 14,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 15,
-   "key": "chest",
-   "name": "Chest",
-   "icon": "chest_side",
+   "key": "locker",
+   "name": "Locker",
+   "icon": "locker_side",
    "block": 15,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 16,
@@ -2261,23 +2365,23 @@
    "name": "Glass",
    "icon": "glass",
    "block": 16,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 17,
    "key": "brick",
-   "name": "Brick",
+   "name": "Brick block",
    "icon": "brick",
    "block": 17,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 18,
-   "key": "torch",
-   "name": "Torch",
-   "icon": "torch",
+   "key": "glowstick",
+   "name": "Glowstick",
+   "icon": "glowstick",
    "block": 18,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 19,
@@ -2285,7 +2389,7 @@
    "name": "Coal ore",
    "icon": "coal_ore",
    "block": 19,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 20,
@@ -2293,7 +2397,7 @@
    "name": "Copper ore",
    "icon": "copper_ore",
    "block": 20,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 21,
@@ -2301,15 +2405,15 @@
    "name": "Iron ore",
    "icon": "iron_ore",
    "block": 21,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 22,
-   "key": "crystal_ore",
-   "name": "Crystal ore",
-   "icon": "crystal_ore",
+   "key": "neon_ore",
+   "name": "Neon ore",
+   "icon": "neon_ore",
    "block": 22,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 23,
@@ -2317,7 +2421,7 @@
    "name": "Lumen block",
    "icon": "lumen",
    "block": 23,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 24,
@@ -2325,7 +2429,7 @@
    "name": "Snow",
    "icon": "snow",
    "block": 24,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 25,
@@ -2333,7 +2437,7 @@
    "name": "Ice",
    "icon": "ice",
    "block": 25,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 26,
@@ -2341,7 +2445,7 @@
    "name": "Cactus",
    "icon": "cactus_side",
    "block": 26,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 27,
@@ -2349,7 +2453,7 @@
    "name": "Clay",
    "icon": "clay",
    "block": 27,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 28,
@@ -2357,303 +2461,335 @@
    "name": "Sandstone",
    "icon": "sandstone_side",
    "block": 28,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 29,
-   "key": "wool",
-   "name": "White wool",
-   "icon": "wool_white",
+   "key": "fluff",
+   "name": "White fluff",
+   "icon": "fluff_white",
    "block": 29,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 30,
-   "key": "wool_red",
-   "name": "Red wool",
-   "icon": "wool_red",
+   "key": "fluff_red",
+   "name": "Red fluff",
+   "icon": "fluff_red",
    "block": 30,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 31,
-   "key": "wool_orange",
-   "name": "Orange wool",
-   "icon": "wool_orange",
+   "key": "fluff_yellow",
+   "name": "Yellow fluff",
+   "icon": "fluff_yellow",
    "block": 31,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 32,
-   "key": "wool_yellow",
-   "name": "Yellow wool",
-   "icon": "wool_yellow",
+   "key": "fluff_green",
+   "name": "Green fluff",
+   "icon": "fluff_green",
    "block": 32,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 33,
-   "key": "wool_green",
-   "name": "Green wool",
-   "icon": "wool_green",
+   "key": "fluff_blue",
+   "name": "Blue fluff",
+   "icon": "fluff_blue",
    "block": 33,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 34,
-   "key": "wool_blue",
-   "name": "Blue wool",
-   "icon": "wool_blue",
+   "key": "fluff_purple",
+   "name": "Purple fluff",
+   "icon": "fluff_purple",
    "block": 34,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 35,
-   "key": "wool_purple",
-   "name": "Purple wool",
-   "icon": "wool_purple",
+   "key": "fluff_black",
+   "name": "Black fluff",
+   "icon": "fluff_black",
    "block": 35,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 36,
-   "key": "wool_black",
-   "name": "Black wool",
-   "icon": "wool_black",
-   "block": 36,
-   "stack": 64
-  },
-  {
-   "id": 37,
    "key": "door",
    "name": "Door",
    "icon": "door_low",
-   "block": 37,
-   "stack": 64
+   "block": 36,
+   "stack": 50
   },
   {
-   "id": 38,
+   "id": 37,
    "key": "door_top",
    "name": "Door",
    "icon": "door_high",
-   "block": 38,
-   "stack": 64
+   "block": 37,
+   "stack": 50
   },
   {
-   "id": 39,
+   "id": 38,
    "key": "ladder",
    "name": "Ladder",
    "icon": "ladder",
+   "block": 38,
+   "stack": 50
+  },
+  {
+   "id": 39,
+   "key": "pod",
+   "name": "Recharge Pod",
+   "icon": "pod_side",
    "block": 39,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 40,
-   "key": "bed",
-   "name": "Bed",
-   "icon": "bed_side",
+   "key": "grow_bed",
+   "name": "Grow bed",
+   "icon": "grow_bed_side",
    "block": 40,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 41,
-   "key": "farmland",
-   "name": "Farmland",
-   "icon": "soil",
+   "key": "grain",
+   "name": "Grain",
+   "icon": "grain_3",
    "block": 41,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 42,
-   "key": "wheat",
-   "name": "Wheat",
-   "icon": "wheat_7",
-   "block": 42,
-   "stack": 64
-  },
-  {
-   "id": 43,
    "key": "sapling",
    "name": "Sapling",
    "icon": "sapling",
-   "block": 43,
-   "stack": 64
+   "block": 42,
+   "stack": 50
   },
   {
-   "id": 44,
+   "id": 43,
    "key": "berry_bush",
    "name": "Berry bush",
    "icon": "berry_bush",
-   "block": 44,
-   "stack": 64
+   "block": 43,
+   "stack": 50
   },
   {
-   "id": 45,
+   "id": 44,
    "key": "tall_grass",
    "name": "Tall grass",
    "icon": "tall_grass",
-   "block": 45,
-   "stack": 64
+   "block": 44,
+   "stack": 50
   },
   {
-   "id": 46,
+   "id": 45,
    "key": "flower_red",
    "name": "Red flower",
    "icon": "flower_red",
-   "block": 46,
-   "stack": 64
+   "block": 45,
+   "stack": 50
   },
   {
-   "id": 47,
+   "id": 46,
    "key": "flower_yellow",
    "name": "Yellow flower",
    "icon": "flower_yellow",
+   "block": 46,
+   "stack": 50
+  },
+  {
+   "id": 47,
+   "key": "server_rack",
+   "name": "Server Rack",
+   "icon": "server_rack_0",
    "block": 47,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 48,
-   "key": "bookshelf",
-   "name": "Bookshelf",
-   "icon": "bookshelf",
+   "key": "stone_tiles",
+   "name": "Stone tiles",
+   "icon": "stone_tiles",
    "block": 48,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 49,
-   "key": "stone_bricks",
-   "name": "Stone bricks",
-   "icon": "stone_bricks",
-   "block": 49,
-   "stack": 64
-  },
-  {
-   "id": 50,
    "key": "copper_block",
    "name": "Copper block",
    "icon": "copper_block",
-   "block": 50,
-   "stack": 64
+   "block": 49,
+   "stack": 50
   },
   {
-   "id": 51,
+   "id": 50,
    "key": "iron_block",
    "name": "Iron block",
    "icon": "iron_block",
+   "block": 50,
+   "stack": 50
+  },
+  {
+   "id": 51,
+   "key": "neon_block",
+   "name": "Neon block",
+   "icon": "neon_block",
    "block": 51,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 52,
-   "key": "crystal_block",
-   "name": "Crystal block",
-   "icon": "crystal_block",
-   "block": 52,
-   "stack": 64
-  },
-  {
-   "id": 53,
    "key": "magma",
    "name": "Magma",
    "icon": "magma",
+   "block": 52,
+   "stack": 50
+  },
+  {
+   "id": 53,
+   "key": "overload_cell",
+   "name": "Overload Cell",
+   "icon": "overload_side",
    "block": 53,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 54,
-   "key": "blast",
-   "name": "Blast block",
-   "icon": "blast_side",
-   "block": 54,
-   "stack": 64
-  },
-  {
-   "id": 55,
    "key": "dock",
    "name": "Bot dock",
    "icon": "dock_side",
-   "block": 55,
-   "stack": 64
+   "block": 54,
+   "stack": 50
   },
   {
-   "id": 56,
+   "id": 55,
    "key": "mossy_rubble",
    "name": "Mossy rubble",
    "icon": "mossy_rubble",
-   "block": 56,
-   "stack": 64
+   "block": 55,
+   "stack": 50
   },
   {
-   "id": 57,
+   "id": 56,
    "key": "pine_log",
    "name": "Pine log",
    "icon": "pine_side",
-   "block": 57,
-   "stack": 64
+   "block": 56,
+   "stack": 50
   },
   {
-   "id": 58,
+   "id": 57,
    "key": "pine_leaves",
    "name": "Pine needles",
    "icon": "pine_leaves",
-   "block": 58,
-   "stack": 64
+   "block": 57,
+   "stack": 50
   },
   {
-   "id": 59,
+   "id": 58,
    "key": "pale_log",
    "name": "Pale log",
    "icon": "pale_side",
-   "block": 59,
-   "stack": 64
+   "block": 58,
+   "stack": 50
   },
   {
-   "id": 60,
+   "id": 59,
    "key": "pale_leaves",
    "name": "Pale leaves",
    "icon": "pale_leaves",
+   "block": 59,
+   "stack": 50
+  },
+  {
+   "id": 60,
+   "key": "pine_boards",
+   "name": "Pine boards",
+   "icon": "pine_boards",
    "block": 60,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 61,
-   "key": "pine_planks",
-   "name": "Pine planks",
-   "icon": "pine_planks",
+   "key": "window",
+   "name": "Window",
+   "icon": "window",
    "block": 61,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 62,
-   "key": "glass_pane",
-   "name": "Window",
-   "icon": "window",
+   "key": "rubble_step",
+   "name": "Rubble step",
+   "icon": "rubble",
    "block": 62,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 63,
-   "key": "slab",
-   "name": "Rubble slab",
-   "icon": "rubble",
+   "key": "board_step",
+   "name": "Board step",
+   "icon": "boards",
    "block": 63,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 64,
-   "key": "plank_slab",
-   "name": "Plank slab",
-   "icon": "planks",
+   "key": "glitch_rift",
+   "name": "Glitch rift",
+   "icon": "rift_side",
    "block": 64,
-   "stack": 64
+   "stack": 50
+  },
+  {
+   "id": 65,
+   "key": "scrap_pile",
+   "name": "Scrap heap",
+   "icon": "scrap_pile",
+   "block": 65,
+   "stack": 50
+  },
+  {
+   "id": 66,
+   "key": "rust_pile",
+   "name": "Rust heap",
+   "icon": "rust_pile",
+   "block": 66,
+   "stack": 50
+  },
+  {
+   "id": 67,
+   "key": "dead_rack",
+   "name": "Dead server rack",
+   "icon": "dead_rack",
+   "block": 67,
+   "stack": 50
+  },
+  {
+   "id": 68,
+   "key": "glowfruit_leaves",
+   "name": "Glowfruit leaves",
+   "icon": "glowfruit_leaves",
+   "block": 68,
+   "stack": 50
   },
   {
    "id": 256,
-   "key": "stick",
-   "name": "Stick",
-   "icon": "stick",
+   "key": "rod",
+   "name": "Rod",
+   "icon": "rod",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 257,
@@ -2661,8 +2797,8 @@
    "name": "Coal",
    "icon": "coal",
    "block": null,
-   "stack": 64,
-   "fuel": 8
+   "stack": 50,
+   "fuel": 6
   },
   {
    "id": 258,
@@ -2670,7 +2806,7 @@
    "name": "Copper ingot",
    "icon": "copper_ingot",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 259,
@@ -2678,41 +2814,41 @@
    "name": "Iron ingot",
    "icon": "iron_ingot",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 260,
-   "key": "crystal",
-   "name": "Crystal",
-   "icon": "crystal",
+   "key": "neon",
+   "name": "Neon crystal",
+   "icon": "neon",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 261,
-   "key": "wheat_item",
+   "key": "wheat",
    "name": "Wheat",
-   "icon": "wheat_item",
+   "icon": "wheat",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 262,
-   "key": "seeds",
-   "name": "Seeds",
-   "icon": "seeds",
+   "key": "seed_pack",
+   "name": "Seed pack",
+   "icon": "seed_pack",
    "block": null,
-   "stack": 64,
-   "plants": "wheat"
+   "stack": 50,
+   "plants": "grain"
   },
   {
    "id": 263,
-   "key": "bread",
-   "name": "Bread",
-   "icon": "bread",
+   "key": "grain_bar",
+   "name": "Grain bar",
+   "icon": "grain_bar",
    "block": null,
-   "stack": 64,
-   "food": 5
+   "stack": 50,
+   "food": 25
   },
   {
    "id": 264,
@@ -2720,8 +2856,8 @@
    "name": "Apple",
    "icon": "apple",
    "block": null,
-   "stack": 64,
-   "food": 4
+   "stack": 50,
+   "food": 15
   },
   {
    "id": 265,
@@ -2729,17 +2865,17 @@
    "name": "Berries",
    "icon": "berries",
    "block": null,
-   "stack": 64,
-   "food": 2
+   "stack": 50,
+   "food": 8
   },
   {
    "id": 266,
-   "key": "roast_potato",
+   "key": "baked_root",
    "name": "Baked root",
-   "icon": "roast_root",
+   "icon": "baked_root",
    "block": null,
-   "stack": 64,
-   "food": 6
+   "stack": 50,
+   "food": 30
   },
   {
    "id": 267,
@@ -2747,18 +2883,16 @@
    "name": "Root",
    "icon": "root",
    "block": null,
-   "stack": 64,
-   "food": 1,
-   "smelts": "roast_potato"
+   "stack": 50,
+   "food": 5
   },
   {
    "id": 268,
    "key": "clay_ball",
-   "name": "Clay",
+   "name": "Clay ball",
    "icon": "clay_ball",
    "block": null,
-   "stack": 64,
-   "smelts": "brick_item"
+   "stack": 50
   },
   {
    "id": 269,
@@ -2766,7 +2900,7 @@
    "name": "Brick",
    "icon": "brick_item",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 270,
@@ -2774,7 +2908,7 @@
    "name": "Scrap",
    "icon": "scrap",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 271,
@@ -2782,7 +2916,7 @@
    "name": "Glitch shard",
    "icon": "glitch_shard",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 272,
@@ -2790,21 +2924,21 @@
    "name": "Rust",
    "icon": "rust",
    "block": null,
-   "stack": 64
+   "stack": 50
   },
   {
    "id": 273,
-   "key": "bucket",
-   "name": "Bucket",
-   "icon": "bucket",
+   "key": "canister",
+   "name": "Canister",
+   "icon": "canister",
    "block": null,
-   "stack": 16
+   "stack": 10
   },
   {
    "id": 274,
-   "key": "water_bucket",
-   "name": "Water bucket",
-   "icon": "water_bucket",
+   "key": "water_canister",
+   "name": "Water canister",
+   "icon": "water_canister",
    "block": null,
    "stack": 1,
    "places": "water"
@@ -2823,560 +2957,429 @@
    "name": "Charcoal",
    "icon": "charcoal",
    "block": null,
-   "stack": 64,
-   "fuel": 8
+   "stack": 50,
+   "fuel": 6
   },
   {
    "id": 277,
-   "key": "wood_pick",
-   "name": "Wooden pick",
-   "icon": "wood_pick",
+   "key": "battery",
+   "name": "Battery",
+   "icon": "battery",
    "block": null,
-   "stack": 1,
-   "tool": "pick",
-   "level": 1,
-   "speed": 2.0,
-   "uses": 60,
-   "damage": 1
+   "stack": 50,
+   "fuel": 12
   },
   {
    "id": 278,
-   "key": "stone_pick",
-   "name": "Stone pick",
-   "icon": "stone_pick",
+   "key": "patch",
+   "name": "Patch",
+   "icon": "patch",
    "block": null,
-   "stack": 1,
-   "tool": "pick",
-   "level": 2,
-   "speed": 4.0,
-   "uses": 130,
-   "damage": 2
+   "stack": 50
   },
   {
    "id": 279,
-   "key": "copper_pick",
-   "name": "Copper pick",
-   "icon": "copper_pick",
+   "key": "glowfruit",
+   "name": "Glowfruit",
+   "icon": "glowfruit",
    "block": null,
-   "stack": 1,
-   "tool": "pick",
-   "level": 3,
-   "speed": 5.0,
-   "uses": 200,
-   "damage": 2
+   "stack": 50,
+   "food": 10,
+   "glow": 6
   },
   {
    "id": 280,
-   "key": "iron_pick",
-   "name": "Iron pick",
-   "icon": "iron_pick",
+   "key": "drill_mk1",
+   "name": "Mk1 Drill",
+   "icon": "drill_mk1",
    "block": null,
    "stack": 1,
-   "tool": "pick",
-   "level": 4,
-   "speed": 6.5,
-   "uses": 300,
-   "damage": 3
+   "tool": "drill",
+   "level": 1,
+   "speed": 2.5,
+   "uses": 80,
+   "damage": 4
   },
   {
    "id": 281,
-   "key": "crystal_pick",
-   "name": "Crystal pick",
-   "icon": "crystal_pick",
+   "key": "drill_mk2",
+   "name": "Mk2 Drill",
+   "icon": "drill_mk2",
    "block": null,
    "stack": 1,
-   "tool": "pick",
-   "level": 5,
-   "speed": 9.0,
-   "uses": 900,
-   "damage": 3
+   "tool": "drill",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 160,
+   "damage": 4
   },
   {
    "id": 282,
-   "key": "wood_axe",
-   "name": "Wooden axe",
-   "icon": "wood_axe",
+   "key": "drill_mk3",
+   "name": "Mk3 Drill",
+   "icon": "drill_mk3",
    "block": null,
    "stack": 1,
-   "tool": "axe",
-   "level": 1,
-   "speed": 2.0,
-   "uses": 60,
-   "damage": 3
+   "tool": "drill",
+   "level": 3,
+   "speed": 6.0,
+   "uses": 320,
+   "damage": 4
   },
   {
    "id": 283,
-   "key": "stone_axe",
-   "name": "Stone axe",
-   "icon": "stone_axe",
+   "key": "drill_mk4",
+   "name": "Mk4 Drill",
+   "icon": "drill_mk4",
    "block": null,
    "stack": 1,
-   "tool": "axe",
-   "level": 2,
-   "speed": 4.0,
-   "uses": 130,
+   "tool": "drill",
+   "level": 4,
+   "speed": 10.0,
+   "uses": 1000,
    "damage": 4
   },
   {
    "id": 284,
-   "key": "copper_axe",
-   "name": "Copper axe",
-   "icon": "copper_axe",
+   "key": "cutter_mk1",
+   "name": "Mk1 Cutter",
+   "icon": "cutter_mk1",
    "block": null,
    "stack": 1,
-   "tool": "axe",
-   "level": 3,
-   "speed": 5.0,
-   "uses": 200,
-   "damage": 5
-  },
-  {
-   "id": 285,
-   "key": "iron_axe",
-   "name": "Iron axe",
-   "icon": "iron_axe",
-   "block": null,
-   "stack": 1,
-   "tool": "axe",
-   "level": 4,
-   "speed": 6.5,
-   "uses": 300,
-   "damage": 6
-  },
-  {
-   "id": 286,
-   "key": "crystal_axe",
-   "name": "Crystal axe",
-   "icon": "crystal_axe",
-   "block": null,
-   "stack": 1,
-   "tool": "axe",
-   "level": 5,
-   "speed": 9.0,
-   "uses": 900,
-   "damage": 7
-  },
-  {
-   "id": 287,
-   "key": "wood_shovel",
-   "name": "Wooden shovel",
-   "icon": "wood_shovel",
-   "block": null,
-   "stack": 1,
-   "tool": "shovel",
+   "tool": "cutter",
    "level": 1,
-   "speed": 2.0,
-   "uses": 60,
-   "damage": 1
-  },
-  {
-   "id": 288,
-   "key": "stone_shovel",
-   "name": "Stone shovel",
-   "icon": "stone_shovel",
-   "block": null,
-   "stack": 1,
-   "tool": "shovel",
-   "level": 2,
-   "speed": 4.0,
-   "uses": 130,
-   "damage": 2
-  },
-  {
-   "id": 289,
-   "key": "copper_shovel",
-   "name": "Copper shovel",
-   "icon": "copper_shovel",
-   "block": null,
-   "stack": 1,
-   "tool": "shovel",
-   "level": 3,
-   "speed": 5.0,
-   "uses": 200,
-   "damage": 2
-  },
-  {
-   "id": 290,
-   "key": "iron_shovel",
-   "name": "Iron shovel",
-   "icon": "iron_shovel",
-   "block": null,
-   "stack": 1,
-   "tool": "shovel",
-   "level": 4,
-   "speed": 6.5,
-   "uses": 300,
-   "damage": 3
-  },
-  {
-   "id": 291,
-   "key": "crystal_shovel",
-   "name": "Crystal shovel",
-   "icon": "crystal_shovel",
-   "block": null,
-   "stack": 1,
-   "tool": "shovel",
-   "level": 5,
-   "speed": 9.0,
-   "uses": 900,
-   "damage": 3
-  },
-  {
-   "id": 292,
-   "key": "wood_sword",
-   "name": "Wooden sword",
-   "icon": "wood_sword",
-   "block": null,
-   "stack": 1,
-   "tool": "sword",
-   "level": 1,
-   "speed": 2.0,
-   "uses": 60,
+   "speed": 2.5,
+   "uses": 80,
    "damage": 4
   },
   {
-   "id": 293,
-   "key": "stone_sword",
-   "name": "Stone sword",
-   "icon": "stone_sword",
+   "id": 285,
+   "key": "cutter_mk2",
+   "name": "Mk2 Cutter",
+   "icon": "cutter_mk2",
    "block": null,
    "stack": 1,
-   "tool": "sword",
+   "tool": "cutter",
    "level": 2,
    "speed": 4.0,
-   "uses": 130,
-   "damage": 5
+   "uses": 160,
+   "damage": 4
+  },
+  {
+   "id": 286,
+   "key": "cutter_mk3",
+   "name": "Mk3 Cutter",
+   "icon": "cutter_mk3",
+   "block": null,
+   "stack": 1,
+   "tool": "cutter",
+   "level": 3,
+   "speed": 6.0,
+   "uses": 320,
+   "damage": 4
+  },
+  {
+   "id": 287,
+   "key": "cutter_mk4",
+   "name": "Mk4 Cutter",
+   "icon": "cutter_mk4",
+   "block": null,
+   "stack": 1,
+   "tool": "cutter",
+   "level": 4,
+   "speed": 10.0,
+   "uses": 1000,
+   "damage": 4
+  },
+  {
+   "id": 288,
+   "key": "scoop_mk1",
+   "name": "Mk1 Scoop",
+   "icon": "scoop_mk1",
+   "block": null,
+   "stack": 1,
+   "tool": "scoop",
+   "level": 1,
+   "speed": 2.5,
+   "uses": 80,
+   "damage": 4
+  },
+  {
+   "id": 289,
+   "key": "scoop_mk2",
+   "name": "Mk2 Scoop",
+   "icon": "scoop_mk2",
+   "block": null,
+   "stack": 1,
+   "tool": "scoop",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 160,
+   "damage": 4
+  },
+  {
+   "id": 290,
+   "key": "scoop_mk3",
+   "name": "Mk3 Scoop",
+   "icon": "scoop_mk3",
+   "block": null,
+   "stack": 1,
+   "tool": "scoop",
+   "level": 3,
+   "speed": 6.0,
+   "uses": 320,
+   "damage": 4
+  },
+  {
+   "id": 291,
+   "key": "scoop_mk4",
+   "name": "Mk4 Scoop",
+   "icon": "scoop_mk4",
+   "block": null,
+   "stack": 1,
+   "tool": "scoop",
+   "level": 4,
+   "speed": 10.0,
+   "uses": 1000,
+   "damage": 4
+  },
+  {
+   "id": 292,
+   "key": "zapper_mk1",
+   "name": "Mk1 Zapper",
+   "icon": "zapper_mk1",
+   "block": null,
+   "stack": 1,
+   "tool": "zapper",
+   "level": 1,
+   "speed": 1.0,
+   "uses": 80,
+   "damage": 12
+  },
+  {
+   "id": 293,
+   "key": "zapper_mk2",
+   "name": "Mk2 Zapper",
+   "icon": "zapper_mk2",
+   "block": null,
+   "stack": 1,
+   "tool": "zapper",
+   "level": 2,
+   "speed": 1.0,
+   "uses": 160,
+   "damage": 18
   },
   {
    "id": 294,
-   "key": "copper_sword",
-   "name": "Copper sword",
-   "icon": "copper_sword",
+   "key": "zapper_mk3",
+   "name": "Mk3 Zapper",
+   "icon": "zapper_mk3",
    "block": null,
    "stack": 1,
-   "tool": "sword",
+   "tool": "zapper",
    "level": 3,
-   "speed": 5.0,
-   "uses": 200,
-   "damage": 6
+   "speed": 1.0,
+   "uses": 320,
+   "damage": 24
   },
   {
    "id": 295,
-   "key": "iron_sword",
-   "name": "Iron sword",
-   "icon": "iron_sword",
+   "key": "zapper_mk4",
+   "name": "Mk4 Zapper",
+   "icon": "zapper_mk4",
    "block": null,
    "stack": 1,
-   "tool": "sword",
+   "tool": "zapper",
    "level": 4,
-   "speed": 6.5,
-   "uses": 300,
-   "damage": 7
+   "speed": 1.0,
+   "uses": 1000,
+   "damage": 32
   },
   {
    "id": 296,
-   "key": "crystal_sword",
-   "name": "Crystal sword",
-   "icon": "crystal_sword",
+   "key": "fluff_visor",
+   "name": "Fluff visor",
+   "icon": "fluff_visor",
    "block": null,
    "stack": 1,
-   "tool": "sword",
-   "level": 5,
-   "speed": 9.0,
-   "uses": 900,
-   "damage": 8
+   "uses": 60,
+   "suit": 0,
+   "shield": 4
   },
   {
    "id": 297,
-   "key": "wood_hoe",
-   "name": "Wooden hoe",
-   "icon": "wood_hoe",
+   "key": "copper_visor",
+   "name": "Copper visor",
+   "icon": "copper_visor",
    "block": null,
    "stack": 1,
-   "tool": "hoe",
-   "level": 1,
-   "speed": 2.0,
-   "uses": 60,
-   "damage": 1
+   "uses": 140,
+   "suit": 0,
+   "shield": 6
   },
   {
    "id": 298,
-   "key": "stone_hoe",
-   "name": "Stone hoe",
-   "icon": "stone_hoe",
+   "key": "iron_visor",
+   "name": "Iron visor",
+   "icon": "iron_visor",
    "block": null,
    "stack": 1,
-   "tool": "hoe",
-   "level": 2,
-   "speed": 4.0,
-   "uses": 130,
-   "damage": 2
+   "uses": 260,
+   "suit": 0,
+   "shield": 8
   },
   {
    "id": 299,
-   "key": "copper_hoe",
-   "name": "Copper hoe",
-   "icon": "copper_hoe",
+   "key": "neon_visor",
+   "name": "Neon visor",
+   "icon": "neon_visor",
    "block": null,
    "stack": 1,
-   "tool": "hoe",
-   "level": 3,
-   "speed": 5.0,
-   "uses": 200,
-   "damage": 2
+   "uses": 600,
+   "suit": 0,
+   "shield": 11
   },
   {
    "id": 300,
-   "key": "iron_hoe",
-   "name": "Iron hoe",
-   "icon": "iron_hoe",
+   "key": "fluff_vest",
+   "name": "Fluff vest",
+   "icon": "fluff_vest",
    "block": null,
    "stack": 1,
-   "tool": "hoe",
-   "level": 4,
-   "speed": 6.5,
-   "uses": 300,
-   "damage": 3
+   "uses": 60,
+   "suit": 1,
+   "shield": 8
   },
   {
    "id": 301,
-   "key": "crystal_hoe",
-   "name": "Crystal hoe",
-   "icon": "crystal_hoe",
+   "key": "copper_vest",
+   "name": "Copper vest",
+   "icon": "copper_vest",
    "block": null,
    "stack": 1,
-   "tool": "hoe",
-   "level": 5,
-   "speed": 9.0,
-   "uses": 900,
-   "damage": 3
+   "uses": 140,
+   "suit": 1,
+   "shield": 12
   },
   {
    "id": 302,
-   "key": "cloth_helmet",
-   "name": "Cloth helmet",
-   "icon": "cloth_helmet",
+   "key": "iron_vest",
+   "name": "Iron vest",
+   "icon": "iron_vest",
    "block": null,
    "stack": 1,
-   "uses": 55,
-   "armour": 0,
-   "points": 1
+   "uses": 260,
+   "suit": 1,
+   "shield": 16
   },
   {
    "id": 303,
-   "key": "copper_helmet",
-   "name": "Copper helmet",
-   "icon": "copper_helmet",
+   "key": "neon_vest",
+   "name": "Neon vest",
+   "icon": "neon_vest",
    "block": null,
    "stack": 1,
-   "uses": 120,
-   "armour": 0,
-   "points": 2
+   "uses": 600,
+   "suit": 1,
+   "shield": 22
   },
   {
    "id": 304,
-   "key": "iron_helmet",
-   "name": "Iron helmet",
-   "icon": "iron_helmet",
+   "key": "fluff_boots",
+   "name": "Fluff boots",
+   "icon": "fluff_boots",
    "block": null,
    "stack": 1,
-   "uses": 220,
-   "armour": 0,
-   "points": 2
+   "uses": 60,
+   "suit": 2,
+   "shield": 3
   },
   {
    "id": 305,
-   "key": "crystal_helmet",
-   "name": "Crystal helmet",
-   "icon": "crystal_helmet",
-   "block": null,
-   "stack": 1,
-   "uses": 480,
-   "armour": 0,
-   "points": 3
-  },
-  {
-   "id": 306,
-   "key": "cloth_chest",
-   "name": "Cloth chest guard",
-   "icon": "cloth_chest",
-   "block": null,
-   "stack": 1,
-   "uses": 55,
-   "armour": 1,
-   "points": 3
-  },
-  {
-   "id": 307,
-   "key": "copper_chest",
-   "name": "Copper chest guard",
-   "icon": "copper_chest",
-   "block": null,
-   "stack": 1,
-   "uses": 120,
-   "armour": 1,
-   "points": 5
-  },
-  {
-   "id": 308,
-   "key": "iron_chest",
-   "name": "Iron chest guard",
-   "icon": "iron_chest",
-   "block": null,
-   "stack": 1,
-   "uses": 220,
-   "armour": 1,
-   "points": 6
-  },
-  {
-   "id": 309,
-   "key": "crystal_chest",
-   "name": "Crystal chest guard",
-   "icon": "crystal_chest",
-   "block": null,
-   "stack": 1,
-   "uses": 480,
-   "armour": 1,
-   "points": 8
-  },
-  {
-   "id": 310,
-   "key": "cloth_legs",
-   "name": "Cloth leg guards",
-   "icon": "cloth_legs",
-   "block": null,
-   "stack": 1,
-   "uses": 55,
-   "armour": 2,
-   "points": 2
-  },
-  {
-   "id": 311,
-   "key": "copper_legs",
-   "name": "Copper leg guards",
-   "icon": "copper_legs",
-   "block": null,
-   "stack": 1,
-   "uses": 120,
-   "armour": 2,
-   "points": 4
-  },
-  {
-   "id": 312,
-   "key": "iron_legs",
-   "name": "Iron leg guards",
-   "icon": "iron_legs",
-   "block": null,
-   "stack": 1,
-   "uses": 220,
-   "armour": 2,
-   "points": 5
-  },
-  {
-   "id": 313,
-   "key": "crystal_legs",
-   "name": "Crystal leg guards",
-   "icon": "crystal_legs",
-   "block": null,
-   "stack": 1,
-   "uses": 480,
-   "armour": 2,
-   "points": 6
-  },
-  {
-   "id": 314,
-   "key": "cloth_boots",
-   "name": "Cloth boots",
-   "icon": "cloth_boots",
-   "block": null,
-   "stack": 1,
-   "uses": 55,
-   "armour": 3,
-   "points": 1
-  },
-  {
-   "id": 315,
    "key": "copper_boots",
    "name": "Copper boots",
    "icon": "copper_boots",
    "block": null,
    "stack": 1,
-   "uses": 120,
-   "armour": 3,
-   "points": 1
+   "uses": 140,
+   "suit": 2,
+   "shield": 5
   },
   {
-   "id": 316,
+   "id": 306,
    "key": "iron_boots",
    "name": "Iron boots",
    "icon": "iron_boots",
    "block": null,
    "stack": 1,
-   "uses": 220,
-   "armour": 3,
-   "points": 2
+   "uses": 260,
+   "suit": 2,
+   "shield": 6
   },
   {
-   "id": 317,
-   "key": "crystal_boots",
-   "name": "Crystal boots",
-   "icon": "crystal_boots",
+   "id": 307,
+   "key": "neon_boots",
+   "name": "Neon boots",
+   "icon": "neon_boots",
    "block": null,
    "stack": 1,
-   "uses": 480,
-   "armour": 3,
-   "points": 3
+   "uses": 600,
+   "suit": 2,
+   "shield": 9
   }
  ],
  "item_base": 256,
- "n_built_in": 65,
+ "n_built_in": 69,
  "hand": {
   "tool": null,
   "level": 0,
   "speed": 1.0,
-  "damage": 1
+  "damage": 4
  },
- "armour_parts": [
+ "suit_parts": [
   [
-   "helmet",
-   "helmet"
+   "visor",
+   "visor"
   ],
   [
-   "chest",
-   "chest guard"
-  ],
-  [
-   "legs",
-   "leg guards"
+   "vest",
+   "vest"
   ],
   [
    "boots",
    "boots"
   ]
  ],
- "armour_share": 0.04,
- "fuel": {
-  "9": 4,
-  "11": 2,
-  "57": 4,
-  "59": 4,
-  "61": 2,
-  "256": 1,
-  "257": 8,
-  "276": 8
+ "stack": 50,
+ "light_max": 12,
+ "animated": {
+  "server_rack_0": 4
  },
- "smelts": {
+ "fuel": {
+  "9": 2,
+  "11": 1,
+  "56": 2,
+  "58": 2,
+  "60": 1,
+  "257": 6,
+  "276": 6,
+  "277": 12
+ },
+ "refines": {
   "4": 3,
   "6": 16,
   "9": 276,
   "20": 258,
   "21": 259,
-  "27": 17,
-  "57": 276,
-  "59": 276,
+  "22": 260,
+  "56": 276,
+  "58": 276,
   "267": 266,
   "268": 269,
   "272": 259
+ },
+ "refine_takes": {
+  "272": 2
  },
  "mesh": {
   "face_shade": [
@@ -3394,9 +3397,5733 @@
    1.0
   ],
   "wavy": [
+   "glowfruit_leaves",
    "leaves",
    "pale_leaves",
    "pine_leaves"
+  ]
+ },
+ "sky": {
+  "stars": [
+   [
+    0.61799,
+    -0.77385,
+    0.13871,
+    0.6078,
+    0.8118,
+    0.8118,
+    1
+   ],
+   [
+    -0.10519,
+    -0.98556,
+    0.13268,
+    0.6588,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    0.4278,
+    -0.66814,
+    0.60875,
+    0.8118,
+    0.8118,
+    0.8118,
+    1
+   ],
+   [
+    -0.57459,
+    0.7086,
+    0.40955,
+    0.8627,
+    0.8627,
+    0.8627,
+    1
+   ],
+   [
+    0.01468,
+    0.93515,
+    0.35396,
+    0.6902,
+    0.6902,
+    0.6902,
+    1
+   ],
+   [
+    0.26589,
+    0.9519,
+    0.15231,
+    0.5608,
+    0.5608,
+    0.5608,
+    1
+   ],
+   [
+    -0.67553,
+    -0.22231,
+    0.70302,
+    0.6431,
+    0.6431,
+    0.6431,
+    1
+   ],
+   [
+    0.21657,
+    -0.91403,
+    0.343,
+    0.6471,
+    0.6471,
+    0.6471,
+    1
+   ],
+   [
+    0.30865,
+    0.78217,
+    0.54125,
+    0.7412,
+    0.7412,
+    0.7412,
+    1
+   ],
+   [
+    -0.03272,
+    0.87197,
+    0.48847,
+    0.7255,
+    0.7255,
+    0.7255,
+    1
+   ],
+   [
+    -0.18102,
+    -0.81553,
+    0.54967,
+    0.9412,
+    0.9412,
+    0.9412,
+    1
+   ],
+   [
+    -0.29407,
+    0.08609,
+    0.9519,
+    0.4784,
+    0.6353,
+    0.6353,
+    1
+   ],
+   [
+    -0.85225,
+    0.03191,
+    0.52216,
+    0.7216,
+    0.9608,
+    0.9608,
+    1
+   ],
+   [
+    -0.54935,
+    0.42625,
+    0.71869,
+    0.8275,
+    0.8275,
+    0.8275,
+    1
+   ],
+   [
+    -0.96121,
+    -0.22183,
+    0.16392,
+    0.5725,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    -0.72105,
+    0.2146,
+    0.65881,
+    0.702,
+    0.9333,
+    0.9333,
+    1
+   ],
+   [
+    -0.15127,
+    -0.69823,
+    0.69971,
+    0.9843,
+    0.9843,
+    0.9843,
+    1
+   ],
+   [
+    0.8303,
+    0.25483,
+    0.49564,
+    0.5725,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    0.65206,
+    -0.69504,
+    0.30287,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    0.25668,
+    -0.55727,
+    0.78966,
+    0.6039,
+    0.6039,
+    0.6039,
+    1
+   ],
+   [
+    0.87581,
+    0.24948,
+    0.41318,
+    0.5569,
+    0.5569,
+    0.5569,
+    1
+   ],
+   [
+    0.70879,
+    -0.68905,
+    0.15112,
+    0.7176,
+    0.7176,
+    0.7176,
+    1
+   ],
+   [
+    0.07521,
+    0.85379,
+    0.51516,
+    0.5725,
+    0.7647,
+    0.7647,
+    1
+   ],
+   [
+    -0.37715,
+    -0.67447,
+    0.6347,
+    0.8824,
+    0.8824,
+    0.8824,
+    1
+   ],
+   [
+    0.54229,
+    -0.66177,
+    0.51767,
+    0.9176,
+    0.9176,
+    0.9176,
+    1
+   ],
+   [
+    0.29689,
+    0.94856,
+    0.10998,
+    0.8039,
+    0.8039,
+    0.8039,
+    1
+   ],
+   [
+    0.74158,
+    0.31272,
+    0.59352,
+    0.749,
+    0.749,
+    0.749,
+    1
+   ],
+   [
+    -0.44044,
+    0.81452,
+    0.37758,
+    0.7804,
+    0.7804,
+    0.7804,
+    1
+   ],
+   [
+    0.37515,
+    -0.54299,
+    0.75128,
+    0.7255,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    -0.18163,
+    -0.41018,
+    0.89373,
+    0.651,
+    0.651,
+    0.651,
+    1
+   ],
+   [
+    0.91597,
+    0.00988,
+    0.40112,
+    0.8471,
+    0.8471,
+    0.8471,
+    1
+   ],
+   [
+    -0.95348,
+    -0.28621,
+    0.09464,
+    0.5725,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    -0.65169,
+    -0.26533,
+    0.71056,
+    0.5922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    0.40242,
+    0.31886,
+    0.85813,
+    0.6549,
+    0.6549,
+    0.6549,
+    1
+   ],
+   [
+    -0.47727,
+    0.13329,
+    0.86859,
+    0.6863,
+    0.6863,
+    0.6863,
+    1
+   ],
+   [
+    0.09406,
+    0.97611,
+    0.19585,
+    0.5843,
+    0.7804,
+    0.7804,
+    1
+   ],
+   [
+    -0.22333,
+    0.87525,
+    0.42902,
+    0.7373,
+    0.9804,
+    0.9804,
+    1
+   ],
+   [
+    -0.43526,
+    0.1898,
+    0.88007,
+    0.8,
+    0.8,
+    0.8,
+    1
+   ],
+   [
+    -0.00954,
+    0.91698,
+    0.39882,
+    0.8,
+    0.8,
+    0.8,
+    1
+   ],
+   [
+    -0.56019,
+    -0.41421,
+    0.71737,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    0.09167,
+    0.3483,
+    0.93289,
+    0.8353,
+    0.8353,
+    0.8353,
+    1
+   ],
+   [
+    -0.15138,
+    -0.88508,
+    0.44013,
+    0.5843,
+    0.5843,
+    0.5843,
+    1
+   ],
+   [
+    -0.01265,
+    0.99538,
+    0.0952,
+    0.6,
+    0.6,
+    0.6,
+    1
+   ],
+   [
+    -0.94252,
+    -0.30444,
+    0.13774,
+    0.6314,
+    0.8431,
+    0.8431,
+    1
+   ],
+   [
+    -0.3558,
+    -0.08084,
+    0.93106,
+    0.5529,
+    0.5529,
+    0.5529,
+    1
+   ],
+   [
+    0.4286,
+    0.48586,
+    0.76174,
+    0.6745,
+    0.6745,
+    0.6745,
+    1
+   ],
+   [
+    -0.81986,
+    0.41643,
+    0.39296,
+    0.8235,
+    0.8235,
+    0.8235,
+    1
+   ],
+   [
+    -0.11544,
+    0.08287,
+    0.98985,
+    0.7333,
+    0.7333,
+    0.7333,
+    1
+   ],
+   [
+    -0.86333,
+    -0.49642,
+    0.09067,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    0.15749,
+    -0.76383,
+    0.62591,
+    0.7765,
+    0.7765,
+    0.7765,
+    1
+   ],
+   [
+    -0.29919,
+    0.21395,
+    0.9299,
+    0.4588,
+    0.6157,
+    0.6157,
+    1
+   ],
+   [
+    0.9235,
+    -0.21523,
+    0.31754,
+    0.502,
+    0.6667,
+    0.6667,
+    1
+   ],
+   [
+    -0.55242,
+    0.83011,
+    0.07584,
+    0.9412,
+    0.9412,
+    0.9412,
+    1
+   ],
+   [
+    -0.52875,
+    0.40886,
+    0.74382,
+    0.7725,
+    0.7725,
+    0.7725,
+    1
+   ],
+   [
+    0.85987,
+    0.50818,
+    0.04869,
+    0.9647,
+    0.9647,
+    0.9647,
+    1
+   ],
+   [
+    -0.06639,
+    0.4793,
+    0.87513,
+    0.4549,
+    0.6078,
+    0.6078,
+    1
+   ],
+   [
+    0.35103,
+    0.92833,
+    0.12238,
+    0.7216,
+    0.7216,
+    0.7216,
+    1
+   ],
+   [
+    0.545,
+    -0.8187,
+    0.18085,
+    0.6431,
+    0.6431,
+    0.6431,
+    1
+   ],
+   [
+    0.88191,
+    0.31706,
+    0.34888,
+    0.8353,
+    0.8353,
+    0.8353,
+    1
+   ],
+   [
+    -0.26574,
+    0.85841,
+    0.43877,
+    0.7451,
+    0.9961,
+    0.9961,
+    1
+   ],
+   [
+    0.39958,
+    0.01763,
+    0.91653,
+    0.5686,
+    0.5686,
+    0.5686,
+    1
+   ],
+   [
+    -0.63308,
+    -0.74114,
+    0.22342,
+    0.7294,
+    0.9725,
+    0.9725,
+    1
+   ],
+   [
+    -0.56371,
+    0.70924,
+    0.42333,
+    0.698,
+    0.698,
+    0.698,
+    1
+   ],
+   [
+    0.01854,
+    -0.64401,
+    0.7648,
+    0.8314,
+    0.8314,
+    0.8314,
+    1
+   ],
+   [
+    0.34572,
+    0.7033,
+    0.62116,
+    0.5608,
+    0.5608,
+    0.5608,
+    1
+   ],
+   [
+    -0.15567,
+    -0.6178,
+    0.77077,
+    0.6314,
+    0.8392,
+    0.8392,
+    1
+   ],
+   [
+    -0.81287,
+    0.56894,
+    0.1247,
+    0.8784,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    -0.58697,
+    0.72122,
+    0.36784,
+    0.5216,
+    0.6941,
+    0.6941,
+    1
+   ],
+   [
+    -0.23758,
+    -0.93714,
+    0.25557,
+    0.6824,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    -0.31182,
+    -0.56701,
+    0.76241,
+    0.5804,
+    0.5804,
+    0.5804,
+    1
+   ],
+   [
+    0.99349,
+    0.07846,
+    0.08264,
+    0.6667,
+    0.8902,
+    0.8902,
+    1
+   ],
+   [
+    -0.68076,
+    0.51524,
+    0.52067,
+    0.7608,
+    0.7608,
+    0.7608,
+    1
+   ],
+   [
+    -0.73029,
+    0.58728,
+    0.34897,
+    0.9569,
+    0.9569,
+    0.9569,
+    1
+   ],
+   [
+    0.86748,
+    -0.48767,
+    0.09821,
+    0.451,
+    0.6039,
+    0.6039,
+    1
+   ],
+   [
+    0.83633,
+    -0.37099,
+    0.40363,
+    0.5882,
+    0.5882,
+    0.5882,
+    1
+   ],
+   [
+    0.12776,
+    -0.85194,
+    0.50781,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    -0.33648,
+    0.91165,
+    0.23597,
+    0.8471,
+    0.8471,
+    0.8471,
+    1
+   ],
+   [
+    -0.25909,
+    0.90883,
+    0.32697,
+    0.4392,
+    0.5843,
+    0.5843,
+    1
+   ],
+   [
+    0.85392,
+    0.51629,
+    0.06528,
+    0.8824,
+    0.8824,
+    0.8824,
+    1
+   ],
+   [
+    0.78715,
+    0.16249,
+    0.59497,
+    0.6902,
+    0.9216,
+    0.9216,
+    1
+   ],
+   [
+    -0.56498,
+    0.81649,
+    0.11894,
+    0.702,
+    0.702,
+    0.702,
+    1
+   ],
+   [
+    -0.09987,
+    0.93975,
+    0.32696,
+    0.7686,
+    0.7686,
+    0.7686,
+    1
+   ],
+   [
+    0.7437,
+    0.51061,
+    0.43149,
+    0.6863,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    0.14783,
+    0.54855,
+    0.82294,
+    0.4275,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    0.07936,
+    0.69485,
+    0.71477,
+    0.5608,
+    0.749,
+    0.749,
+    1
+   ],
+   [
+    -0.353,
+    0.46573,
+    0.81147,
+    0.702,
+    0.702,
+    0.702,
+    1
+   ],
+   [
+    -0.08492,
+    0.60965,
+    0.78811,
+    0.7216,
+    0.7216,
+    0.7216,
+    1
+   ],
+   [
+    0.13181,
+    0.68216,
+    0.71922,
+    0.8078,
+    0.8078,
+    0.8078,
+    1
+   ],
+   [
+    -0.8789,
+    -0.46633,
+    0.10032,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    -0.4111,
+    -0.71705,
+    0.56289,
+    0.5882,
+    0.5882,
+    0.5882,
+    1
+   ],
+   [
+    -0.73722,
+    -0.59573,
+    0.31878,
+    0.4235,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    -0.68393,
+    0.71507,
+    0.14461,
+    0.7725,
+    0.7725,
+    0.7725,
+    1
+   ],
+   [
+    -0.69837,
+    -0.46006,
+    0.54828,
+    0.8667,
+    0.8667,
+    0.8667,
+    1
+   ],
+   [
+    0.98818,
+    -0.02591,
+    0.1511,
+    0.7255,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    0.62619,
+    0.546,
+    0.55657,
+    0.6745,
+    0.6745,
+    0.6745,
+    1
+   ],
+   [
+    0.55594,
+    0.83001,
+    0.04488,
+    0.9412,
+    0.9412,
+    0.9412,
+    1
+   ],
+   [
+    0.18674,
+    -0.00621,
+    0.98239,
+    0.9882,
+    0.9882,
+    0.9882,
+    1
+   ],
+   [
+    -0.16349,
+    0.10566,
+    0.98087,
+    0.6549,
+    0.8706,
+    0.8706,
+    1
+   ],
+   [
+    -0.6673,
+    -0.67761,
+    0.30913,
+    0.8863,
+    0.8863,
+    0.8863,
+    1
+   ],
+   [
+    -0.8119,
+    -0.29568,
+    0.50338,
+    0.8667,
+    0.8667,
+    0.8667,
+    1
+   ],
+   [
+    0.75204,
+    0.58412,
+    0.30536,
+    0.6549,
+    0.6549,
+    0.6549,
+    1
+   ],
+   [
+    0.42117,
+    -0.73124,
+    0.53656,
+    0.7294,
+    0.7294,
+    0.7294,
+    1
+   ],
+   [
+    0.14388,
+    0.80966,
+    0.56899,
+    0.702,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    -0.42719,
+    0.48987,
+    0.75996,
+    0.7882,
+    0.7882,
+    0.7882,
+    1
+   ],
+   [
+    0.1363,
+    0.96509,
+    0.22365,
+    0.8314,
+    0.8314,
+    0.8314,
+    1
+   ],
+   [
+    0.43549,
+    -0.76503,
+    0.47442,
+    0.6078,
+    0.6078,
+    0.6078,
+    1
+   ],
+   [
+    -0.04464,
+    -0.48257,
+    0.87472,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    0.52812,
+    0.30773,
+    0.79145,
+    0.6588,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    -0.66132,
+    0.72874,
+    0.17778,
+    0.9294,
+    0.9294,
+    0.9294,
+    1
+   ],
+   [
+    0.9572,
+    -0.14886,
+    0.2482,
+    0.8353,
+    0.8353,
+    0.8353,
+    1
+   ],
+   [
+    -0.65853,
+    0.71782,
+    0.226,
+    0.8118,
+    0.8118,
+    0.8118,
+    1
+   ],
+   [
+    -0.38021,
+    -0.13708,
+    0.91469,
+    0.7451,
+    0.7451,
+    0.7451,
+    1
+   ],
+   [
+    -0.21624,
+    -0.76933,
+    0.60114,
+    0.9098,
+    0.9098,
+    0.9098,
+    1
+   ],
+   [
+    0.77036,
+    -0.63317,
+    0.07511,
+    0.7608,
+    0.7608,
+    0.7608,
+    1
+   ],
+   [
+    -0.53633,
+    -0.80303,
+    0.25978,
+    0.8667,
+    0.8667,
+    0.8667,
+    1
+   ],
+   [
+    -0.19296,
+    0.53903,
+    0.81989,
+    0.6745,
+    0.6745,
+    0.6745,
+    1
+   ],
+   [
+    0.5264,
+    0.44629,
+    0.72369,
+    0.5608,
+    0.5608,
+    0.5608,
+    1
+   ],
+   [
+    0.43701,
+    0.8607,
+    0.26118,
+    0.4784,
+    0.6392,
+    0.6392,
+    1
+   ],
+   [
+    0.43714,
+    0.29385,
+    0.85004,
+    0.7569,
+    0.7569,
+    0.7569,
+    1
+   ],
+   [
+    -0.42294,
+    0.67571,
+    0.60377,
+    0.5686,
+    0.7569,
+    0.7569,
+    1
+   ],
+   [
+    0.57886,
+    0.53336,
+    0.61681,
+    0.6235,
+    0.6235,
+    0.6235,
+    1
+   ],
+   [
+    0.64909,
+    0.0305,
+    0.7601,
+    0.7412,
+    0.7412,
+    0.7412,
+    1
+   ],
+   [
+    -0.66101,
+    -0.676,
+    0.32571,
+    0.8471,
+    0.8471,
+    0.8471,
+    1
+   ],
+   [
+    0.94683,
+    0.23723,
+    0.21735,
+    0.6431,
+    0.6431,
+    0.6431,
+    1
+   ],
+   [
+    0.30577,
+    -0.78084,
+    0.54479,
+    0.5804,
+    0.5804,
+    0.5804,
+    1
+   ],
+   [
+    0.17739,
+    0.87066,
+    0.45879,
+    0.6863,
+    0.6863,
+    0.6863,
+    1
+   ],
+   [
+    -0.06501,
+    -0.0625,
+    0.99593,
+    0.8471,
+    0.8471,
+    0.8471,
+    1
+   ],
+   [
+    0.17491,
+    -0.1455,
+    0.97377,
+    0.5569,
+    0.5569,
+    0.5569,
+    1
+   ],
+   [
+    0.34464,
+    0.90938,
+    0.23291,
+    0.9216,
+    0.9216,
+    0.9216,
+    1
+   ],
+   [
+    -0.29119,
+    0.83364,
+    0.46932,
+    0.5216,
+    0.698,
+    0.698,
+    1
+   ],
+   [
+    0.28497,
+    -0.78117,
+    0.55548,
+    0.6314,
+    0.6314,
+    0.6314,
+    1
+   ],
+   [
+    0.05829,
+    -0.66949,
+    0.74053,
+    0.749,
+    0.749,
+    0.749,
+    1
+   ],
+   [
+    -0.14005,
+    -0.74048,
+    0.65733,
+    0.6627,
+    0.6627,
+    0.6627,
+    1
+   ],
+   [
+    -0.11228,
+    0.8403,
+    0.53037,
+    0.5882,
+    0.5882,
+    0.5882,
+    1
+   ],
+   [
+    -0.31797,
+    -0.91602,
+    0.24454,
+    0.9882,
+    0.9882,
+    0.9882,
+    1
+   ],
+   [
+    0.37182,
+    0.78891,
+    0.48925,
+    0.9725,
+    0.9725,
+    0.9725,
+    1
+   ],
+   [
+    -0.68611,
+    0.7155,
+    0.13159,
+    0.5804,
+    0.5804,
+    0.5804,
+    1
+   ],
+   [
+    0.36642,
+    0.92643,
+    0.08637,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    0.94994,
+    -0.30575,
+    0.06425,
+    0.8549,
+    0.8549,
+    0.8549,
+    1
+   ],
+   [
+    0.82206,
+    -0.07994,
+    0.56377,
+    0.5922,
+    0.5922,
+    0.5922,
+    1
+   ],
+   [
+    0.76776,
+    0.57422,
+    0.28429,
+    0.6118,
+    0.8196,
+    0.8196,
+    1
+   ],
+   [
+    -0.07171,
+    -0.18366,
+    0.98037,
+    0.6549,
+    0.8706,
+    0.8706,
+    1
+   ],
+   [
+    -0.09481,
+    0.25804,
+    0.96147,
+    0.6824,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    -0.77333,
+    0.46876,
+    0.42687,
+    0.9725,
+    0.9725,
+    0.9725,
+    1
+   ],
+   [
+    0.84395,
+    0.52809,
+    0.09423,
+    0.6941,
+    0.6941,
+    0.6941,
+    1
+   ],
+   [
+    -0.80174,
+    -0.10065,
+    0.58914,
+    0.8392,
+    0.8392,
+    0.8392,
+    1
+   ],
+   [
+    -0.52669,
+    0.60686,
+    0.59524,
+    0.8941,
+    0.8941,
+    0.8941,
+    1
+   ],
+   [
+    -0.52467,
+    0.4429,
+    0.72702,
+    0.6902,
+    0.6902,
+    0.6902,
+    1
+   ],
+   [
+    -0.35925,
+    0.40742,
+    0.83961,
+    0.9059,
+    0.9059,
+    0.9059,
+    1
+   ],
+   [
+    -0.48788,
+    -0.34502,
+    0.80183,
+    0.6745,
+    0.6745,
+    0.6745,
+    1
+   ],
+   [
+    -0.0735,
+    -0.6809,
+    0.72868,
+    0.9686,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    0.80466,
+    -0.5915,
+    0.05151,
+    0.9373,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    -0.90975,
+    -0.2201,
+    0.35201,
+    0.7098,
+    0.9451,
+    0.9451,
+    1
+   ],
+   [
+    0.39186,
+    0.91141,
+    0.1256,
+    0.6275,
+    0.8392,
+    0.8392,
+    1
+   ],
+   [
+    -0.73314,
+    0.02794,
+    0.67951,
+    0.7294,
+    0.7294,
+    0.7294,
+    1
+   ],
+   [
+    0.90228,
+    -0.23666,
+    0.36041,
+    0.8118,
+    0.8118,
+    0.8118,
+    1
+   ],
+   [
+    -0.12141,
+    0.98516,
+    0.12132,
+    0.5804,
+    0.5804,
+    0.5804,
+    1
+   ],
+   [
+    -0.12851,
+    -0.98704,
+    0.09608,
+    0.6196,
+    0.6196,
+    0.6196,
+    1
+   ],
+   [
+    0.26741,
+    -0.57404,
+    0.77393,
+    0.4431,
+    0.5922,
+    0.5922,
+    1
+   ],
+   [
+    -0.99026,
+    0.13269,
+    0.04213,
+    0.9686,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    -0.87531,
+    0.34037,
+    0.34349,
+    0.7765,
+    0.7765,
+    0.7765,
+    1
+   ],
+   [
+    -0.85056,
+    -0.22439,
+    0.47559,
+    0.6275,
+    0.8353,
+    0.8353,
+    1
+   ],
+   [
+    0.56355,
+    -0.79147,
+    0.23663,
+    0.749,
+    0.749,
+    0.749,
+    1
+   ],
+   [
+    0.76795,
+    0.5892,
+    0.2512,
+    0.6941,
+    0.6941,
+    0.6941,
+    1
+   ],
+   [
+    0.60806,
+    -0.59932,
+    0.52066,
+    0.8039,
+    0.8039,
+    0.8039,
+    1
+   ],
+   [
+    -0.62367,
+    0.03462,
+    0.78092,
+    0.4392,
+    0.5882,
+    0.5882,
+    1
+   ],
+   [
+    0.12814,
+    0.93148,
+    0.34047,
+    0.7608,
+    0.7608,
+    0.7608,
+    1
+   ],
+   [
+    -0.72317,
+    0.68641,
+    0.07661,
+    0.7373,
+    0.7373,
+    0.7373,
+    1
+   ],
+   [
+    -0.82268,
+    -0.08483,
+    0.56214,
+    0.9412,
+    0.9412,
+    0.9412,
+    1
+   ],
+   [
+    -0.71429,
+    -0.64932,
+    0.26111,
+    0.7098,
+    0.7098,
+    0.7098,
+    1
+   ],
+   [
+    -0.04474,
+    -0.79578,
+    0.60393,
+    0.6824,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    0.85772,
+    0.01968,
+    0.51374,
+    0.7294,
+    0.9765,
+    0.9765,
+    1
+   ],
+   [
+    -0.54615,
+    0.4152,
+    0.72754,
+    0.9882,
+    0.9882,
+    0.9882,
+    1
+   ],
+   [
+    0.33828,
+    -0.87345,
+    0.35021,
+    0.8902,
+    0.8902,
+    0.8902,
+    1
+   ],
+   [
+    -0.93352,
+    0.10782,
+    0.34193,
+    0.6471,
+    0.6471,
+    0.6471,
+    1
+   ],
+   [
+    -0.51464,
+    -0.85568,
+    0.05437,
+    0.749,
+    0.9961,
+    0.9961,
+    1
+   ],
+   [
+    0.51063,
+    -0.28058,
+    0.81273,
+    0.702,
+    0.702,
+    0.702,
+    1
+   ],
+   [
+    0.43901,
+    -0.88715,
+    0.14227,
+    0.9922,
+    0.9922,
+    0.9922,
+    1
+   ],
+   [
+    -0.55426,
+    -0.57975,
+    0.59724,
+    0.8824,
+    0.8824,
+    0.8824,
+    1
+   ],
+   [
+    -0.4543,
+    -0.61126,
+    0.64805,
+    0.9373,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    -0.52588,
+    0.39449,
+    0.75355,
+    0.6196,
+    0.6196,
+    0.6196,
+    1
+   ],
+   [
+    0.60876,
+    0.79033,
+    0.06925,
+    0.8784,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    0.72417,
+    -0.50647,
+    0.46804,
+    0.5961,
+    0.5961,
+    0.5961,
+    1
+   ],
+   [
+    0.48314,
+    -0.73528,
+    0.47532,
+    0.7686,
+    0.7686,
+    0.7686,
+    1
+   ],
+   [
+    0.04038,
+    -0.97298,
+    0.22732,
+    0.9882,
+    0.9882,
+    0.9882,
+    1
+   ],
+   [
+    0.23716,
+    0.88376,
+    0.40338,
+    0.6667,
+    0.8863,
+    0.8863,
+    1
+   ],
+   [
+    0.18393,
+    -0.42813,
+    0.8848,
+    0.6431,
+    0.8549,
+    0.8549,
+    1
+   ],
+   [
+    0.87661,
+    0.09541,
+    0.47166,
+    0.6588,
+    0.6588,
+    0.6588,
+    1
+   ],
+   [
+    0.50481,
+    -0.69752,
+    0.50857,
+    0.8863,
+    0.8863,
+    0.8863,
+    1
+   ],
+   [
+    0.11241,
+    0.12562,
+    0.98569,
+    0.7647,
+    0.7647,
+    0.7647,
+    1
+   ],
+   [
+    0.88813,
+    0.06683,
+    0.45471,
+    0.8431,
+    0.8431,
+    0.8431,
+    1
+   ],
+   [
+    0.28059,
+    0.18165,
+    0.94248,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    -0.03822,
+    0.70727,
+    0.70591,
+    0.7137,
+    0.9529,
+    0.9529,
+    1
+   ],
+   [
+    -0.0485,
+    -0.63417,
+    0.77167,
+    0.9843,
+    0.9843,
+    0.9843,
+    1
+   ],
+   [
+    0.10844,
+    -0.42738,
+    0.89755,
+    0.9412,
+    0.9412,
+    0.9412,
+    1
+   ],
+   [
+    0.94282,
+    -0.07459,
+    0.32486,
+    0.6275,
+    0.6275,
+    0.6275,
+    1
+   ],
+   [
+    0.53937,
+    -0.41195,
+    0.73442,
+    0.7882,
+    0.7882,
+    0.7882,
+    1
+   ],
+   [
+    0.48507,
+    -0.6669,
+    0.56563,
+    0.8588,
+    0.8588,
+    0.8588,
+    1
+   ],
+   [
+    -0.38323,
+    0.92036,
+    0.07794,
+    0.9647,
+    0.9647,
+    0.9647,
+    1
+   ],
+   [
+    0.56744,
+    0.77954,
+    0.2652,
+    0.9765,
+    0.9765,
+    0.9765,
+    1
+   ],
+   [
+    -0.58721,
+    -0.77945,
+    0.21827,
+    0.6824,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    0.96091,
+    -0.24168,
+    0.13507,
+    0.6941,
+    0.9255,
+    0.9255,
+    1
+   ],
+   [
+    0.09854,
+    -0.93174,
+    0.34949,
+    0.9137,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    -0.35416,
+    -0.81357,
+    0.46117,
+    0.5922,
+    0.5922,
+    0.5922,
+    1
+   ],
+   [
+    -0.08087,
+    -0.05427,
+    0.99525,
+    0.9725,
+    0.9725,
+    0.9725,
+    1
+   ],
+   [
+    0.40983,
+    0.90962,
+    0.06813,
+    0.4275,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    -0.33181,
+    -0.67321,
+    0.66083,
+    0.5608,
+    0.5608,
+    0.5608,
+    1
+   ],
+   [
+    0.45988,
+    -0.74634,
+    0.48113,
+    0.4941,
+    0.6588,
+    0.6588,
+    1
+   ],
+   [
+    -0.08899,
+    0.46795,
+    0.87926,
+    0.6196,
+    0.8275,
+    0.8275,
+    1
+   ],
+   [
+    -0.68708,
+    0.68276,
+    0.2485,
+    0.5922,
+    0.7882,
+    0.7882,
+    1
+   ],
+   [
+    0.74449,
+    0.6261,
+    0.2318,
+    0.7882,
+    0.7882,
+    0.7882,
+    1
+   ],
+   [
+    -0.17823,
+    0.95803,
+    0.22453,
+    0.5569,
+    0.5569,
+    0.5569,
+    1
+   ],
+   [
+    -0.68761,
+    -0.70025,
+    0.19195,
+    0.7686,
+    0.7686,
+    0.7686,
+    1
+   ],
+   [
+    -0.4872,
+    -0.76489,
+    0.42141,
+    0.6196,
+    0.6196,
+    0.6196,
+    1
+   ],
+   [
+    0.61057,
+    0.1082,
+    0.78454,
+    0.749,
+    0.749,
+    0.749,
+    1
+   ],
+   [
+    0.3273,
+    -0.91109,
+    0.25059,
+    0.9569,
+    0.9569,
+    0.9569,
+    1
+   ],
+   [
+    -0.50262,
+    -0.77788,
+    0.37721,
+    0.5569,
+    0.7451,
+    0.7451,
+    1
+   ],
+   [
+    0.55462,
+    -0.7489,
+    0.36268,
+    0.8588,
+    0.8588,
+    0.8588,
+    1
+   ],
+   [
+    -0.98842,
+    0.00114,
+    0.15173,
+    0.9725,
+    0.9725,
+    0.9725,
+    1
+   ],
+   [
+    0.73499,
+    0.03515,
+    0.67716,
+    0.5882,
+    0.5882,
+    0.5882,
+    1
+   ],
+   [
+    0.28236,
+    -0.25772,
+    0.92404,
+    0.7922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    0.64075,
+    -0.63845,
+    0.4264,
+    0.9765,
+    0.9765,
+    0.9765,
+    1
+   ],
+   [
+    0.095,
+    0.75241,
+    0.65181,
+    0.9882,
+    0.9882,
+    0.9882,
+    1
+   ],
+   [
+    0.53111,
+    0.15959,
+    0.83214,
+    0.9922,
+    0.9922,
+    0.9922,
+    1
+   ],
+   [
+    -0.88643,
+    0.44589,
+    0.12422,
+    0.898,
+    0.898,
+    0.898,
+    1
+   ],
+   [
+    0.28626,
+    0.88578,
+    0.3653,
+    0.8784,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    0.49051,
+    -0.03288,
+    0.87081,
+    0.8078,
+    0.8078,
+    0.8078,
+    1
+   ],
+   [
+    0.52771,
+    0.65629,
+    0.53926,
+    0.4353,
+    0.5843,
+    0.5843,
+    1
+   ],
+   [
+    -0.88954,
+    0.17106,
+    0.42363,
+    0.6667,
+    0.8902,
+    0.8902,
+    1
+   ],
+   [
+    -0.32021,
+    -0.93761,
+    0.1355,
+    0.4824,
+    0.6431,
+    0.6431,
+    1
+   ],
+   [
+    0.23401,
+    0.10924,
+    0.96608,
+    0.6431,
+    0.6431,
+    0.6431,
+    1
+   ],
+   [
+    0.42456,
+    0.62467,
+    0.65539,
+    0.7922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    0.10744,
+    -0.90331,
+    0.41531,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    0.77596,
+    -0.60522,
+    0.17776,
+    0.8039,
+    0.8039,
+    0.8039,
+    1
+   ],
+   [
+    -0.58721,
+    -0.70802,
+    0.39229,
+    0.7451,
+    0.9961,
+    0.9961,
+    1
+   ],
+   [
+    0.46682,
+    -0.41561,
+    0.78061,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    -0.31494,
+    0.17631,
+    0.93259,
+    0.7176,
+    0.7176,
+    0.7176,
+    1
+   ],
+   [
+    0.8143,
+    -0.30359,
+    0.49472,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    -0.14165,
+    0.65792,
+    0.73965,
+    0.6392,
+    0.6392,
+    0.6392,
+    1
+   ],
+   [
+    0.5116,
+    -0.69615,
+    0.50363,
+    0.4549,
+    0.6078,
+    0.6078,
+    1
+   ],
+   [
+    0.80101,
+    -0.0071,
+    0.59861,
+    0.6275,
+    0.8392,
+    0.8392,
+    1
+   ],
+   [
+    -0.745,
+    -0.53834,
+    0.39391,
+    0.6314,
+    0.6314,
+    0.6314,
+    1
+   ],
+   [
+    0.43754,
+    0.27236,
+    0.85696,
+    0.702,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    0.7923,
+    0.57271,
+    0.2104,
+    0.6863,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    0.23884,
+    0.88449,
+    0.40079,
+    0.8549,
+    0.8549,
+    0.8549,
+    1
+   ],
+   [
+    0.45773,
+    -0.34159,
+    0.82085,
+    0.8196,
+    0.8196,
+    0.8196,
+    1
+   ],
+   [
+    0.89942,
+    0.435,
+    0.04273,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    -0.91666,
+    -0.36428,
+    0.16439,
+    0.9765,
+    0.9765,
+    0.9765,
+    1
+   ],
+   [
+    0.52165,
+    -0.75965,
+    0.38835,
+    0.6588,
+    0.6588,
+    0.6588,
+    1
+   ],
+   [
+    -0.25416,
+    -0.94011,
+    0.22715,
+    0.6627,
+    0.8863,
+    0.8863,
+    1
+   ],
+   [
+    -0.82818,
+    -0.53908,
+    0.15331,
+    0.7922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    0.98787,
+    0.00347,
+    0.15525,
+    0.6392,
+    0.6392,
+    0.6392,
+    1
+   ],
+   [
+    0.89337,
+    0.42816,
+    0.13626,
+    0.8392,
+    0.8392,
+    0.8392,
+    1
+   ],
+   [
+    -0.29476,
+    0.71235,
+    0.63693,
+    0.5843,
+    0.5843,
+    0.5843,
+    1
+   ],
+   [
+    -0.04594,
+    0.44851,
+    0.89259,
+    0.8196,
+    0.8196,
+    0.8196,
+    1
+   ],
+   [
+    0.11282,
+    0.06387,
+    0.99156,
+    0.6784,
+    0.6784,
+    0.6784,
+    1
+   ],
+   [
+    -0.50156,
+    -0.69719,
+    0.51221,
+    0.9137,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    0.76256,
+    0.58374,
+    0.27885,
+    0.4588,
+    0.6157,
+    0.6157,
+    1
+   ],
+   [
+    -0.82388,
+    0.52946,
+    0.20223,
+    0.949,
+    0.949,
+    0.949,
+    1
+   ],
+   [
+    0.29367,
+    0.72896,
+    0.61837,
+    0.9922,
+    0.9922,
+    0.9922,
+    1
+   ],
+   [
+    0.22547,
+    0.62504,
+    0.74733,
+    0.8549,
+    0.8549,
+    0.8549,
+    1
+   ],
+   [
+    -0.48978,
+    -0.20474,
+    0.84747,
+    0.6235,
+    0.6235,
+    0.6235,
+    1
+   ],
+   [
+    0.2524,
+    0.8719,
+    0.41963,
+    0.698,
+    0.698,
+    0.698,
+    1
+   ],
+   [
+    -0.05172,
+    0.89551,
+    0.44203,
+    0.5725,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    -0.33182,
+    0.63527,
+    0.69737,
+    0.7373,
+    0.7373,
+    0.7373,
+    1
+   ],
+   [
+    0.40323,
+    -0.69673,
+    0.59327,
+    0.7569,
+    0.7569,
+    0.7569,
+    1
+   ],
+   [
+    -0.43171,
+    0.08542,
+    0.89796,
+    0.5843,
+    0.5843,
+    0.5843,
+    1
+   ],
+   [
+    0.17741,
+    0.98272,
+    0.05279,
+    0.7176,
+    0.9569,
+    0.9569,
+    1
+   ],
+   [
+    0.00041,
+    -0.07004,
+    0.99754,
+    0.7922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    -0.06993,
+    -0.77369,
+    0.62969,
+    0.4549,
+    0.6078,
+    0.6078,
+    1
+   ],
+   [
+    -0.62241,
+    0.6504,
+    0.43541,
+    0.651,
+    0.8706,
+    0.8706,
+    1
+   ],
+   [
+    0.81717,
+    -0.52444,
+    0.23917,
+    0.6784,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    0.15466,
+    0.4296,
+    0.88968,
+    0.6627,
+    0.6627,
+    0.6627,
+    1
+   ],
+   [
+    0.19617,
+    -0.93042,
+    0.30957,
+    0.7882,
+    0.7882,
+    0.7882,
+    1
+   ],
+   [
+    -0.43101,
+    -0.13381,
+    0.89237,
+    0.8,
+    0.8,
+    0.8,
+    1
+   ],
+   [
+    0.20914,
+    -0.97125,
+    0.11372,
+    0.7373,
+    0.7373,
+    0.7373,
+    1
+   ],
+   [
+    -0.84688,
+    0.51478,
+    0.13341,
+    0.7647,
+    0.7647,
+    0.7647,
+    1
+   ],
+   [
+    -0.35184,
+    -0.35494,
+    0.86616,
+    0.949,
+    0.949,
+    0.949,
+    1
+   ],
+   [
+    -0.1671,
+    -0.85073,
+    0.49833,
+    0.4196,
+    0.5608,
+    0.5608,
+    1
+   ],
+   [
+    -0.033,
+    0.99818,
+    0.05042,
+    0.5961,
+    0.5961,
+    0.5961,
+    1
+   ],
+   [
+    -0.64894,
+    0.25169,
+    0.718,
+    0.6784,
+    0.6784,
+    0.6784,
+    1
+   ],
+   [
+    0.98938,
+    0.08878,
+    0.11511,
+    0.451,
+    0.6,
+    0.6,
+    1
+   ],
+   [
+    -0.04327,
+    0.1461,
+    0.98832,
+    0.9137,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    -0.90259,
+    0.42862,
+    0.04022,
+    0.9765,
+    0.9765,
+    0.9765,
+    1
+   ],
+   [
+    -0.55929,
+    -0.34495,
+    0.75379,
+    0.9725,
+    0.9725,
+    0.9725,
+    1
+   ],
+   [
+    0.10597,
+    0.29336,
+    0.95011,
+    0.4549,
+    0.6078,
+    0.6078,
+    1
+   ],
+   [
+    -0.17956,
+    0.98318,
+    0.03353,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    0.47685,
+    0.86755,
+    0.14128,
+    0.8471,
+    0.8471,
+    0.8471,
+    1
+   ],
+   [
+    -0.70773,
+    0.31833,
+    0.6307,
+    0.6314,
+    0.6314,
+    0.6314,
+    1
+   ],
+   [
+    -0.69042,
+    0.50092,
+    0.52192,
+    0.6588,
+    0.6588,
+    0.6588,
+    1
+   ],
+   [
+    0.26781,
+    0.78224,
+    0.56247,
+    0.5961,
+    0.5961,
+    0.5961,
+    1
+   ],
+   [
+    -0.79773,
+    -0.329,
+    0.50536,
+    0.9804,
+    0.9804,
+    0.9804,
+    1
+   ],
+   [
+    -0.23128,
+    0.87497,
+    0.42537,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    0.768,
+    0.27579,
+    0.57802,
+    0.7961,
+    0.7961,
+    0.7961,
+    1
+   ],
+   [
+    -0.94255,
+    0.27676,
+    0.18711,
+    0.7255,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    0.82236,
+    0.353,
+    0.44622,
+    0.7529,
+    0.7529,
+    0.7529,
+    1
+   ],
+   [
+    -0.67071,
+    0.0777,
+    0.73764,
+    0.5608,
+    0.5608,
+    0.5608,
+    1
+   ],
+   [
+    -0.90596,
+    0.35841,
+    0.22536,
+    0.5765,
+    0.7725,
+    0.7725,
+    1
+   ],
+   [
+    -0.17442,
+    -0.45995,
+    0.87065,
+    0.549,
+    0.549,
+    0.549,
+    1
+   ],
+   [
+    -0.25116,
+    0.82327,
+    0.50906,
+    0.8,
+    0.8,
+    0.8,
+    1
+   ],
+   [
+    0.90506,
+    0.32853,
+    0.27006,
+    0.4667,
+    0.6235,
+    0.6235,
+    1
+   ],
+   [
+    0.43515,
+    -0.02537,
+    0.9,
+    0.9608,
+    0.9608,
+    0.9608,
+    1
+   ],
+   [
+    -0.97276,
+    0.20138,
+    0.11481,
+    0.898,
+    0.898,
+    0.898,
+    1
+   ],
+   [
+    -0.34549,
+    -0.54826,
+    0.76161,
+    0.5569,
+    0.5569,
+    0.5569,
+    1
+   ],
+   [
+    0.38642,
+    0.26199,
+    0.88433,
+    0.6196,
+    0.6196,
+    0.6196,
+    1
+   ],
+   [
+    0.44826,
+    -0.26206,
+    0.85463,
+    0.7922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    0.16718,
+    0.01616,
+    0.98579,
+    0.8157,
+    0.8157,
+    0.8157,
+    1
+   ],
+   [
+    0.89654,
+    -0.41835,
+    0.14559,
+    0.6,
+    0.6,
+    0.6,
+    1
+   ],
+   [
+    0.91194,
+    -0.33797,
+    0.23268,
+    0.549,
+    0.549,
+    0.549,
+    1
+   ],
+   [
+    -0.38549,
+    0.05732,
+    0.92093,
+    0.5725,
+    0.7647,
+    0.7647,
+    1
+   ],
+   [
+    0.42769,
+    0.59344,
+    0.68184,
+    0.7529,
+    0.7529,
+    0.7529,
+    1
+   ],
+   [
+    0.95207,
+    0.06392,
+    0.29912,
+    0.9294,
+    0.9294,
+    0.9294,
+    1
+   ],
+   [
+    0.19511,
+    -0.81133,
+    0.55107,
+    0.502,
+    0.6706,
+    0.6706,
+    1
+   ],
+   [
+    0.71196,
+    0.69487,
+    0.10136,
+    0.9176,
+    0.9176,
+    0.9176,
+    1
+   ],
+   [
+    -0.34427,
+    0.24915,
+    0.90521,
+    0.6863,
+    0.6863,
+    0.6863,
+    1
+   ],
+   [
+    0.10502,
+    -0.98763,
+    0.11646,
+    0.7098,
+    0.7098,
+    0.7098,
+    1
+   ],
+   [
+    0.42222,
+    0.68234,
+    0.59678,
+    0.6824,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    0.75221,
+    0.62049,
+    0.22175,
+    0.5569,
+    0.5569,
+    0.5569,
+    1
+   ],
+   [
+    -0.5593,
+    -0.48874,
+    0.66957,
+    0.9961,
+    0.9961,
+    0.9961,
+    1
+   ],
+   [
+    0.54261,
+    -0.80942,
+    0.22453,
+    0.7922,
+    0.7922,
+    0.7922,
+    1
+   ],
+   [
+    0.16426,
+    0.21683,
+    0.96229,
+    0.7529,
+    0.7529,
+    0.7529,
+    1
+   ],
+   [
+    -0.17553,
+    -0.87917,
+    0.44299,
+    0.5882,
+    0.5882,
+    0.5882,
+    1
+   ],
+   [
+    0.29917,
+    0.71684,
+    0.62979,
+    0.5569,
+    0.5569,
+    0.5569,
+    1
+   ],
+   [
+    -0.77934,
+    0.00115,
+    0.6266,
+    0.651,
+    0.8706,
+    0.8706,
+    1
+   ],
+   [
+    -0.55325,
+    -0.25323,
+    0.79359,
+    0.5098,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    -0.29923,
+    -0.01687,
+    0.95403,
+    0.5922,
+    0.5922,
+    0.5922,
+    1
+   ],
+   [
+    0.48277,
+    -0.86577,
+    0.13178,
+    0.5647,
+    0.7529,
+    0.7529,
+    1
+   ],
+   [
+    0.71196,
+    -0.56319,
+    0.41945,
+    0.6471,
+    0.6471,
+    0.6471,
+    1
+   ],
+   [
+    0.45517,
+    0.88964,
+    0.03689,
+    0.6667,
+    0.6667,
+    0.6667,
+    1
+   ],
+   [
+    0.34398,
+    0.82879,
+    0.44135,
+    0.7098,
+    0.7098,
+    0.7098,
+    1
+   ],
+   [
+    -0.39073,
+    0.89053,
+    0.23299,
+    0.6863,
+    0.6863,
+    0.6863,
+    1
+   ],
+   [
+    0.48696,
+    -0.72106,
+    0.4929,
+    0.6,
+    0.8,
+    0.8,
+    1
+   ],
+   [
+    0.73323,
+    0.59079,
+    0.33665,
+    0.7412,
+    0.7412,
+    0.7412,
+    1
+   ],
+   [
+    0.68398,
+    0.27557,
+    0.67545,
+    0.4863,
+    0.6471,
+    0.6471,
+    1
+   ],
+   [
+    -0.07269,
+    -0.96168,
+    0.26435,
+    0.6235,
+    0.8314,
+    0.8314,
+    1
+   ],
+   [
+    0.33831,
+    -0.8265,
+    0.44995,
+    0.9216,
+    0.9216,
+    0.9216,
+    1
+   ],
+   [
+    0.67151,
+    0.5469,
+    0.49998,
+    0.6706,
+    0.6706,
+    0.6706,
+    1
+   ],
+   [
+    -0.05849,
+    0.95478,
+    0.2915,
+    0.7294,
+    0.7294,
+    0.7294,
+    1
+   ],
+   [
+    -0.652,
+    0.53954,
+    0.53272,
+    0.7255,
+    0.7255,
+    0.7255,
+    1
+   ],
+   [
+    0.29246,
+    -0.44947,
+    0.84406,
+    0.6471,
+    0.8627,
+    0.8627,
+    1
+   ],
+   [
+    -0.13565,
+    -0.85979,
+    0.4923,
+    0.6078,
+    0.6078,
+    0.6078,
+    1
+   ],
+   [
+    -0.93407,
+    0.33517,
+    0.1232,
+    0.8941,
+    0.8941,
+    0.8941,
+    1
+   ],
+   [
+    0.84265,
+    0.51481,
+    0.15783,
+    0.6353,
+    0.6353,
+    0.6353,
+    1
+   ],
+   [
+    0.58576,
+    0.59704,
+    0.54811,
+    0.9569,
+    0.9569,
+    0.9569,
+    1
+   ],
+   [
+    0.85188,
+    -0.51901,
+    0.07017,
+    0.4235,
+    0.5686,
+    0.5686,
+    1
+   ],
+   [
+    -0.07043,
+    -0.93329,
+    0.35216,
+    0.9882,
+    0.9882,
+    0.9882,
+    1
+   ],
+   [
+    -0.80125,
+    -0.44839,
+    0.39616,
+    0.8824,
+    0.8824,
+    0.8824,
+    1
+   ],
+   [
+    -0.20735,
+    -0.83522,
+    0.50932,
+    0.9059,
+    0.9059,
+    0.9059,
+    1
+   ],
+   [
+    -0.48472,
+    -0.55072,
+    0.67953,
+    0.9686,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    0.26126,
+    -0.1111,
+    0.95885,
+    0.5804,
+    0.7725,
+    0.7725,
+    1
+   ],
+   [
+    0.89652,
+    0.37084,
+    0.24234,
+    0.7333,
+    0.9804,
+    0.9804,
+    1
+   ],
+   [
+    0.3969,
+    0.77809,
+    0.48687,
+    0.9961,
+    0.9961,
+    0.9961,
+    1
+   ],
+   [
+    -0.51142,
+    -0.77956,
+    0.36158,
+    0.6902,
+    0.9216,
+    0.9216,
+    1
+   ],
+   [
+    -0.50255,
+    0.44538,
+    0.741,
+    0.4431,
+    0.5922,
+    0.5922,
+    1
+   ],
+   [
+    0.75312,
+    -0.48432,
+    0.44524,
+    0.6824,
+    0.6824,
+    0.6824,
+    1
+   ],
+   [
+    0.03077,
+    0.20527,
+    0.97822,
+    0.9529,
+    0.9529,
+    0.9529,
+    1
+   ],
+   [
+    0.18139,
+    0.83375,
+    0.52149,
+    0.7373,
+    0.9804,
+    0.9804,
+    1
+   ],
+   [
+    0.90516,
+    -0.2168,
+    0.36563,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    -0.53366,
+    -0.74493,
+    0.40035,
+    0.7294,
+    0.9765,
+    0.9765,
+    1
+   ],
+   [
+    -0.20629,
+    0.74754,
+    0.63137,
+    0.6,
+    0.6,
+    0.6,
+    1
+   ],
+   [
+    0.27194,
+    -0.70586,
+    0.65407,
+    0.7725,
+    0.7725,
+    0.7725,
+    1
+   ],
+   [
+    0.66669,
+    -0.74498,
+    0.02317,
+    0.9686,
+    0.9686,
+    0.9686,
+    1
+   ],
+   [
+    -0.67412,
+    -0.14473,
+    0.7243,
+    0.6588,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    0.29973,
+    -0.65799,
+    0.6908,
+    0.8431,
+    0.8431,
+    0.8431,
+    1
+   ],
+   [
+    0.62944,
+    -0.72646,
+    0.27581,
+    0.9647,
+    0.9647,
+    0.9647,
+    1
+   ],
+   [
+    -0.80584,
+    -0.50287,
+    0.31264,
+    0.6667,
+    0.6667,
+    0.6667,
+    1
+   ],
+   [
+    -0.07382,
+    0.4678,
+    0.88074,
+    0.6431,
+    0.8588,
+    0.8588,
+    1
+   ],
+   [
+    0.26422,
+    0.13054,
+    0.95559,
+    0.8196,
+    0.8196,
+    0.8196,
+    1
+   ],
+   [
+    -0.1261,
+    -0.52022,
+    0.84467,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    -0.97236,
+    -0.07966,
+    0.2195,
+    0.5922,
+    0.7882,
+    0.7882,
+    1
+   ],
+   [
+    -0.20119,
+    -0.97785,
+    0.05772,
+    0.9569,
+    0.9569,
+    0.9569,
+    1
+   ],
+   [
+    0.9284,
+    -0.36574,
+    0.06559,
+    0.6588,
+    0.8784,
+    0.8784,
+    1
+   ],
+   [
+    0.11024,
+    -0.09597,
+    0.98926,
+    0.4314,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    -0.27999,
+    0.63662,
+    0.71856,
+    0.6235,
+    0.8314,
+    0.8314,
+    1
+   ],
+   [
+    0.18598,
+    0.7404,
+    0.64593,
+    0.9137,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    0.12427,
+    -0.4372,
+    0.89074,
+    0.4784,
+    0.6392,
+    0.6392,
+    1
+   ],
+   [
+    -0.25398,
+    0.60805,
+    0.75218,
+    0.6314,
+    0.6314,
+    0.6314,
+    1
+   ],
+   [
+    -0.50104,
+    -0.52763,
+    0.68598,
+    0.6235,
+    0.6235,
+    0.6235,
+    1
+   ],
+   [
+    0.17611,
+    -0.66857,
+    0.7225,
+    0.6471,
+    0.6471,
+    0.6471,
+    1
+   ],
+   [
+    -0.80134,
+    0.09886,
+    0.58998,
+    0.9137,
+    0.9137,
+    0.9137,
+    1
+   ],
+   [
+    0.32195,
+    -0.03701,
+    0.94603,
+    0.6471,
+    0.8627,
+    0.8627,
+    1
+   ],
+   [
+    0.66001,
+    0.62623,
+    0.415,
+    0.6,
+    0.6,
+    0.6,
+    1
+   ],
+   [
+    0.57411,
+    0.39055,
+    0.71963,
+    0.5765,
+    0.5765,
+    0.5765,
+    1
+   ],
+   [
+    0.00218,
+    -0.18045,
+    0.98358,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    0.98099,
+    0.16656,
+    0.0996,
+    0.6118,
+    0.6118,
+    0.6118,
+    1
+   ],
+   [
+    -0.32199,
+    0.19275,
+    0.92692,
+    0.8941,
+    0.8941,
+    0.8941,
+    1
+   ],
+   [
+    -0.68761,
+    0.04999,
+    0.72436,
+    0.702,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    -0.54994,
+    0.38824,
+    0.73948,
+    0.7569,
+    0.7569,
+    0.7569,
+    1
+   ],
+   [
+    0.08523,
+    0.94733,
+    0.30871,
+    0.6,
+    0.8039,
+    0.8039,
+    1
+   ],
+   [
+    -0.7906,
+    -0.09143,
+    0.60547,
+    0.5647,
+    0.5647,
+    0.5647,
+    1
+   ],
+   [
+    -0.18852,
+    -0.46417,
+    0.86545,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    -0.80714,
+    0.10483,
+    0.58098,
+    0.8902,
+    0.8902,
+    0.8902,
+    1
+   ],
+   [
+    0.75752,
+    0.64613,
+    0.09322,
+    0.949,
+    0.949,
+    0.949,
+    1
+   ],
+   [
+    0.79414,
+    0.60268,
+    0.07821,
+    0.5765,
+    0.5765,
+    0.5765,
+    1
+   ],
+   [
+    -0.83701,
+    0.23938,
+    0.49205,
+    0.6039,
+    0.8039,
+    0.8039,
+    1
+   ],
+   [
+    -0.13828,
+    -0.9888,
+    0.05612,
+    0.6275,
+    0.6275,
+    0.6275,
+    1
+   ],
+   [
+    -0.31131,
+    -0.11293,
+    0.94357,
+    0.9647,
+    0.9647,
+    0.9647,
+    1
+   ],
+   [
+    0.15916,
+    -0.84177,
+    0.51585,
+    0.7804,
+    0.7804,
+    0.7804,
+    1
+   ],
+   [
+    0.68122,
+    -0.37343,
+    0.62968,
+    0.4745,
+    0.6314,
+    0.6314,
+    1
+   ],
+   [
+    -0.31577,
+    -0.0518,
+    0.94742,
+    0.4824,
+    0.6431,
+    0.6431,
+    1
+   ],
+   [
+    0.91067,
+    0.29816,
+    0.28596,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    -0.44994,
+    0.84402,
+    0.29188,
+    0.7412,
+    0.7412,
+    0.7412,
+    1
+   ],
+   [
+    -0.57677,
+    0.79875,
+    0.17128,
+    0.8078,
+    0.8078,
+    0.8078,
+    1
+   ],
+   [
+    -0.668,
+    0.02203,
+    0.74384,
+    0.5725,
+    0.5725,
+    0.5725,
+    1
+   ],
+   [
+    -0.78946,
+    0.59872,
+    0.1352,
+    0.9373,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    0.20464,
+    0.88158,
+    0.42538,
+    0.5216,
+    0.6941,
+    0.6941,
+    1
+   ],
+   [
+    0.91698,
+    -0.37606,
+    0.13314,
+    0.4353,
+    0.5804,
+    0.5804,
+    1
+   ],
+   [
+    -0.97515,
+    -8e-05,
+    0.22155,
+    0.5529,
+    0.5529,
+    0.5529,
+    1
+   ],
+   [
+    -0.16537,
+    0.98486,
+    0.05208,
+    0.5412,
+    0.7216,
+    0.7216,
+    1
+   ],
+   [
+    0.94951,
+    -0.10029,
+    0.29727,
+    0.5529,
+    0.7373,
+    0.7373,
+    1
+   ],
+   [
+    0.13601,
+    0.87646,
+    0.46186,
+    0.9255,
+    0.9255,
+    0.9255,
+    1
+   ],
+   [
+    0.88721,
+    0.02578,
+    0.46065,
+    0.902,
+    0.902,
+    0.902,
+    1
+   ],
+   [
+    0.63401,
+    0.4088,
+    0.65644,
+    0.7294,
+    0.7294,
+    0.7294,
+    1
+   ],
+   [
+    0.20919,
+    0.37428,
+    0.90341,
+    0.851,
+    0.851,
+    0.851,
+    1
+   ],
+   [
+    0.85137,
+    -0.50499,
+    0.14198,
+    0.9569,
+    0.9569,
+    0.9569,
+    1
+   ],
+   [
+    0.01478,
+    -0.66226,
+    0.74913,
+    0.7176,
+    0.7176,
+    0.7176,
+    1
+   ],
+   [
+    0.84524,
+    -0.5333,
+    0.03403,
+    0.6941,
+    0.6941,
+    0.6941,
+    1
+   ],
+   [
+    0.62262,
+    -0.77666,
+    0.09566,
+    0.4118,
+    0.5529,
+    0.5529,
+    1
+   ],
+   [
+    0.95937,
+    0.17358,
+    0.22245,
+    0.7961,
+    0.7961,
+    0.7961,
+    1
+   ],
+   [
+    0.13328,
+    -0.29544,
+    0.94602,
+    0.9373,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    -0.11708,
+    -0.9925,
+    0.03529,
+    0.8706,
+    0.8706,
+    0.8706,
+    1
+   ],
+   [
+    0.26226,
+    0.77464,
+    0.57545,
+    0.6118,
+    0.8157,
+    0.8157,
+    1
+   ],
+   [
+    0.81163,
+    0.39848,
+    0.42716,
+    0.9216,
+    0.9216,
+    0.9216,
+    1
+   ],
+   [
+    0.21881,
+    -0.96977,
+    0.10803,
+    0.6471,
+    0.8627,
+    0.8627,
+    1
+   ],
+   [
+    0.32494,
+    -0.93658,
+    0.13126,
+    0.9373,
+    0.9373,
+    0.9373,
+    1
+   ],
+   [
+    0.24464,
+    -0.85809,
+    0.45148,
+    0.7137,
+    0.7137,
+    0.7137,
+    1
+   ],
+   [
+    -0.05125,
+    0.15271,
+    0.98694,
+    0.898,
+    0.898,
+    0.898,
+    1
+   ],
+   [
+    0.02641,
+    -0.73912,
+    0.67306,
+    0.9843,
+    0.9843,
+    0.9843,
+    1
+   ],
+   [
+    0.87379,
+    -0.43921,
+    0.20879,
+    0.6471,
+    0.8667,
+    0.8667,
+    1
+   ],
+   [
+    0.97013,
+    0.16368,
+    0.17904,
+    0.5569,
+    0.7451,
+    0.7451,
+    1
+   ],
+   [
+    0.41953,
+    0.80102,
+    0.42704,
+    0.8431,
+    0.8431,
+    0.8431,
+    1
+   ],
+   [
+    0.11065,
+    -0.29873,
+    0.9479,
+    0.7686,
+    0.7686,
+    0.7686,
+    1
+   ],
+   [
+    -0.45668,
+    0.73702,
+    0.49824,
+    0.6235,
+    0.6235,
+    0.6235,
+    1
+   ],
+   [
+    0.13218,
+    -0.17598,
+    0.97548,
+    0.6667,
+    0.6667,
+    0.6667,
+    1
+   ],
+   [
+    -0.20761,
+    -0.93051,
+    0.30175,
+    0.8078,
+    0.8078,
+    0.8078,
+    1
+   ],
+   [
+    0.92559,
+    -0.28498,
+    0.24913,
+    0.6549,
+    0.6549,
+    0.6549,
+    1
+   ],
+   [
+    -0.34609,
+    0.76768,
+    0.53934,
+    0.7373,
+    0.9843,
+    0.9843,
+    1
+   ],
+   [
+    -0.26065,
+    -0.76104,
+    0.59404,
+    0.9176,
+    0.9176,
+    0.9176,
+    1
+   ],
+   [
+    0.35774,
+    0.33115,
+    0.87313,
+    0.9843,
+    0.9843,
+    0.9843,
+    1
+   ],
+   [
+    -0.59534,
+    0.36362,
+    0.71649,
+    0.9333,
+    0.9333,
+    0.9333,
+    1
+   ],
+   [
+    -0.65998,
+    -0.72575,
+    0.19421,
+    0.8667,
+    0.8667,
+    0.8667,
+    2
+   ],
+   [
+    -0.92197,
+    -0.05176,
+    0.38379,
+    0.702,
+    0.702,
+    0.702,
+    2
+   ],
+   [
+    0.12688,
+    0.87787,
+    0.46178,
+    0.6275,
+    0.6275,
+    0.6275,
+    2
+   ],
+   [
+    -0.04891,
+    -0.88096,
+    0.47065,
+    0.5765,
+    0.7686,
+    0.7686,
+    2
+   ],
+   [
+    0.65946,
+    0.39806,
+    0.6377,
+    0.6627,
+    0.8824,
+    0.8824,
+    2
+   ],
+   [
+    0.32254,
+    -0.47621,
+    0.81804,
+    0.8275,
+    0.8275,
+    0.8275,
+    2
+   ],
+   [
+    -0.09308,
+    -0.16255,
+    0.9823,
+    0.4431,
+    0.5922,
+    0.5922,
+    2
+   ],
+   [
+    0.53751,
+    -0.79816,
+    0.27208,
+    0.5922,
+    0.5922,
+    0.5922,
+    2
+   ],
+   [
+    0.3523,
+    0.93287,
+    0.07509,
+    0.7922,
+    0.7922,
+    0.7922,
+    2
+   ],
+   [
+    0.4297,
+    -0.47507,
+    0.7679,
+    0.7098,
+    0.7098,
+    0.7098,
+    2
+   ],
+   [
+    0.9627,
+    -0.13834,
+    0.23252,
+    0.6196,
+    0.8235,
+    0.8235,
+    2
+   ],
+   [
+    -0.62142,
+    -0.31769,
+    0.71617,
+    0.9373,
+    0.9373,
+    0.9373,
+    2
+   ],
+   [
+    0.70479,
+    -0.19301,
+    0.68265,
+    0.5098,
+    0.6784,
+    0.6784,
+    2
+   ],
+   [
+    -0.23383,
+    -0.11207,
+    0.9658,
+    0.6314,
+    0.6314,
+    0.6314,
+    2
+   ],
+   [
+    -0.73304,
+    -0.0513,
+    0.67825,
+    0.8588,
+    0.8588,
+    0.8588,
+    2
+   ],
+   [
+    -0.23575,
+    0.38498,
+    0.89231,
+    0.8549,
+    0.8549,
+    0.8549,
+    2
+   ],
+   [
+    -0.03557,
+    -0.82789,
+    0.55976,
+    0.8784,
+    0.8784,
+    0.8784,
+    2
+   ],
+   [
+    -0.9338,
+    0.32431,
+    0.15116,
+    0.6784,
+    0.6784,
+    0.6784,
+    2
+   ],
+   [
+    0.89687,
+    -0.17887,
+    0.40451,
+    0.8039,
+    0.8039,
+    0.8039,
+    2
+   ],
+   [
+    0.56046,
+    0.18827,
+    0.8065,
+    0.8902,
+    0.8902,
+    0.8902,
+    2
+   ],
+   [
+    -0.8538,
+    -0.25034,
+    0.45647,
+    0.7333,
+    0.7333,
+    0.7333,
+    2
+   ],
+   [
+    -0.61551,
+    0.41125,
+    0.67233,
+    0.5098,
+    0.6784,
+    0.6784,
+    2
+   ],
+   [
+    0.46767,
+    0.78345,
+    0.40926,
+    0.4706,
+    0.6275,
+    0.6275,
+    2
+   ],
+   [
+    -0.88265,
+    0.40857,
+    0.23238,
+    0.6275,
+    0.6275,
+    0.6275,
+    2
+   ],
+   [
+    -0.02206,
+    -0.97611,
+    0.21617,
+    0.7137,
+    0.7137,
+    0.7137,
+    2
+   ],
+   [
+    -0.24781,
+    -0.93962,
+    0.236,
+    0.898,
+    0.898,
+    0.898,
+    2
+   ],
+   [
+    0.86646,
+    -0.03207,
+    0.49821,
+    0.7333,
+    0.7333,
+    0.7333,
+    2
+   ],
+   [
+    -0.16506,
+    0.73845,
+    0.6538,
+    0.6863,
+    0.9137,
+    0.9137,
+    2
+   ],
+   [
+    0.64424,
+    -0.48964,
+    0.58755,
+    0.6118,
+    0.8196,
+    0.8196,
+    2
+   ],
+   [
+    -0.88213,
+    -0.36093,
+    0.30261,
+    0.4706,
+    0.6275,
+    0.6275,
+    2
+   ],
+   [
+    0.64382,
+    -0.50106,
+    0.5783,
+    0.851,
+    0.851,
+    0.851,
+    2
+   ],
+   [
+    -0.57585,
+    0.31401,
+    0.75484,
+    0.6353,
+    0.8471,
+    0.8471,
+    2
+   ],
+   [
+    0.86034,
+    0.03912,
+    0.50822,
+    0.9765,
+    0.9765,
+    0.9765,
+    2
+   ],
+   [
+    -0.09344,
+    0.97203,
+    0.21549,
+    0.7961,
+    0.7961,
+    0.7961,
+    2
+   ],
+   [
+    0.0147,
+    -0.84481,
+    0.53487,
+    0.8157,
+    0.8157,
+    0.8157,
+    2
+   ],
+   [
+    -0.31564,
+    0.51928,
+    0.79418,
+    0.6941,
+    0.9255,
+    0.9255,
+    2
+   ],
+   [
+    -0.21854,
+    0.92974,
+    0.29636,
+    0.7255,
+    0.7255,
+    0.7255,
+    2
+   ],
+   [
+    0.22886,
+    -0.33232,
+    0.91498,
+    0.7412,
+    0.7412,
+    0.7412,
+    2
+   ],
+   [
+    -0.22295,
+    -0.82147,
+    0.52486,
+    0.6118,
+    0.6118,
+    0.6118,
+    2
+   ],
+   [
+    0.98134,
+    0.03827,
+    0.18844,
+    0.7608,
+    0.7608,
+    0.7608,
+    2
+   ],
+   [
+    0.10982,
+    -0.85321,
+    0.50988,
+    0.8196,
+    0.8196,
+    0.8196,
+    2
+   ],
+   [
+    -0.99872,
+    0.02619,
+    0.04319,
+    0.8196,
+    0.8196,
+    0.8196,
+    2
+   ],
+   [
+    -0.83024,
+    0.41184,
+    0.37563,
+    0.9294,
+    0.9294,
+    0.9294,
+    2
+   ],
+   [
+    -0.92717,
+    0.27439,
+    0.25509,
+    0.9765,
+    0.9765,
+    0.9765,
+    2
+   ],
+   [
+    -0.41749,
+    0.53569,
+    0.73399,
+    0.5647,
+    0.5647,
+    0.5647,
+    2
+   ],
+   [
+    -0.09296,
+    0.133,
+    0.98675,
+    0.6431,
+    0.6431,
+    0.6431,
+    2
+   ],
+   [
+    -0.4261,
+    -0.30479,
+    0.85179,
+    0.6706,
+    0.6706,
+    0.6706,
+    2
+   ],
+   [
+    -0.31666,
+    0.40227,
+    0.85901,
+    0.8353,
+    0.8353,
+    0.8353,
+    2
+   ],
+   [
+    -0.45963,
+    0.298,
+    0.83662,
+    0.4157,
+    0.5529,
+    0.5529,
+    2
+   ],
+   [
+    -0.633,
+    0.1829,
+    0.75223,
+    0.5686,
+    0.7608,
+    0.7608,
+    2
+   ],
+   [
+    -0.75329,
+    -0.43018,
+    0.4975,
+    0.8824,
+    0.8824,
+    0.8824,
+    2
+   ],
+   [
+    -0.86688,
+    0.08952,
+    0.49041,
+    0.8431,
+    0.8431,
+    0.8431,
+    2
+   ],
+   [
+    0.75026,
+    -0.25919,
+    0.60821,
+    0.749,
+    0.749,
+    0.749,
+    2
+   ],
+   [
+    0.62742,
+    0.25848,
+    0.73453,
+    0.6588,
+    0.6588,
+    0.6588,
+    2
+   ],
+   [
+    -0.88359,
+    -0.13992,
+    0.44686,
+    0.4314,
+    0.5765,
+    0.5765,
+    2
+   ],
+   [
+    0.8087,
+    0.46771,
+    0.35672,
+    0.9804,
+    0.9804,
+    0.9804,
+    2
+   ],
+   [
+    -0.62671,
+    0.70953,
+    0.32218,
+    0.6941,
+    0.6941,
+    0.6941,
+    2
+   ],
+   [
+    -0.57102,
+    -0.00146,
+    0.82094,
+    0.4392,
+    0.5882,
+    0.5882,
+    2
+   ],
+   [
+    -0.66447,
+    -0.743,
+    0.08015,
+    0.5765,
+    0.5765,
+    0.5765,
+    2
+   ],
+   [
+    0.1601,
+    0.40293,
+    0.90112,
+    0.7961,
+    0.7961,
+    0.7961,
+    2
+   ]
+  ],
+  "clouds": {
+   "file": "tex/craft_clouds.png",
+   "aspect": 3.0,
+   "count": {
+    "mesh": 0,
+    "lines": 0,
+    "basic": 0,
+    "low": 9,
+    "medium": 14,
+    "high": 18,
+    "ultra": 26
+   },
+   "layouts": {
+    "9": [
+     [
+      16.20351,
+      1,
+      0.085826,
+      0.844927,
+      0
+     ],
+     [
+      21.15033,
+      3,
+      0.951023,
+      0.399425,
+      0
+     ],
+     [
+      29.11019,
+      1,
+      0.240135,
+      0.741422,
+      0
+     ],
+     [
+      25.44146,
+      2,
+      0.684205,
+      0.463824,
+      0
+     ],
+     [
+      19.10644,
+      1,
+      0.107089,
+      0.692222,
+      0
+     ],
+     [
+      24.89542,
+      2,
+      0.376513,
+      0.798523,
+      0
+     ],
+     [
+      18.71636,
+      0,
+      0.797934,
+      0.380475,
+      0
+     ],
+     [
+      25.98561,
+      1,
+      0.612518,
+      0.941001,
+      0
+     ],
+     [
+      29.88347,
+      2,
+      0.808844,
+      0.152865,
+      0
+     ],
+     [
+      33.7746,
+      2,
+      0.847624,
+      0.401226,
+      1
+     ],
+     [
+      30.86915,
+      2,
+      0.958523,
+      0.317278,
+      1
+     ],
+     [
+      28.11794,
+      1,
+      0.00092,
+      0.420185,
+      1
+     ],
+     [
+      32.29214,
+      2,
+      0.923677,
+      0.32735,
+      1
+     ],
+     [
+      38.79727,
+      3,
+      0.187675,
+      0.823252,
+      1
+     ],
+     [
+      23.66212,
+      2,
+      0.073473,
+      0.858039,
+      1
+     ],
+     [
+      35.88412,
+      1,
+      0.139789,
+      0.527106,
+      1
+     ],
+     [
+      25.49818,
+      2,
+      0.553206,
+      0.106262,
+      1
+     ],
+     [
+      36.53164,
+      1,
+      0.278696,
+      0.447123,
+      1
+     ]
+    ],
+    "14": [
+     [
+      16.20351,
+      1,
+      0.085826,
+      0.844927,
+      0
+     ],
+     [
+      21.15033,
+      3,
+      0.951023,
+      0.399425,
+      0
+     ],
+     [
+      29.11019,
+      1,
+      0.240135,
+      0.741422,
+      0
+     ],
+     [
+      25.44146,
+      2,
+      0.684205,
+      0.463824,
+      0
+     ],
+     [
+      19.10644,
+      1,
+      0.107089,
+      0.692222,
+      0
+     ],
+     [
+      24.89542,
+      2,
+      0.376513,
+      0.798523,
+      0
+     ],
+     [
+      18.71636,
+      0,
+      0.797934,
+      0.380475,
+      0
+     ],
+     [
+      25.98561,
+      1,
+      0.612518,
+      0.941001,
+      0
+     ],
+     [
+      29.88347,
+      2,
+      0.808844,
+      0.152865,
+      0
+     ],
+     [
+      25.98046,
+      2,
+      0.847624,
+      0.401226,
+      0
+     ],
+     [
+      23.7455,
+      2,
+      0.958523,
+      0.317278,
+      0
+     ],
+     [
+      21.62918,
+      1,
+      0.00092,
+      0.420185,
+      0
+     ],
+     [
+      24.84011,
+      2,
+      0.923677,
+      0.32735,
+      0
+     ],
+     [
+      29.84405,
+      3,
+      0.187675,
+      0.823252,
+      0
+     ],
+     [
+      23.66212,
+      2,
+      0.073473,
+      0.858039,
+      1
+     ],
+     [
+      35.88412,
+      1,
+      0.139789,
+      0.527106,
+      1
+     ],
+     [
+      25.49818,
+      2,
+      0.553206,
+      0.106262,
+      1
+     ],
+     [
+      36.53164,
+      1,
+      0.278696,
+      0.447123,
+      1
+     ],
+     [
+      21.84211,
+      2,
+      0.19516,
+      0.341675,
+      1
+     ],
+     [
+      37.69166,
+      0,
+      0.889728,
+      0.480501,
+      1
+     ],
+     [
+      29.07663,
+      0,
+      0.858755,
+      0.337298,
+      1
+     ],
+     [
+      35.24451,
+      2,
+      0.398987,
+      0.594054,
+      1
+     ],
+     [
+      34.2219,
+      2,
+      0.690776,
+      0.697313,
+      1
+     ],
+     [
+      20.90397,
+      2,
+      0.039066,
+      0.149038,
+      1
+     ],
+     [
+      24.68816,
+      2,
+      0.048966,
+      0.217211,
+      1
+     ],
+     [
+      31.73724,
+      0,
+      0.886075,
+      0.349504,
+      1
+     ],
+     [
+      27.46857,
+      2,
+      0.680342,
+      0.785274,
+      1
+     ],
+     [
+      37.92544,
+      1,
+      0.3757,
+      0.706774,
+      1
+     ]
+    ],
+    "18": [
+     [
+      16.20351,
+      1,
+      0.085826,
+      0.844927,
+      0
+     ],
+     [
+      21.15033,
+      3,
+      0.951023,
+      0.399425,
+      0
+     ],
+     [
+      29.11019,
+      1,
+      0.240135,
+      0.741422,
+      0
+     ],
+     [
+      25.44146,
+      2,
+      0.684205,
+      0.463824,
+      0
+     ],
+     [
+      19.10644,
+      1,
+      0.107089,
+      0.692222,
+      0
+     ],
+     [
+      24.89542,
+      2,
+      0.376513,
+      0.798523,
+      0
+     ],
+     [
+      18.71636,
+      0,
+      0.797934,
+      0.380475,
+      0
+     ],
+     [
+      25.98561,
+      1,
+      0.612518,
+      0.941001,
+      0
+     ],
+     [
+      29.88347,
+      2,
+      0.808844,
+      0.152865,
+      0
+     ],
+     [
+      25.98046,
+      2,
+      0.847624,
+      0.401226,
+      0
+     ],
+     [
+      23.7455,
+      2,
+      0.958523,
+      0.317278,
+      0
+     ],
+     [
+      21.62918,
+      1,
+      0.00092,
+      0.420185,
+      0
+     ],
+     [
+      24.84011,
+      2,
+      0.923677,
+      0.32735,
+      0
+     ],
+     [
+      29.84405,
+      3,
+      0.187675,
+      0.823252,
+      0
+     ],
+     [
+      18.20163,
+      2,
+      0.073473,
+      0.858039,
+      0
+     ],
+     [
+      27.60317,
+      1,
+      0.139789,
+      0.527106,
+      0
+     ],
+     [
+      19.61398,
+      2,
+      0.553206,
+      0.106262,
+      0
+     ],
+     [
+      28.10126,
+      1,
+      0.278696,
+      0.447123,
+      0
+     ],
+     [
+      21.84211,
+      2,
+      0.19516,
+      0.341675,
+      1
+     ],
+     [
+      37.69166,
+      0,
+      0.889728,
+      0.480501,
+      1
+     ],
+     [
+      29.07663,
+      0,
+      0.858755,
+      0.337298,
+      1
+     ],
+     [
+      35.24451,
+      2,
+      0.398987,
+      0.594054,
+      1
+     ],
+     [
+      34.2219,
+      2,
+      0.690776,
+      0.697313,
+      1
+     ],
+     [
+      20.90397,
+      2,
+      0.039066,
+      0.149038,
+      1
+     ],
+     [
+      24.68816,
+      2,
+      0.048966,
+      0.217211,
+      1
+     ],
+     [
+      31.73724,
+      0,
+      0.886075,
+      0.349504,
+      1
+     ],
+     [
+      27.46857,
+      2,
+      0.680342,
+      0.785274,
+      1
+     ],
+     [
+      37.92544,
+      1,
+      0.3757,
+      0.706774,
+      1
+     ],
+     [
+      27.01774,
+      0,
+      0.230649,
+      0.871014,
+      1
+     ],
+     [
+      29.99292,
+      3,
+      0.725344,
+      0.534993,
+      1
+     ],
+     [
+      26.55341,
+      2,
+      0.05045,
+      0.042993,
+      1
+     ],
+     [
+      30.44533,
+      1,
+      0.477174,
+      0.833137,
+      1
+     ],
+     [
+      21.16623,
+      2,
+      0.490637,
+      0.597997,
+      1
+     ],
+     [
+      34.07833,
+      2,
+      0.524741,
+      0.563038,
+      1
+     ],
+     [
+      29.75047,
+      2,
+      0.248127,
+      0.552613,
+      1
+     ],
+     [
+      33.03744,
+      2,
+      0.191113,
+      0.990367,
+      1
+     ]
+    ],
+    "26": [
+     [
+      16.20351,
+      1,
+      0.085826,
+      0.844927,
+      0
+     ],
+     [
+      21.15033,
+      3,
+      0.951023,
+      0.399425,
+      0
+     ],
+     [
+      29.11019,
+      1,
+      0.240135,
+      0.741422,
+      0
+     ],
+     [
+      25.44146,
+      2,
+      0.684205,
+      0.463824,
+      0
+     ],
+     [
+      19.10644,
+      1,
+      0.107089,
+      0.692222,
+      0
+     ],
+     [
+      24.89542,
+      2,
+      0.376513,
+      0.798523,
+      0
+     ],
+     [
+      18.71636,
+      0,
+      0.797934,
+      0.380475,
+      0
+     ],
+     [
+      25.98561,
+      1,
+      0.612518,
+      0.941001,
+      0
+     ],
+     [
+      29.88347,
+      2,
+      0.808844,
+      0.152865,
+      0
+     ],
+     [
+      25.98046,
+      2,
+      0.847624,
+      0.401226,
+      0
+     ],
+     [
+      23.7455,
+      2,
+      0.958523,
+      0.317278,
+      0
+     ],
+     [
+      21.62918,
+      1,
+      0.00092,
+      0.420185,
+      0
+     ],
+     [
+      24.84011,
+      2,
+      0.923677,
+      0.32735,
+      0
+     ],
+     [
+      29.84405,
+      3,
+      0.187675,
+      0.823252,
+      0
+     ],
+     [
+      18.20163,
+      2,
+      0.073473,
+      0.858039,
+      0
+     ],
+     [
+      27.60317,
+      1,
+      0.139789,
+      0.527106,
+      0
+     ],
+     [
+      19.61398,
+      2,
+      0.553206,
+      0.106262,
+      0
+     ],
+     [
+      28.10126,
+      1,
+      0.278696,
+      0.447123,
+      0
+     ],
+     [
+      16.80162,
+      2,
+      0.19516,
+      0.341675,
+      0
+     ],
+     [
+      28.99359,
+      0,
+      0.889728,
+      0.480501,
+      0
+     ],
+     [
+      22.36664,
+      0,
+      0.858755,
+      0.337298,
+      0
+     ],
+     [
+      27.11116,
+      2,
+      0.398987,
+      0.594054,
+      0
+     ],
+     [
+      26.32454,
+      2,
+      0.690776,
+      0.697313,
+      0
+     ],
+     [
+      16.07998,
+      2,
+      0.039066,
+      0.149038,
+      0
+     ],
+     [
+      18.99089,
+      2,
+      0.048966,
+      0.217211,
+      0
+     ],
+     [
+      24.41326,
+      0,
+      0.886075,
+      0.349504,
+      0
+     ],
+     [
+      27.46857,
+      2,
+      0.680342,
+      0.785274,
+      1
+     ],
+     [
+      37.92544,
+      1,
+      0.3757,
+      0.706774,
+      1
+     ],
+     [
+      27.01774,
+      0,
+      0.230649,
+      0.871014,
+      1
+     ],
+     [
+      29.99292,
+      3,
+      0.725344,
+      0.534993,
+      1
+     ],
+     [
+      26.55341,
+      2,
+      0.05045,
+      0.042993,
+      1
+     ],
+     [
+      30.44533,
+      1,
+      0.477174,
+      0.833137,
+      1
+     ],
+     [
+      21.16623,
+      2,
+      0.490637,
+      0.597997,
+      1
+     ],
+     [
+      34.07833,
+      2,
+      0.524741,
+      0.563038,
+      1
+     ],
+     [
+      29.75047,
+      2,
+      0.248127,
+      0.552613,
+      1
+     ],
+     [
+      33.03744,
+      2,
+      0.191113,
+      0.990367,
+      1
+     ],
+     [
+      34.38556,
+      3,
+      0.293946,
+      0.443493,
+      1
+     ],
+     [
+      25.55818,
+      3,
+      0.046692,
+      0.016677,
+      1
+     ],
+     [
+      25.29081,
+      1,
+      0.163694,
+      0.689623,
+      1
+     ],
+     [
+      25.33875,
+      3,
+      0.065583,
+      0.192487,
+      1
+     ],
+     [
+      33.13826,
+      1,
+      0.549031,
+      0.453164,
+      1
+     ],
+     [
+      25.79313,
+      2,
+      0.488348,
+      0.922446,
+      1
+     ],
+     [
+      24.46721,
+      0,
+      0.25113,
+      0.193416,
+      1
+     ],
+     [
+      26.69399,
+      2,
+      0.092779,
+      0.935374,
+      1
+     ],
+     [
+      27.44544,
+      2,
+      1e-06,
+      0.060428,
+      1
+     ],
+     [
+      24.70666,
+      0,
+      0.417654,
+      0.60157,
+      1
+     ],
+     [
+      38.65476,
+      1,
+      0.242254,
+      0.611545,
+      1
+     ],
+     [
+      37.57206,
+      3,
+      0.101602,
+      0.854039,
+      1
+     ],
+     [
+      28.00849,
+      0,
+      0.322597,
+      0.625723,
+      1
+     ],
+     [
+      30.02769,
+      3,
+      0.104421,
+      0.759802,
+      1
+     ],
+     [
+      35.77759,
+      2,
+      0.38801,
+      0.947492,
+      1
+     ],
+     [
+      27.61244,
+      1,
+      0.879619,
+      0.418574,
+      1
+     ]
+    ]
+   }
+  },
+  "dig_order": [
+   0.625095,
+   0.897214,
+   0.775686,
+   0.225207,
+   0.300166,
+   0.873553,
+   0.005265,
+   0.821228,
+   0.797069,
+   0.467935,
+   0.303032,
+   0.278426,
+   0.25487,
+   0.445076,
+   0.504548,
+   0.553497,
+   0.9955,
+   0.792662,
+   0.622179,
+   0.98896,
+   0.215309,
+   0.160212,
+   0.61254,
+   0.043942,
+   0.03568,
+   0.514889,
+   0.466206,
+   0.917168,
+   0.629226,
+   0.514118,
+   0.496873,
+   0.247515,
+   0.011794,
+   0.192402,
+   0.692032,
+   0.200607,
+   0.369536,
+   0.003734,
+   0.830048,
+   0.154461,
+   0.267599,
+   0.880332,
+   0.509791,
+   0.84715,
+   0.639717,
+   0.741771,
+   0.091496,
+   0.541144,
+   0.507772,
+   0.871339,
+   0.361264,
+   0.598184,
+   0.059252,
+   0.387632,
+   0.323036,
+   0.1502,
+   0.816338,
+   0.379446,
+   0.978748,
+   0.589992,
+   0.605056,
+   0.637997,
+   0.67645,
+   0.150788,
+   0.440313,
+   0.239564,
+   0.402498,
+   0.096704,
+   0.967828,
+   0.215004,
+   0.671765,
+   0.30042,
+   0.874077,
+   0.662215,
+   0.131616,
+   0.845074,
+   0.944948,
+   0.903917,
+   0.569719,
+   0.14546,
+   0.192463,
+   0.927906,
+   0.552326,
+   0.180552,
+   0.884057,
+   0.641572,
+   0.569694,
+   0.376288,
+   0.410955,
+   0.239489,
+   0.038057,
+   0.876219,
+   0.46773,
+   0.547635,
+   0.322163,
+   0.751325,
+   0.025197,
+   0.372185,
+   0.03035,
+   0.122892,
+   0.967148,
+   0.657761,
+   0.42822,
+   0.52374,
+   0.872809,
+   0.344211,
+   0.590291,
+   0.683684,
+   0.355414,
+   0.519098,
+   0.765247,
+   0.909179,
+   0.151062,
+   0.933419,
+   0.005179,
+   0.752978,
+   0.810527,
+   0.136764,
+   0.418904,
+   0.815256,
+   0.014271,
+   0.628462,
+   0.793024,
+   0.513004,
+   0.725849,
+   0.226423,
+   0.198521,
+   0.363127,
+   0.179406,
+   0.346061,
+   0.948124,
+   0.573333,
+   0.340068,
+   0.271525,
+   0.952039,
+   0.444478,
+   0.980395,
+   0.515523,
+   0.521166,
+   0.896541,
+   0.742767,
+   0.580653,
+   0.42665,
+   0.878188,
+   0.411646,
+   0.92276,
+   0.068715,
+   0.429997,
+   0.519515,
+   0.950938,
+   0.250999,
+   0.806039,
+   0.676471,
+   0.717086,
+   0.629622,
+   0.971561,
+   0.332681,
+   0.398276,
+   0.202912,
+   0.050704,
+   0.212908,
+   0.915464,
+   0.840169,
+   0.112406,
+   0.603779,
+   0.479196,
+   0.594685,
+   0.659275,
+   0.306659,
+   0.961351,
+   0.46584,
+   0.628101,
+   0.635226,
+   0.183889,
+   0.061865,
+   0.411517,
+   0.76403,
+   0.815222,
+   0.729989,
+   0.113205,
+   0.913355,
+   0.802037,
+   0.877691,
+   0.523304,
+   0.915635,
+   0.046652,
+   0.030289,
+   0.020216,
+   0.252769,
+   0.24857,
+   0.187503,
+   0.567056,
+   0.038986,
+   0.590388,
+   0.166011,
+   0.677874,
+   0.021075,
+   0.31057,
+   0.938341,
+   0.538396,
+   0.811587,
+   0.658026,
+   0.610751,
+   0.191253,
+   0.574395,
+   0.039686,
+   0.801664,
+   0.960071,
+   0.854009,
+   0.05071,
+   0.33866,
+   0.318003,
+   0.112717,
+   0.626612,
+   0.797458,
+   0.313721,
+   0.862809,
+   0.797127,
+   0.129138,
+   0.766859,
+   0.882621,
+   0.197283,
+   0.573641,
+   0.63875,
+   0.609334,
+   0.096246,
+   0.661191,
+   0.631955,
+   0.823885,
+   0.803513,
+   0.327168,
+   0.722047,
+   0.867273,
+   0.892948,
+   0.161512,
+   0.026702,
+   0.650807,
+   0.214676,
+   0.56371,
+   0.944805,
+   0.37932,
+   0.252775,
+   0.45651,
+   0.657244,
+   0.101099,
+   0.380585,
+   0.133721,
+   0.662446,
+   0.830553,
+   0.376854,
+   0.371724,
+   0.539522,
+   0.215058,
+   0.24741,
+   0.329852,
+   0.457426
   ]
  }
 }

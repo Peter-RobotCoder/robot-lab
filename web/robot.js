@@ -171,7 +171,7 @@ export class RobotScene extends BaseScene {
         const file = this.ultra ? arenaModelsData() : null, ultra = !!file;
         this.ultraArena = ultra;
         const M = (name, rgb, rough, metal, tex, tile, emission) => this.material(name, rgb, rough, metal, 0, {tex, tile, emission});
-        const floorM = blocks ? M("floor", [0.58, 0.59, 0.62], 1, 1) : M("floor", [1, 1, 1], 1, 1, "diamond", 0.6);
+        const floorM = blocks ? M("floor", [0.58, 0.59, 0.62], 1, 1) : M("floor", [1, 1, 1], 1, 1, "treadplate", 0.6);
         const hazard = blocks ? M("hazard", YELLOW, 1, 0) : M("hazard", [1, 1, 1], 1, 0, "hazard", 0.8);
         const darkSteel = M("darksteel", [0.12, 0.12, 0.13], 1, 1, "steel", 0.6);
         const steel = M("steel", [1, 1, 1], 1, 1, "steel");
@@ -223,7 +223,7 @@ export class RobotScene extends BaseScene {
         this.pitLid = new BABYLON.TransformNode("pitlid", this.scene);
         this.pitLid.position = v3(px, py, 0);
         const lidParts = [this.box(this.pitLid, ps / 2 - 0.03, ps / 2 - 0.03, 0.25,
-                                   blocks ? M("lid", [0.75, 0.75, 0.78], 1, 1) : M("lid", [0.75, 0.75, 0.78], 1, 1, "diamond", 0.6), 0, 0, -0.25)];
+                                   blocks ? M("lid", [0.75, 0.75, 0.78], 1, 1) : M("lid", [0.75, 0.75, 0.78], 1, 1, "treadplate", 0.6), 0, 0, -0.25)];
         const q = ps / 2 - 0.03;
         for (const [ox, oy, hx, hy] of [[0, q - 0.1, q, 0.1], [0, -q + 0.1, q, 0.1], [q - 0.1, 0, 0.1, q - 0.2], [-q + 0.1, 0, 0.1, q - 0.2]]) {
             lidParts.push(this.box(this.pitLid, hx, hy, 0.004, hazard, ox, oy, 0.004));
@@ -406,8 +406,8 @@ export class RobotScene extends BaseScene {
         if (this.boost) moving.push([null, [this.boost], "boost"]);
         if (this.repair) moving.push([null, [this.repair], "repair"]);
         if (mods.ramps) {  // (CHANGE 152: rw_gfx's ramps on every tier, ultra's too: the physics' wedge, its deck in
-            // diamond plate, hazard stripes down its sides, a lit green speed-burst pad with white arrow bars up its slope)
-            const deck = blocks ? M("ramp", [0.75, 0.75, 0.78], 1, 1) : M("ramp", [0.75, 0.75, 0.78], 1, 1, "diamond", 0.6);
+            // tread plate, hazard stripes down its sides, a lit green speed-burst pad with white arrow bars up its slope)
+            const deck = blocks ? M("ramp", [0.75, 0.75, 0.78], 1, 1) : M("ramp", [0.75, 0.75, 0.78], 1, 1, "treadplate", 0.6);
             const body = M("rampbody", [0.3, 0.3, 0.32], 1, 1, "steel", 0.5);
             const pad = M("ramppad", [0.02, 0.05, 0.02], 0.5, 0, null, null, [0.2, 0.9, 0.3]);
             const bars = M("rampbars", [0.1, 0.1, 0.1], 0.5, 0, null, null, [1.5, 1.5, 1.6]);
@@ -1443,7 +1443,7 @@ export class RobotScene extends BaseScene {
 // design being edited changes (the draft, before BUILD). Built by RobotScene.addRobot in its own small canvas and
 // engine: WebGL 1 and Babylon's simple materials (no textures, so light on memory and quick to make), drawn about 30
 // times a second while the garage is on screen, and let go a few seconds after it isn't.
-const TEX_TONE = {steel: [0.56, 0.57, 0.6], tyre: [0.07, 0.07, 0.08], hazard: [0.95, 0.75, 0.08], diamond: [0.6, 0.6, 0.62]};  // (each texture set's own colour)
+const TEX_TONE = {steel: [0.56, 0.57, 0.6], tyre: [0.07, 0.07, 0.08], hazard: [0.95, 0.75, 0.08], treadplate: [0.6, 0.6, 0.62]};  // (each texture set's own colour)
 const RIDE = 0.12;  // (lab_sim.RIDE: the body origin above the floor)
 
 // lab_sim.shapes' weapon pivot for a robot of this size: the standard robot nearest (80% to 120%) made bigger or

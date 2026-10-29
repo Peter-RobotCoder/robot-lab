@@ -1,5 +1,5 @@
 """Robot Lab's ultra textures (CHANGE 145): the worn steel floor plates and the boards with the club's names, made once
-into shared-world-demo/assets/tex beside the engine's (engine/rw_textures.py: paint, steel, tyre, diamond, hazard,
+into shared-world-demo/assets/tex beside the engine's (engine/rw_textures.py: paint, steel, tyre, treadplate, hazard,
 concrete), and copied for the page by club-coders/web/make_textures.py.
 
 Each set has three maps, as the engine's: <name>_albedo (sRGB), <name>_normal, <name>_mr (red: shading in the

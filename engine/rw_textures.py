@@ -13,7 +13,7 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEX = os.path.join(HERE, "assets", "tex")
-VERSION = "4"  # bump to regenerate after changing a generator
+VERSION = "5"  # (5: the floor plate set is called treadplate) bump to regenerate after changing a generator
 
 rng = np.random.default_rng(7)
 
@@ -70,11 +70,11 @@ def grey(v):
 
 
 # ---------- materials ----------
-def diamond_plate(size=1024):
+def tread_plate(size=1024):
     y, x = np.mgrid[0:size, 0:size] / size
     cells = 8
     h = np.zeros((size, size))
-    for off, angle in ((0.0, 0.785), (0.5, -0.785)):  # two staggered rows of diamonds, alternate angles
+    for off, angle in ((0.0, 0.785), (0.5, -0.785)):  # two staggered rows of raised bars, alternate angles
         cx = (x * cells + off) % 1.0 - 0.5
         cy = (y * cells + off) % 1.0 - 0.5
         c, s = np.cos(angle), np.sin(angle)
@@ -86,7 +86,7 @@ def diamond_plate(size=1024):
     albedo = grey(0.42 + 0.12 * h + 0.08 * scratches - 0.12 * grime * (1 - h))
     rough = 0.32 + 0.25 * grime * (1 - h) - 0.08 * h + 0.05 * scratches
     ao = 0.75 + 0.25 * np.clip(h + 0.4, 0, 1)
-    save_set("diamond", albedo, h + 0.05 * scratches, 6.0, rough, np.ones_like(h), ao)
+    save_set("treadplate", albedo, h + 0.05 * scratches, 6.0, rough, np.ones_like(h), ao)
 
 
 def brushed(size, strength=1.0):
@@ -188,7 +188,7 @@ def ensure():
     marker = os.path.join(TEX, f"version_{VERSION}.txt")
     if os.path.exists(marker):
         return TEX
-    for gen in (diamond_plate, brushed_steel, painted_metal, tyre, hazard, concrete, env_faces):
+    for gen in (tread_plate, brushed_steel, painted_metal, tyre, hazard, concrete, env_faces):
         gen()
     for f in os.listdir(TEX):
         if f.startswith("version_"):

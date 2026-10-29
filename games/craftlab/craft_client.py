@@ -4,16 +4,20 @@ and keeps it on this computer between goes.
 
 Learner:  python craft_client.py                      (log in with a username and password in the window)
 Teacher:  python craft_client.py --teacher --name "Mr P"
-Offline:  python craft_client.py --offline             your own island on this laptop (--creative to build freely)
+Offline:  python craft_client.py --offline             your own island on this laptop (--sandbox to build freely)
 
-Moving:   WASD walk, the mouse looks, Space jumps (in water: swims up; creative: twice quickly to fly, then Space
-          up and Shift down), Ctrl or W twice sprints, Shift sneaks (you won't fall off an edge)
+Moving:   WASD walk, the mouse looks, Space jumps (in water: swims up), Shift (held) runs, Ctrl switches Careful
+          mode on and off (you won't step off an edge: the CAREFUL tag shows); Sandbox: F flies, then Space up and
+          Ctrl down
 Blocks:   hold the left button to dig what you look at (a tool for the job digs faster), the right button puts
-          what you hold beside it, or uses the block (a workbench, a chest, a smelter, a door, a bed, a berry bush,
-          the Craft Bot's dock); 1 to 9 or the mouse wheel choose from the hotbar; Q throws one (Ctrl+Q the stack)
-Screens:  E your inventory (and crafting), Esc closes a screen or opens the menu (the graphics, saving, quitting)
-Always:   V the view (your eyes, behind you, in front), F3 the numbers, F11 full screen, H the key list.
-          A game pad works too.
+          what you hold beside it, or uses the block (a Fabricator, a Locker, a Refinery, a door, a Recharge Pod, a
+          berry bush, the Craft Bot's dock) or a creature (brush a Fluff, trade with a Bleep); 1 to 8 or the mouse
+          wheel choose from the Toolbelt; X throws one (Ctrl+X the stack)
+Screens:  I your Backpack (its tabs: Backpack, Blueprints, Bot), B the Bot tab (the Garage, the code, the brain),
+          Esc closes a screen or opens the menu (the graphics, saving, the credits, quitting)
+Always:   V the view (your eyes, behind you, in front), ` (backtick) the dev panel, F11 full screen, H the key list.
+          A game pad works too: the right trigger digs, the left places, A jumps, B Careful mode, X the Backpack,
+          Y the Bot tab, the bumpers move along the Toolbelt.
 
 The world is drawn by craft_gfx (every tier, mesh and lines too). Online your own player answers the keys at once:
 this window steps it with every key press (craft_sim.step_player, the server's arithmetic) and sends the numbered
@@ -43,7 +47,8 @@ ap.add_argument("--host", default=None, help="server address (default: this comp
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
 ap.add_argument("--ticket", help=argparse.SUPPRESS)
 ap.add_argument("--offline", action="store_true", help="your own world on this laptop, no server")
-ap.add_argument("--creative", action="store_true", help="offline: creative mode (fly, every block, nothing hurts)")
+ap.add_argument("--sandbox", "--creative", dest="creative", action="store_true",
+                help="offline: Sandbox mode (fly, every block, nothing hurts; --creative: its old name)")
 ap.add_argument("--seed", type=int, default=None, help="offline: a new world from this seed")
 ap.add_argument("--size", default="medium", choices=["small", "medium", "large"])
 ap.add_argument("--new", action="store_true", help="offline: a new world (the saved one is kept as a backup)")
@@ -129,7 +134,7 @@ from engine import gamepad, interp, predict, wire  # noqa: E402
 from engine import net as net_module  # noqa: E402
 from engine.net import Net  # noqa: E402
 
-if OFFLINE:  # (this computer's own mods: its blocks drawn in the atlas, its recipes crafted)
+if OFFLINE:  # (this computer's own mods: its blocks drawn in the atlas, its blueprints built)
     for _msg in craft_mods.use_mods():
         print("Mods not used:", _msg, flush=True)
 SCHEMA = wire.Schema("craft", sim.SCHEMA_FIELDS)
@@ -141,13 +146,13 @@ net_module.OPTIONS["compression"] = None
 WORLDS = os.path.join(SETTINGS_DIR, "worlds")
 VIEWS = ("eyes", "behind", "front")
 MOUSE_SPEED = 0.12          # degrees a pixel
-KEYS_TEXT = ("WASD walk   mouse look   Space jump   Ctrl sprint   Shift sneak   left: dig   right: place or use   "
-             "1-9 hotbar   E inventory   Q drop   V view   Tab lessons   H keys\n"
-             "Craft Bot: I garage   C code   B brain   U upload the brain   P autopilot")
-TEACHER_KEYS = ("Teacher: T time of day   M creatures   G everyone to me   K a Bot kit for everyone   N creative/survival "
+KEYS_TEXT = ("WASD walk   mouse look   Space jump   Shift run   Ctrl careful   left: dig   right: place or use   "
+             "1-8 Toolbelt   I Backpack   X throw   V view   Tab lessons   H keys\n"
+             "Craft Bot: B the Bot tab (Garage, Code, Brain)   U upload the brain   P autopilot")
+TEACHER_KEYS = ("Teacher: T time of day   M creatures   G everyone to me   K a Bot kit for everyone   N Sandbox/Challenge "
                 "for everyone   F9 pause")
 PLACE_GAP = 0.22
-TIMES = {"dawn": 0.02, "day": 0.25, "dusk": 0.49, "night": 0.75}
+TIMES = {"dawn": 0.95, "day": 0.3, "dusk": 0.62, "night": 0.8}
 
 
 def send(msg):
@@ -291,7 +296,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             world = craft_world.World(args.size, seed)
             print(f"Craft Lab: a new world (seed {seed}) in {time.perf_counter() - t0:.1f} s", flush=True)
             extra = {}
-        rules = {"mode": "creative" if args.creative else "survival", "mobs": not args.no_mobs}
+        rules = {"mode": "sandbox" if args.creative else "challenge", "mobs": not args.no_mobs}
         self.game = craft_game.Game(world, rules)
         self.game.load_extra(extra)
         saved = (extra.get("players") or {}).get("you")
@@ -324,6 +329,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
               f"{gfx.tier()}", flush=True)
         self.target = gfx.Target(self.render)
         self.particles = gfx.Particles(self.render)
+        self.effects = gfx.Effects(self.render) if hasattr(gfx, "Effects") else None
         self.models = {}         # entity id -> craft_models.Model / ItemModel
         self.hud = ui.Hud(self)
         self.screen = None
@@ -333,11 +339,11 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         self.accum = 0.0
         self.dig_at, self.dig_progress, self.dig_hit = None, 0.0, 0.0
         self.place_at = 0.0
-        self.jump_at = -1.0
-        self.w_at = -1.0
         self.fly = False
-        self.sprint_lock = False
+        self.careful = False
+        self.ctrl_used = False
         self.debug_on = False
+        self.blueprint_list = items.blueprints() if OFFLINE else getattr(self, "blueprint_list", items.blueprints())
         self.help_on = True
         self.hurt_until = 0.0
         self.pad = gamepad.Pad(self)
@@ -382,28 +388,27 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
     def keys(self):
         def key(name, fn, *a):  # (not while typing in a panel's box or editor: the letters are the code's)
             self.accept(name, lambda *x: None if self.busy() else fn(*(a + x)))
-        for i in range(9):
+        for i in range(items.TOOLBELT):
             key(str(i + 1), self.select, i)
         key("wheel_up", self.wheel, -1)
         key("wheel_down", self.wheel, 1)
-        key("e", self.toggle_inventory)
+        key("i", self.toggle_inventory)
         self.accept("escape", self.escape)
-        key("q", self.drop, False)
-        key("control-q", self.drop, True)
+        key("x", self.drop, False)
+        key("control-x", self.drop, True)
         key("v", self.cycle_view)
-        self.accept("f3", self.toggle_debug)
+        key("`", self.toggle_debug)
         key("h", self.toggle_help)
         self.accept("f11", self.toggle_full)
-        key("space", self.space_tap)
-        key("w", self.w_tap)
+        key("f", self.toggle_fly)
+        key("control", self.ctrl_down)       # (Ctrl on its own switches Careful mode: on letting it go, if no other
+        self.accept("control-up", self.ctrl_up)  # key was pressed with it, Ctrl+X say)
         self.accept("mouse1", self.mouse_down, [1])
         self.accept("mouse3", self.mouse_down, [3])
         key("tab", self.toggle_panel)  # (the lesson tabs: Mission, AI card, My card, Settings; the teacher's Controls)
         key("page_up", self.slide_panel, -1)
         key("page_down", self.slide_panel, 1)
-        key("i", self.open_panel, "garage")
-        key("c", self.open_panel, "code")
-        key("b", self.open_panel, "brain")
+        key("b", self.toggle_inventory, "bot")
         key("u", self.upload_brain)
         key("p", self.toggle_autopilot)
         if OFFLINE:
@@ -413,12 +418,21 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
                 key(k, send, {"type": kind})
 
     def busy(self):
-        """Typing in a box or an editor (a Bot panel's, or the side panel's): the keys are the words, not the game's."""
-        return bool(self.typing) or (self.bot_panel is not None and self.bot_panel.typing())
+        """Typing in a box or an editor (a Bot panel's, the side panel's, the Backpack's search or a Locker's name):
+        the keys are the words, not the game's."""
+        return bool(self.typing) or (self.bot_panel is not None and self.bot_panel.typing()) or \
+            (self.screen is not None and self.screen.typing())
 
     # ---------- the Craft Bot's panels ----------
+    def bot_hub(self, kind):
+        """The Bot tab's GARAGE, CODE and BRAIN: the Backpack shuts and the panel opens."""
+        if self.screen is not None:
+            self.act({"type": "close"})
+            self.close_screen()
+        self.open_panel(kind)
+
     def open_panel(self, kind):
-        """I the garage, C the code, B the brain (the same key again closes it)."""
+        """The garage, the code, the brain (from the Bot tab; the same one again closes it)."""
         was = self.panel_kind
         self.close_panel()
         if was == kind:
@@ -561,42 +575,65 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         at = self.mouse_at()
         if self.tab and self.panel_bar and at is not None and at[0] > 1.76 - 0.98 * self.text_scale():
             return self.slide_panel(step)  # (over a tall side panel: it slides)
-        if self.screen is None and self.inventory:
-            self.act({"type": "select", "slot": (self.inventory["selected"] + step) % items.HOTBAR})
+        if self.screen is not None:
+            return self.screen.scroll(step)
+        if self.inventory:
+            self.act({"type": "select", "slot": (self.inventory["selected"] + step) % items.TOOLBELT})
 
-    def space_tap(self):
-        now = time.perf_counter()
-        if self.creative() and now - self.jump_at < 0.3:
-            self.fly = not self.fly
-            self.hud.say("Flying" if self.fly else "Walking", now, 1.5)
-        self.jump_at = now
+    def toggle_fly(self):
+        """F: Sandbox players fly (Space up, Ctrl down) or walk."""
+        if not self.creative():
+            return
+        self.fly = not self.fly
+        self.hud.say("Flying: Space up, Ctrl down" if self.fly else "Walking", time.perf_counter(), 1.5)
 
-    def w_tap(self):
-        now = time.perf_counter()
-        if now - self.w_at < 0.3:
-            self.sprint_lock = True
-        self.w_at = now
+    def ctrl_down(self):
+        self.ctrl_used = False
+
+    def ctrl_up(self):
+        if self.ctrl_used or self.busy() or self.fly:
+            return
+        self.set_careful(not self.careful)
+
+    def set_careful(self, on):
+        self.careful = on
+        self.hud.set_careful(on)
 
     def creative(self):
         return bool(self.inventory and self.inventory.get("creative"))
 
-    def toggle_inventory(self):
+    def toggle_inventory(self, tab="backpack"):
+        """I: the Backpack (on its Backpack tab); B: on its Bot tab. Again: it shuts."""
         if self.screen is not None:
             self.act({"type": "close"})
             self.close_screen()
         elif self.menu is None:
-            self.open_screen(dict(self.inventory or {}, open=None))
+            self.act({"type": "tab", "tab": tab})
+            self.open_screen(dict(self.inventory or {}, open=None, tab=tab))
 
     def open_screen(self, msg):
         if self.screen is not None:
             self.screen.destroy()
-        self.screen = ui.Screen(self, msg, self.act)
+        self.close_panel()
+        self.screen = ui.Screen(self, msg, self.act, self.blueprint_list, self.near_fabricator)
         self.capture(False)
+        self.hand_scene.hide()  # (the hand is drawn over everything: it would cover the Backpack's corner)
+
+    def near_fabricator(self):
+        """Is a Fabricator within 4 blocks (the Blueprints tab says which need one: the server checks again)?"""
+        s = self.me_now()
+        x0, y0, z0 = (int(math.floor(v)) for v in (s["x"], s["y"], s["z"] + 1))
+        fab = B.ID["fabricator"]
+        return any(self.world.get(x0 + dx, y0 + dy, z0 + dz) == fab and
+                   math.dist((s["x"], s["y"], s["z"] + 1), (x0 + dx + .5, y0 + dy + .5, z0 + dz + .5)) <= items.REACH + 0.9
+                   for dx in range(-4, 5) for dy in range(-4, 5) for dz in range(-4, 5))
 
     def close_screen(self):
         if self.screen is not None:
             self.screen.destroy()
             self.screen = None
+        if not args.no_hand and not self.tab:
+            self.hand_scene.show()
         self.capture(True)
 
     def escape(self):
@@ -621,19 +658,11 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         self.open_menu()
 
     def open_menu(self):
-        """Esc: resume, the graphics (the window reopens at the tier chosen, your world kept), save, quit."""
+        """Esc: the Club Coders logo, resume, the graphics (the window reopens at the tier chosen, your world kept),
+        save, the credits (the third-party notices), quit."""
         self.capture(False)
-        f = self.menu = DirectFrame(parent=self.aspect2d, frameColor=(0.05, 0.06, 0.09, 0.92), frameSize=(-0.7, 0.7, -0.55, 0.55))
-        hud.label(f, "CRAFT LAB", 0, 0.42, 0.07, hud.YELLOW, TextNode.ACenter)
-        hud.button(f, "Back to the game", 0, 0.28, self.escape, None, 0.05, (0.15, 0.55, 0.25, 1))
-        hud.label(f, f"Graphics: {gfx.tier()} (the window reopens at the one you choose)", 0, 0.14, 0.032, hud.GREY,
-                  TextNode.ACenter)
-        for i, t in enumerate(gfx_tiers.TIERS):
-            hud.button(f, t, -0.54 + i * 0.18, 0.04, self.choose_tier, (t,), 0.034,
-                       (0.25, 0.4, 0.6, 1) if t == gfx.tier() else None)
-        if OFFLINE:
-            hud.button(f, "Save my world", 0, -0.12, self.save_offline, (True,), 0.04)
-        hud.button(f, "Quit", 0, -0.3, self.quit, None, 0.045, (0.55, 0.2, 0.2, 1))
+        self.menu = ui.Menu(self, gfx.tier(), gfx_tiers.TIERS, self.escape, self.choose_tier,
+                            (lambda: self.save_offline(True)) if OFFLINE else None, self.quit)
 
     def choose_tier(self, t):
         gfx_tiers.remember(SETTINGS_DIR, gfx_tier=t, gfx_hand=True)
@@ -663,6 +692,8 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         self.userExit()
 
     def drop(self, everything):
+        if everything:
+            self.ctrl_used = True
         if self.screen is None:
             self.act({"type": "drop", "all": everything})
 
@@ -673,7 +704,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
     def toggle_debug(self):
         self.debug_on = not self.debug_on
         if not self.debug_on:
-            self.hud.debug.setText("")
+            self.hud.dev(None)
 
     def toggle_help(self):
         self.help_on = not self.help_on
@@ -728,6 +759,11 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
                 self.act({"type": "attack", "target": target})
                 self.dig_hit = 0.0
         elif button == 3:
+            target = self.mob_in_sight()
+            if target is not None and target >= 128:  # (a creature: brush a Fluff, trade with a Bleep)
+                self.act({"type": "use_mob", "target": target})
+                self.place_at = 0.6
+                return
             self.place_at = 0.0  # (a click places at once; holding repeats)
 
     # ---------- the hand ----------
@@ -796,26 +832,29 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         if down(k.space()):
             bt |= sim.JUMP_B
         if down(k.shift()):
-            bt |= sim.SNEAK_B
-        if down(k.control()) or self.sprint_lock:
             bt |= sim.SPRINT_B
-        if f <= 0:
-            self.sprint_lock = False
         pad = self.pad.read()
         if pad:
             if not (f or r):
                 f, r = pad.y, pad.x
+                if math.hypot(pad.x, pad.y) > 0.95:  # (the stick pushed all the way: run)
+                    bt |= sim.SPRINT_B
             if "south" in pad.held:
                 bt |= sim.JUMP_B
-            if "rb" in pad.held:
-                bt |= sim.SPRINT_B
-            if "lb" in pad.held:
-                bt |= sim.SNEAK_B
+            for b, act in (("east", lambda: self.set_careful(not self.careful)), ("west", self.toggle_inventory),
+                           ("north", lambda: self.toggle_inventory("bot")), ("lb", lambda: self.wheel(-1)),
+                           ("rb", lambda: self.wheel(1))):
+                if b in pad.pressed:
+                    act()
             self.yaw = (self.yaw - pad.rx * 3.0) % 360 if hasattr(pad, "rx") else self.yaw
         if self.fly and self.creative():
             bt |= sim.FLY_B
+            if down(k.control()):
+                bt |= sim.CAREFUL_B  # (flying: Ctrl goes down)
         else:
             self.fly = False
+            if self.careful:
+                bt |= sim.CAREFUL_B
         yr = math.radians(self.yaw)
         fx, fy = math.cos(yr), math.sin(yr)
         rx, ry = math.sin(yr), -math.cos(yr)
@@ -841,7 +880,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             self.game.action(self.me, msg)
             self.offline_events()
             if msg.get("type") == "select" and self.inventory:  # (the game sends no inventory for a new slot)
-                self.inventory["selected"] = msg["slot"] % items.HOTBAR
+                self.inventory["selected"] = msg["slot"] % items.TOOLBELT
         else:
             send(msg)
             self.predict_action(msg)
@@ -970,7 +1009,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
                 self.server_message(m)
         if TEACHER:
             self.hud.say("Teacher: T time of day, M creatures, G everyone to you, K a Bot kit for everyone, "
-                         "N creative or survival, F9 pause", time.perf_counter(), 8)
+                         "N Sandbox or Challenge, F9 pause", time.perf_counter(), 8)
         if welcome.get("new_profile"):
             self.hud.say(f"Welcome, {name}! Your profile is made: next time log in with the same username and "
                          "password.", time.perf_counter(), 7)
@@ -1049,9 +1088,9 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         elif self.me in drawn:
             self.me_state = drawn[self.me]
         self.entities = drawn
-        length = (self.game_rules or {}).get("day_length", 1200)
+        length = (self.game_rules or {}).get("day_length", craft_game.DAY_SECONDS)
         if (self.game_rules or {}).get("time_runs", True) and not self.paused:
-            self.day_t = (self.day_t + dt / length) % 1.0
+            self.day_t = (self.day_t + dt * getattr(self, "time_speed", 1.0) / length) % 1.0
         return self.day_t
 
     def step_fn(self):
@@ -1088,7 +1127,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             return
         if snap["ack"] == 0 or predict.seq_diff(snap["ack"], self.pred_first) < 0:
             return
-        for k in ("hp", "food", "held"):  # (the server's own: health and food are never predicted)
+        for k in ("hp", "energy", "shield", "held"):  # (the server's own: Health, Energy and Shield aren't predicted)
             self.predictor.state[k] = state[k]
         err = self.predictor.correct(state, snap["ack"], sim.STEP, sim.compare)
         moved = self.predictor.moved_from
@@ -1184,6 +1223,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             self.bubbles[m.get("id")] = (str(m.get("text", ""))[:40], now + 4)
         elif kind == "state":
             self.day_t = float(m.get("t", self.day_t))
+            self.time_speed = float(m.get("speed", 1.0))
             self.paused = bool(m.get("paused"))
             self.game_rules = m.get("rules") or self.game_rules
         elif kind == "roster":
@@ -1199,6 +1239,13 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             self.take_mods(m.get("blocks"))
         elif kind == "design_result":
             self.design_result(m)
+        elif kind == "blueprints":
+            items.blueprints_changed()  # (the list as the server has it: the mods' ones after the built-in ones)
+            self.blueprint_list = [dict(bp) for bp in m.get("list") or []] or items.blueprints()
+        elif kind == "bot_status":
+            self.bot_status = m
+        elif kind in ("armed", "ring", "streak"):
+            self.effect(kind, *(list(m.get("at") or [0, 0, 0]) + list(m.get("more") or [])))
         elif kind == "brain_result":
             self.brain_words = ("Uploaded. " if m.get("ok") else "Not uploaded: ") + str(m.get("error") or "")
             self.brain_said(self.brain_words, bool(m.get("ok")))
@@ -1302,6 +1349,15 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
                 self.screen.update(self.inventory)
         elif kind == "bubble":
             self.bubbles[ev[1]] = (ev[2], time.perf_counter() + 4)
+        elif kind in ("armed", "ring", "streak"):
+            self.effect(kind, *ev[1:])
+
+    def effect(self, kind, *at):
+        """An Overload Cell armed (it pulses magenta), its pulse (a ring of cyan sparks), a Glitch pulled home."""
+        if self.effects is not None:
+            getattr(self.effects, kind)(*at)
+        elif kind == "ring":
+            self.particles.burst(at[0] - 0.5, at[1] - 0.5, at[2] - 0.5, "spark", 40)
 
     def me_now(self):
         return self.me_state
@@ -1368,11 +1424,13 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         self.world_vis.update(cam.x, cam.y)
         self.sync_models(dt)
         self.particles.update(dt)
+        if self.effects is not None:
+            self.effects.update(dt)
         self.hand_update(dt, s)
         self.overlay(s, now)
         if self.screen is not None:
-            self.screen.follow_mouse()
-        self.snd.set_music("music_night" if 0.53 < day_t < 0.97 else "music_day")
+            self.screen.follow_mouse(now)
+        self.snd.set_music("music_night" if craft_game.DUSK <= day_t < craft_game.DAWN else "music_day")
         if self.script is not None:
             self.script.tick(dt)
         if args.fps and now - getattr(self, "fps_at", 0) > 1:
@@ -1462,7 +1520,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             if kind == 0 and hasattr(m, "wear"):
                 if OFFLINE:
                     q = self.game.players.get(eid)
-                    m.wear([a[0] if a else 0 for a in q.armour] if q is not None else ())
+                    m.wear([a[0] if a else 0 for a in q.suit] if q is not None else ())
                 else:
                     m.wear(names.get(f"wear {eid}") or ())
             said = self.bubbles.get(eid)
@@ -1470,28 +1528,76 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
                 m.say(said[0] if time.perf_counter() < said[1] else None)
 
     def overlay(self, s, now):
+        """The HUD: the Toolbelt, Health, Energy and Shield, the crosshair's ring (digging, or your air under water),
+        Careful mode, the Bot's line, the dev panel."""
         inv = self.inventory
         creative = self.creative()
         if inv:
-            self.hud.set_hotbar(inv["inv"], inv["selected"], now)
-            self.hud.set_armour(inv.get("armour_points", 0), creative)
+            self.hud.set_toolbelt(inv["inv"], inv["selected"], now)
         ex, ey, ez = sim.eye(s)
         head = self.world.get(int(math.floor(ex)), int(math.floor(ey)), int(math.floor(ez)))
-        breath = self.game.players[self.me].breath if OFFLINE else 10
-        self.hud.set_life(s["hp"], s["food"], breath, creative, head == B.ID["water"], bool(s["flags"] & sim.F_HURT))
+        wet = head == B.ID["water"]
+        if OFFLINE:
+            air = self.game.players[self.me].air
+        else:  # (the server keeps your air: the window counts it the same way to show it)
+            dt = min(0.1, now - getattr(self, "air_at", now))
+            self.air = max(0.0, getattr(self, "air", craft_game.AIR) - dt) if wet else \
+                min(craft_game.AIR, getattr(self, "air", craft_game.AIR) + dt * 4)
+            air = self.air
+        self.air_at = now
+        self.hud.set_life(s["hp"], s.get("energy", 100), s.get("shield", 0), (inv or {}).get("shield_max", 0), creative,
+                          bool(s["flags"] & sim.F_HURT))
+        self.hud.set_ring(self.dig_progress if self.dig_at is not None else 0.0, air, craft_game.AIR, wet and not creative)
+        self.hud.set_careful(self.careful and not self.fly)
+        self.hud.set_bot(self.bot_words())
+        if hasattr(gfx, "set_held_light"):
+            held = inv["inv"][inv["selected"]] if inv else None
+            glow = B.ITEMS.get(held[0], {}).get("glow", 0) if held else 0
+            gfx.set_held_light(glow, (ex, ey, ez))
         self.hud.tick(now)
-        if self.debug_on:
+        if self.debug_on and now - getattr(self, "dev_at", 0) > 0.25:
+            self.dev_at = now
             t = self.game.day_t if OFFLINE else self.day_t
-            self.hud.debug.setText(f"x {s['x']:.1f}  y {s['y']:.1f}  z {s['z']:.1f}   looking {self.yaw:.0f} {self.pitch:.0f}\n"
-                                   f"fps {self.clock.getAverageFrameRate():.0f}   graphics {gfx.tier()}   "
-                                   f"chunks {len(self.world_vis.chunks)} ({len(self.world_vis.todo)} to draw)\n"
-                                   f"time {t:.2f}   things {len(self.entities)}")
+            phase = ("day" if t < craft_game.DUSK else "dusk" if t < craft_game.NIGHT else "night" if t < craft_game.DAWN
+                     else "dawn")
+            cx, cy = int(s["x"]) // 16, int(s["y"]) // 16
+            xi, yi, zi = int(math.floor(ex)), int(math.floor(ey)), int(math.floor(ez))
+            light = (int(self.world.sky[xi, yi, zi]), int(self.world.glow[xi, yi, zi])) if self.world.inside(xi, yi, zi) \
+                else (0, 0)
+            self.hud.dev(f"POSITION  x {s['x']:.1f}  y {s['y']:.1f}  z {s['z']:.1f}\n"
+                         f"          looking {self.yaw:.0f} {self.pitch:.0f}\n"
+                         f"CHUNK     {cx}, {cy}   ({len(self.world_vis.chunks)} drawn, {len(self.world_vis.todo)} to draw)\n"
+                         f"LIGHT     sky {light[0]}  block {light[1]}  (of {B.LIGHT_MAX})\n"
+                         f"FPS       {self.clock.getAverageFrameRate():.0f}\n"
+                         f"TIER      {gfx.tier()}\n"
+                         f"SERVER    " + ("offline (this computer)" if OFFLINE else
+                                          f"ping {self.ping_ms:.0f} ms   things {len(self.entities)}") +
+                         f"\nTIME      {t:.3f} ({phase})")
+
+    def bot_words(self):
+        """The status card's Bot line: what your Craft Bot is doing ("Bot: digging, 12 placed")."""
+        if OFFLINE:
+            bot = self.game.bot_of(self.me)
+            if bot is None:
+                return ""
+            doing, st, running = (bot.action[0] if bot.action else "waiting"), bot.stats, \
+                bool(bot.brain and not bot.brain.error)
+        else:
+            m = getattr(self, "bot_status", None)
+            if not m:
+                return ""
+            doing, st, running = m.get("doing", "waiting"), m.get("stats") or {}, m.get("running")
+        words = {"dig": "digging", "place": "building", "forward": "moving", "back": "moving", "up": "moving",
+                 "down": "moving", "left": "turning", "right": "turning", "bump": "bumped", "wait": "thinking"}
+        what = words.get(doing, doing) if running else "parked"
+        return f"Bot: {what}, {st.get('dug', 0)} dug, {st.get('placed', 0)} placed"
 
 
 class Script:
     """(the video) Moves played one after another: ["walk", seconds, forward, right, buttons], ["look", yaw, pitch,
-    seconds], ["dig", seconds], ["place", seconds], ["select", slot], ["wait", seconds], ["screen", "inventory"],
-    ["close"], ["say", text], ["time", day_t], ["view", eyes|behind|front], ["pose", x, y, z]."""
+    seconds], ["dig", seconds], ["place", seconds], ["select", slot], ["wait", seconds], ["screen", tab], ["close"],
+    ["say", text], ["time", day_t], ["view", eyes|behind|front], ["pose", x, y, z], ["rift", forward, right],
+    ["rules", {...}], ["calm"], and spawn, set, act, build, put, attack, call, dock, give (see step)."""
 
     def __init__(self, app, moves):
         self.app, self.moves = app, list(moves)
@@ -1527,8 +1633,9 @@ class Script:
                 app.act({"type": "select", "slot": int(self.move[1])})
                 self.move = None
                 return
-            if kind == "screen":
-                app.toggle_inventory()
+            if kind == "screen":  # (["screen", "backpack" | "blueprints" | "bot"]: the Backpack on that tab)
+                tab = self.move[1] if len(self.move) > 1 and self.move[1] in ("backpack", "blueprints", "bot") else "backpack"
+                app.toggle_inventory(tab)
                 self.move = None
                 return
             if kind == "close":
@@ -1569,6 +1676,27 @@ class Script:
                 app.world.set(int(math.floor(x)), int(math.floor(y)), int(math.floor(st["z"])) + up, B.ID[self.move[1]])
                 self.move = None
                 return
+            if kind == "rift" and OFFLINE:  # (a Glitch rift this far ahead and to the side: ["rift", f, r])
+                st = app.game.players[app.me].state
+                yr = math.radians(app.yaw)
+                f, r = float(self.move[1]), float(self.move[2])
+                x = int(math.floor(st["x"] + f * math.cos(yr) + r * math.sin(yr)))
+                y = int(math.floor(st["y"] + f * math.sin(yr) - r * math.cos(yr)))
+                app.game.make_rift(x, y, app.world.top(x, y))
+                app.offline_events()
+                self.move = None
+                return
+            if kind == "calm" and OFFLINE:  # (the video: every rift closed and every creature gone, for a clean shot)
+                for rid in list(app.game.rifts):
+                    app.game.close_rift(rid)
+                app.game.mobs.mobs.clear()
+                app.offline_events()
+                self.move = None
+                return
+            if kind == "rules" and OFFLINE:  # (["rules", {"blasts": true}]: the lesson's rules changed)
+                app.game.rules.update(self.move[1])
+                self.move = None
+                return
             if kind == "act":  # (an action as the window sends it: a click in a screen, a right click...)
                 app.act(dict(self.move[1]))
                 self.move = None
@@ -1589,8 +1717,8 @@ class Script:
                 p = app.game.players[app.me]
                 slot = next((i for i, sl in enumerate(p.inv) if sl and sl[0] == B.ITEM_ID[self.move[1]]), None)
                 if slot is not None:
-                    app.act({"type": "select", "slot": slot % items.HOTBAR}) if slot < items.HOTBAR else None
-                    p.selected = slot if slot < items.HOTBAR else p.selected
+                    app.act({"type": "select", "slot": slot % items.TOOLBELT}) if slot < items.TOOLBELT else None
+                    p.selected = slot if slot < items.TOOLBELT else p.selected
                 app.act({"type": "right", "x": x, "y": y, "z": z - 1, "face": [0, 0, 1]})
                 self.move = ["wait", 0.09]
                 self.t = 0.0

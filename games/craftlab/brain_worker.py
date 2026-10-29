@@ -6,8 +6,9 @@
 It stops when stdin closes (the server stopped or dropped the brain).
 
 The brain is brain(bot, world) and answers with what the Bot does next: one word ("forward", "back", "up",
-"down", "left", "right", "dig", "dig_up", "dig_down", "wait") or a word and what with (("place", "planks"),
-("place_up", "torch"), ("place_down", "rubble"), ("say", "hello")). Everything it sees is plain numbers and words.
+"down", "left", "right", "dig", "dig_up", "dig_down", "wait") or a word and what with (("place", "boards"),
+("place_up", "glowstick"), ("place_down", "rubble"), ("use", "overload_cell"), ("say", "hello")). An old block name
+(planks, torch...) still works: craft_blocks.ALIASES says the new one. Everything it sees is plain numbers and words.
 
 On Linux (the class server) the process gets at most 256 MB of memory and can't write files. The server also stops
 it if a turn takes too long, even when one giant sum is stuck inside a single line.
@@ -21,10 +22,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import brain_rules as rules  # noqa: E402
+try:
+    from craft_blocks import ALIASES  # noqa: E402  (plain data: the old names of blocks and items)
+except ImportError:
+    ALIASES = {}
 
 MEMORY_LIMIT = 256 * 1024 * 1024
 ACTIONS = ("forward", "back", "up", "down", "left", "right", "dig", "dig_up", "dig_down", "place", "place_up",
-           "place_down", "wait", "say")
+           "place_down", "wait", "say", "use")
 
 
 def limit_process():
@@ -43,7 +48,7 @@ class BotView:
     """The Bot as its brain sees it: where it is (bot.x, bot.y, bot.z), which way it faces (bot.facing: "east",
     "north", "west" or "south"), the blocks round it by name (bot.front, bot.above, bot.below, bot.left_side,
     bot.right_side, bot.behind: "air", "stone", "log"...), what it carries (bot.inventory, a dictionary of name ->
-    how many; bot.has("planks")), what it has done (bot.dug, bot.placed, bot.moves), where its owner is (bot.owner_x,
+    how many; bot.has("boards")), what it has done (bot.dug, bot.placed, bot.moves), where its owner is (bot.owner_x,
     bot.owner_y, bot.owner_z) and its dock (bot.home_x...), and bot.memory, a dictionary kept between turns."""
 
     def __init__(self, data, memory):
@@ -52,7 +57,7 @@ class BotView:
         self.memory = memory
 
     def has(self, name, count=1):
-        return self.inventory.get(name, 0) >= count
+        return self.inventory.get(ALIASES.get(name, name), 0) >= count
 
 
 class WorldView:
@@ -77,6 +82,7 @@ class WorldView:
         return self._names[k] if 0 <= k < len(self._names) else "unknown"
 
     def find(self, name):
+        name = ALIASES.get(name, name)
         r = self._r
         best = None
         for dx in range(-r, r + 1):
@@ -108,7 +114,7 @@ def load(source, fname):
 
 
 BAD_RETURN = ('brain must return what the Bot does next: a word such as "forward" or "dig", or a word and a block '
-              'such as ("place", "planks")')
+              'such as ("place", "boards")')
 
 
 def pack(result):

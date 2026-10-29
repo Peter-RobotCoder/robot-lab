@@ -775,7 +775,7 @@ export class Sound {
     }
 
     // ---------- Craft Lab (CHANGE 202) ----------
-    // a sound the game names (craft_sound.Sounds.play: "dig_pick", "place", "pop", "zap"...): quieter the further it is
+    // a sound the game names (craft_sound.Sounds.play: "dig_drill", "place", "pop", "zap"...): quieter the further it is
     // from the listener, nothing past 32 m, a little higher or lower each time
     craftPlay(name, at = null, listener = null, volume = 1) {
         this.use("craftlab");

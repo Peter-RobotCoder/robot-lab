@@ -6,9 +6,11 @@ Every sound is made from maths by the games themselves (nothing recorded, nothin
   (engine/rw_voice.py: 3, 2, 1, Activate, Go), Kart Lab's beeps, GO and the horn;
 - Kart Lab's kart_sound.py: the tyres' squeal and the boost (k_ files; its engine is Robot Lab's motor loop);
 - Fight Lab's fight_sound.py: punches, kicks, blocks, whooshes, specials, the bell and the K.O. boom (f_ files);
-- (CHANGE 202) Craft Lab's craft_sound.py: digging (each tool's), placing, a splash, a pop, eating, a door, a chest,
-  crafting, a tool breaking, being hurt, a fuse and a blast, the creatures' calls, a crop's chime, and the day's and
-  the night's tunes (c_ files).
+- (CHANGE 202) Craft Lab's craft_sound.py: digging (the drill's, the cutter's, the scoop's, a hand's), placing,
+  steps, a splash, a pop, eating, a door, a Locker opening, a tool wearing out, being hurt, a blueprint built, the
+  Overload Cell's hum and pulse, the creatures' (a Fluff's chirp, a Bleep's beeps, a Glitch's zap, rift and blink,
+  a Rust Walker's clank and magnet), a crop's chime, a Recharge Pod, the shield, and the day's and the night's synth
+  tunes (c_ files).
 
 The games write them as WAVs in engine/assets/sfx the first time they run; this calls the same generators (making
 any that are missing), then turns each one the page needs into a small MP3 (mono, 44.1 kHz as the app plays them,
@@ -53,8 +55,10 @@ HITS = ["clang", "smash", "launch", "hammer", "flip", "saw", "spikes", "bump", "
 FIGHT_VARIED = ["punch", "kick", "heavy", "block", "whoosh", "land", "metal"]
 FIGHT_SINGLE = ["jump", "blast_fire", "blast_hit", "uppercut", "spin", "slam", "zap", "fire", "bell", "ko", "counter"]
 # (CHANGE 202) craft_sound.make's sounds, and its two tunes (looped)
-CRAFT = ["dig_pick", "dig_axe", "dig_shovel", "dig_soft", "dig_None", "place", "step", "splash", "pop", "eat", "door", "open",
-         "craft", "break", "hurt", "fuse", "blast", "beep", "baa", "zap", "clank", "grow"]
+# (craft_sound.SOUNDS: the same names in the same order)
+CRAFT = ["dig_drill", "dig_cutter", "dig_scoop", "dig_soft", "place", "step", "splash", "pop", "eat", "door", "open",
+         "break", "hurt", "zap", "clank", "beep", "beep_happy", "grow", "build_done", "fluff_chirp", "overload_hum",
+         "overload_pulse", "rift_open", "rift_close", "blink", "magnet", "pod", "shield"]
 
 
 def wanted(rw_variants=3, fight_variants=3):

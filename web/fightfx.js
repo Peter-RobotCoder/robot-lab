@@ -670,9 +670,10 @@ export class FightCamera {
 }
 
 // ---------- (CHANGE 150) the window's letters ----------
-// fonts/panda_sans.png and .json (make_font.py): Panda3D's own font, which the window's TextNodes write in (the rings'
-// names, the hall's screens, the fighters' numbers), so the page writes them in the same letters. Loaded once, as the
-// page opens (49 kB); null until then (or if it isn't there: the browser's sans then)
+// fonts/cc_sans.png and .json (make_font.py): Inter (SIL OFL, fonts/OFL.txt), the font the window's TextNodes write in
+// (the rings' names, the hall's screens, the fighters' numbers; engine/club_fonts.py), so the page writes them in the
+// same letters. Loaded once, as the page opens (52 kB); null until then (or if it isn't there: the browser's sans then).
+// (The names loadPandaFont and pandaFont are from when this was Panda3D's own font.)
 let pandaFont = null, fontAsked = null;
 export function loadPandaFont() {
     if (!fontAsked) {
@@ -680,9 +681,9 @@ export function loadPandaFont() {
             const im = new Image();
             im.onload = () => done(im);
             im.onerror = () => done(null);
-            im.src = "fonts/panda_sans.png";
+            im.src = "fonts/cc_sans.png";
         });
-        fontAsked = Promise.all([fetch("fonts/panda_sans.json").then(r => r.ok ? r.json() : null), image])
+        fontAsked = Promise.all([fetch("fonts/cc_sans.json").then(r => r.ok ? r.json() : null), image])
             .then(([d, im]) => (pandaFont = d && d.version === 1 && d.glyphs && im ? Object.assign(d, {image: im}) : null))
             .catch(() => null);
     }

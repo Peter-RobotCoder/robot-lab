@@ -2,16 +2,18 @@
 
     blocks[x, y, z]   the block at each place (craft_blocks ids; 0 is air), z up, x east, y north
     meta[x, y, z]     a number more for the blocks that need one: a door's way and whether it is open, a ladder's
-                      wall, a crop's growth, a bed's half, a smelter's way
-    sky[x, y, z]      the light from the sky (0 to 15): 15 straight down an open column, one less for each block
-                      sideways under a roof
-    glow[x, y, z]     the light from torches, lumen blocks, magma (0 to 15), one less for each block away
+                      wall, a crop's growth, a berry bush's berries
+    sky[x, y, z]      the light from the sky (0 to 12, craft_blocks.LIGHT_MAX): 12 straight down an open column, one
+                      less for each block sideways under a roof
+    glow[x, y, z]     the light from glowsticks, Lumen blocks, magma, Neon (0 to 12), one less for each block away
 
 The island: layered noise for the heights, shaped so the edges go down into the sea; biomes from two more noises
 (warm or cold, wet or dry): grassland and forests, a sandy desert with cacti, pale woods, snowy pine hills, rocky
-peaks; beaches at the water's edge, soil over stone, corestone at the bottom; caves (two noise fields, open where
-both are near zero), ores by depth (coal, copper, iron, and crystal deep down), magma pools in the deepest caves;
-trees, berry bushes, tall grass and flowers. The same seed makes the same world on every computer, so a window
+peaks; beaches at the water's edge, soil over stone, and at the bottom the Lab floor, the glowing grid the lab island
+is built on; caves (two noise fields, open where both are near zero), ores by depth (coal, copper, iron, and Neon
+deep down), magma pools in the deepest caves, scrap heaps in the caves (where Rust Walkers live); trees with round
+crowns (one in ten has glowing Glowfruit), berry bushes, tall grass and flowers; and one or two ruined lab buildings
+(Stone tiles, broken Windows, a Locker of starter parts, a dead Server Rack). The same seed makes the same world on every computer, so a window
 offline and the server online agree.
 
 A world is cut into chunks 16 x 16 blocks across (and the whole height) for drawing and for the network: changing a
@@ -30,7 +32,10 @@ SIZES = {"small": (128, 128, 64), "medium": (192, 192, 64), "large": (256, 256, 
 DEFAULT_SIZE = "medium"
 SEA = 20
 ID = B.ID
-WORLD_VERSION = 1
+FLOOR = B.FLOOR
+WORLD_VERSION = 2   # (2: CHANGE 207's blocks: an older save is made again, not misread)
+LIGHT = B.LIGHT_MAX
+HEAPS = {"small": 2, "medium": 3, "large": 4}   # scrap heaps in the caves
 _T = None
 
 
@@ -39,12 +44,12 @@ def tables():
     if _T is None or len(B.BLOCKS) != _T.get("n"):
         _T = B.tables()
         _T["n"] = len(B.BLOCKS)
-        # light passes through: air, plants, torches, glass, leaves (a little), water (a little)
+        # light passes through: air, plants, glowsticks, glass, leaves (a little), water (a little); 15 stops it
         dim = np.full(256, 15, np.uint8)
         for b in B.BLOCKS:
             if not b["opaque"] or b["shape"] != "cube":
                 dim[b["id"]] = 1
-        for k in ("leaves", "pine_leaves", "pale_leaves"):
+        for k in ("leaves", "pine_leaves", "pale_leaves", "glowfruit_leaves"):
             dim[ID[k]] = 2
         dim[ID["water"]] = 2
         dim[ID["ice"]] = 2
@@ -124,6 +129,8 @@ class World:
         self.changes = []           # [(x, y, z, block, meta)] since the last time someone took them
         self.spawn = (self.X // 2 + 0.5, self.Y // 2 + 0.5, float(self.Z - 4))
         self.biome = np.zeros((self.X, self.Y), np.uint8)
+        self.heaps = []             # the scrap heaps' places (Rust Walkers live round them)
+        self.ruins = []             # the ruined lab buildings: {"locker": (x, y, z), "rack": (x, y, z)}
         if not blank:
             self.generate()
             self.light_all()
@@ -173,7 +180,7 @@ class World:
         b[under & ~sandy] = ID["soil"]
         b[under & sandy] = ID["sand"]
         b[under & (top == 2) & (z < h - 2)] = ID["sandstone"]
-        b[surface & ~sandy] = ID["grass"]
+        b[surface & ~sandy] = ID["turf"]
         b[surface & sandy] = ID["sand"]
         b[surface & (top == 4)] = ID["snow"]
         b[surface & (top == 5)] = ID["stone"]
@@ -194,7 +201,7 @@ class World:
         stone = b == ID["stone"]
         r3 = rng.random((X, Y, Z), dtype=np.float32)
         for key, deepest, share, blob in (("coal_ore", Z, 0.012, 0.35), ("copper_ore", SEA + 14, 0.008, 0.3),
-                                          ("iron_ore", SEA + 4, 0.0065, 0.3), ("crystal_ore", 14, 0.0016, 0.2)):
+                                          ("iron_ore", SEA + 4, 0.0065, 0.3), ("neon_ore", 14, 0.0016, 0.2)):
             seeds = stone & (r3 < share) & (z < deepest)
             grown = seeds.copy()
             for axis in (0, 1, 2):
@@ -202,10 +209,10 @@ class World:
                     grown |= np.roll(seeds, s, axis) & (rng.random((X, Y, Z), dtype=np.float32) < blob)
             b[grown & stone] = ID[key]
             r3 = rng.random((X, Y, Z), dtype=np.float32)
-        # magma pools in the deepest caves; corestone floor
+        # magma pools in the deepest caves; the Lab floor under everything
         b[(b == 0) & (z <= 6)] = ID["magma"]
-        b[:, :, 0] = ID["corestone"]
-        b[:, :, 1][rng.random((X, Y)) < 0.5] = ID["corestone"]
+        b[:, :, 0] = FLOOR
+        b[:, :, 1][rng.random((X, Y)) < 0.5] = FLOOR
         # the sea (and ice on cold water)
         water = (b == 0) & (z <= SEA)
         open_above = np.cumsum((b[:, :, ::-1] != 0), axis=2)[:, :, ::-1] == 0
@@ -214,6 +221,8 @@ class World:
         self.height = height
         self.plants(rng)
         self.spawn = self.find_spawn()
+        self.make_heaps(rng)
+        self.make_ruins(rng)
 
     def plants(self, rng):
         """Trees, bushes, grass and flowers on the land; cacti in the desert."""
@@ -229,7 +238,7 @@ class World:
                     continue
                 ground = b[x, y, zt]
                 kind = int(self.biome[x, y])
-                if ground not in (ID["grass"], ID["snow"], ID["sand"]):
+                if ground not in (ID["turf"], ID["snow"], ID["sand"]):
                     continue
                 if b[x, y, zt + 1] != 0:
                     continue
@@ -240,7 +249,7 @@ class World:
                     continue
                 if r[x, y] < density.get(kind, 0):
                     self.tree(x, y, zt + 1, "pine" if kind == 4 else "pale" if kind == 3 else "oak", r2[x, y])
-                elif ground == ID["grass"]:
+                elif ground == ID["turf"]:
                     if r[x, y] < density.get(kind, 0) + 0.004:
                         b[x, y, zt + 1] = ID["berry_bush"]
                         self.meta[x, y, zt + 1] = 1  # (with berries)
@@ -258,27 +267,103 @@ class World:
         for dz in range(tall):
             b[x, y, z + dz] = ID[log]
         top = z + tall
-        if kind == "pine":
+        if kind == "pine":  # (rounded tiers, narrowing to a point)
             for dz in range(-4, 2):
-                r = max(0, (2 - dz) // 2) if dz > -4 else 2
-                for dx in range(-r, r + 1):
-                    for dy in range(-r, r + 1):
-                        if abs(dx) + abs(dy) <= r + 1 and b[x + dx, y + dy, top + dz] == 0:
+                r = 2.4 - (dz + 4) * 0.42
+                for dx in range(-2, 3):
+                    for dy in range(-2, 3):
+                        if dx * dx + dy * dy <= r * r + 0.3 and b[x + dx, y + dy, top + dz] == 0:
                             b[x + dx, y + dy, top + dz] = ID[leaf]
             b[x, y, top + 1] = ID[leaf]
             return
-        for dz in range(-2, 2):
-            r = 2 if dz < 0 else 1
-            for dx in range(-r, r + 1):
-                for dy in range(-r, r + 1):
-                    corner = abs(dx) == r and abs(dy) == r
-                    if corner and (dz >= 0 or (x * 7 + y * 13 + dz) % 3 == 0):
+        # a round crown: a ball of leaves on top of the trunk, a little squashed; one tree in ten (an oak) has
+        # Glowfruit among its leaves
+        fruit = kind == "oak" and (x * 73856093 ^ y * 19349663) % 10 == 0
+        r = 2.35 + (0.4 if kind == "pale" else 0.0)
+        for dz in range(-2, 3):
+            for dx in range(-3, 4):
+                for dy in range(-3, 4):
+                    if dx * dx + dy * dy + (dz * 1.25) ** 2 > r * r:
                         continue
                     if b[x + dx, y + dy, top + dz] == 0:
-                        b[x + dx, y + dy, top + dz] = ID[leaf]
+                        glow = fruit and (dx * 5 + dy * 3 + dz * 7 + x + y) % 6 == 0 and (dx or dy)
+                        b[x + dx, y + dy, top + dz] = ID["glowfruit_leaves" if glow else leaf]
+
+    def make_heaps(self, rng):
+        """Scrap heaps on cave floors (a mound of scrap and rust blocks): where the Rust Walkers live."""
+        b = self.blocks
+        want = HEAPS.get(self.size_key, 3)
+        self.heaps = []
+        for _ in range(4000):
+            if len(self.heaps) >= want:
+                break
+            x, y = int(rng.integers(8, self.X - 8)), int(rng.integers(8, self.Y - 8))
+            col = b[x, y]
+            floors = [z for z in range(4, int(self.height[x, y]) - 4) if col[z] == 0 and col[z + 1] == 0 and col[z + 2] == 0
+                      and b[x, y, z - 1] in (ID["stone"], ID["soil"], ID["rubble"])]
+            if not floors:
+                continue
+            z = floors[int(rng.integers(len(floors)))]
+            if any(abs(x - hx) + abs(y - hy) < 40 for hx, hy, _ in self.heaps):
+                continue
+            for dx in range(-2, 3):
+                for dy in range(-2, 3):
+                    high = 2 - max(abs(dx), abs(dy))
+                    for dz in range(high + 1):
+                        if b[x + dx, y + dy, z + dz] == 0 and b[x + dx, y + dy, z + dz - 1] != 0:
+                            b[x + dx, y + dy, z + dz] = ID["rust_pile" if (dx + dy + dz) % 3 == 0 else "scrap_pile"]
+            self.heaps.append((x, y, z))
+
+    def make_ruins(self, rng):
+        """One or two ruined lab buildings on flat land: Stone-tile walls with gaps, broken Windows, a Locker (the
+        game puts starter parts in it) and a dead Server Rack."""
+        b = self.blocks
+        sx, sy = int(self.spawn[0]), int(self.spawn[1])
+        want = 1 + (self.X >= 192)
+        self.ruins = []
+        for _ in range(600):
+            if len(self.ruins) >= want:
+                break
+            a = rng.random() * 6.283
+            d = 12 + rng.random() * 26
+            x0, y0 = int(sx + np.cos(a) * d) - 3, int(sy + np.sin(a) * d) - 3
+            if not (4 <= x0 < self.X - 12 and 4 <= y0 < self.Y - 12):
+                continue
+            tops = [self.top(x0 + i, y0 + j) for i in range(7) for j in range(7)]
+            if max(tops) - min(tops) > 2 or min(tops) <= SEA or max(tops) > self.Z - 10:
+                continue
+            ground = [b[x0 + i, y0 + j, self.top(x0 + i, y0 + j)] for i in (0, 3, 6) for j in (0, 3, 6)]
+            if any(g not in (ID["turf"], ID["sand"], ID["snow"], ID["soil"]) for g in ground):
+                continue
+            if any(abs(x0 - r["locker"][0]) + abs(y0 - r["locker"][1]) < 20 for r in self.ruins):
+                continue
+            z = max(tops) + 1
+            for i in range(7):
+                for j in range(7):
+                    for k in range(z - 1, z + 6):  # (the floor levelled, the room cleared)
+                        b[x0 + i, y0 + j, k] = 0
+                    for k in range(min(tops), z):
+                        b[x0 + i, y0 + j, k] = ID["stone_tiles"] if k == z - 1 else ID["soil"]
+                    edge = i in (0, 6) or j in (0, 6)
+                    if not edge:
+                        continue
+                    for k in range(4):
+                        broken = rng.random() < 0.12 * (k + 1)  # (more of it gone higher up)
+                        if broken:
+                            continue
+                        window = k in (1, 2) and (i + j) % 3 == 1 and not (i in (0, 6) and j in (0, 6))
+                        b[x0 + i, y0 + j, z + k] = (ID["window"] if rng.random() < 0.5 else 0) if window else ID["stone_tiles"]
+            door = (x0 + 3, y0, z)
+            b[door[0], door[1], z] = b[door[0], door[1], z + 1] = 0
+            locker = (x0 + 1, y0 + 5, z)
+            rack = (x0 + 5, y0 + 5, z)
+            b[locker] = ID["locker"]
+            b[rack] = ID["dead_rack"]
+            b[x0 + 5, y0 + 4, z] = ID["dead_rack"]
+            self.ruins.append({"locker": locker, "rack": rack})
 
     def find_spawn(self):
-        """Dry land near the middle of the island: the highest grass in the middle few dozen blocks."""
+        """Dry land near the middle of the island: the highest turf in the middle few dozen blocks."""
         cx, cy = self.X // 2, self.Y // 2
         best = None
         for r in range(0, self.X // 2, 2):
@@ -287,7 +372,7 @@ class World:
                 if not (0 <= x < self.X and 0 <= y < self.Y):
                     continue
                 z = self.top(x, y)
-                if self.blocks[x, y, z] in (ID["grass"], ID["sand"], ID["snow"]) and SEA < z < self.Z - 8:
+                if self.blocks[x, y, z] in (ID["turf"], ID["sand"], ID["snow"]) and SEA < z < self.Z - 8:
                     best = (x + 0.5, y + 0.5, float(z + 1))
                     break
             if best:
@@ -306,21 +391,21 @@ class World:
         self.light_region(0, 0, self.X, self.Y)
 
     def light_region(self, x0, y0, x1, y1):
-        """Sky and block light worked out again over a box of columns (and 15 blocks round it, light's reach): the
+        """Sky and block light worked out again over a box of columns (and 12 blocks round it, light's reach): the
         sky straight down each open column, then both spread sideways and down, one level less a block."""
         t = tables()
-        m = 15
+        m = LIGHT
         ax0, ay0 = max(0, x0 - m), max(0, y0 - m)
         ax1, ay1 = min(self.X, x1 + m), min(self.Y, y1 + m)
         b = self.blocks[ax0:ax1, ay0:ay1]
         dim = t["dim"][b]
         # the sky: full light down each column until a block dims it
         stop = np.cumsum(dim[:, :, ::-1] >= 15, axis=2)[:, :, ::-1]
-        loss = np.cumsum(np.where(dim[:, :, ::-1] < 15, dim[:, :, ::-1] - 1, 0), axis=2)[:, :, ::-1]
-        sky = np.where(stop == 0, np.clip(15 - loss, 0, 15), 0).astype(np.int16)
+        loss = np.cumsum(np.where(dim[:, :, ::-1] < 15, dim[:, :, ::-1] - 1, 0), axis=2, dtype=np.int16)[:, :, ::-1]
+        sky = np.where(stop == 0, np.clip(LIGHT - loss, 0, LIGHT), 0).astype(np.int16)
         glow = t["light"][b].astype(np.int16)
         passes = dim < 15
-        for _ in range(14):
+        for _ in range(LIGHT - 1):
             for arr in (sky, glow):
                 best = arr.copy()
                 best[1:] = np.maximum(best[1:], arr[:-1])
@@ -333,8 +418,8 @@ class World:
                 np.maximum(arr, spread, out=arr)
         glow = np.maximum(glow, t["light"][b])
         ix0, iy0 = x0 - ax0, y0 - ay0
-        self.sky[x0:x1, y0:y1] = np.clip(sky[ix0:ix0 + x1 - x0, iy0:iy0 + y1 - y0], 0, 15)
-        self.glow[x0:x1, y0:y1] = np.clip(glow[ix0:ix0 + x1 - x0, iy0:iy0 + y1 - y0], 0, 15)
+        self.sky[x0:x1, y0:y1] = np.clip(sky[ix0:ix0 + x1 - x0, iy0:iy0 + y1 - y0], 0, LIGHT)
+        self.glow[x0:x1, y0:y1] = np.clip(glow[ix0:ix0 + x1 - x0, iy0:iy0 + y1 - y0], 0, LIGHT)
 
     # ---------- reading and changing ----------
     def inside(self, x, y, z):
@@ -343,7 +428,7 @@ class World:
     def get(self, x, y, z):
         if 0 <= x < self.X and 0 <= y < self.Y and 0 <= z < self.Z:
             return int(self.blocks[x, y, z])
-        return ID["corestone"] if z < 0 else 0
+        return FLOOR if z < 0 else 0
 
     def get_meta(self, x, y, z):
         return int(self.meta[x, y, z]) if self.inside(x, y, z) else 0
@@ -355,15 +440,15 @@ class World:
             return False
         self.blocks[x, y, z] = bid
         self.meta[x, y, z] = meta
-        if light:  # (a torch taken away darkens 14 blocks round it: all of that is worked out again)
-            self.light_region(max(0, x - 14), max(0, y - 14), min(self.X, x + 15), min(self.Y, y + 15))
-        self.mark(x, y, 15 if light else 1)
+        if light:  # (a glowstick taken away darkens the blocks round it: all of that is worked out again)
+            self.light_region(max(0, x - LIGHT), max(0, y - LIGHT), min(self.X, x + LIGHT + 1), min(self.Y, y + LIGHT + 1))
+        self.mark(x, y, LIGHT if light else 1)
         if record:
             self.changes.append((x, y, z, bid, meta))
         return True
 
     def mark(self, x, y, reach=1):
-        """The chunks within reach blocks of (x, y) need drawing again (light reaches 15 blocks)."""
+        """The chunks within reach blocks of (x, y) need drawing again (light reaches 12 blocks)."""
         for cx in range(max(0, (x - reach) // CHUNK), min(self.X // CHUNK - 1, (x + reach) // CHUNK) + 1):
             for cy in range(max(0, (y - reach) // CHUNK), min(self.Y // CHUNK - 1, (y + reach) // CHUNK) + 1):
                 self.dirty.add((cx, cy))
@@ -382,8 +467,9 @@ class World:
             if self.inside(x, y, z):
                 self.blocks[x, y, z] = bid
                 self.meta[x, y, z] = meta
-                self.mark(x, y, 15)
-        self.light_region(max(0, min(xs) - 14), max(0, min(ys) - 14), min(self.X, max(xs) + 15), min(self.Y, max(ys) + 15))
+                self.mark(x, y, LIGHT)
+        self.light_region(max(0, min(xs) - LIGHT), max(0, min(ys) - LIGHT), min(self.X, max(xs) + LIGHT + 1),
+                          min(self.Y, max(ys) + LIGHT + 1))
 
     # ---------- sending and saving ----------
     def pack(self):
@@ -403,7 +489,7 @@ class World:
 
     def save(self, folder, extra=None):
         """The world kept on disk: blocks.bin and meta.bin zipped, and world.json (its size, seed, spawn and the
-        game's own things: chests, smelters, players' places)."""
+        game's own things: Lockers, Refineries, players' places), the scrap heaps and the ruins."""
         os.makedirs(folder, exist_ok=True)
         p = self.pack()
         for name in ("blocks", "meta"):
@@ -412,6 +498,7 @@ class World:
                 f.write(p[name])
             os.replace(tmp, os.path.join(folder, name + ".bin"))
         info = {"size": self.size_key, "seed": self.seed, "spawn": list(self.spawn), "version": WORLD_VERSION,
+                "heaps": [list(h) for h in self.heaps], "ruins": [{k: list(v) for k, v in r.items()} for r in self.ruins],
                 "extra": extra or {}}
         tmp = os.path.join(folder, "world.json.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
@@ -430,6 +517,9 @@ class World:
             for name in ("blocks", "meta"):
                 with open(os.path.join(folder, name + ".bin"), "rb") as f:
                     data[name] = f.read()
-            return cls.unpack(data), info.get("extra") or {}
+            w = cls.unpack(data)
+            w.heaps = [tuple(int(v) for v in h) for h in info.get("heaps") or []]
+            w.ruins = [{k: tuple(int(v) for v in p) for k, p in r.items()} for r in info.get("ruins") or []]
+            return w, info.get("extra") or {}
         except (OSError, ValueError, KeyError, zlib.error):
             return None, {}

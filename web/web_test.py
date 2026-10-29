@@ -18,12 +18,13 @@ graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and th
 a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
 game's schema, her code panel (APPLY CODE changes a value, a mistake is shown on its line, BUILD reaches the
 server); the teacher's own garage in Robot Lab and Fight Lab; (CHANGE 202) Craft Lab: the teacher's page watching a class
-on every tier and at night, a learner's page over a pretend school Wi-Fi walking, jumping, digging, placing, crafting
-planks, her Garage and the touch controls; lessons.json, schemas.json, craft.json and tex/ are up to date,
+on every tier and at night, a learner's page over a pretend school Wi-Fi walking, jumping, digging, placing, the lab
+visor and the Esc menu, building Boards in the Backpack's Blueprints tab, her Garage and the touch controls; lessons.json, schemas.json, craft.json and tex/ are up to date,
 and schema_test.py passes (schema.js against the windows' Python). Screenshots are
 kept in the test folder. Exit code 0 = every check passed; the test
 says so and passes if no Chrome or Edge is installed. WEB_TEST_STOP_AFTER="a few words of a check's name" ends the
-run after that check (a short run while working on the early checks).
+run after that check (a short run while working on the early checks); WEB_TEST_ONLY="a few words" runs only the
+checks whose names have them (WEB_TEST_ONLY="Craft Lab:" the Craft Lab page's two).
 """
 import base64
 import json
@@ -161,6 +162,7 @@ class StaticServer:
 
 
 STOP_AFTER = os.environ.get("WEB_TEST_STOP_AFTER", "")  # (a few words of a check's name: the run ends after it, a short run)
+ONLY = os.environ.get("WEB_TEST_ONLY", "")  # (a few words: only the checks whose names have them run, the rest skipped: "Craft Lab:")
 
 
 class StopRun(Exception):
@@ -168,6 +170,8 @@ class StopRun(Exception):
 
 
 def check(name, fn):
+    if ONLY and ONLY not in name:
+        return
     t0 = time.perf_counter()
     try:
         fn()
@@ -343,7 +347,12 @@ class Chrome:
         raise TimeoutError(f"{what or expression} didn't happen in {seconds} s (last: {last!r})")
 
     def screenshot(self, path):
-        data = self.call("Page.captureScreenshot", format="png")["data"]
+        try:
+            data = self.call("Page.captureScreenshot", format="png")["data"]
+        except RuntimeError:
+            if ONLY:  # (some checks skipped: a picture between them may have no page to take)
+                return
+            raise
         with open(path, "wb") as f:
             f.write(base64.b64decode(data))
 
@@ -387,6 +396,8 @@ def main():
             raise RuntimeError("the kart server, the desk or the static server didn't start")
         chrome = Chrome(exe, os.path.join(work, "profile"))
         base = f"http://127.0.0.1:{http_port}/index.html?mode=teacher&desk=ws://127.0.0.1:{desk_port}&auto=0&cam=tv&tier=low"
+        if ONLY:  # (the first check, which opens the page, may be skipped)
+            chrome.open("about:blank")
 
         def wrong_password():
             chrome.open(base)
@@ -2251,16 +2262,17 @@ def main():
                 else:
                     assert not got["black"] and got["lit"] and got["chunkLines"] == 0 and got["sky"], got
                     assert got["shadow"] == (tier in ("medium", "high", "ultra") and got["gl2"]), got
-                    assert got["clouds"] == {"blocks": 0, "low": 1, "medium": 1, "high": 1, "ultra": 2}[tier], got
+                    # (craft_gfx.CLOUDS: soft puffs at two heights, 9, 14, 18 and 26 of them at each)
+                    assert got["clouds"] == {"blocks": 0, "low": 18, "medium": 28, "high": 36, "ultra": 52}[tier], got
                     assert got["wave"] == (tier in ("high", "ultra")), got
                 chrome.screenshot(os.path.join(work, f"craft_{tier}.png"))
             chrome.js("window.__app.setTier('medium')")
-            # the teacher's Controls: night for everyone (the stars, the moon, the torches' light), then day again
+            # the teacher's Controls: night for everyone (the stars, the moon, the glowsticks' light), then day again
             tab("controls")
             assert chrome.js("!!document.getElementById('cr-gather') && !!document.getElementById('cr-kit') && "
                              "document.querySelectorAll('button[data-time]').length === 5")
             chrome.js("document.querySelector('button[data-time=\"night\"]').click()")
-            chrome.wait_for("(window.__state.lesson || {}).time === 'night' && Math.abs(window.__state.scene.time - 0.75) < 0.01", 10, "night for the class")
+            chrome.wait_for("(window.__state.lesson || {}).time === 'night' && Math.abs(window.__state.scene.time - 0.8) < 0.01", 10, "night for the class")
             chrome.wait_for(f"{DRAWN_RIGHT} === 'ok' && {CRAFT_STATE}.stars", 20, "the island at night, the stars out")
             time.sleep(1.0)
             chrome.screenshot(os.path.join(work, "craft_night.png"))
@@ -2273,7 +2285,7 @@ def main():
               "Lab's own shader, the clouds, the sun's shadows from medium, the waving leaves on high and ultra), night "
               "from Controls (the stars)", craft_watch)
 
-        def craft_learner():  # a learner's page over a school's Wi-Fi: walks, jumps, digs, places, crafts planks, a phone
+        def craft_learner():  # a learner's page over a school's Wi-Fi: walks, jumps, digs, places, builds Boards, a phone
             if "craftlab" not in servers:
                 return
             servers.pop("ben-craft").close()
@@ -2332,8 +2344,15 @@ def main():
             # dig the block at your feet in front (looked at), then put it back
             chrome.js(f"{g}.pitch = -65")
             time.sleep(0.4)
-            hit = chrome.wait_for(f"JSON.stringify({g}.lookTarget())", 5, "a block looked at")
-            pos, face = json.loads(hit)[:2]
+            for _ in range(3):  # (tall grass or a flower in the way first: since CHANGE 207 tall grass mostly drops nothing)
+                hit = chrome.wait_for(f"JSON.stringify({g}.lookTarget())", 5, "a block looked at")
+                pos, face = json.loads(hit)[:2]
+                if chrome.js(f"!!{g}.scene.tables.cube[{g}.world.get({pos[0]}, {pos[1]}, {pos[2]})]"):
+                    break
+                chrome.js(f"{g}.mouse.left = true")
+                chrome.wait_for(f"{g}.world.get({pos[0]}, {pos[1]}, {pos[2]}) === 0", 8, "the plant in the way dug")
+                chrome.js(f"{g}.mouse.left = false")
+                time.sleep(0.6)
             block = chrome.js(f"{g}.world.get({pos[0]}, {pos[1]}, {pos[2]})")
             before = chrome.js(f"JSON.stringify({g}.inventory.inv)")
             chrome.js(f"{g}.mouse.left = true")
@@ -2343,7 +2362,7 @@ def main():
             time.sleep(1.0)
             assert chrome.js(f"{g}.world.get({pos[0]}, {pos[1]}, {pos[2]})") == 0, "the server put the dug block back"
             inv = json.loads(chrome.js(f"JSON.stringify({g}.inventory.inv)"))
-            slot = next(i for i, s in enumerate(inv[:9]) if s and s[0] != chrome.js(f"{g}.itemId('apple')"))
+            slot = next(i for i, s in enumerate(inv[:8]) if s and s[0] != chrome.js(f"{g}.itemId('apple')"))
             got = inv[slot][0]
             press(str(slot + 1))
             chrome.wait_for(f"{g}.inventory.selected === {slot}", 5, "the slot chosen")
@@ -2369,7 +2388,31 @@ def main():
             chrome.wait_for(f"{g}.world.get({put[0]}, {put[1]}, {put[2]}) === {got}", 8, f"block {got} put down at {put}")
             print(f"    dug block {block} at {pos} (block {got} in her inventory), put it down at {put}")
             chrome.screenshot(os.path.join(work, "craft_learner.png"))
-            # planks in the inventory screen: the teacher makes the class creative (the creative box has every log)
+            # the lab visor (CHANGE 207): the status card (Health, Energy), the Toolbelt's 8 slots, the ring crosshair;
+            # Ctrl on its own Careful mode (the CAREFUL tag); ` the dev panel; Esc the menu with the logo and the credits
+            chrome.wait_for("!document.getElementById('cr-status').hidden && document.querySelectorAll('#cr-toolbelt .cr-slot').length === 8"
+                            " && document.querySelectorAll('#cr-toolbelt .cr-slot.lit').length === 1 && !!document.getElementById('cr-fill')"
+                            " && parseFloat(document.getElementById('cr-hpfill').style.width) > 0 && document.getElementById('cr-hpnum').textContent !== ''",
+                            5, "the status card and the Toolbelt")
+            press("Control")
+            chrome.wait_for(f"{g}.careful && !document.getElementById('cr-careful').hidden", 5, "Careful mode (Ctrl) and its tag")
+            press("Control")
+            chrome.wait_for(f"!{g}.careful && document.getElementById('cr-careful').hidden", 5, "Careful mode off again")
+            chrome.js("window.dispatchEvent(new KeyboardEvent('keydown', {key: '`', code: 'Backquote'}))")
+            chrome.wait_for("!document.getElementById('cr-dev').hidden && ['POSITION', 'CHUNK', 'LIGHT', 'FPS', 'TIER', 'SERVER', 'TIME']"
+                            ".every(w => document.getElementById('cr-dev').textContent.includes(w))", 5, "the dev panel (`)")
+            chrome.js("window.dispatchEvent(new KeyboardEvent('keydown', {key: '`', code: 'Backquote'}))")
+            chrome.wait_for("document.getElementById('cr-dev').hidden", 5, "the dev panel hidden again")
+            press("Escape")
+            chrome.wait_for(f"!!{g}.menu && !!document.querySelector('#craftmenu img.cr-logo') && !!document.querySelector('#craftmenu [data-menu=credits]')"
+                            " && document.querySelectorAll('#craftmenu [data-tier]').length === 7", 5, "the Esc menu")
+            chrome.js("document.querySelector('#craftmenu [data-menu=credits]').click()")
+            chrome.wait_for("document.getElementById('cm-notes').textContent.includes('Babylon.js') && document.getElementById('cm-notes').textContent.includes('Press Start 2P')",
+                            5, "the credits (THIRD_PARTY_NOTICES.md)")
+            chrome.screenshot(os.path.join(work, "craft_menu.png"))
+            press("Escape")
+            chrome.wait_for(f"!{g}.menu && !document.getElementById('craftmenu')", 5, "the menu closed (RESUME)")
+            # the Backpack in Sandbox: the teacher makes the class Sandbox (the PALETTE has every log)
             from websockets.sync.client import connect
             teacher, end = None, time.time() + 25
             while teacher is None:  # (the teacher's page of the check before may be a moment letting go of its place)
@@ -2391,42 +2434,79 @@ def main():
                     pass
             threading.Thread(target=drain, daemon=True).start()
             teacher.send(json.dumps({"type": "mode"}))
-            chrome.wait_for(f"{g}.creative()", 10, "creative for the class")
-            press("e")
-            chrome.wait_for(f"!!{g}.screen && {g}.screen.kind === 'inventory' && !!document.querySelector('#craftscreen [data-area=palette]')", 5, "the inventory screen")
-            log, planks = chrome.js(f"{g}.itemId('log')"), chrome.js(f"{g}.itemId('planks')")
+            chrome.wait_for(f"{g}.creative()", 10, "Sandbox for the class")
+            press("i")
+            chrome.wait_for(f"!!{g}.screen && {g}.screen.kind === 'inventory' && {g}.screen.tab === 'backpack' && "
+                            "document.querySelectorAll('#craftscreen [data-area=inv]').length === 38 && "
+                            "document.querySelectorAll('#craftscreen [data-area=suit]').length === 3 && !!document.querySelector('#craftscreen [data-tab=palette]')",
+                            5, "the Backpack (its 30 slots, the Toolbelt's 8, the suit's 3, the PALETTE tab in Sandbox)")
+            log, boards = chrome.js(f"{g}.itemId('log')"), chrome.js(f"{g}.itemId('boards')")
+            def click(sel, button=0):  # (a press on a slot, as the mouse's)
+                got = chrome.js(f"(() => {{ const e = document.querySelector('#craftscreen {sel}'); if (!e) return 'missing';"
+                                f"e.dispatchEvent(new PointerEvent('pointerdown', {{bubbles: true, button: {button}}})); return 'ok'; }})()")
+                assert got == "ok", f"no {sel} on the screen (tab {chrome.js(f'{g}.screen && {g}.screen.tab')})"
+
+            def button(sel):
+                got = chrome.js(f"(() => {{ const e = document.querySelector('#craftscreen {sel}'); if (!e) return 'missing'; e.click(); return 'ok'; }})()")
+                assert got == "ok", f"no {sel} on the screen (tab {chrome.js(f'{g}.screen && {g}.screen.tab')})"
+            # the PALETTE: a stack of logs (its page turned to), put down in the Backpack
+            button('[data-tab="palette"]')
+            chrome.wait_for(f"{g}.screen.tab === 'palette' && !!document.querySelector('#craftscreen [data-area=palette]')", 5, "the Sandbox palette")
             k = chrome.js(f"{g}.screen.creativeItems.indexOf({log})")
-            for _ in range(k // 36):
-                chrome.js("document.getElementById('cs-next').click()")
-            click = lambda sel, button=0: chrome.js(f"document.querySelector('#craftscreen {sel}').dispatchEvent(new PointerEvent('pointerdown', "
-                                                    f"{{bubbles: true, button: {button}}}))")
-            click(f'[data-area="palette"][data-i="{k % 36}"]')
+            for _ in range(k // 56):
+                button('[data-page="1"]')
+            click(f'[data-area="palette"][data-i="{k}"]')
             chrome.wait_for(f"!!{g}.inventory.cursor && {g}.inventory.cursor[0] === {log}", 5, "a stack of logs taken")
-            click('[data-area="grid"][data-i="0"]', 2)  # (the right button: one log in the grid)
-            chrome.wait_for(f"!!{g}.inventory.result && {g}.inventory.result[0] === {planks} && {g}.inventory.result[1] === 4", 5, "four planks shown")
-            time.sleep(0.5)
+            t = chrome.js(f"{g}.inventory.inv.slice(0, 8).findIndex(s => !s)")  # (an empty Toolbelt slot: the palette's tab shows the Toolbelt)
+            assert t >= 0, "her Toolbelt is full"
+            click(f'[data-area="inv"][data-i="{t}"]')  # (the logs put down in the Toolbelt)
+            chrome.wait_for(f"!{g}.inventory.cursor && !!{g}.inventory.inv[{t}] && {g}.inventory.inv[{t}][0] === {log}", 5, "the logs put down")
+            # drag and drop: pressed on one slot, let go over another (the Toolbelt to the Backpack)
+            button('[data-tab="backpack"]')
+            chrome.wait_for(f"{g}.screen.tab === 'backpack' && !!document.querySelector('#craftscreen [data-area=inv][data-i=\"{t}\"] .cr-icon')", 5, "the Backpack tab again")
+            click(f'[data-area="inv"][data-i="{t}"]')
+            chrome.wait_for(f"!!{g}.inventory.cursor && {g}.inventory.cursor[0] === {log}", 5, "the logs picked up")
+            chrome.js("{ const r = document.querySelector('#craftscreen [data-area=inv][data-i=\"10\"]').getBoundingClientRect();"
+                      "window.dispatchEvent(new PointerEvent('pointerup', {bubbles: true, button: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2})); }")
+            chrome.wait_for(f"!{g}.inventory.cursor && !!{g}.inventory.inv[10] && {g}.inventory.inv[10][0] === {log} && !{g}.inventory.inv[{t}]", 5,
+                            "the logs dragged into the Backpack")
+            # the BLUEPRINTS: Boards (a Quick Build) from a log, its part ticked, BUILD reaching the server
+            button('[data-tab="blueprints"]')
+            bp = int(chrome.wait_for(f"(() => {{ const i = {g}.blueprints.findIndex(b => b.makes === 'boards'); return i >= 0 ? String(i) : null; }})()", 5,
+                                     "the server's blueprints"))
+            chrome.wait_for(f"!!document.querySelector('#craftscreen [data-build=\"{bp}\"]') && "
+                            f"document.querySelector('#craftscreen [data-bp=\"{bp}\"] .cr-parts .good') !== null", 5, "the Boards blueprint, its log ticked")
+            time.sleep(0.3)
+            chrome.screenshot(os.path.join(work, "craft_blueprints.png"))
+            button(f'[data-build="{bp}"]')
+            chrome.wait_for(f"{g}.inventory.inv.some(s => s && s[0] === {boards} && s[1] >= 3)", 8, "Boards built into her Backpack")
+            button('[data-tab="backpack"]')
+            button('[data-act="sort"]')
+            chrome.wait_for(f"!!{g}.inventory.inv[8] && !{g}.inventory.inv[37]", 5, "the Backpack sorted")
+            time.sleep(0.4)
             chrome.screenshot(os.path.join(work, "craft_inventory.png"))
-            click('[data-area="inv"][data-i="9"]')  # (the logs left down in the inventory)
-            chrome.wait_for(f"!{g}.inventory.cursor", 5, "the logs put down")
-            click('[data-area="result"][data-i="0"]')
-            chrome.wait_for(f"!!{g}.inventory.cursor && {g}.inventory.cursor[0] === {planks}", 5, "the planks made")
-            click('[data-area="inv"][data-i="10"]')
-            chrome.wait_for(f"!!{g}.inventory.inv[10] && {g}.inventory.inv[10][0] === {planks} && {g}.inventory.inv[10][1] === 4", 5, "the planks in her inventory")
-            press("e")
-            chrome.wait_for(f"!{g}.screen", 5, "the screen closed")
+            press("i")
+            chrome.wait_for(f"!{g}.screen", 5, "the Backpack closed")
             teacher.send(json.dumps({"type": "mode"}))
             teacher.close()
-            # her Craft Bot's Garage (the engine's, from schemas.json) and code panel: the code as Python, BUILD reaching the server
-            tab("garage")
-            chrome.wait_for("['bot_name', 'dig', 'build', 'speed', 'colour'].every(w => document.getElementById('panelbody').textContent.includes(w))"
-                            " && !!document.getElementById('gz-build')", 10, "her Craft Bot's garage")
+            # her Craft Bot's Garage (the engine's, from schemas.json) and code panel from the Backpack's BOT tab (B): the
+            # code as Python, BUILD reaching the server
+            press("b")
+            chrome.wait_for(f"!!{g}.screen && {g}.screen.tab === 'bot' && document.querySelectorAll('#craftscreen [data-hub]').length === 3", 5, "the Bot tab (B)")
+            button('[data-hub="garage"]')
+            chrome.wait_for(f"!{g}.screen && document.getElementById('panel').classList.contains('open') && "
+                            "['bot_name', 'dig', 'build', 'speed', 'colour'].every(w => document.getElementById('panelbody').textContent.includes(w))"
+                            " && !!document.getElementById('gz-build')", 10, "her Craft Bot's garage (GARAGE)")
             chrome.js("document.getElementById('gz-build').click()")
             chrome.wait_for("(window.__state.garageMsg || [''])[0].startsWith('Built!')", 10, "her Bot built by the server")
-            press("c")
-            chrome.wait_for("!document.getElementById('codepanel').hidden && document.getElementById('code-text').value.includes('dig: int = ')"
-                            " && document.getElementById('code-text').value.includes('# MY CRAFT BOT as Python code')", 5, "her Bot as Python in the code panel")
-            press("c")
             chrome.js("document.getElementById('panel').classList.remove('open')")
+            press("b")
+            chrome.wait_for(f"!!{g}.screen && {g}.screen.tab === 'bot'", 5, "the Bot tab again")
+            button('[data-hub="code"]')
+            chrome.wait_for("!document.getElementById('codepanel').hidden && document.getElementById('code-text').value.includes('dig: int = ')"
+                            " && document.getElementById('code-text').value.includes('# MY CRAFT BOT as Python code')", 5, "her Bot as Python in the code panel (CODE)")
+            chrome.js("window.__app.openCode()")
+            chrome.wait_for("document.getElementById('codepanel').hidden", 5, "the code panel closed")
             # the touch controls: the stick walks, a phone's layout
             chrome.js("window.__app.setTouch('on')")
             chrome.wait_for("!document.getElementById('touchpad').hidden && document.getElementById('touchpad').classList.contains('craft') "
@@ -2442,6 +2522,13 @@ def main():
             time.sleep(0.4)
             b = chrome.js(f"[{p}.state.x, {p}.state.y]")
             assert ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 > 1, f"the stick didn't walk her: {a} {b}"
+            crouch = ("{ const b = document.querySelector('#touchpad [data-btn=crouch]');"
+                      "b.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, pointerId: 8}));"
+                      "b.dispatchEvent(new PointerEvent('pointerup', {bubbles: true, pointerId: 8})); }")
+            chrome.js(crouch)
+            chrome.wait_for(f"{g}.careful && !document.getElementById('cr-careful').hidden", 5, "CROUCH: Careful mode")
+            chrome.js(crouch)
+            chrome.wait_for(f"!{g}.careful", 5, "CROUCH again: Careful mode off")
             chrome.call("Emulation.setDeviceMetricsOverride", width=844, height=390, deviceScaleFactor=2, mobile=True)
             time.sleep(1.5)
             chrome.screenshot(os.path.join(work, "craft_phone.png"))
@@ -2452,10 +2539,11 @@ def main():
             assert corr <= 6, corr
             no_errors()
         check("Craft Lab: a learner's page over a school's Wi-Fi (60 ms each way, 15 ms of jitter) walks with the keys (her "
-              "player predicted, the server agreeing to the centimetre), jumps, digs a block and puts it down again, crafts "
-              "planks in the inventory screen (a stack taken, one put in the grid, the planks made and put away), her Craft "
-              "Bot's Garage and code panel (BUILD reaching the server), the touch controls (the stick walks her) and a "
-              "phone's layout", craft_learner)
+              "player predicted, the server agreeing to the centimetre), jumps, digs a block and puts it down again, the lab "
+              "visor (the status card, the Toolbelt, Careful mode on Ctrl, the dev panel on `, the Esc menu and its credits), "
+              "the Backpack in Sandbox (logs from the PALETTE, dragged and dropped, Boards built from the BLUEPRINTS tab, "
+              "SORT), her Craft Bot's Garage and code panel from the BOT tab (BUILD reaching the server), the touch controls "
+              "(the stick walks her, CROUCH is Careful mode) and a phone's layout", craft_learner)
         for key, proc in servers.items():
             proc.close() if isinstance(proc, Learner) else stop(proc)
 

@@ -775,7 +775,7 @@ export class BaseScene {
 
     // one material per look, cached: flat and unlit on blocks, the app's lighting (pbr.js) on the others.
     // rgb is the screen colour, rough and metal as the app's parts give them; opts.tex names the app's texture set
-    // (paint, steel, tyre, diamond, hazard, concrete, tarmac, grass), opts.tile its repeats per metre and
+    // (paint, steel, tyre, treadplate, hazard, concrete, tarmac, grass), opts.tile its repeats per metre and
     // opts.emission a glow given as the app gives it (linear, may be over 1). On the line tiers: black (wireFill).
     // opts.clearcoat (0 to 1) and opts.probe (CHANGE 144, ultra): a glossy coat over the paint, and the world's
     // reflection (the scene's probe) in it. (CHANGE 174, ultra) opts.flake: metal flakes in the paint (0 to 1);

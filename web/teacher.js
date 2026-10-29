@@ -68,7 +68,8 @@ const STAGE_WORDS = {robotlab: {pit: "Drop zone open", floor_flipper: "Floor fli
                      fightlab: {ring_out: "Ring-outs (no ropes)", electric_ropes: "Electric ropes", fire_jets: "Fire jets",
                                 slippery: "Slippery ice", spikes: "Spikes"},
                      citylab: {traffic: "Traffic", robots: "Robots"},  // (CHANGE 201: city_server's hazards)
-                     craftlab: {mobs: "Creatures at night", hunger: "Hunger"}};  // (CHANGE 202: craft_missions.NO_HAZARDS)
+                     craftlab: {mobs: "Creatures (Glitch rifts at dusk, Rust Walkers)", energy: "Energy drains as you work",
+                                hunger: "Energy drains as you work"}};  // (CHANGE 202, 207: craft_missions.NO_HAZARDS, craft_tabs.HAZARD_NAMES)
 
 export function houseOn(app) {  // (lab_sim.house_list: True is all four, a list is those named)
     const all = Object.keys((app.state.rules || {}).house || {}), v = ((app.state.lesson || {}).hazards || {}).house_robots;

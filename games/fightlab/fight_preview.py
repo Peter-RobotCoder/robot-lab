@@ -54,7 +54,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import fight_version  # noqa: E402
 sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
-from engine import full_screen, gfx_tiers  # noqa: E402
+from engine import club_fonts, full_screen, gfx_tiers  # noqa: E402
+club_fonts.use_default()  # (the windows' letters: Inter, SIL OFL, not Panda3D's own unlicensed font)
 
 w, h = (int(v) for v in args.window.lower().split("x"))
 loadPrcFileData("", f"win-size {w} {h}\nwindow-title Fight Lab preview\nsync-video {'false' if args.novsync else 'true'}\n")

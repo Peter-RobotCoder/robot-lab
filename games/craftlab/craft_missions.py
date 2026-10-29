@@ -2,8 +2,8 @@
 Craft Bot each learner programs.
 
 Each lesson switches on the right garage tools and world settings and gives learners missions. Missions are checked
-by the server from what learners actually do (a workbench crafted, a night survived, iron smelted, a Bot that dug
-ten blocks with a loop, a recipe of their own made), and every tick is saved as evidence against the learning
+by the server from what learners actually do (a Fabricator built, a night survived, iron refined, a Bot that dug
+ten blocks with a loop, a blueprint of their own built, a Glitch rift patched), and every tick is saved as evidence against the learning
 outcomes below. Curriculum references live in OUTCOMES so a teacher can see which part of the curriculum a mission
 covers. The teacher can re-word any mission (and add or hide them) in the HUD's Outcomes tab: engine.teaching keeps
 those edits. (The club desk runs this file on its own to print the scheme of work: it imports only ast and re.)
@@ -54,9 +54,10 @@ OUTCOMES = {
 
 # ---------- lessons ----------
 # the learner's garage: what is shown and changeable (the Bot's three points, its name and colour, the code view and
-# the stats readout); "mobs" lets the creatures out at night, "brains" lets learners upload a Bot brain
+# the stats readout); "mobs" lets the creatures out (the rifts at dusk, the Rust Walkers), "energy" makes Energy
+# drain as you work, "brains" lets learners upload a Bot brain
 ALL_TOOLS = ["points_table", "dig", "build", "speed", "name_and_colour", "code_view", "stats_readout"]
-NO_HAZARDS = {"mobs": False, "hunger": False}
+NO_HAZARDS = {"mobs": False, "energy": False}
 
 
 def tools(*on):
@@ -70,13 +71,13 @@ def hazards(*on):
 LESSONS = {
     1: dict(title="Variables: build your Craft Bot", mode="practice", hazards=hazards(),
             tools=tools("dig", "build", "speed", "name_and_colour", "code_view", "stats_readout")),
-    2: dict(title="Lists and dictionaries: recipes and the first night", mode="practice",
-            hazards=hazards("mobs", "hunger"), tools=tools(*ALL_TOOLS)),
+    2: dict(title="Lists and dictionaries: blueprints and the first night", mode="practice",
+            hazards=hazards("mobs", "energy"), tools=tools(*ALL_TOOLS)),
     3: dict(title="Loops: program your Craft Bot", mode="practice", hazards=hazards(),
             tools=tools(*ALL_TOOLS, "brains")),
     4: dict(title="Selection and functions: a Bot that decides", mode="practice", hazards=hazards("mobs"),
             tools=tools(*ALL_TOOLS, "brains")),
-    5: dict(title="Invent and evaluate: a build of your own, with AI", mode="practice", hazards=hazards("mobs", "hunger"),
+    5: dict(title="Invent and evaluate: a build of your own, with AI", mode="practice", hazards=hazards("mobs", "energy"),
             tools=tools(*ALL_TOOLS, "brains")),
 }
 
@@ -84,8 +85,8 @@ LESSONS = {
 # id: (lesson, title, what to do, outcome codes, how it is checked)
 MISSIONS = {
     "1a": (1, "Change a STRING VARIABLE with the GUI",
-           "Press I for the Garage. Under STRING VARIABLES type a new bot_name and press BUILD MY BOT. A string is "
-           "text in quotes. Its type is str.", ["VAR", "DATA"], "auto"),
+           "Press B for the Bot tab and open the GARAGE. Under STRING VARIABLES type a new bot_name and press BUILD MY "
+           "BOT. A string is text in quotes. Its type is str.", ["VAR", "DATA"], "auto"),
     "1b": (1, "Change INTEGER VARIABLES with the GUI",
            "In the Garage, change two of dig, build and speed and press BUILD MY BOT. An integer is a whole number (int).",
            ["VAR", "DATA"], "auto"),
@@ -93,34 +94,34 @@ MISSIONS = {
            "In the Garage, click a colour block and press BUILD MY BOT. The colour is a list of three integers, "
            "[red, green, blue]. Its type is list.", ["DATA", "VAR"], "auto"),
     "1d": (1, "Hack the code",
-           "Press C: your Bot as Python, every variable with its type. Change a value there and press BUILD MY BOT "
-           "in the code panel.", ["VAR", "DATA", "ALG"], "auto"),
+           "Press B, then CODE: your Bot as Python, every variable with its type. Change a value there and press "
+           "BUILD MY BOT in the code panel.", ["VAR", "DATA", "ALG"], "auto"),
     "1e": (1, "Your first tools",
-           "Punch a tree for a log, turn it into planks (E: your crafting grid), make a WORKBENCH from four planks, "
-           "then sticks and a wooden pick.", ["ALG", "DATA"], "auto"),
+           "Chop a log by hand to start. In your Backpack (I) open BLUEPRINTS: build Boards, then a FABRICATOR (6 "
+           "Boards and 2 Rubble), put it down, and at the Fabricator build Rods and a Mk1 Drill.", ["ALG", "DATA"], "auto"),
     "1f": (1, "Safe use of AI",
-           "Press I and use an AI request card to ask for a change in the game. No personal information. When the "
-           "teacher keeps the change, check what it did and answer the review questions.", ["AISAFE", "AIREVIEW"], "auto"),
-    "2a": (2, "A recipe is a list",
-           "Craft five different things. Each recipe is a pattern: a list of strings, each letter a block (look at "
-           "craft_items.RECIPES).", ["DATA", "ALG"], "auto"),
-    "2b": (2, "Smelt it", "Build a SMELTER (eight rubble round the edge of the workbench grid), put iron ore in the top "
-                          "and coal in the bottom, and take out an iron ingot.", ["ALG", "ABS"], "auto"),
-    "2c": (2, "Survive the night", "Build a shelter with a door, light it with torches, and still be here when the sun "
-                                   "comes up.", ["ALG", "TEST"], "auto"),
-    "2d": (2, "A recipe of your own", "Write a recipe in mods/recipes.py (or ask the AI for one) and craft it in the game.",
-           ["DATA", "AIREVIEW"], "auto"),
+           "Open the AI card (Tab) and ask for a change in the game. No personal information. When the teacher "
+           "keeps the change, check what it did and answer the review questions.", ["AISAFE", "AIREVIEW"], "auto"),
+    "2a": (2, "A blueprint is a dictionary",
+           "Build five different things. Each blueprint is a dictionary: what it makes, how many, and its parts, "
+           "another dictionary of names and amounts (look at craft_items.BLUEPRINTS).", ["DATA", "ALG"], "auto"),
+    "2b": (2, "Refine it", "Build a REFINERY at the Fabricator (6 Rubble, 3 Clay balls), put Iron ore in its queue and "
+                           "Coal in its power slot, and take an Iron ingot from the tray.", ["ALG", "ABS"], "auto"),
+    "2c": (2, "Survive the night", "Build a shelter with a door, light it with Glowsticks, and still be here when the "
+                                   "sun comes up.", ["ALG", "TEST"], "auto"),
+    "2d": (2, "A blueprint of your own", "Write a blueprint in mods/blueprints.py (or ask the AI for one) and build it "
+                                         "in the game.", ["DATA", "AIREVIEW"], "auto"),
     "2e": (2, "Boundary test data", "Build a Bot with one point at exactly 10 or exactly 60.", ["VALID", "TEST"], "auto"),
-    "2f": (2, "Invalid test data", "Press C, make the points add up to more than 100, press BUILD MY BOT and read why it "
-                                   "is refused.", ["VALID", "TEST"], "auto"),
+    "2f": (2, "Invalid test data", "Open the code (B, then CODE), make the points add up to more than 100, press BUILD "
+                                   "MY BOT and read why it is refused.", ["VALID", "TEST"], "auto"),
     "3a": (3, "A Bot that runs", "Put down a BOT DOCK and right-click it. Edit brains/my_bot.py, press U to upload it "
                                  "and P to switch the autopilot on. It must run for 20 seconds without an error.",
            ["FUNC", "VAR"], "auto"),
     "3b": (3, "A loop", "Your brain counts with bot.dug (or bot.memory) and stops after a number of blocks: a loop "
                         "that the game repeats, with a condition that ends it.", ["ITER", "VAR"], "auto"),
     "3c": (3, "Dig a tunnel", "Your Bot digs 10 blocks by itself.", ["ITER", "TEST"], "auto"),
-    "3d": (3, "Build a tower", "Give your Bot blocks (right-click its dock) and have it place 10 by itself.",
-           ["ITER", "ALG"], "auto"),
+    "3d": (3, "Build a tower", "Give your Bot blocks (right-click its dock: its slots are in the Bot tab) and have it "
+                               "place 10 by itself.", ["ITER", "ALG"], "auto"),
     "3e": (3, "Use a for loop", "Use for ... in range(...) in your brain (for example to count the blocks it carries).",
            ["ITER"], "auto"),
     "4a": (4, "Make a decision", "Your brain uses if, elif or else (for example: dig if the block in front isn't air, "
@@ -129,8 +130,11 @@ MISSIONS = {
     "4c": (4, "Remember something", "Use bot.memory to keep a value between turns (a mode like 'dig' or 'build').",
            ["VAR", "SEL"], "auto"),
     "4d": (4, "Mine an ore", "Your Bot digs a coal, copper or iron ore by itself (world.find helps).", ["SEL", "TEST"], "auto"),
-    "4e": (4, "Defend the base", "Defeat a Glitch or a Rust Walker at night.", ["TEST"], "auto"),
-    "5a": (5, "A build of your own", "Put down 100 blocks of a build, with a door, a bed and torches.", ["ALG", "EVAL"], "auto"),
+    "4e": (4, "Defend the base", "Defeat a Glitch or a Rust Walker (a Zapper helps).", ["TEST"], "auto"),
+    "4f": (4, "Patch a Glitch rift", "Rifts open at dusk. Build a PATCH at the Fabricator (a Battery and 2 Copper "
+                                     "ingots) and right-click a rift with it to seal it.", ["ALG", "TEST"], "auto"),
+    "5a": (5, "A build of your own", "Put down 100 blocks of a build, with a door, a Recharge Pod and Glowsticks.",
+           ["ALG", "EVAL"], "auto"),
     "5b": (5, "A block of your own", "Add a block to mods/blocks.py (or ask the AI for one) and place it in the world.",
            ["DATA", "AIREVIEW"], "auto"),
     "5c": (5, "Evaluate", "Write what worked, what you would change, and where AI did and didn't help.",
@@ -156,14 +160,15 @@ def missions_for(lesson):
 # ---------- the teacher's lesson guide ----------
 LESSON_TASKS = {
     1: "Your Craft Bot is a set of variables. Change a string (its name), integers (dig, build and speed) and a list "
-       "(its colour) with the GUI, then hack the code. In the world, punch a tree and craft your first tools.",
-    2: "Recipes are data: lists of strings and dictionaries. Craft five things, build a smelter and smelt iron, "
-       "survive a night with a shelter, a door and torches, write a recipe of your own, and test the Bot's limits "
-       "with boundary and invalid data.",
+       "(its colour) with the GUI, then hack the code. In the world, chop a log by hand and build your first tools "
+       "from blueprints.",
+    2: "Blueprints are data: dictionaries of parts and amounts. Build five things, build a Refinery and refine iron, "
+       "survive a night with a shelter, a door and Glowsticks, write a blueprint of your own, and test the Bot's "
+       "limits with boundary and invalid data.",
     3: "Program your Craft Bot. Its brain is a function the game calls again and again: that repeat is a loop, and a "
        "condition stops it. Dig a tunnel, build a tower, and use a for loop.",
     4: "A Bot that decides: if / elif / else, a function of your own, memory between turns. Find and mine an ore "
-       "with world.find, and defend your base at night.",
+       "with world.find, defend your base, and patch a Glitch rift.",
     5: "Bring it together: a build of your own, a block of your own added with AI, then evaluate with evidence and "
        "explain your code to the group.",
 }
@@ -171,9 +176,10 @@ LESSON_TASKS = {
 GUIDE = {
     1: {
         "VAR": dict(task="Change variables with the GUI, then in the code",
-                    do=["Press I for the Garage: the Bot's name, its three points and its colour are variables.",
+                    do=["Press B for the Bot tab, then GARAGE: the Bot's name, its three points and its colour are "
+                        "variables.",
                         "Change bot_name, two of the points and the colour, press BUILD MY BOT.",
-                        "Press C: find the line  dig: int = 34  and change it there, then BUILD MY BOT."],
+                        "Press B, then CODE: find the line  dig: int = 34  and change it there, then BUILD MY BOT."],
                     teach="A variable is a name that stores a value. Changing the value changes how the program "
                           "behaves without rewriting the program.",
                     success="They can point to the variable they changed and say what it did."),
@@ -183,12 +189,13 @@ GUIDE = {
                      teach="A string is text, an integer a whole number, a list keeps values in order in [ ].",
                      success="They name the data type of three values in their Bot's code."),
         "ALG": dict(task="Your first tools, in order",
-                    do=["Punch a tree (hold the left button) for logs.", "E: put a log in the grid, take planks.",
-                        "Four planks make a workbench; right-click it for a 3 x 3 grid: sticks, then a wooden pick."],
-                    teach="An algorithm is steps in the right order: you can't make a pick before a workbench.",
+                    do=["Chop a log by hand to start (hold the left button).",
+                        "I: the Backpack. BLUEPRINTS: build Boards from the log, then a Fabricator (6 Boards, 2 Rubble).",
+                        "Put the Fabricator down: next to it, build Rods, then a Mk1 Drill (3 Rubble, 2 Rods)."],
+                    teach="An algorithm is steps in the right order: you can't build a Drill before a Fabricator.",
                     success="They explain the order and why it matters."),
         "AISAFE": dict(task="Your first AI request",
-                       do=["Press I to open the AI card.", "Ask for a change: your Bot's colour, a new block...",
+                       do=["Press Tab and open the AI card.", "Ask for a change: your Bot's colour, a new block...",
                            "No personal information. Say how you will test it."],
                        teach="Never give an AI tool personal information. A good request has a goal, a limit and a test.",
                        success="Their card passes the checks with a clear goal and a test."),
@@ -198,23 +205,25 @@ GUIDE = {
                          success="Their answers say what they tested."),
     },
     2: {
-        "DATA": dict(task="A recipe is a list",
-                     do=["Open craft_items.py and find RECIPES: each one is a dictionary.",
-                         "A pattern is a list of strings; the key is a dictionary from a letter to a block.",
-                         "Craft five different things."],
+        "DATA": dict(task="A blueprint is a dictionary",
+                     do=["Open craft_items.py and find BLUEPRINTS: each one is a dictionary.",
+                         "Its parts are another dictionary: a part's name, and how many.",
+                         "Build five different things."],
                      teach="Lists keep things in order; dictionaries look things up by a key.",
-                     success="They read a recipe aloud: what the list and the dictionary say."),
+                     success="They read a blueprint aloud: what each key and value says."),
         "ALG": dict(task="Plan for the night",
-                    do=["Before dusk: a shelter, a door, torches (coal over a stick).", "Smelt iron for better tools.",
-                        "Armour at the workbench (cloth from wool, or ingots): right-click a piece to wear it."],
+                    do=["Before dusk: a shelter, a door, Glowsticks (a Rod and Coal).", "Refine iron for better tools.",
+                        "A suit at the Fabricator (Fluff from brushing a Fluff, then upgrade it with ingots): "
+                        "right-click a piece to wear it. It gives you a Shield."],
                     teach="Decomposition: surviving the night is small jobs in an order.",
                     success="Their plan lists the jobs in order."),
         "ABS": dict(task="The world is a grid of numbers",
-                    do=["Press F3: your x, y and z.", "Every block is a number in a 3D list (craft_world.py)."],
+                    do=["Press ` (backtick): the dev panel shows your x, y and z.",
+                        "Every block is a number in a 3D list (craft_world.py)."],
                     teach="Abstraction: a whole island is one grid of numbers, each a block.",
                     success="They explain what one number in the grid stands for."),
         "VALID": dict(task="Break the rules on purpose",
-                      do=["Press C, set dig to 70: refused.", "Make the points add up to 110: refused, and why.",
+                      do=["Open the code, set dig to 70: refused.", "Make the points add up to 110: refused, and why.",
                           "Set one to exactly 10, then 60: accepted (boundary data)."],
                       teach="Validation checks input before it is used: normal, boundary and invalid data.",
                       success="They give an example of each and what the program did."),
@@ -222,10 +231,10 @@ GUIDE = {
                      do=["After the night: what kept you safe, what didn't?"],
                      teach="Testing a plan means comparing what happened with what you expected.",
                      success="They name one change they'd make for the next night."),
-        "AIREVIEW": dict(task="A recipe with AI",
-                         do=["Ask the AI for a recipe of your own in mods/recipes.py.", "Craft it to test it."],
+        "AIREVIEW": dict(task="A blueprint with AI",
+                         do=["Ask the AI for a blueprint of your own in mods/blueprints.py.", "Build it to test it."],
                          teach="Test an AI change in the game before you trust it.",
-                         success="They crafted their recipe and say whether it did what they asked."),
+                         success="They built their blueprint and say whether it did what they asked."),
     },
     3: {
         "ITER": dict(task="The brain is called again and again",
@@ -264,13 +273,16 @@ GUIDE = {
                     do=["bot.memory['mode'] = 'dig' ... switch to 'home' when full."],
                     teach="Ordinary variables are forgotten each turn; bot.memory is kept.",
                     success="Their Bot changes mode and stays in it."),
-        "ALG": dict(task="Plan an ore hunt", do=["Write the steps: look, turn towards it, dig, carry on."],
+        "ALG": dict(task="Plan an ore hunt, and a rift patrol",
+                    do=["Write the steps: look, turn towards it, dig, carry on.",
+                        "Before dusk: a Patch from the Fabricator, ready for the first rift."],
                     teach="Break the problem into steps and code one at a time.", success="Their plan matches their code."),
-        "TEST": dict(task="Defend the base", do=["At night, fight a Glitch or a Rust Walker with a sword."],
-                     teach="Test the base's defences: torches keep the dark ones away.", success="They survived."),
+        "TEST": dict(task="Defend the base", do=["At night, beat a Glitch or a Rust Walker with a Zapper, and patch a rift."],
+                     teach="Test the base's defences: a patched rift sends out no more Glitches.", success="They survived."),
     },
     5: {
-        "ALG": dict(task="A build of your own", do=["Plan it, then build: walls, a door, a bed, torches (100 blocks)."],
+        "ALG": dict(task="A build of your own",
+                    do=["Plan it, then build: walls, a door, a Recharge Pod, Glowsticks (100 blocks)."],
                     teach="A big build is many small plans.", success="Their build matches their plan."),
         "DATA": dict(task="A block of your own", do=["Add a dictionary to BLOCKS in mods/blocks.py."],
                      teach="A new block is a dictionary of its properties.", success="Their block is in the world."),
@@ -372,7 +384,7 @@ HOW THEY WILL TEST IT: {card.get('test', '').strip()}
 THEIR PREDICTION: {card.get('predict', '').strip()}
 
 Rules for the change:
-- Change only the Craft Lab files (craft_*.py and the mods: mods/blocks.py, mods/recipes.py, mods/world.py,
+- Change only the Craft Lab files (craft_*.py and the mods: mods/blocks.py, mods/blueprints.py, mods/world.py,
   mods/rules.py, mods/bots/<name>.py).
 - A window predicts its own player with the same craft_sim step the server runs: anything that changes how a
   player moves must stay deterministic (no random numbers in a step) and live in craft_sim.

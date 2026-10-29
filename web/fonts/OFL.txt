@@ -1,9 +1,20 @@
+The fonts in this folder are licensed under the SIL Open Font License, Version 1.1 (below).
+
+jetbrainsmono-latin.woff2 (JetBrains Mono, https://github.com/JetBrains/JetBrainsMono):
 Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+
+inter-latin.woff2, and cc_sans.png and cc_sans.json (the letters of Inter, https://github.com/rsms/inter, drawn by make_font.py):
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+
+spacegrotesk-latin.woff2 (Space Grotesk, https://github.com/floriankarsten/space-grotesk):
+Copyright 2020 The Space Grotesk Project Authors (https://github.com/floriankarsten/space-grotesk)
+
+pressstart2p-latin.woff2 (Press Start 2P, https://github.com/codeman38/PressStart2P):
+Copyright 2012 The Press Start 2P Project Authors (cody@zone38.net), with Reserved Font Name "Press Start 2P"
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
 https://openfontlicense.org
-
 
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007

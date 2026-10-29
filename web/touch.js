@@ -14,8 +14,8 @@
 //
 // (CHANGE 202) Craft Lab (setLayout("craft")): the stick at the bottom left walks; a finger dragged anywhere else on
 // the screen looks about (takeLook: the pixels it moved since the last frame); at the bottom right DIG and PLACE
-// (held: the triggers, as a pad's), JUMP, SNEAK and RUN (held), FLY (creative), BAG (the inventory, E) and DROP
-// (tapped); a tap on a hotbar slot (the HUD's) chooses it.
+// (held: the triggers, as a pad's), JUMP and RUN (held), CROUCH (tapped: Careful mode on or off, as Ctrl; CHANGE 207),
+// FLY (Sandbox), BAG (the Backpack, I) and DROP (tapped); a tap on a Toolbelt slot (the HUD's) chooses it.
 //
 // play.js reads it as it reads a game controller (pad.js's shape: x right, the triggers rt and lt, the buttons held,
 // those pressed since the last read), so the kart's controls, the clutch drop (GO tapped then held) and the carried
@@ -28,7 +28,7 @@ const hundredths = v => Math.round(v * 100) / 100;
 const DEAD = 0.06;        // the slider's middle, where the kart steers straight
 const REACH = 0.8;        // the slider's share either side of the middle that reaches full lock
 const STICK_DEAD = 0.12;  // (CHANGE 201) the stick's middle, where you stand still
-const TAPS = ["item", "reset", "punch", "kick", "getin", "fly", "inv", "drop"];  // (the buttons that are tapped, not held)
+const TAPS = ["item", "reset", "punch", "kick", "getin", "fly", "inv", "drop", "crouch"];  // (the buttons that are tapped, not held)
 
 // a touchscreen whose main pointer is a finger (a phone or a tablet; a touch laptop's is its mouse or trackpad)
 export function coarsePointer() {
@@ -77,7 +77,7 @@ export class TouchPad {
           <div class="tp-craft">
             <div class="tp-stickbox" id="tp-cstick" data-btn="cstick"><i class="tp-stickknob"></i></div>
             <div class="tp-cmoves"><button data-btn="fly">FLY</button><button data-btn="inv">BAG</button><button data-btn="drop">DROP</button>
-              <button data-btn="sneak">SNEAK</button><button data-btn="run">RUN</button><button data-btn="place">PLACE</button>
+              <button data-btn="crouch">CROUCH</button><button data-btn="run">RUN</button><button data-btn="place">PLACE</button>
               <button data-btn="jump">JUMP</button><button data-btn="dig">DIG</button></div>
           </div>
           <div class="tp-top"><button data-key="v">VIEW</button><button data-key="l">WATCH</button><button data-full title="Full screen">&#x26F6;</button></div>
@@ -285,11 +285,13 @@ export class TouchPad {
         if (btns.has("hand")) held.add("north");
         if (taps.has("item")) pressed.add("west");
         if (taps.has("reset")) pressed.add("back");
-        if (this.layout === "craft") {  // (CHANGE 202: the stick walks, DIG and PLACE the triggers, as a pad's)
+        if (this.layout === "craft") {  // (CHANGE 202, 207: the stick walks, DIG and PLACE the triggers, as a pad's; JUMP
+            // as its A, CROUCH its B (Careful mode), BAG its X (the Backpack); RUN held)
             if (btns.has("jump")) held.add("south");
-            if (btns.has("sneak")) held.add("lb");
-            if (btns.has("run")) held.add("rb");
-            for (const k of ["fly", "inv", "drop"]) if (taps.has(k)) pressed.add(k);
+            if (btns.has("run")) held.add("run");
+            if (taps.has("crouch")) pressed.add("east");
+            if (taps.has("inv")) pressed.add("west");
+            for (const k of ["fly", "drop"]) if (taps.has(k)) pressed.add(k);
             return {x: hundredths(this.stick[0]), y: hundredths(this.stick[1]), lt: btns.has("place") ? 1 : 0, rt: btns.has("dig") ? 1 : 0,
                     held, pressed, active: this.fingers.size > 0 || pressed.size > 0, name: "touch"};
         }

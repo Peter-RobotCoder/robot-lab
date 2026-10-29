@@ -47,7 +47,8 @@ loadPrcFileData("", f"win-size {WIN_W} {WIN_H}\nwindow-title EXPERIENCE 1: ORIEN
                     "framebuffer-multisample 1\nmultisamples 4\nsync-video true\n")
 import lab_version  # noqa: E402
 sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by every game)
-from engine import editor, gfx_tiers, schema  # noqa: E402
+from engine import club_fonts, editor, gfx_tiers, schema  # noqa: E402
+club_fonts.use_default()  # (the windows' letters: Inter, SIL OFL, not Panda3D's own unlicensed font)
 loadPrcFileData("", gfx_tiers.prc_for(args.gfx))
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\nwin-size 1600 900\naudio-library-name null\n")

@@ -5,7 +5,7 @@
 
 City Lab's server, for a world of blocks: 60 times a second it takes each window's latest numbered input
 (engine.predict.ServerInputQueue), steps the game (craft_game.Game: everyone's movement with craft_sim's step, which
-every window predicts its own player with, their health and food, the creatures, the Craft Bots and their learners'
+every window predicts its own player with, their Health, Energy and Shield, the creatures, the Craft Bots and their learners'
 brains, the world's slow things), and 30 times a second sends each window a binary snapshot of the players, Bots,
 creatures and dropped things near it (engine.wire), stamped with that window's last input applied. Everything else is
 JSON: the world itself when a window joins (packed, in parts), each block that changes (to everyone), each
@@ -83,17 +83,30 @@ LIMITS_FILE = os.path.join(DATA, "limits_saved.json")
 MISSIONS_FILE = os.path.join(DATA, "mission_settings.json")
 MISSION_KEYS = ("mode", "game_mode", "mobs", "time", "teacher_player", "designs_locked", "rules", "hazards", "tools",
                 "limits", "user_mods", "mods_in_vote", "arena_in_vote")
-TIMES = {"dawn": 0.02, "day": 0.25, "dusk": 0.49, "night": 0.75}
+TIMES = {"dawn": 0.95, "day": 0.3, "dusk": 0.62, "night": 0.8}
+
+
+def clean_lesson(L):
+    """A lesson (or saved mission settings) with the names from before CHANGE 207 as they are now: survival and
+    creative are challenge and sandbox, the hunger rule and hazard is energy."""
+    if not isinstance(L, dict):
+        return L
+    if L.get("game_mode") in B.MODE_ALIASES:
+        L["game_mode"] = B.mode_of(L["game_mode"])
+    for key in ("rules", "hazards"):
+        if isinstance(L.get(key), dict) and "hunger" in L[key]:
+            L[key].setdefault("energy", L[key].pop("hunger"))
+    return L
 
 WEEK1_LESSON = {
     "lesson_number": 1,
     "mode": "practice",
-    "game_mode": "survival",       # survival or creative (for the learners; the teacher can be either)
+    "game_mode": "challenge",      # challenge or sandbox (for the learners; the teacher can be either)
     "mobs": False,                 # creatures (with the hazard "mobs")
     "time": "cycle",               # cycle (day and night come round), or held at dawn, day, dusk or night
     "teacher_player": True,
     "designs_locked": False,
-    "rules": {"keep_items": True, "blasts": False, "hunger": True, "falls_hurt": True},
+    "rules": {"keep_items": True, "blasts": False, "energy": True, "falls_hurt": True},
     "hazards": dict(cm.NO_HAZARDS),
     "ai_card_note": "",
     "gfx_max": None,
@@ -156,14 +169,14 @@ class CraftServer:
             self.lesson["rules"].update(craft_mods.load_rules())
         except craft_mods.ModError as e:
             print("Mods not used:", e, flush=True)
-            self.world_mod = {"seed": 2026, "size": "medium", "mode": "survival", "mobs": True, "day_length": 1200}
+            self.world_mod = {"seed": 2026, "size": "medium", "mode": "challenge", "mobs": True, "day_length": 900}
         carried = os.path.join(DATA, "lesson_carried.json")
         if not lesson_file and os.path.exists(carried):
             lesson_file = carried
         if lesson_file and os.path.exists(lesson_file):
             with open(lesson_file) as f:
                 saved = json.load(f)
-            self.lesson.update({k: v for k, v in saved.items() if k in WEEK1_LESSON or k in MISSION_KEYS})
+            self.lesson.update({k: v for k, v in clean_lesson(saved).items() if k in WEEK1_LESSON or k in MISSION_KEYS})
             if lesson_file == carried:
                 os.remove(carried)
         try:
@@ -171,6 +184,8 @@ class CraftServer:
                 self.mission_settings = json.load(f)
             if not isinstance(self.mission_settings, dict):
                 self.mission_settings = {}
+            for v in self.mission_settings.values():
+                clean_lesson(v)
         except (OSError, ValueError):
             self.mission_settings = {}
         self.lesson["saved_missions"] = self.saved_missions()
@@ -221,10 +236,10 @@ class CraftServer:
 
     def game_rules(self):
         L = self.lesson
-        return {"mode": L.get("game_mode", "survival"), "mobs": bool(L["hazards"].get("mobs") and L.get("mobs", True)),
-                "pvp": False, "day_length": self.world_mod.get("day_length", 1200),
+        return {"mode": L.get("game_mode", "challenge"), "mobs": bool(L["hazards"].get("mobs") and L.get("mobs", True)),
+                "pvp": False, "day_length": self.world_mod.get("day_length", craft_game.DAY_SECONDS),
                 "time_runs": L.get("time", "cycle") == "cycle",
-                "hunger": bool(L["hazards"].get("hunger", True)) and L["rules"].get("hunger", True),
+                "energy": bool(L["hazards"].get("energy", True)) and L["rules"].get("energy", True),
                 **{k: bool(L["rules"].get(k, craft_game.DEFAULT_RULES[k])) for k in ("keep_items", "blasts", "falls_hurt")}}
 
     # ---------- the lesson's saved settings ----------
@@ -271,8 +286,8 @@ class CraftServer:
         return out
 
     def rebuild(self):
-        """The game from the lesson: its rules, and a player for everyone who should be in the world (a creative or
-        survival one, as the lesson says for learners)."""
+        """The game from the lesson: its rules, and a player for everyone who should be in the world (a Sandbox or
+        Challenge one, as the lesson says for learners)."""
         g = self.game
         g.rules.update(self.game_rules())
         if self.lesson.get("time", "cycle") in TIMES:
@@ -290,7 +305,7 @@ class CraftServer:
                 p.pid = next((i for i in range(MAX_PLAYERS) if i not in used), None)
                 if p.pid is None:
                     continue
-            creative = p.role == "teacher" or self.lesson.get("game_mode") == "creative"
+            creative = p.role == "teacher" or self.lesson.get("game_mode") == "sandbox"
             if p.pid not in g.players:
                 saved = (p.profile or {}).get("craft") if p.role == "learner" else None
                 p.unit = g.add_player(p.pid, p.name, creative=creative, saved=saved)
@@ -333,9 +348,9 @@ class CraftServer:
                 "perf": {p.name: p.perf for p in self.players.values() if p.perf}}
 
     def wear_of(self, pid):
-        """The armour a player wears, as four item ids (0: nothing there)."""
+        """The suit a player wears, as three item ids (0: nothing there)."""
         q = self.game.players.get(pid)
-        return [a[0] if a else 0 for a in q.armour] if q is not None else [0] * items.ARMOUR
+        return [a[0] if a else 0 for a in q.suit] if q is not None else [0] * items.SUIT
 
     def rules_msg(self):
         return {"stats": design.STATS, "points_total": design.POINTS_TOTAL, "stat_min": design.STAT_MIN,
@@ -345,11 +360,14 @@ class CraftServer:
     def limits_for(self, player):
         return design.full_limits() if player.role == "teacher" else self.lesson["limits"]
 
-    def mod_recipe_outputs(self):
+    def mod_blueprint_outputs(self):
         try:
-            return {r["makes"] for r in craft_mods.load_recipes()}
+            return {B.new_key(r["makes"]) for r in craft_mods.load_blueprints()}
         except craft_mods.ModError:
             return set()
+
+    def blueprints_msg(self):
+        return {"type": "blueprints", "list": items.blueprints()}
 
     def mod_block_keys(self):
         return {b["key"] for b in B.BLOCKS if b.get("mod")}
@@ -455,6 +473,7 @@ class CraftServer:
                              "code": craft_version.CODE, "mods": [b for b in B.BLOCKS if b.get("mod")],
                              "live_ready": getattr(self, "live_ready", None) if role == "teacher" else None})
         await self.send_world(ws)
+        await self.send(ws, self.blueprints_msg())
         await self.send(ws, self.game.inventory_msg(p.pid) or {"type": "inventory"})
         await self.send(ws, self.state_msg())
         await self.broadcast_lesson()
@@ -502,7 +521,7 @@ class CraftServer:
         for i, part in enumerate(parts):
             await self.send(ws, bytes([KIND_WORLD]) + i.to_bytes(2, "little") + part)
         await self.send(ws, {"type": "world", "time": self.game.day_t,
-                             "chests": len(self.game.chests)})
+                             "lockers": len(self.game.lockers)})
 
     def on_binary(self, p, raw):
         if wire.kind_of(raw) == wire.KIND_INPUT:
@@ -524,7 +543,7 @@ class CraftServer:
 
     # ---------- messages ----------
     GAME_ACTIONS = {"look", "select", "dig_start", "dig", "place", "right", "use_item", "attack", "click", "close",
-                    "drop", "pick", "creative_take", "respawn"}
+                    "drop", "pick", "creative_take", "respawn", "build", "sort", "locker_name", "tab", "use_mob"}
 
     async def on_message(self, p, m):
         kind = m.get("type")
@@ -696,9 +715,10 @@ class CraftServer:
             await self.news("Creatures come out at night" if L["hazards"]["mobs"] else "No creatures")
             await self.broadcast_lesson()
         elif kind == "mode":
-            L["game_mode"] = "creative" if L.get("game_mode") != "creative" else "survival"
+            L["game_mode"] = "sandbox" if L.get("game_mode") != "sandbox" else "challenge"
             self.rebuild()
-            await self.news("CREATIVE: fly, any block, nothing hurts" if L["game_mode"] == "creative" else "SURVIVAL")
+            await self.news("SANDBOX: fly, any block, nothing hurts" if L["game_mode"] == "sandbox" else
+                            "CHALLENGE: Health, Energy and Shield count")
             await self.broadcast_lesson()
         elif kind == "gather":  # (G: everyone to the teacher)
             me = g.players.get(t.pid) if t.pid is not None else None
@@ -712,13 +732,13 @@ class CraftServer:
         elif kind == "pause":
             self.paused = not self.paused
             await self.news("PAUSED" if self.paused else "GO!")
-        elif kind == "kit":  # (K: a Bot dock and a stack of planks for everyone, to start Bot lessons quickly)
+        elif kind == "kit":  # (K: a Bot dock and a stack of boards for everyone, to start Bot lessons quickly)
             for q in g.players.values():
                 items.add(q.inv, B.ITEM_ID["dock"], 1)
-                items.add(q.inv, B.ITEM_ID["planks"], 64)
-                items.add(q.inv, B.ITEM_ID["torch"], 16)
+                items.add(q.inv, B.ITEM_ID["boards"], 50)
+                items.add(q.inv, B.ITEM_ID["glowstick"], 16)
                 g.inv_changed(q.pid)
-            await self.news("The teacher gave everyone a Bot dock, planks and torches")
+            await self.news("The teacher gave everyone a Bot dock, Boards and Glowsticks")
         elif kind == "new_world":
             try:
                 seed = int(m.get("seed", 0)) or int(time.time()) % 1_000_000
@@ -780,6 +800,7 @@ class CraftServer:
                                  "design": p.design, "rules": self.rules_msg(), "game_rules": self.game.rules,
                                  "code": craft_version.CODE, "new_world": True})
             await self.send_world(ws)
+            await self.send(ws, self.blueprints_msg())
             await self.send(ws, self.game.inventory_msg(p.pid) or {"type": "inventory"})
         await self.news(f"A new world (seed {seed})")
 
@@ -807,10 +828,11 @@ class CraftServer:
         for key in ("teacher_player", "designs_locked"):
             if key in update:
                 L[key] = bool(update[key])
-        if update.get("game_mode") in ("survival", "creative"):
-            L["game_mode"] = update["game_mode"]
+        if B.mode_of(update.get("game_mode")) in ("challenge", "sandbox"):
+            L["game_mode"] = B.mode_of(update["game_mode"])
         if update.get("time") in list(TIMES) + ["cycle"]:
             L["time"] = update["time"]
+        clean_lesson(update)
         if isinstance(update.get("rules"), dict):
             for k, v in update["rules"].items():
                 if k in craft_mods.RULE_LIMITS:
@@ -841,11 +863,12 @@ class CraftServer:
             pass
 
     def reload_mods(self, written):
-        """An approved AI change's mod files: the learners' blocks and recipes into the game at once (a new block
+        """An approved AI change's mod files: the learners' blocks and blueprints into the game at once (a new block
         reaches the windows with the next lesson message: their atlas is drawn again), the rules, their Bots."""
-        if any(f in written for f in ("mods/blocks.py", "mods/recipes.py")):
+        if any(f in written for f in ("mods/blocks.py", "mods/blueprints.py")):
             for msg in craft_mods.use_mods():
                 print("Mods not used:", msg, flush=True)
+            self.blueprints_dirty = True
         if "mods/rules.py" in written:
             try:
                 self.lesson["rules"].update(craft_mods.load_rules())
@@ -935,6 +958,13 @@ class CraftServer:
             elif kind == "bubble":
                 for ws in list(self.players):
                     await self.send(ws, {"type": "bubble", "id": ev[1], "text": ev[2]})
+            elif kind in ("armed", "ring", "streak"):  # (an Overload Cell armed, its pulse, a Glitch pulled home)
+                at = ev[1:4]
+                msg = {"type": kind, "at": [round(v, 2) for v in at], "more": [round(v, 2) for v in ev[4:]]}
+                for ws, p in list(self.players.items()):
+                    s = g.players[p.pid].state if p.pid in g.players else None
+                    if s is not None and math.dist((s["x"], s["y"], s["z"]), at) < 80:
+                        await self.send(ws, msg)
         g.events = []
         for pid, q in g.players.items():
             if q.open is not None and (q.open[1] in boxes or (q.open[0], q.open[1]) in boxes):
@@ -946,7 +976,7 @@ class CraftServer:
 
     def state_msg(self):
         g = self.game
-        return {"type": "state", "t": round(g.day_t, 4), "paused": self.paused, "rules": g.rules,
+        return {"type": "state", "t": round(g.day_t, 4), "speed": g.speed, "paused": self.paused, "rules": g.rules,
                 "sm": server_ms(), "events": [[t, e] for t, e in self.log.events[-4:]]}
 
     # ---------- the loops ----------
@@ -1028,6 +1058,16 @@ class CraftServer:
             ticks += 1
             if ticks % 30 == 0:
                 await self.deliver(self.teaching.teacher_update() + self.teaching.learner_updates())
+                for ws, p in list(self.players.items()):  # (each Bot's owner: what it is doing, for the HUD)
+                    bot = self.game.bot_of(p.pid) if p.pid is not None else None
+                    if bot is not None:
+                        await self.send(ws, {"type": "bot_status", "doing": bot.action[0] if bot.action else "waiting",
+                                             "stats": bot.stats, "running": bool(bot.brain and not bot.brain.error)},
+                                        "bot_status")
+                if getattr(self, "blueprints_dirty", False):
+                    self.blueprints_dirty = False
+                    for ws in list(self.players):
+                        await self.send(ws, self.blueprints_msg())
             self.snap_seq = (self.snap_seq + 1) & 0xFFFF
             sm = server_ms()
             things = self.things()
@@ -1222,7 +1262,8 @@ async def main():
     ap.add_argument("--lesson", help="start from saved lesson settings (JSON)")
     ap.add_argument("--seed", type=int, default=None, help="a new world from this seed (the saved one kept as world_old)")
     ap.add_argument("--size", default=None, choices=list(craft_world.SIZES))
-    ap.add_argument("--creative", action="store_true", help="the learners in creative mode")
+    ap.add_argument("--sandbox", "--creative", dest="sandbox", action="store_true",
+                    help="the learners in Sandbox mode (--creative: its old name)")
     ap.add_argument("--mobs", action="store_true", help="creatures at night")
     args = ap.parse_args()
     CLASS_SERVER = args.class_server
@@ -1243,8 +1284,8 @@ async def main():
         server.rebuild()
     else:
         server = CraftServer(args.lesson)
-    if args.creative:
-        server.lesson["game_mode"] = "creative"
+    if args.sandbox:
+        server.lesson["game_mode"] = "sandbox"
     if args.mobs:
         server.lesson["hazards"]["mobs"] = True
     server.rebuild()

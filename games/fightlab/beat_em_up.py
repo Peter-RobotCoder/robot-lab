@@ -51,7 +51,8 @@ loadPrcFileData("", f"win-size {WIN_W} {WIN_H}\nwindow-title BEAT 'EM UP - Fight
                     "multisamples 4\nsync-video true\n")
 import fight_version  # noqa: E402
 sys.path.insert(0, fight_version.ENGINE_HOME)  # (the engine package, shared by every game)
-from engine import gfx_tiers  # noqa: E402
+from engine import club_fonts, gfx_tiers  # noqa: E402
+club_fonts.use_default()  # (the windows' letters: Inter, SIL OFL, not Panda3D's own unlicensed font)
 loadPrcFileData("", gfx_tiers.prc_for(args.gfx))  # (texture size, mipmaps, multisamples; basic draws in sRGB)
 if args.offscreen:
     loadPrcFileData("", "window-type offscreen\nwin-size 1280 720\naudio-library-name null\n")

@@ -1,5 +1,6 @@
 // Craft Lab's movement and world for the page (CHANGE 202): craft/craft_sim.py's player step ported line for line
-// (walking, sprinting, sneaking at an edge, jumping, stepping up onto a slab or a bed, swimming, climbing, flying),
+// (walking, running, Careful mode at an edge, jumping, stepping up onto a step or a Recharge Pod, swimming, climbing,
+// flying),
 // the world's questions it asks (craft_world.World's get, the blocks' solid, liquid and climbable tables and their
 // heights), the ray from your eyes to the block you look at, the digging time (craft_blocks.dig_time), and the wire
 // record (craft_sim.SCHEMA_FIELDS) with engine.wire's rounding: what the page needs to predict its own player as the
@@ -18,27 +19,30 @@
 
 import {pyRound, hypot, radians, sin, cos, exp} from "./pymath.js";
 
-export const SIM_VERSION = 1;  // (craft_sim.SIM_VERSION: craft_sim_test.py's fingerprint is recorded for it)
+export const SIM_VERSION = 2;  // (craft_sim.SIM_VERSION: craft_sim_test.py's fingerprint is recorded for it)
 export const STEP = 1 / 60;
-export const HALF = 0.3;            // half the box's width
-export const TALL = 1.8;
-export const EYE = 1.62;
-export const SNEAK_TALL = 1.5;
+export const HALF = 0.35;           // half the box's width
+export const TALL = 1.7;
+export const EYE = 1.55;
+export const CAREFUL_TALL = 1.4;
+export const CAREFUL_EYE = 1.3;
 export const GRAVITY = 30.0;
-export const JUMP = 8.6;
+export const JUMP = 9.17;           // (a jump lifts the feet 1.4 blocks)
 export const TERMINAL = 60.0;
-export const WALK = 4.3, SPRINT = 5.7, SNEAK = 1.4, FLY_SPEED = 10.0, FLY_FAST = 18.0;
+export const WALK = 4.5, SPRINT = 6.4, CAREFUL = 1.6, FLY_SPEED = 10.0, FLY_FAST = 18.0;
 export const SWIM = 2.2, SWIM_UP = 4.0, SWIM_SINK = 1.6;
 export const CLIMB = 2.4;
 export const REACH = 5.0, REACH_CREATIVE = 6.5;
-export const JUMP_B = 1, SPRINT_B = 2, SNEAK_B = 4, FLY_B = 8, RESPAWN_B = 16;
+export const JUMP_B = 1, SPRINT_B = 2, CAREFUL_B = 4, FLY_B = 8, RESPAWN_B = 16;   // (flying, CAREFUL_B is down)
 
 // the wire record: players and creatures alike (kind 0 player, 1 fluff, 2 bleep, 3 glitch, 4 rust, 5 bot; 6 a thing
-// dropped, which the server sends with kind, place and held only)
+// dropped, which the server sends with kind, place and held only); hp, energy and shield are the server's own (0 to
+// 100), never predicted
 export const SCHEMA_FIELDS = [["kind", "B", 1], ["x", "i", 1000], ["y", "i", 1000], ["z", "i", 1000], ["vx", "h", 100],
                               ["vy", "h", 100], ["vz", "h", 100], ["yaw", "H", 100], ["pitch", "h", 100], ["flags", "B", 1],
-                              ["hp", "B", 1], ["food", "B", 1], ["held", "H", 1], ["fall", "H", 100]];
-export const F_GROUND = 1, F_WATER = 2, F_FLY = 4, F_SNEAK = 8, F_HURT = 16, F_SLEEP = 32, F_SWING = 64, F_CLIMB = 128;
+                              ["hp", "B", 1], ["energy", "B", 1], ["shield", "B", 1], ["held", "H", 1],
+                              ["fall", "H", 100]];
+export const F_GROUND = 1, F_WATER = 2, F_FLY = 4, F_CAREFUL = 8, F_HURT = 16, F_SLEEP = 32, F_SWING = 64, F_CLIMB = 128;
 export const KINDS = {player: 0, fluff: 1, bleep: 2, glitch: 3, rust: 4, bot: 5};
 export const KIND_NAMES = Object.fromEntries(Object.entries(KINDS).map(([k, v]) => [v, k]));
 
@@ -48,7 +52,8 @@ export const pyMin = (a, b) => (b < a ? b : a);
 // ---------- the blocks (craft_blocks.BLOCKS, from craft.json, and the server's mods) ----------
 const DEFAULTS = {shape: "cube", solid: true, opaque: true, hard: 1.0, tool: null, level: 0, light: 0, falls: false, see: null,
                   use: null, climb: false, hurts: 0};
-export const B = {blocks: [], id: {}, items: new Map(), itemId: {}, hand: {tool: null, level: 0, speed: 1.0, damage: 1}, nBuiltIn: 0};
+export const B = {blocks: [], id: {}, items: new Map(), itemId: {}, hand: {tool: null, level: 0, speed: 1.0, damage: 4}, nBuiltIn: 0,
+                  lightMax: 12, animated: {server_rack_0: 4}, floor: 5};
 let solidT = new Uint8Array(256), liquidT = new Uint8Array(256), climbT = new Uint8Array(256), heightT = new Float64Array(256).fill(1.0);
 
 // the game's tables from craft.json (make_craft.py): its blocks and items
@@ -59,6 +64,10 @@ export function useTables(data) {
     B.itemId = Object.fromEntries(data.items.map(it => [it.key, it.id]));
     if (data.hand) B.hand = data.hand;
     B.nBuiltIn = data.n_built_in || B.blocks.length;
+    // (craft_blocks.LIGHT_MAX, ANIMATED and FLOOR, from craft.json)
+    B.lightMax = data.light_max ?? 12;
+    B.animated = data.animated ?? {server_rack_0: 4};
+    B.floor = B.id.lab_floor ?? 5;
     remakeTables();
 }
 
@@ -72,7 +81,7 @@ export function addModBlock(spec) {
                                            colour: spec.colour || null, drops: spec.key});
     B.blocks.push(b);
     B.id[b.key] = i;
-    B.items.set(i, {id: i, key: b.key, name: b.name, icon: b.tiles[1], block: i, stack: 64});
+    B.items.set(i, {id: i, key: b.key, name: b.name, icon: b.tiles[1], block: i, stack: 50});
     B.itemId[b.key] = i;
     remakeTables();
     return true;
@@ -84,14 +93,14 @@ function remakeTables() {
         solidT[b.id] = b.solid ? 1 : 0;
         liquidT[b.id] = b.shape === "liquid" ? 1 : 0;
         climbT[b.id] = b.climb ? 1 : 0;
-        heightT[b.id] = {slab: 0.5, bed: 0.56, farmland: 0.94}[b.shape] ?? 1.0;
+        heightT[b.id] = {slab: 0.5, bed: 0.6, farmland: 0.875}[b.shape] ?? 1.0;
     }
 }
 
 // craft_sim.tables(): (solid, liquid, climb) by block id
 export function tables() { return [solidT, liquidT, climbT]; }
 
-// how tall a solid block is (a slab and a bed are lower: you walk up onto them)
+// how tall a solid block is (a step and a Recharge Pod are lower: you walk up onto them; a Grow bed too)
 export function heights(bid) { return heightT[bid]; }
 
 export function itemOf(id) { return B.items.get(id) || null; }
@@ -104,7 +113,7 @@ export function digTime(bid, held) {
     const tool = held && held.tool ? held : B.hand;
     const right = b.tool !== null && b.tool !== undefined && tool.tool === b.tool;
     const speed = right ? (tool.speed ?? 1.0) : 1.0;
-    const enough = b.level ? (tool.level ?? 0) >= b.level : true;
+    const enough = b.level ? (right && (tool.level ?? 0) >= b.level) : true;
     let t = b.hard * 1.5 / speed;
     if (!enough) t *= 3.3;
     return [pyMax(0.05, t), enough];
@@ -126,7 +135,7 @@ export class World {
         this.glow = new Uint8Array(n);
         this.spawn = spawn || [this.X / 2 + 0.5, this.Y / 2 + 0.5, this.Z - 4];
         this.dirty = new Set();       // chunks to draw again: "cx,cy"
-        this.corestone = B.id.corestone ?? 5;
+        this.floor = B.floor;  // (craft_blocks.FLOOR: the Lab floor, under the world)
     }
 
     // the blocks and the meta as the server packs them (numpy's C order: x, then y, then z), inflated
@@ -143,7 +152,7 @@ export class World {
 
     get(x, y, z) {
         if (x >= 0 && x < this.X && y >= 0 && y < this.Y && z >= 0 && z < this.Z) return this.blocks[(x * this.Y + y) * this.Z + z];
-        return z < 0 ? this.corestone : 0;
+        return z < 0 ? this.floor : 0;
     }
 
     getMeta(x, y, z) { return this.inside(x, y, z) ? this.meta[this.at(x, y, z)] : 0; }
@@ -160,12 +169,13 @@ export class World {
         const i = this.at(x, y, z);
         this.blocks[i] = bid;
         this.meta[i] = meta;
-        if (light) this.lightRegion(Math.max(0, x - 14), Math.max(0, y - 14), Math.min(this.X, x + 15), Math.min(this.Y, y + 15));
-        this.mark(x, y, light ? 15 : 1);
+        const L = B.lightMax;
+        if (light) this.lightRegion(Math.max(0, x - L), Math.max(0, y - L), Math.min(this.X, x + L + 1), Math.min(this.Y, y + L + 1));
+        this.mark(x, y, light ? L : 1);
         return true;
     }
 
-    mark(x, y, reach = 1) {  // the chunks within reach blocks of (x, y) need drawing again (light reaches 15 blocks)
+    mark(x, y, reach = 1) {  // the chunks within reach blocks of (x, y) need drawing again (light reaches 12 blocks)
         const cx0 = Math.max(0, Math.floor((x - reach) / CHUNK)), cx1 = Math.min(this.X / CHUNK - 1, Math.floor((x + reach) / CHUNK));
         const cy0 = Math.max(0, Math.floor((y - reach) / CHUNK)), cy1 = Math.min(this.Y / CHUNK - 1, Math.floor((y + reach) / CHUNK));
         for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) this.dirty.add(cx + "," + cy);
@@ -175,16 +185,17 @@ export class World {
     applyChanges(changes) {
         if (!changes || !changes.length) return;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        const L = B.lightMax;
         for (const [x, y, z, bid, meta] of changes) {
             x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
             if (this.inside(x, y, z)) {
                 const i = this.at(x, y, z);
                 this.blocks[i] = bid;
                 this.meta[i] = meta;
-                this.mark(x, y, 15);
+                this.mark(x, y, L);
             }
         }
-        this.lightRegion(Math.max(0, x0 - 14), Math.max(0, y0 - 14), Math.min(this.X, x1 + 15), Math.min(this.Y, y1 + 15));
+        this.lightRegion(Math.max(0, x0 - L), Math.max(0, y0 - L), Math.min(this.X, x1 + L + 1), Math.min(this.Y, y1 + L + 1));
     }
 
     lightAll() {
@@ -195,11 +206,11 @@ export class World {
 
     // craft_world.light_region: the sky straight down each open column (one less for each leaf or pane of water it
     // passes), then the sky and the block light spread sideways and down, one level less a block (more through
-    // leaves and water), over the columns x0..x1, y0..y1 and 15 more round them. The window does it as 14 rounds of
-    // numpy's neighbour maxima; here a queue from the brightest down (each block's light is the best of every way to
-    // it: the same numbers, for light reaches 14 blocks at most)
+    // leaves and water), over the columns x0..x1, y0..y1 and LIGHT_MAX (12) more round them. The window does it as 11
+    // rounds of numpy's neighbour maxima; here a queue from the brightest down (each block's light is the best of
+    // every way to it: the same numbers, for light reaches 11 blocks at most)
     lightRegion(x0, y0, x1, y1) {
-        const m = 15, Z = this.Z, Y = this.Y;
+        const L = B.lightMax, m = L, Z = this.Z, Y = this.Y;
         const ax0 = Math.max(0, x0 - m), ay0 = Math.max(0, y0 - m), ax1 = Math.min(this.X, x1 + m), ay1 = Math.min(this.Y, y1 + m);
         const W = ax1 - ax0, H = ay1 - ay0, n = W * H * Z;
         const dimOf = dimTable(), lightOf = lightTable();
@@ -212,7 +223,7 @@ export class World {
                     const b = this.blocks[src + z], d = dimOf[b];
                     dim[dst + z] = d;
                     if (d >= 15) stop++; else loss += d - 1;
-                    sky[dst + z] = stop === 0 ? Math.max(0, Math.min(15, 15 - loss)) : 0;
+                    sky[dst + z] = stop === 0 ? Math.max(0, Math.min(L, L - loss)) : 0;
                     glow[dst + z] = lightOf[b];
                 }
             }
@@ -222,15 +233,16 @@ export class World {
             for (let y = y0; y < y1; y++) {
                 const src = ((x - ax0) * H + (y - ay0)) * Z, dst = (x * Y + y) * Z;
                 for (let z = 0; z < Z; z++) {
-                    this.sky[dst + z] = Math.max(0, Math.min(15, sky[src + z]));
-                    this.glow[dst + z] = Math.max(0, Math.min(15, Math.max(glow[src + z], lightOf[this.blocks[dst + z]])));
+                    this.sky[dst + z] = Math.max(0, Math.min(L, sky[src + z]));
+                    this.glow[dst + z] = Math.max(0, Math.min(L, Math.max(glow[src + z], lightOf[this.blocks[dst + z]])));
                 }
             }
         }
     }
 }
 
-// light passes through air, plants, torches, glass, leaves (a little), water (a little): craft_world.tables()'s dim
+// light passes through air, plants, glowsticks, glass, leaves (a little), water (a little): craft_world.tables()'s
+// dim (15 stops it)
 let dimCache = null, lightCache = null, dimFor = -1;
 function dimTable() {
     if (dimCache && dimFor === B.blocks.length) return dimCache;
@@ -239,7 +251,7 @@ function dimTable() {
         if (!b.opaque || b.shape !== "cube") dim[b.id] = 1;
         light[b.id] = b.light || 0;
     }
-    for (const k of ["leaves", "pine_leaves", "pale_leaves", "water", "ice"]) if (k in B.id) dim[B.id[k]] = 2;
+    for (const k of ["leaves", "pine_leaves", "pale_leaves", "glowfruit_leaves", "water", "ice"]) if (k in B.id) dim[B.id[k]] = 2;
     dimCache = dim; lightCache = light; dimFor = B.blocks.length;
     return dim;
 }
@@ -248,10 +260,13 @@ function lightTable() { dimTable(); return lightCache; }
 // the light spread from the brightest down (a bucket for each level): a block takes its neighbour's level less its
 // own dimming where that is more than it has, and a block light can't pass (stone) keeps its own
 function spread(arr, dim, W, H, Z) {
-    const n = arr.length, buckets = Array.from({length: 16}, () => []);
+    const n = arr.length;
+    let top = 0;
+    for (let i = 0; i < n; i++) if (arr[i] > top) top = arr[i];
+    const buckets = Array.from({length: top + 1}, () => []);
     for (let i = 0; i < n; i++) if (arr[i] >= 2) buckets[arr[i]].push(i);
     const HZ = H * Z;
-    for (let v = 15; v >= 2; v--) {
+    for (let v = top; v >= 2; v--) {
         const list = buckets[v];
         for (let k = 0; k < list.length; k++) {
             const c = list[k];
@@ -276,7 +291,8 @@ function spread(arr, dim, W, H, Z) {
 
 // ---------- the step (craft_sim.py) ----------
 export function newPlayer(x, y, z, kind = 0) {
-    return {x, y, z, vx: 0.0, vy: 0.0, vz: 0.0, yaw: 0.0, pitch: 0.0, flags: 0, hp: 20, food: 20, held: 0, fall: 0.0, kind};
+    return {x, y, z, vx: 0.0, vy: 0.0, vz: 0.0, yaw: 0.0, pitch: 0.0, flags: 0, hp: 100, energy: 100, shield: 0, held: 0,
+            fall: 0.0, kind};
 }
 
 // is any solid block inside the box (x0..x1, y0..y1, z0..z1)?
@@ -344,7 +360,7 @@ export function moveAxis(world, s, axis, delta, tall, solid, stepUp = false) {
         return false;
     }
     if (stepUp) {
-        for (const lift of [0.5, 0.56]) {
+        for (const lift of [0.5, 0.6]) {
             if (!blocked(world, bx0, by0, z + lift, bx0 + 2 * HALF, by0 + 2 * HALF, z + lift + tall, solid) &&
                 blocked(world, bx0, by0, z + lift - 0.07, bx0 + 2 * HALF, by0 + 2 * HALF, z + lift, solid)) {
                 s[key] = n;
@@ -367,9 +383,9 @@ export function stepPlayer(s, inp, dt, world, creative = false) {
     const n = {...s};
     let flags = n.flags;
     const flying = creative && !!(buttons & FLY_B);
-    const sneak = !!(buttons & SNEAK_B) && !flying;
-    const sprint = !!(buttons & SPRINT_B) && !sneak;
-    const tall = sneak ? SNEAK_TALL : TALL;
+    const careful = !!(buttons & CAREFUL_B) && !flying;
+    const sprint = !!(buttons & SPRINT_B) && !careful;
+    const tall = careful ? CAREFUL_TALL : TALL;
     const inWater = touching(world, n, liquid, tall);
     const onLadder = touching(world, n, climb, tall);
     const length = hypot(mx, my);
@@ -377,31 +393,31 @@ export function stepPlayer(s, inp, dt, world, creative = false) {
     let speed;
     if (flying) speed = sprint ? FLY_FAST : FLY_SPEED;
     else if (inWater) speed = SWIM;
-    else speed = sprint ? SPRINT : sneak ? SNEAK : WALK;
+    else speed = sprint ? SPRINT : careful ? CAREFUL : WALK;
     const ground = !!(flags & F_GROUND);
     const k = (ground || flying) ? 22.0 : !inWater ? 5.0 : 8.0;
     const f = 1 - exp(-k * dt);
     n.vx += (mx * speed - n.vx) * f;
     n.vy += (my * speed - n.vy) * f;
     if (flying) {
-        const want = (buttons & JUMP_B ? FLY_SPEED : 0.0) - (buttons & SNEAK_B ? FLY_SPEED : 0.0);
+        const want = (buttons & JUMP_B ? FLY_SPEED : 0.0) - (buttons & CAREFUL_B ? FLY_SPEED : 0.0);
         n.vz += (want - n.vz) * (1 - exp(-12 * dt));
     } else if (inWater) {
         n.vz = buttons & JUMP_B ? SWIM_UP : pyMax(n.vz - GRAVITY * 0.2 * dt, -SWIM_SINK);
     } else if (onLadder) {
         n.vz = (buttons & JUMP_B || length > 0.1) ? CLIMB : pyMax(n.vz - GRAVITY * dt, -CLIMB);
-        if (sneak) n.vz = pyMax(0.0, n.vz);
+        if (careful) n.vz = pyMax(0.0, n.vz);
     } else {
         if (ground && buttons & JUMP_B) n.vz = JUMP;
         n.vz = pyMax(-TERMINAL, n.vz - GRAVITY * dt);
     }
-    // move: up or down first, then across and along (a sneak keeps you on the edge you are on)
+    // move: up or down first, then across and along (Careful mode keeps you on the edge you are on)
     const zBefore = n.z;
     const stoppedZ = moveAxis(world, n, 2, n.vz * dt, tall, solid);
     if (stoppedZ) n.vz = 0.0;
     for (const [axis, key] of [[0, "vx"], [1, "vy"]]) {
         const delta = n[key] * dt;
-        if (sneak && ground && delta) {
+        if (careful && ground && delta) {
             const test = {...n};
             test[axis === 0 ? "x" : "y"] += delta;
             if (!onGround(world, test, solid)) {
@@ -415,8 +431,9 @@ export function stepPlayer(s, inp, dt, world, creative = false) {
     // falling: how far since last standing (the server's damage is worked out from it on landing)
     if (nowGround || inWater || onLadder || flying) n.fall = nowGround && !ground ? n.fall : 0.0;
     else n.fall = n.fall + pyMax(0.0, zBefore - n.z);
-    flags &= ~(F_GROUND | F_WATER | F_FLY | F_SNEAK | F_CLIMB);
-    flags |= (nowGround ? F_GROUND : 0) | (inWater ? F_WATER : 0) | (flying ? F_FLY : 0) | (sneak ? F_SNEAK : 0) | (onLadder ? F_CLIMB : 0);
+    flags &= ~(F_GROUND | F_WATER | F_FLY | F_CAREFUL | F_CLIMB);
+    flags |= (nowGround ? F_GROUND : 0) | (inWater ? F_WATER : 0) | (flying ? F_FLY : 0) | (careful ? F_CAREFUL : 0) |
+        (onLadder ? F_CLIMB : 0);
     n.flags = flags;
     if (n.z < -20) {  // (fallen out of the world: back on top)
         n.z = world.Z;
@@ -430,7 +447,7 @@ export function compare(a, b) {
     if (a == null || b == null) return Infinity;
     const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
     let d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if ((a.flags ^ b.flags) & (F_GROUND | F_WATER | F_FLY | F_SNEAK)) d = pyMax(d, 1.0);
+    if ((a.flags ^ b.flags) & (F_GROUND | F_WATER | F_FLY | F_CAREFUL)) d = pyMax(d, 1.0);
     return d;
 }
 
@@ -467,12 +484,12 @@ export function ray(world, ox, oy, oz, dx, dy, dz, reach) {
         }
     }
     let normal = [0, 0, 0], t = 0.0;
-    const water = B.id.water, corestone = B.id.corestone;
+    const water = B.id.water, floor = B.floor, rift = B.id.glitch_rift;
     const LOW = new Set(["cross", "crop", "torch", "ladder"]);
     while (t <= reach) {
         const bid = world.get(x, y, z);
         const b = B.blocks[bid];
-        if ((bid && bid !== water && b && b.hard !== null && b.hard !== undefined) || bid === corestone) return [[x, y, z], normal, t];
+        if ((bid && bid !== water && b && b.hard !== null && b.hard !== undefined) || bid === floor || bid === rift) return [[x, y, z], normal, t];
         if (bid && bid !== water && b && LOW.has(b.shape)) return [[x, y, z], normal, t];
         let axis = 0;  // (min(range(3), key=t_max): the first of equals)
         if (tMax[1] < tMax[axis]) axis = 1;
@@ -492,7 +509,7 @@ export function playerBoxHits(s, bx, by, bz, tall = TALL) {
 }
 
 export function eye(s) {
-    return [s.x, s.y, s.z + (s.flags & F_SNEAK ? EYE - 0.25 : EYE)];
+    return [s.x, s.y, s.z + (s.flags & F_CAREFUL ? CAREFUL_EYE : EYE)];
 }
 
 // ---------- the wire (engine.wire.Schema: the record rounded as it goes over the wire) ----------

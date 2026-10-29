@@ -433,11 +433,30 @@ def address_ok(address):
 
 
 # ---------- the window ----------
+def use_club_fonts():
+    """Inter for the launcher's letters, as in every game's window (engine/club_fonts.py: Panda3D's own font has no
+    licence). The file is loaded on its own, not as engine.club_fonts: a game run from here later (run_game) may
+    bring its own engine package (a live update's), which must be the one imported."""
+    import importlib.util
+    for home in (BUNDLE, ROOT, os.path.dirname(ROOT)):  # (the app; the public repository; the working folder)
+        path = os.path.join(home, "engine", "club_fonts.py")
+        if os.path.exists(path):
+            try:
+                spec = importlib.util.spec_from_file_location("launcher_club_fonts", path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                module.use_default()
+            except Exception:  # (Panda3D's own font, as before)
+                pass
+            return
+
+
 def launcher(args, passed_on):
     from panda3d.core import loadPrcFileData
     loadPrcFileData("", "win-size 1100 700\nwindow-title Club Coders\nframebuffer-multisample 1\nmultisamples 4\n")
     if args.offscreen:
         loadPrcFileData("", "window-type offscreen\naudio-library-name null\n")
+    use_club_fonts()
     from direct.gui.DirectGui import DGG, DirectButton, DirectCheckButton, DirectEntry, DirectFrame
     from direct.gui.OnscreenText import OnscreenText
     from direct.showbase.ShowBase import ShowBase

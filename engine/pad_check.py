@@ -17,7 +17,8 @@ from panda3d.core import TextNode, loadPrcFileData  # noqa: E402
 
 loadPrcFileData("", "win-size 900 520\nwindow-title Controller check\naudio-library-name null\n")
 from direct.showbase.ShowBase import ShowBase  # noqa: E402
-from engine import gamepad  # noqa: E402
+from engine import club_fonts, gamepad  # noqa: E402
+club_fonts.use_default()  # (the windows' letters: Inter, SIL OFL, not Panda3D's own unlicensed font)
 
 LOG = os.path.join(tempfile.gettempdir(), "pad_check.log")
 
