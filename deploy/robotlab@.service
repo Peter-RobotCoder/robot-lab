@@ -1,5 +1,5 @@
 # Club Coders class server, one per class: robotlab@class1 (port 8780), robotlab@class2 (port 8781), ...
-# Each class runs one game (GAME=robotlab or fightlab, with its port and, for a second class, its own class code,
+# Each class runs one game (GAME=robotlab, fightlab, kartlab, citylab or missions, with its port and, for a second class, its own class code,
 # in /etc/robotlab/<class>.env); the shared codes are in /etc/robotlab.env. deploy/run-class.sh starts the
 # class's game. Installed by setup.sh and robotlab-update to /etc/systemd/system/.
 [Unit]
@@ -31,7 +31,7 @@ TimeoutStopSec=15
 # (Brains run as child processes that lower their own limits, so fork/exec and setrlimit stay allowed.)
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/games/robotlab/mods -/opt/robotlab/app/games/fightlab/mods -/var/lib/robotlab/desk/reports -/var/lib/robotlab/desk/inbox
+ReadWritePaths=/var/lib/robotlab/%i -/opt/robotlab/app/games/robotlab/mods -/opt/robotlab/app/games/fightlab/mods -/opt/robotlab/app/games/kartlab/mods -/opt/robotlab/app/games/citylab/mods -/var/lib/robotlab/desk/reports -/var/lib/robotlab/desk/inbox
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

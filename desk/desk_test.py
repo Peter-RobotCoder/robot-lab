@@ -31,9 +31,14 @@ from engine import club_ticket  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="desk_test_")
 PY = sys.executable
-DESK, RL, FL = 8880, 8881, 8882
+DESK, RL, FL, KL, CL, ML = 8880, 8881, 8882, 8883, 8884, 8885
 GAMES = {"robotlab": ("games/robotlab" if PUBLIC else "shared-world-demo", "lab_server.py", "ROBOTLAB_DATA", RL),
-         "fightlab": ("games/fightlab" if PUBLIC else "BeatEmUp", "fight_server.py", "FIGHTLAB_DATA", FL)}
+         "fightlab": ("games/fightlab" if PUBLIC else "BeatEmUp", "fight_server.py", "FIGHTLAB_DATA", FL),
+         "kartlab": ("games/kartlab" if PUBLIC else "kart", "kart_server.py", "KARTLAB_DATA", KL),
+         "citylab": ("games/citylab" if PUBLIC else "city", "city_server.py", "CITYLAB_DATA", CL),  # (CHANGE 194)
+         "missions": ("games/robotlab" if PUBLIC else "shared-world-demo", "missions_server.py", "MISSIONS_DATA", ML)}  # (CHANGE 195)
+VERSION_MODULES = {"robotlab": "lab_version", "fightlab": "fight_version", "kartlab": "kart_version", "citylab": "city_version",
+                   "missions": "lab_version"}
 results, procs = [], []
 
 
@@ -93,7 +98,7 @@ try:
                                                CLUBCODERS_DESK_INBOX=os.path.join(desk_data, "inbox", game)),
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     time.sleep(8)
-    versions = {g: game_version(f, "lab_version" if g == "robotlab" else "fight_version") for g, (f, *_) in GAMES.items()}
+    versions = {g: game_version(f, VERSION_MODULES[g]) for g, (f, *_) in GAMES.items()}
 
     def one_ticket_file():  # (the desk and both games use the engine's club_ticket: no copies to drift apart)
         assert os.path.normcase(os.path.dirname(club_ticket.__file__)).endswith("engine"), club_ticket.__file__
@@ -117,7 +122,7 @@ try:
     def scheme_of_work():  # (CHANGE 143) the app's Print scheme of work and lesson guide, for the page: teachers only
         m = ask(teacher, {"type": "scheme"}, want="scheme")
         sc = m.get("scheme", {})
-        assert {"robotlab", "fightlab", "kartlab"} <= set(sc), sorted(sc)
+        assert {"robotlab", "fightlab", "kartlab", "citylab"} <= set(sc), sorted(sc)
         assert sc["robotlab"].get("guide", {}).get("1"), "Robot Lab's lesson guide is missing"
         with connect(f"ws://127.0.0.1:{DESK}") as ws:
             m = ask(ws, {"type": "scheme"}, want="scheme")
@@ -370,6 +375,83 @@ try:
     check("the lobby: a learner added to the live game is pulled in, taken out goes back to the lobby (closed by the "
           "game), and can be pulled in again; editing the live group changes its game's learners", lobby_in_out)
 
+    def city_lab_launch():  # (CHANGE 194) a group launched into City Lab: the learner's and the teacher's tickets
+        assert ask(teacher, {"type": "set_group", "name": "City", "game": "citylab", "learners": ["Sam"]}).get("ok")
+        assert ask(teacher, {"type": "launch", "group": "City", "lesson": 1}).get("ok")
+        try:
+            launched = ask(teacher, {"type": "teacher_window"})["teacher_window"]
+            assert launched["game"] == "citylab" and launched.get("ticket"), launched
+            assert ask(teacher, {"type": "open_learners"}).get("ok")
+            with connect(f"ws://127.0.0.1:{DESK}") as ws:
+                m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="go")
+                assert m["go"]["game"] == "citylab", m
+            time.sleep(3)  # (the game server reads live.json every 2 s)
+            welcome, code = game_hello(CL, {"ticket": m["go"]["ticket"]}, versions["citylab"])
+            assert welcome and welcome["name"] == "Sam" and welcome.get("me") is not None and welcome.get("city"), (welcome, code)
+            welcome, code = game_hello(CL, {"ticket": launched["ticket"]}, versions["citylab"])
+            assert welcome and welcome["role"] == "teacher", (welcome, code)
+        finally:
+            ask(teacher, {"type": "stop"})
+    check("City Lab: a group launched into it; the learner's and the teacher's tickets open the city", city_lab_launch)
+
+    def missions_launch():  # (CHANGE 195) a group launched into Missions on lesson 2: Mission 2, a run reported
+        assert ask(teacher, {"type": "set_group", "name": "Story", "game": "missions", "learners": ["Sam"]}).get("ok")
+        assert ask(teacher, {"type": "launch", "group": "Story", "lesson": 2}).get("ok")
+        launched = ask(teacher, {"type": "teacher_window"})["teacher_window"]
+        assert launched["game"] == "missions" and launched.get("ticket"), launched
+        assert ask(teacher, {"type": "open_learners"}).get("ok")
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="go")
+            assert m["go"]["game"] == "missions" and m["go"]["lesson"] == 2, m
+        time.sleep(3)
+        welcome, code = game_hello(ML, {"ticket": launched["ticket"]}, versions["missions"])
+        assert welcome and welcome["role"] == "teacher", (welcome, code)
+        with connect(f"ws://127.0.0.1:{ML}", max_size=None) as game:
+            game.send(json.dumps({"type": "hello", "version": versions["missions"], "ticket": m["go"]["ticket"]}))
+            welcome = None
+            for _ in range(20):
+                w = json.loads(game.recv(timeout=10))
+                if w.get("type") == "welcome":
+                    welcome = w
+                    break
+            assert welcome and welcome["name"] == "Sam" and welcome["lesson"]["mission"] == "lights_out", welcome
+            assert "progress" in welcome and "parts" in welcome["progress"], welcome
+            game.send(json.dumps({"type": "run", "mission": "lights_out", "status": "flat", "objectives": [True, False, False, False, False],
+                                  "complete": False, "stars": {"count": 0}, "energy_left": 0, "lines_used": 9, "robot": "TITAN"}))
+            game.send(json.dumps({"type": "run", "mission": "lights_out", "status": "complete", "objectives": [True] * 5,
+                                  "complete": True, "stars": {"count": 3, "energy": True, "lines": True},
+                                  "energy_left": 12, "lines_used": 11, "robot": "TITAN"}))
+            game.send(json.dumps({"type": "progress", "progress": {"parts": ["solar_panel"], "missions": {
+                "lights_out": {"complete": True, "bestStars": 3}}}}))
+            time.sleep(6)  # (the game reports to the desk every 2 s; the desk refreshes teachers every 5 s)
+            m = ask(teacher, {"type": "state"})
+            for _ in range(5):
+                m = json.loads(teacher.recv(timeout=10))
+                if "state" in m and (m["state"].get("session") or {}).get("present"):
+                    break
+            ses = m["state"]["session"]
+            assert "Sam" in ses["present"] and ses["done"].get("Sam") == 4, ses  # (2a finished, 2b, 2c stars, 2d fixed)
+        with connect(f"ws://127.0.0.1:{DESK}") as ws:
+            again = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="go")["go"]["ticket"]
+        with connect(f"ws://127.0.0.1:{ML}", max_size=None) as game:  # (the progress follows the learner: logged in again)
+            game.send(json.dumps({"type": "hello", "version": versions["missions"], "ticket": again}))
+            for _ in range(20):
+                w = json.loads(game.recv(timeout=10))
+                if w.get("type") == "welcome":
+                    break
+            assert w["progress"]["missions"]["lights_out"]["bestStars"] == 3, w["progress"]
+        m = ask(teacher, {"type": "stop"})
+        assert m.get("ok"), m
+        rec = m.get("session_record") or {}
+        assert "2a" in (rec.get("report") or {}).get("done", {}).get("Sam", {}), rec.get("report")
+    try:
+        check("Missions: a group launched into it on lesson 2 (Lights Out); the learner's window reports a failed run then "
+              "a finish with three stars, the desk's session shows four objectives, the progress follows the learner",
+              missions_launch)
+    finally:
+        if ask(teacher, {"type": "state"}).get("state", {}).get("live"):
+            ask(teacher, {"type": "stop"})
+
     def removed():
         m = ask(teacher, {"type": "remove_learner", "name": "Sam"})
         assert m.get("ok"), m
@@ -416,7 +498,7 @@ try:
         store.set_password("Tess", "tess-own-pass", by_learner=True)
         store.learners["Teacher"] = store.learners.pop("Tess")  # (as an old learners.json would have them)
         store.save()
-        port = DESK + 3
+        port = DESK + 6  # (8886: past the five game servers, 8881 to 8885)
         procs.append(subprocess.Popen([PY, os.path.join(HERE, "club_desk.py"), "--port", str(port), "--games",
                                        os.path.join(TMP, "games.json")],
                                       env=dict(env, CLUBCODERS_DESK_DATA=os.path.join(TMP, "desk2")),

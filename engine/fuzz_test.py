@@ -1,6 +1,6 @@
 """Odd and broken messages never break a game server (CHANGE 165).
 
-    python engine/fuzz_test.py [robot|fight|kart|all] [messages]
+    python engine/fuzz_test.py [robot|fight|kart|city|all] [messages]
 
 A laptop server for the game, a teacher and a learner connected. Each sends seeded random messages: every kind the
 server's own code handles (read from its source), with fields missing, of the wrong type, huge, NaN, negative,

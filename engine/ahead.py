@@ -194,6 +194,10 @@ HOLDS = {"block", "low_block", "crouch"}  # (held: standing still)
 GRIP = 18.0             # fight_sim's grip on the floor: how fast a fighter's speed follows its keys (1/s)
 BACK = 0.7              # ...walking backwards is this much slower
 APART_FIGHTER = 1.0     # (as APART: a fighter walks 2 m/s at most)
+# (CHANGE 193) a punch's start-up drawn at once: how long past a round trip it waits for the server's word before
+# it's taken back (the snapshots come every 33 ms, and one may be late)
+CONFIRM = 0.12
+CROUCHED = {"crouch", "low_block"}  # (punch held crouching is the low sweep: not drawn ahead)
 
 
 class FighterAhead:
@@ -201,22 +205,36 @@ class FighterAhead:
     the keys ask, along the line to the opponent and across it), from its newest snapshot to the moment a key pressed
     now takes effect. Attacks, blocks, hits, throws and jumps stay the server's: from any of them it is drawn as
     blended, easing between the two over EASE. The other fighters are drawn as blended (they change direction too
-    often to carry on). ahead.js's FighterAhead is the page's copy."""
+    often to carry on). ahead.js's FighterAhead is the page's copy.
+
+    (CHANGE 193) The punch button pressed from footwork: the move it starts (your combo's first) is drawn starting at
+    once, its start-up held at its last frame until a snapshot shows the server started it, then on from when you
+    pressed it, so it lands on screen when it lands on the server. Taken back (drawn as blended) if the server's
+    word doesn't come within a round trip and CONFIRM, or a snapshot shows you hit, thrown or doing something else."""
 
     def __init__(self):
         self.track = self.prev = None
         self.fresh = False
         self.off, self.weight = (0.0, 0.0), 0.0
         self.inputs = deque(maxlen=120)  # (local time sent, forward, side, hold)
+        self.pressed = None  # (CHANGE 193) a punch pressed, not drawn yet: its local time
+        self.punch = None    # ...the punch drawn: {"t": pressed, "move", "s", "a", "r": its timing, "seen": the server's word}
 
     def control(self, local_t, fwd, side, hold=""):
         self.inputs.append((local_t, float(fwd), float(side), hold or ""))
 
-    def snapshot(self, server_t, fighters, my_id):
-        """A new snapshot's fighters in your ring (id, pos, a), stamped server_t."""
+    def press(self, local_t, action):
+        """(CHANGE 193) A button sent: a punch is drawn from the next adjust."""
+        if action == "punch":
+            self.pressed = local_t
+
+    def snapshot(self, server_t, fighters, my_id, phase=None):
+        """A new snapshot's fighters in your ring (id, pos, a), stamped server_t; phase: the ring's ("fight": punches
+        start)."""
         me = next((f for f in fighters if f["id"] == my_id), None)
         if me is None:
             self.track = self.prev = None
+            self.punch = None
             return
         foe = next((f for f in fighters if f["id"] != my_id), None)
         old = self.track
@@ -233,8 +251,14 @@ class FighterAhead:
                 fx, fy = dx / d, dy / d
         self.prev = old
         self.track = {"t": server_t, "x": me["pos"][0], "y": me["pos"][1], "vx": vx, "vy": vy, "fx": fx, "fy": fy,
-                      "free": me.get("a") in FREE and me["pos"][2] < 0.01}
+                      "free": me.get("a") in FREE and me["pos"][2] < 0.01, "fight": phase in (None, "fight")}
         self.fresh = True
+        p = self.punch
+        if p is not None:
+            if me.get("a") == p["move"]:
+                p["seen"] = True  # (the server started it)
+            elif not self.track["free"]:
+                self.punch = None  # (hit, thrown, in the air: the server's word)
 
     def key_at(self, local_t):
         got = (0.0, 0.0, "")
@@ -266,8 +290,42 @@ class FighterAhead:
             y += vy * dt
         return x, y
 
-    def adjust(self, fighters, local_now, server_seen, rtt, my_id, stats, dt=1 / 60):
-        """Your ring's fighters as blended: yours drawn ahead (new dicts); stats: (walk, sidestep) m/s, yours."""
+    def adjust(self, fighters, local_now, server_seen, rtt, my_id, stats, dt=1 / 60, punch=None):
+        """Your ring's fighters as blended: yours drawn ahead (new dicts); stats: (walk, sidestep) m/s, yours; punch:
+        (CHANGE 193) [move, start-up, active, recovery seconds] of the move your punch button starts, yours."""
+        return self.startup(self.footwork(fighters, local_now, server_seen, rtt, my_id, stats, dt), local_now, rtt,
+                            my_id, punch)
+
+    def startup(self, fighters, local_now, rtt, my_id, punch):
+        """(CHANGE 193) Your punch drawn from when you pressed it (see the class's docstring)."""
+        me = next((f for f in fighters if f["id"] == my_id), None)
+        tr = self.track
+        if self.pressed is not None:
+            t0, self.pressed = self.pressed, None
+            if (punch and self.punch is None and me is not None and tr is not None and tr["free"] and tr["fight"]
+                    and me.get("a") in FREE and me["pos"][2] < 0.01 and self.key_at(t0)[2] not in CROUCHED):
+                self.punch = {"t": t0, "move": punch[0], "s": max(punch[1], 1e-3), "a": max(punch[2], 1e-3),
+                              "r": max(punch[3], 1e-3), "seen": False}
+        p = self.punch
+        if p is None or me is None:
+            return fighters
+        el, s, a, r = local_now - p["t"] - STEP, p["s"], p["a"], p["r"]  # (the server begins it on the step after the
+        # press arrives: a step later than the key's own time)
+        if not p["seen"]:
+            if el > max(0.0, min(0.3, rtt)) + CONFIRM:
+                self.punch = None  # (the server never started it: taken back)
+                return fighters
+            k = min(el / s, 0.999)  # (its start-up, held at the last frame till the server's word)
+        elif el >= s + a + r and me.get("a") != p["move"]:
+            self.punch = None  # (done here, and done in the blend)
+            return fighters
+        else:
+            k = el / s if el < s else 1 + (el - s) / a if el < s + a else 2 + min(1.0, (el - s - a) / r)
+        drawn = dict(me, a=p["move"], k=max(0.0, k))
+        return [drawn if f is me else f for f in fighters]
+
+    def footwork(self, fighters, local_now, server_seen, rtt, my_id, stats, dt=1 / 60):
+        """Your fighter's walking and sidestepping drawn ahead (CHANGE 167)."""
         tr = self.track
         me = next((f for f in fighters if f["id"] == my_id), None)
         if server_seen is None or me is None or tr is None or not stats:

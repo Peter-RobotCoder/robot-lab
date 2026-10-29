@@ -43,7 +43,8 @@ sys.path.insert(0, next((p for p in (os.path.dirname(HERE), os.path.dirname(os.p
                          if os.path.isdir(os.path.join(p, "engine"))), HERE))
 from engine import club_ticket  # noqa: E402
 
-GAMES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab", "kartlab": "Kart Lab"}
+GAMES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab", "kartlab": "Kart Lab", "citylab": "City Lab",
+         "missions": "Missions"}  # (Missions: the story missions as a class game, CHANGE 195)
 ETC = "/etc/robotlab"
 DATA = os.environ.get("CLUBCODERS_DESK_DATA", "/var/lib/robotlab/desk")
 PORT = 8779
@@ -331,9 +332,9 @@ class Store:
         if self.live:
             raise DeskError(f"{self.live['group']} is live: stop it first.")
         lesson = int(lesson) if str(lesson).isdigit() else 1
-        if lesson not in LESSONS:
-            raise DeskError("Lessons are 1 to 5.")
         g = self.groups[group]
+        if lesson not in game_lessons(g["game"]):
+            raise DeskError(f"{GAMES.get(g['game'], g['game'])}'s lessons are {', '.join(map(str, game_lessons(g['game'])))}.")
         self.live = {"id": secrets.token_hex(4), "group": group, "game": g["game"], "lesson": lesson,
                      "learners": list(g["learners"]), "started": now(),
                      "learners_in": False}  # (the teacher goes in first; the learners when they press the button)
@@ -413,6 +414,8 @@ class Store:
                 "groups": [{"name": n, "game": g["game"], "learners": g["learners"], "time": g.get("time", "")}
                            for n, g in sorted(self.groups.items())],
                 "games": {k: {"title": v} for k, v in GAMES.items()}, "live": self.live, "lessons": list(LESSONS),
+                # (CHANGE 196) each game's own lessons and their titles: a group on Missions is launched on a mission
+                "lessons_for": {k: game_lessons(k) for k in GAMES}, "lesson_titles": {k: lesson_titles(k) for k in GAMES},
                 "session": session}
 
 
@@ -462,19 +465,38 @@ def running_code(game_info):
 
 # ---------- the games' lesson files (CHANGE 143): the scheme of work and the lesson guide for the browser ----------
 LESSON_FILES = {"robotlab": ("lab_missions", "shared-world-demo"), "fightlab": ("fight_missions", "BeatEmUp"),
-                "kartlab": ("kart_missions", "kart")}
+                "kartlab": ("kart_missions", "kart"), "citylab": ("city_missions", "city"),
+                "missions": ("mission_lessons", "shared-world-demo", "robotlab")}  # (in Robot Lab's folder)
 _schemes = {}  # game -> (the file's time, its scheme)
 
 
 def lesson_file(game):
     """A game's lesson file: games/<game>/ beside desk/ (the release, the server), or the working folder's own."""
-    module, dev = LESSON_FILES[game]
-    for folder in (os.path.join(os.path.dirname(HERE), "games", game),
+    module, dev, *public = LESSON_FILES[game]  # (public: the game's folder in the release when it isn't its own)
+    for folder in (os.path.join(os.path.dirname(HERE), "games", public[0] if public else game),
                    os.path.join(os.path.dirname(os.path.dirname(HERE)), dev)):
         path = os.path.join(folder, module + ".py")
         if os.path.exists(path):
             return path
     return None
+
+
+def game_lessons(game):
+    """The lesson numbers a game has (its lesson file's LESSONS; 1 to 5 when the file isn't here)."""
+    try:
+        sc = scheme(game)
+    except DeskError:
+        sc = None
+    return sorted(int(n) for n in sc["lessons"]) if sc and sc.get("lessons") else list(LESSONS)
+
+
+def lesson_titles(game):
+    """{lesson number (as text): its title} from the game's lesson file (empty when it isn't here)."""
+    try:
+        sc = scheme(game)
+    except DeskError:
+        return {}
+    return {n: v.get("title", "") for n, v in (sc or {}).get("lessons", {}).items()}
 
 
 def scheme(game):

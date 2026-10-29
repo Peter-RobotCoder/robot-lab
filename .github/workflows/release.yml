@@ -1,4 +1,4 @@
-# Builds the downloadable Club Coders app (both games) when the teacher pushes a version tag (for example
+# Builds the downloadable Club Coders app (every game) when the teacher pushes a version tag (for example
 # v1.1.0, matching the VERSION file), and attaches ClubCoders-windows.zip (and its SHA-256 checksum) to that release.
 # Needs the repository variable ROBOTLAB_SERVER = wss://play.<club domain>
 # (Settings > Secrets and variables > Actions > Variables).
@@ -22,12 +22,18 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r games/robotlab/requirements.txt -r games/fightlab/requirements.txt pyinstaller==6.22.3 cryptography==46.0.2 reportlab==4.4.4
+          pip install -r games/robotlab/requirements.txt -r games/fightlab/requirements.txt -r games/kartlab/requirements.txt -r games/citylab/requirements.txt pyinstaller==6.22.3 cryptography==46.0.2 reportlab==4.4.4
       - name: Safety checks, Robot Lab (logins, brain sandbox, codes)
         working-directory: games/robotlab
         run: python security_test.py
       - name: Safety checks, Fight Lab
         working-directory: games/fightlab
+        run: python security_test.py
+      - name: Safety checks, Kart Lab
+        working-directory: games/kartlab
+        run: python security_test.py
+      - name: Safety checks, City Lab
+        working-directory: games/citylab
         run: python security_test.py
       - name: Build
         env:

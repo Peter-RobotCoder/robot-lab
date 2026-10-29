@@ -1,6 +1,6 @@
 """Make my changes live: put a game's changed code on the class server, without a new download for learners.
 
-    python club-coders/live/make_live.py robotlab          (or fightlab)
+    python club-coders/live/make_live.py robotlab          (or fightlab, kartlab, citylab)
     python club-coders/live/make_live.py --new-key         once, before the first live update (see below)
 
 What it does, stopping at the first problem:
@@ -342,7 +342,8 @@ def run_tests(game, folder, stage):
     keep = ("SYSTEMROOT", "WINDIR", "PATH", "PATHEXT", "COMSPEC", "OS", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE")
     env = {k: os.environ[k] for k in keep if k in os.environ}
     env.update(TEMP=home, TMP=home, APPDATA=home, LOCALAPPDATA=home, USERPROFILE=home, HOME=home,
-               ROBOTLAB_DATA=os.path.join(stage, "test_data"), FIGHTLAB_DATA=os.path.join(stage, "test_data"))
+               ROBOTLAB_DATA=os.path.join(stage, "test_data"), FIGHTLAB_DATA=os.path.join(stage, "test_data"),
+               KARTLAB_DATA=os.path.join(stage, "test_data"), CITYLAB_DATA=os.path.join(stage, "test_data"))
     for test in ("smoke_test.py", "security_test.py"):
         say(f"Running {game}'s {test} (a few minutes)...")
         r = subprocess.run([sys.executable, test], cwd=folder, capture_output=True, text=True, env=env)
@@ -356,7 +357,7 @@ def run_tests(game, folder, stage):
 def main():
     global TEST
     ap = argparse.ArgumentParser(description="Put a game's changed code on the class server (see the notes above).")
-    ap.add_argument("game", nargs="?", choices=("robotlab", "fightlab"))
+    ap.add_argument("game", nargs="?", choices=("robotlab", "fightlab", "kartlab", "citylab"))
     ap.add_argument("--new-key", action="store_true", help="make the club's signing key (once)")
     ap.add_argument("--replace-key", action="store_true")
     ap.add_argument("--no-upload", action="store_true", help="make and sign it, but don't send it")
@@ -368,7 +369,7 @@ def main():
     if args.new_key:
         return new_key(args.replace_key)
     if not args.game:
-        ap.error("which game? robotlab or fightlab")
+        ap.error("which game? robotlab, fightlab, kartlab or citylab")
     if not os.path.exists(PUBLIC_KEY):
         raise SystemExit("There's no key yet: run make_live.py --new-key, then make a release, first.")
     version = export.version()

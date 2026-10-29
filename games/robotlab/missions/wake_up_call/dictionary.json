@@ -1,0 +1,113 @@
+{
+  "name": "Club Coders pseudo code dictionary",
+  "version": 1,
+  "mission": "Robot Lab Mission 1: Wake-Up Call",
+  "notes": "The source of truth for the pseudo code. index.html carries an embedded copy for file:// use: run tools/sync_dictionary.py after editing this file.",
+  "patterns": [
+    {
+      "id": "move_forward",
+      "say": "move forward [n]",
+      "python": "robot.move_forward({n})",
+      "meaning": "Drive forward n squares. Each square costs 1 energy.",
+      "example": "move forward 3"
+    },
+    {
+      "id": "move_back",
+      "say": "move back [n]",
+      "python": "robot.move_back({n})",
+      "meaning": "Reverse n squares without turning round. Each square costs 1 energy.",
+      "example": "move back 1"
+    },
+    {
+      "id": "turn",
+      "say": "turn [dir]",
+      "python": "robot.turn_{dir}()",
+      "meaning": "Turn a quarter turn on the spot. Turning is free.",
+      "example": "turn left"
+    },
+    {
+      "id": "repeat",
+      "say": "repeat [n] times",
+      "python": "for {var} in range({n}):",
+      "opens": true,
+      "meaning": "Do the lines below n times, down to the matching end.",
+      "example": "repeat 2 times"
+    },
+    {
+      "id": "end",
+      "say": "end",
+      "python": "# end of repeat",
+      "closes": true,
+      "meaning": "Closes the most recent repeat.",
+      "example": "end"
+    },
+    {
+      "id": "pick_up",
+      "say": "pick up [item]",
+      "python": "robot.pick_up(\"{item}\")",
+      "meaning": "Pick up the item on your square. A power cell recharges the battery; a tool swaps with the one you hold.",
+      "example": "pick up power cell"
+    },
+    {
+      "id": "use",
+      "say": "use [tool]",
+      "python": "robot.use(\"{tool}\")",
+      "meaning": "Use the tool you hold on the square in front of you. Costs 2 energy.",
+      "example": "use spinner"
+    },
+    {
+      "id": "repair",
+      "say": "repair",
+      "python": "robot.repair()",
+      "meaning": "Repair the machine in front of you. Costs 3 energy.",
+      "example": "repair"
+    }
+  ],
+  "slots": {
+    "n": { "kind": "number", "min": 1, "max": 20, "describe": "a number from 1 to 20" },
+    "dir": { "kind": "choice", "values": ["left", "right"], "describe": "left or right" },
+    "item": { "kind": "choice", "values": ["power cell", "spinner", "flipper", "hammer", "drum"], "describe": "power cell, spinner, flipper, hammer or drum" },
+    "tool": { "kind": "choice", "values": ["spinner", "flipper", "hammer", "drum"], "describe": "spinner, flipper, hammer or drum" }
+  },
+  "fillers": ["please", "the", "a", "an", "then", "now", "and", "robot", "my", "your", "to", "step", "steps", "square", "squares", "space", "spaces", "it", "of", "on"],
+  "synonyms": {
+    "go": "move",
+    "drive": "move",
+    "roll": "move",
+    "forwards": "forward",
+    "ahead": "forward",
+    "backward": "back",
+    "backwards": "back",
+    "rotate": "turn",
+    "loop": "repeat",
+    "twice": "2 times",
+    "once": "1 times",
+    "end repeat": "end",
+    "end loop": "end",
+    "done": "end",
+    "pickup": "pick up",
+    "grab": "pick up",
+    "collect": "pick up",
+    "take": "pick up",
+    "get": "pick up",
+    "battery": "power cell",
+    "cell": "power cell",
+    "power cell": "power cell",
+    "powercell": "power cell",
+    "front spinner": "spinner",
+    "horizontal spinner": "spinner",
+    "wedge": "flipper",
+    "drum spinner": "drum",
+    "activate": "use",
+    "fix": "repair",
+    "mend": "repair",
+    "repair generator": "repair",
+    "repair power supply": "repair",
+    "repair village power supply": "repair"
+  },
+  "number_words": {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20
+  }
+}

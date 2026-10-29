@@ -21,7 +21,7 @@ import io
 import os
 import zipfile
 
-GAMES = ("robotlab", "fightlab")
+GAMES = ("robotlab", "fightlab", "kartlab", "citylab")
 LINK_DIRS = ("assets", "models", "music", "mods", "brains")  # not in an update: it links to the installed ones
 ENGINE_LINK = "engine/assets"  # the engine's made textures and sounds: the same (an update carries engine/'s code)
 

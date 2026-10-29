@@ -81,7 +81,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEACHER_SETTINGS = os.path.join(HERE, "teacher_settings.json")  # the teacher's laptop only: never in git
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "FightLab")
 from engine import editor as code_editor  # noqa: E402  (the engine: shared by every game)
-from engine import hud  # noqa: E402
+from engine import hud, reopen  # noqa: E402
 from engine import garage, schema  # noqa: E402
 from engine.hud import DARK, button, check, label, load_json, remember, text_button, word  # noqa: E402,F401
 from engine.hud import YELLOW, WHITE, GREY, RED, GREEN, BLUE, ORANGE, PANEL, ON, OFF, BOX, HANDLE  # noqa: E402,F401
@@ -434,6 +434,7 @@ class Lab(hud.HudKit, ShowBase):
         self.snaps, self.latest = interp.Snapshots(interp.FIGHT_SPEC), None
         self.pad = gamepad.Pad(self)  # (CHANGE 170) a USB or Bluetooth controller
         self.ahead, self.move = ahead.FighterAhead(), {}  # (CHANGE 167) your fighter drawn ahead; footwork from the roster
+        self.punch = {}  # (CHANGE 193) ...and the move its punch button starts, with its timing
         self.ctrl_seq, self.ctrl_sent, self.ctrl_ms = 0, {}, None  # numbered controls, and the measured control delay
         self.perf_at = 0.0
         self.fx_waiting = []
@@ -644,20 +645,10 @@ class Lab(hud.HudKit, ShowBase):
                 del argv[i:i + 2]
         if TEACHER:
             argv += ["--name", name]
-        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        program = [sys.executable] if fight_version.FROZEN else [sys.executable, os.path.abspath(__file__)]
-        log_dir = SETTINGS_DIR if fight_version.FROZEN else HERE
-        os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, "window.log"), "a") as log:
-            child = subprocess.Popen(program + argv, cwd=os.getcwd() if fight_version.FROZEN else HERE, env=env,
-                                     stdout=log, stderr=log, creationflags=flags)
-        if os.environ.get("CLUBCODERS_WINDOW_PID_FILE"):  # (the app that opened this window follows the new one:
-            try:                                          # CHANGE 154)
-                with open(os.environ["CLUBCODERS_WINDOW_PID_FILE"], "w", encoding="utf-8") as f:
-                    f.write(str(child.pid))
-            except OSError:
-                pass
-        os._exit(0)
+        # (the new process, window.log, the app told the new process id, os._exit: engine.reopen, shared by every
+        # game's window since CHANGE 189)
+        reopen.reopen(__file__, argv, env, frozen=fight_version.FROZEN,
+                      log_dir=SETTINGS_DIR if fight_version.FROZEN else HERE)
 
     def toggle_help(self):
         self.help.hide() if not self.help.isHidden() else self.help.show()
@@ -2627,7 +2618,7 @@ class Lab(hud.HudKit, ShowBase):
                 my = getattr(self, "my_id", None)
                 mine = next((r for r in m.get("rings", []) if any(f["id"] == my for f in r.get("f", []))), None)
                 if m.get("sm") is not None:  # (CHANGE 167: what your fighter is drawn ahead from)
-                    self.ahead.snapshot(m["sm"] / 1000, mine["f"] if mine else [], my)
+                    self.ahead.snapshot(m["sm"] / 1000, mine["f"] if mine else [], my, mine.get("ph") if mine else None)
                 if args.no_interp:
                     self.state = m
                 self.fx_waiting.append(m.get("fx", []))
@@ -2780,13 +2771,14 @@ class Lab(hud.HudKit, ShowBase):
         for r in state.get("rings", []):
             if any(f["id"] == my for f in r.get("f", [])):
                 r = dict(r, f=self.ahead.adjust(r["f"], now, self.snaps.clock.server_time(now), self.rtt or getattr(self, "ping_ms", 0.0) / 1000, my,
-                                                self.move.get(my), dt))
+                                                self.move.get(my), dt, self.punch.get(my)))
             rings.append(r)
         return dict(state, rings=rings)
 
     def apply_roster(self, m):
         self.roster = m
         self.move = {f["id"]: tuple(f["move"]) for f in m.get("fighters", []) if f.get("move")}  # (CHANGE 167)
+        self.punch = {f["id"]: f["punch"] for f in m.get("fighters", []) if f.get("punch")}  # (CHANGE 193)
         drawn = json.dumps([m.get("look", {}), m.get("rings"), m.get("hazards"), m.get("rs"), m.get("user_mods")],
                            sort_keys=True)
         if drawn != self.stage_drawn:
@@ -2904,6 +2896,8 @@ class Lab(hud.HudKit, ShowBase):
                 msg["press"] = press
             send(msg)
             self.ahead.control(now, control[0], control[1], control[2])  # (CHANGE 167)
+            if press:
+                self.ahead.press(now, press)  # (CHANGE 193: a punch's start-up drawn at once)
             self.ctrl_sent[self.ctrl_seq] = now
             if len(self.ctrl_sent) > 90:
                 for k in sorted(self.ctrl_sent)[:30]:

@@ -129,6 +129,16 @@ export function esc(s) {
 }
 
 // ---------- the desk screen ----------
+// (CHANGE 196) the buttons that launch a group: the game's own lessons (the desk's lessons_for), numbered when
+// there are many, by their names when a few (Missions: "Mission 1: Wake-Up Call", "Mission 2: Lights Out")
+function launchRow(st, g, i) {
+    const lessons = (st.lessons_for || {})[g.game] || st.lessons || [1, 2, 3, 4, 5];
+    const titles = (st.lesson_titles || {})[g.game] || {};
+    const many = lessons.length > 3;
+    return `<span class="note">${many ? "launch on lesson" : "launch"}</span> ` + lessons.map((n, k) =>
+        `<button data-launch="${i}" data-lesson="${n}" class="${k === 0 ? "go" : ""}">${esc(many ? String(n) : (titles[String(n)] || `Lesson ${n}`).split(" (")[0])}</button>`).join("");
+}
+
 // ctx: {desk, ui: {tab, editing, confirm, message}, lessons, drawn (Set), watching (game or null), watchGames,
 //       watch(game), leave(), logout(), rerender()}
 export function renderDesk(root, ctx) {
@@ -278,7 +288,7 @@ const DESK_TABS = {
             const groups = st.groups || [];
             right = `<h2>Groups</h2>
               <table class="wide">${groups.map((g, i) => `<tr><td><b>${esc(g.name)}</b><br><span class="note">${esc(title(g.game))}, ${g.learners.length} learners${g.time ? `, ${esc(g.time)}` : ""}</span></td>
-                <td>${st.live ? "" : `<span class="note">launch on lesson</span> ${(st.lessons || [1, 2, 3, 4, 5]).map(n => `<button data-launch="${i}" data-lesson="${n}" class="${n === 1 ? "go" : ""}">${n}</button>`).join("")}`}</td>
+                <td>${st.live ? "" : launchRow(st, g, i)}</td>
                 <td><button data-edit="${i}">Edit</button> <button data-delgroup="${i}" class="stop">${ui.confirm === "group:" + g.name ? "Press again" : "Delete"}</button></td></tr>`).join("")
                 || "<tr><td class='note'>No groups yet.</td></tr>"}</table>
               ${st.live ? "<p class='note'>A group is live: stop it before launching another.</p>" : "<p class='note'>A number launches the group on that lesson. Only that group's learners can log in while it is live.</p>"}

@@ -195,7 +195,7 @@ fi
 chown root:robotlab "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 if [ ! -f "$ETC/class1.env" ]; then
-    printf '# The first class: wss://%s (GAME: robotlab, fightlab or kartlab; robotlab-add-class changes it)\nPORT=8780\nGAME=robotlab\n' "$DOMAIN" > "$ETC/class1.env"
+    printf '# The first class: wss://%s (GAME: robotlab, fightlab, kartlab or citylab; robotlab-add-class changes it)\nPORT=8780\nGAME=robotlab\n' "$DOMAIN" > "$ETC/class1.env"
 fi
 chown root:robotlab "$ETC/class1.env"
 chmod 640 "$ETC/class1.env"
@@ -207,7 +207,8 @@ install -m 644 "$APP/deploy/club-desk.service" /etc/systemd/system/club-desk.ser
 install -d -m 700 -o robotlab -g robotlab /var/lib/robotlab/desk  # (the club desk's learners and groups)
 install -d -m 700 -o robotlab -g robotlab /var/lib/robotlab/desk/reports /var/lib/robotlab/desk/inbox \
     /var/lib/robotlab/desk/inbox/robotlab /var/lib/robotlab/desk/inbox/fightlab \
-    /var/lib/robotlab/desk/inbox/kartlab  # (the game servers write here)
+    /var/lib/robotlab/desk/inbox/kartlab /var/lib/robotlab/desk/inbox/citylab \
+    /var/lib/robotlab/desk/inbox/missions  # (the game servers write here)
 if systemctl is-enabled -q club-door 2>/dev/null; then  # (the front door became the desk)
     systemctl disable -q --now club-door
     rm -f /etc/systemd/system/club-door.service
@@ -289,4 +290,5 @@ echo "  sudo robotlab-update                   install a new release (between le
 echo "  sudo robotlab-backup                   make a backup now"
 echo "  sudo robotlab-add-class class2 --game fightlab   Fight Lab's game server (once)"
 echo "  sudo robotlab-add-class class3 --game kartlab    Kart Lab's game server (once)"
+echo "  sudo robotlab-add-class class4 --game citylab    City Lab's game server (once)"
 echo "  journalctl -u club-desk -f             the club desk's messages, live"

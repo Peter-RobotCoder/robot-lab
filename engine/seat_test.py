@@ -1,6 +1,6 @@
 """A learner whose connection drops keeps their place a while; nobody else is started again (CHANGE 164).
 
-    python engine/seat_test.py [robot|fight|kart|all]
+    python engine/seat_test.py [robot|fight|kart|city|all]
 
 A laptop server for the game (its seats held 6 s here, 45 in class), a teacher reading everything, learners Amy and
 Ben. Ben moves away from his start. Amy's connection is cut (no goodbye: a lid shut). Then: her robot, fighter or
@@ -103,6 +103,9 @@ def units(game, w):
     elif game == "kart" and w.roster:
         for k in w.roster["karts"]:
             out[k["owner"] or f"cpu{k['id']}"] = (k["id"], None)
+    elif game == "city" and w.roster:  # (CHANGE 194: a person each; the cars and robots are the computer's)
+        for k in w.roster["people"]:
+            out[k["owner"] or f"cpu{k['id']}"] = (k["id"], None)
     return out
 
 
@@ -126,7 +129,8 @@ def run(game):
     port = st.free_port()
     env = {k: v for k, v in os.environ.items() if k not in ("JOIN_CODE", "TEACHER_CODE")}
     env.update({data_var: os.path.join(work, "data"), "CLUBCODERS_SEAT_SECONDS": str(HOLD)})
-    args = [sys.executable, script, "--port", str(port)] + (["--cpu", "2"] if game == "kart" else [])
+    args = [sys.executable, script, "--port", str(port)] + (["--cpu", "2"] if game == "kart" else
+                                                            ["--traffic", "1", "--robots", "1"] if game == "city" else [])
     server = subprocess.Popen(args, cwd=os.path.join(st.ROOT, folder), env=env,
                               stdout=open(os.path.join(work, "log"), "w"), stderr=subprocess.STDOUT)
     try:
@@ -138,11 +142,15 @@ def run(game):
             ben.ws.send(json.dumps({"type": "control", "throttle": 1.0, "steer": 0.3, "fire": False}))
         elif game == "fight":
             ben.ws.send(json.dumps({"type": "control", "f": 1.0, "s": 0.0}))
+        elif game == "city":  # (on foot: the way to move, in the world's frame)
+            ben.ws.send(json.dumps({"type": "control", "throttle": 1.0, "steer": 0.0, "buttons": 0, "seq": 1}))
         time.sleep(1.5)
         if game == "robot":
             ben.ws.send(json.dumps({"type": "control", "throttle": 0.0, "steer": 0.0, "fire": False}))
         elif game == "fight":
             ben.ws.send(json.dumps({"type": "control", "f": 0.0, "s": 0.0}))
+        elif game == "city":
+            ben.ws.send(json.dumps({"type": "control", "throttle": 0.0, "steer": 0.0, "buttons": 0, "seq": 2}))
         time.sleep(1.0)
         before = units(game, w)
         cpus = sorted(i for o, (i, _) in before.items() if o.startswith("cpu"))
@@ -151,9 +159,9 @@ def run(game):
         amy.cut()
         time.sleep(2.0)
         now = units(game, w)
-        key = "Amy (away)" if game == "kart" else "Amy"
+        key = "Amy (away)" if game in ("kart", "city") else "Amy"
         check(f"{game}: Amy's connection cut, her {UNIT[game]} is kept", now.get(key, (None,))[0] == amy_id, str(now))
-        if game != "kart":  # (a rebuilt arena or stage starts its clock again: everyone back at their start)
+        if game not in ("kart", "city"):  # (a rebuilt arena or stage starts its clock again: everyone back at their start)
             check(f"{game}: ...and nobody was started again (Ben where he was, the clock running on)",
                   w.state["t"] > t_before and (game == "fight" or far(before["Ben"][1], now["Ben"][1]) < 0.6),
                   f"t {t_before} then {w.state['t']}; Ben {before['Ben']} then {now.get('Ben')}")
@@ -161,7 +169,7 @@ def run(game):
         wait(lambda: units(game, w).get("Amy", (None,))[0] == amy_id, 5)
         now = units(game, w)
         check(f"{game}: Amy logs in again and has the same {UNIT[game]} back", now.get("Amy", (None,))[0] == amy_id, str(now))
-        if game != "kart":
+        if game not in ("kart", "city"):
             check(f"{game}: ...and still nobody was started again", w.state["t"] > t_before + 2 and
                   (game == "fight" or far(before["Ben"][1], now["Ben"][1]) < 0.6),
                   f"t {t_before} then {w.state['t']}; Ben {before['Ben']} then {now.get('Ben')}")
@@ -187,7 +195,7 @@ def run(game):
         shutil.rmtree(work, ignore_errors=True)
 
 
-UNIT = {"robot": "robot", "fight": "fighter", "kart": "kart"}
+UNIT = {"robot": "robot", "fight": "fighter", "kart": "kart", "city": "driver"}
 
 
 def main():

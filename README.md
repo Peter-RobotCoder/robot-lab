@@ -4,6 +4,8 @@ Club Coders is the club's games in one app. Log in with your username and the ap
 
 - **Robot Lab**: design a fighting robot, tune it with numbers, write its brain in Python, and test it in a shared arena.
 - **Fight Lab**: design a fighter, tune its moves, write its brain in Python, and fight your class in the ring.
+- **Kart Lab**: design a kart or a sports car, tune it with numbers, write a brain that drives it, and race your class.
+- **City Lab**: walk and drive a small open city with your class: deliveries, taxi runs, street races and rogue robots to round up, with the cars, the fighters and the robots from the other games.
 
 ## Download (Windows)
 
@@ -15,7 +17,7 @@ Club Coders is the club's games in one app. Log in with your username and the ap
 
 Nothing needs installing. The app tells you when a new version is out.
 
-From the lesson where you write your robot's or fighter's brain, it's in the `brains` folder next to `Club Coders.exe`: `brains\robotlab\my_brain.py` for Robot Lab, `brains\fightlab\my_brain.py` for Fight Lab. Open it with Notepad, then press **U** in the game to upload it.
+From the lesson where you write your robot's, fighter's, kart's or driver's brain, it's in the `brains` folder next to `Club Coders.exe`: `brains\robotlab\my_brain.py` for Robot Lab, `brains\fightlab\my_brain.py` for Fight Lab, `brains\kartlab\my_brain.py` for Kart Lab, `brains\citylab\my_brain.py` for City Lab. Open it with Notepad, then press **U** in the game to upload it.
 
 Mac and Chromebook aren't supported yet. Ask the club about a loan laptop.
 
@@ -32,6 +34,6 @@ Each release has a `ClubCoders-windows.zip.sha256` file. In PowerShell, `Get-Fil
 ## For the teacher
 
 - `launcher/` is the app's window: learners' login, the Teacher screen (learners, groups, Launch and Stop, the session's notes) and the PDFs made after a session (`records.py`); `desk/` is the club desk on the class server that the app talks to.
-- `games/robotlab/` and `games/fightlab/` are the games. Each has its own `smoke_test.py` and `security_test.py`: run them before every release.
+- `games/robotlab/`, `games/fightlab/`, `games/kartlab/` and `games/citylab/` are the games. Each has its own `smoke_test.py` and `security_test.py`: run them before every release.
 - `release/build_windows.py` builds the zip. Pushing a tag such as `v1.1.0` (it must match `VERSION`) builds and publishes it; see `.github/workflows/release.yml`.
-- `deploy/` sets up and updates the class server on the VPS, and adds classes playing either game; see `deploy/README.md`.
+- `deploy/` sets up and updates the class server on the VPS, and adds classes playing any of the games; see `deploy/README.md`.

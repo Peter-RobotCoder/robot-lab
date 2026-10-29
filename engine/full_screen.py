@@ -28,6 +28,8 @@ class FullScreen:
 
     def toggle(self):
         win = self.base.win
+        if win is None or not hasattr(win, "requestProperties"):  # (an offscreen buffer, the tests: nothing to resize)
+            return
         wp = WindowProperties()
         if not self.on:
             cur = win.getProperties()

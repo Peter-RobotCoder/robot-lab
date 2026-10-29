@@ -1224,7 +1224,10 @@ class FightServer:
         return {"type": "roster", "version": self.roster_version,
                 "fighters": [{"id": f.id, "owner": f.owner, "design": f.design, "ring": f.ring.index, "slot": f.slot,
                               # (its footwork, for the windows' and pages' drawing of it ahead: engine/ahead.py, CHANGE 167)
-                              "move": [round(f.stats["walk"], 3), round(f.stats["sidestep"], 3)]}
+                              "move": [round(f.stats["walk"], 3), round(f.stats["sidestep"], 3)],
+                              # (CHANGE 193) the move its punch button starts from footwork, and its timing, for the
+                              # windows' and pages' drawing of its start-up at once
+                              "punch": sim.punch_timing(f)}
                              for f in self.stage.fighters()],
                 "perf": {p.name: p.perf for p in self.players.values() if p.perf},  # each window's own report
                 "rings": [r.index for r in self.stage.rings], "hazards": self.stage.hazards, "look": self.look,

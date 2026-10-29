@@ -362,6 +362,62 @@ def computer_pit_stops():
         assert r.karts[2]["lap"] >= 3, (mode, "stuck after the stop", r.karts[2])
 
 
+def stall_recovery():
+    """(stall recovery) A kart driven nose into the barrier is put back on the track after STUCK_SECONDS, with an
+    event; R still respawns at once; a parked kart, a donut and a kart crawling through the gravel are left alone."""
+    schema = wire.Schema("kart", sim.SCHEMA_FIELDS)
+    t = kart_track.load("club")
+    limit = int(sim.STUCK_SECONDS / sim.STEP)
+
+    def race(s, lat, yaw_off):
+        r = sim.Race(t, schema)
+        r.add(0, sim.default_design("Stuck"))
+        r.phase, r.go_tick = sim.FLAGS_RACE, -1
+        k = r.karts[0]
+        sim.place(t, k, s, lat)
+        k["yaw"] = t.heading(s) + yaw_off
+        k["cp"] = 2  # (past the second gate: a respawn goes there)
+        return r
+
+    def drive(r, inp, n):
+        """Step n ticks; the tick the kart was put back on the track (or None)."""
+        for i in range(n):
+            before = len(r.events)
+            r.step_all({0: inp})
+            if any("was stuck" in e for _, e in r.events[before:]):
+                return i
+        return None
+    s = 60.0
+    for side in (1, -1):  # nose into the barrier, either side: held there, then put back on the road's middle
+        r = race(s, side * (t.half - 1.0), side * 90)
+        back = drive(r, (1.0, 0.0, 0), 3 * limit)
+        assert back is not None and limit <= back < limit + 120, (side, back, r.karts[0]["lat"])
+        k = r.karts[0]
+        assert abs(k["lat"]) < 0.01 and abs(k["s"] - (t.gate_s[1] + 2.0)) < 0.5 and k["v"] == 0.0, k
+        assert not r.stuck
+    # R: at once, and the count starts again
+    r = race(s, t.half - 1.0, 90)
+    assert drive(r, (1.0, 0.0, 0), limit - 30) is None
+    r.step_all({0: (0.0, 0.0, sim.RESPAWN)})
+    assert abs(r.karts[0]["lat"]) < 0.01 and 0 not in r.stuck
+    # nobody on the throttle (a learner reading the Mission tab): never moved
+    r = race(s, t.half - 1.0, 90)
+    assert drive(r, (0.0, 0.0, 0), 3 * limit) is None and abs(r.karts[0]["lat"]) > t.half - 1.5
+    # a donut on the spot (the clutch dropped, the wheel turned): on purpose, left alone
+    r = race(s, 0.0, 0)
+    assert drive(r, (1.0, 1.0, sim.LAUNCH), 3 * limit) is None
+    # lifting off now and then starts the count again
+    r = race(s, t.half - 1.0, 90)
+    for _ in range(4):
+        assert drive(r, (1.0, 0.0, 0), limit - 20) is None
+        r.step_all({0: (0.0, 0.0, 0)})
+    # crawling out of the gravel (about 1 m/s) is moving: left to drive out
+    seg = max(range(t.n), key=lambda i: t.gravel[-1][i])
+    r = race(t.s[seg], -(t.half + kart_track.KERB + 1.5), 0)
+    assert sim.surface(t, r.karts[0]["seg"], r.karts[0]["s"], r.karts[0]["lat"]) == "gravel"
+    assert drive(r, (1.0, 0.0, 0), 2 * limit) is None
+
+
 def real_damage():
     """(CHANGE 158) Hits damage the karts (barriers by how fast into them, other karts where they land), damage slows a
     kart, dulls its steering or pulls it to a side but never stops it, it mends by itself and quickly in the PIT box,
@@ -851,6 +907,8 @@ check("Accounts and missions: what a learner does completes the right objectives
 check("Beside the road: the kerb, the gravel, the barrier past it, a push from behind, the handbrake and the clutch dropped, "
       "tyre wear and the pit stop, the pit lane open and closed, the outer item boxes, the teacher's fix", beside_the_road)
 check("A computer kart on worn tyres pits: the lane and its bay, or the PIT box", computer_pit_stops)
+check("Stall recovery: a kart stuck against the barrier is put back on the track; R at once; parked, donuts and the "
+      "gravel left alone", stall_recovery)
 check("Real damage: hits damage, damage slows but never stops, it mends (quickly in the PIT box), the switch turns it off",
       real_damage)
 check("Power-ups: boxes give the items switched on; a boost, a shield, oil, a shot and a homing shot each work; a "

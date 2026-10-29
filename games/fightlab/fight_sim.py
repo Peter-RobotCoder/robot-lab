@@ -1335,6 +1335,13 @@ class Stage:
 
 
 # ---------- what the windows are sent (plain data: the server and the showcase both use it) ----------
+def punch_timing(f):
+    """(CHANGE 193) [move, start-up, active, recovery seconds] of what f's punch button starts from footwork (its
+    combo's first move: start_action), for engine/ahead.py's FighterAhead to draw its start-up at once."""
+    name = f.combo_list[0] if f.combo_list and f.combo_list[0] in MOVES else "punch"
+    return [name] + [round(v, 4) for v in f.timing(name)]
+
+
 def fighter_state(f, now, ring=None):
     a, k = f.anim()
     if ring is not None and ring.phase == "intro":  # (they bow as the round is announced, then wait for GO!)

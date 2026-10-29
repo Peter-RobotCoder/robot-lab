@@ -138,6 +138,8 @@ export class RobotsAhead {
 export const FREE = new Set(["idle", "walk_f", "walk_b", "side_l", "side_r", "block", "low_block", "crouch"]);
 export const HOLDS = new Set(["block", "low_block", "crouch"]);
 export const GRIP = 18.0, BACK = 0.7, APART_FIGHTER = 1.0;
+// (CHANGE 193) a punch's start-up drawn at once: ahead.py's CONFIRM and CROUCHED
+export const CONFIRM = 0.12, CROUCHED = new Set(["crouch", "low_block"]);
 
 export class FighterAhead {
     constructor() {
@@ -145,6 +147,8 @@ export class FighterAhead {
         this.fresh = false;
         this.off = [0, 0]; this.weight = 0;
         this.inputs = [];  // [local time sent (s), forward, side, hold]
+        this.pressed = null;  // (CHANGE 193) a punch pressed, not drawn yet: its local time
+        this.punch = null;    // ...the punch drawn: {t: pressed, move, s, a, r: its timing, seen: the server's word}
     }
 
     control(t, fwd, side, hold = "") {
@@ -152,9 +156,13 @@ export class FighterAhead {
         if (this.inputs.length > 120) this.inputs.shift();
     }
 
-    snapshot(serverT, fighters, myId) {
+    press(t, action) {  // (CHANGE 193) a button sent: a punch is drawn from the next adjust
+        if (action === "punch") this.pressed = t;
+    }
+
+    snapshot(serverT, fighters, myId, phase = null) {
         const me = fighters.find(f => f.id === myId);
-        if (!me) { this.track = this.prev = null; return; }
+        if (!me) { this.track = this.prev = null; this.punch = null; return; }
         const foe = fighters.find(f => f.id !== myId), old = this.track;
         if (old && serverT <= old.t) return;
         let vx = 0, vy = 0;
@@ -165,8 +173,14 @@ export class FighterAhead {
             if (d > 0.05) { fx = dx / d; fy = dy / d; }
         }
         this.prev = old;
-        this.track = {t: serverT, x: me.pos[0], y: me.pos[1], vx, vy, fx, fy, free: FREE.has(me.a) && me.pos[2] < 0.01};
+        this.track = {t: serverT, x: me.pos[0], y: me.pos[1], vx, vy, fx, fy, free: FREE.has(me.a) && me.pos[2] < 0.01,
+                      fight: phase === null || phase === undefined || phase === "fight"};
         this.fresh = true;
+        const p = this.punch;
+        if (p) {
+            if (me.a === p.move) p.seen = true;  // (the server started it)
+            else if (!this.track.free) this.punch = null;  // (hit, thrown, in the air: the server's word)
+        }
     }
 
     keyAt(t) {
@@ -200,7 +214,38 @@ export class FighterAhead {
         return [x, y];
     }
 
-    adjust(fighters, localNow, serverSeen, rtt, myId, stats, dt = 1 / 60) {
+    adjust(fighters, localNow, serverSeen, rtt, myId, stats, dt = 1 / 60, punch = null) {
+        return this.startup(this.footwork(fighters, localNow, serverSeen, rtt, myId, stats, dt), localNow, rtt, myId, punch);
+    }
+
+    startup(fighters, localNow, rtt, myId, punch) {  // (CHANGE 193) your punch drawn from when you pressed it
+        const me = fighters.find(f => f.id === myId), tr = this.track;
+        if (this.pressed !== null) {
+            const t0 = this.pressed;
+            this.pressed = null;
+            if (punch && !this.punch && me && tr && tr.free && tr.fight && FREE.has(me.a) && me.pos[2] < 0.01 &&
+                    !CROUCHED.has(this.keyAt(t0)[2]))
+                this.punch = {t: t0, move: punch[0], s: Math.max(punch[1], 1e-3), a: Math.max(punch[2], 1e-3),
+                              r: Math.max(punch[3], 1e-3), seen: false};
+        }
+        const p = this.punch;
+        if (!p || !me) return fighters;
+        const el = localNow - p.t - STEP, s = p.s, a = p.a, r = p.r;  // (the server begins it on the step after the press arrives)
+        let k;
+        if (!p.seen) {
+            if (el > Math.max(0, Math.min(0.3, rtt)) + CONFIRM) { this.punch = null; return fighters; }  // (taken back)
+            k = Math.min(el / s, 0.999);  // (its start-up, held at the last frame till the server's word)
+        } else if (el >= s + a + r && me.a !== p.move) {
+            this.punch = null;  // (done here, and done in the blend)
+            return fighters;
+        } else {
+            k = el < s ? el / s : el < s + a ? 1 + (el - s) / a : 2 + Math.min(1, (el - s - a) / r);
+        }
+        const drawn = {...me, a: p.move, k: Math.max(0, k)};
+        return fighters.map(f => f === me ? drawn : f);
+    }
+
+    footwork(fighters, localNow, serverSeen, rtt, myId, stats, dt = 1 / 60) {  // (CHANGE 167) walking and sidestepping
         const tr = this.track, me = fighters.find(f => f.id === myId);
         if (serverSeen === null || serverSeen === undefined || !me || !tr || !stats) return fighters;
         const ok = tr.free && FREE.has(me.a) && me.pos[2] < 0.01 && Math.hypot(tr.x - me.pos[0], tr.y - me.pos[1]) < APART_FIGHTER;

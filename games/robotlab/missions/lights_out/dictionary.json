@@ -1,0 +1,192 @@
+{
+  "name": "Club Coders pseudo code dictionary",
+  "version": 1,
+  "mission": "Robot Lab Mission 2: Lights Out",
+  "notes": "Mission 1's dictionary (extends) with only what Mission 2 adds: if / else with the robot's sensors, variables, and report. mission_pseudo.extend() puts the two together; Mission 1's file is unchanged.",
+  "extends": "../wake_up_call/dictionary.json",
+  "remove_patterns": ["pick_up"],
+  "change_patterns": {
+    "end": { "meaning": "Closes the most recent repeat, if or else.", "example": "end" },
+    "use": { "meaning": "Use the front spinner on the square in front of you: it grinds a rockfall away. Costs 2 energy.", "example": "use spinner" },
+    "repair": { "meaning": "Repair the lamp in front of you. Costs 3 energy, even if it was working.", "example": "repair" }
+  },
+  "patterns": [
+    {
+      "id": "if_sensor",
+      "say": "if [sensor]",
+      "python": "if {sensor}:",
+      "opens": true,
+      "block": "if",
+      "end_python": "# end of if",
+      "meaning": "Ask a sensor. Do the lines below (down to else or end) only if the answer is yes.",
+      "example": "if path blocked"
+    },
+    {
+      "id": "if_compare",
+      "say": "if [reading] [cmp] [v]",
+      "python": "if {reading} {cmp} {v}:",
+      "opens": true,
+      "block": "if",
+      "end_python": "# end of if",
+      "meaning": "Compare a variable (or the energy) with a number: the lines below happen only if it's true.",
+      "example": "if energy less than 5"
+    },
+    {
+      "id": "else",
+      "say": "else",
+      "python": "else:",
+      "middle": "if",
+      "meaning": "Inside an if: the lines from here to end happen only when the if's answer was no.",
+      "example": "else"
+    },
+    {
+      "id": "set",
+      "say": "set [name] to [v]",
+      "python": "{name} = {v}",
+      "assigns": "name",
+      "meaning": "Make a variable (a named number) and give it a value. Setting it again replaces the old value.",
+      "example": "set lamps to 0"
+    },
+    {
+      "id": "set_eq",
+      "say": "[name] equals [v]",
+      "python": "{name} = {v}",
+      "assigns": "name",
+      "alias": "set",
+      "meaning": "The Python way to set a variable: lamps = 0.",
+      "example": "lamps = 0"
+    },
+    {
+      "id": "add",
+      "say": "add [v] to [name]",
+      "python": "{name} = {name} + {v}",
+      "assigns": "name",
+      "meaning": "Add a number to a variable: its new value is its old value plus the number.",
+      "example": "add 1 to lamps"
+    },
+    {
+      "id": "add_eq",
+      "say": "[name] plus equals [v]",
+      "python": "{name} += {v}",
+      "assigns": "name",
+      "alias": "add",
+      "meaning": "The short Python way to add: lamps += 1.",
+      "example": "lamps += 1"
+    },
+    {
+      "id": "subtract",
+      "say": "subtract [v] from [name]",
+      "python": "{name} = {name} - {v}",
+      "assigns": "name",
+      "meaning": "Take a number away from a variable.",
+      "example": "subtract 1 from count"
+    },
+    {
+      "id": "subtract_eq",
+      "say": "[name] minus equals [v]",
+      "python": "{name} -= {v}",
+      "assigns": "name",
+      "alias": "subtract",
+      "meaning": "The short Python way to subtract: count -= 1.",
+      "example": "count -= 1"
+    },
+    {
+      "id": "calc_plus",
+      "say": "[name] equals [reading] plus [v]",
+      "python": "{name} = {reading} + {v}",
+      "assigns": "name",
+      "alias": "add",
+      "meaning": "Python: work out the right-hand side first, then put the answer in the variable: lamps = lamps + 1.",
+      "example": "lamps = lamps + 1"
+    },
+    {
+      "id": "calc_minus",
+      "say": "[name] equals [reading] minus [v]",
+      "python": "{name} = {reading} - {v}",
+      "assigns": "name",
+      "alias": "subtract",
+      "meaning": "Python: work out the right-hand side first, then put the answer in the variable: count = count - 1.",
+      "example": "count = count - 1"
+    },
+    {
+      "id": "report",
+      "say": "report [reading]",
+      "python": "robot.report({reading})",
+      "meaning": "Facing the radio mast: send the village a number (a variable's value).",
+      "example": "report lamps"
+    }
+  ],
+  "slots": {
+    "sensor": {
+      "kind": "choice",
+      "values": ["path blocked", "path clear", "rockfall in front", "lamp dark"],
+      "python": {
+        "path blocked": "robot.path_blocked()",
+        "path clear": "robot.path_clear()",
+        "rockfall in front": "robot.rockfall_in_front()",
+        "lamp dark": "robot.lamp_dark()"
+      },
+      "describe": "a sensor: path blocked, path clear, rockfall in front or lamp dark"
+    },
+    "name": {
+      "kind": "choice",
+      "values": ["lamps", "count", "total", "rocks", "energy"],
+      "read_only": {
+        "energy": "energy is the robot's battery: your code can read it (if energy less than 5) but not change it. Use a variable of your own: lamps, count, total or rocks."
+      },
+      "describe": "a variable: lamps, count, total or rocks"
+    },
+    "reading": {
+      "kind": "choice",
+      "values": ["lamps", "count", "total", "rocks", "energy"],
+      "python": { "energy": "robot.energy" },
+      "describe": "a variable (lamps, count, total or rocks) or energy"
+    },
+    "cmp": {
+      "kind": "choice",
+      "values": ["less than", "more than", "equals"],
+      "python": { "less than": "<", "more than": ">", "equals": "==" },
+      "describe": "less than, more than or equals"
+    },
+    "v": { "kind": "number", "min": 0, "max": 99, "describe": "a number from 0 to 99" }
+  },
+  "add_fillers": ["is", "by", "value", "variable"],
+  "symbols": [["==", "equals"], ["+=", "plus equals"], ["-=", "minus equals"], ["<", "less than"], [">", "more than"], ["=", "equals"], ["+", "plus"]],
+  "minus": "minus",
+  "synonyms": {
+    "otherwise": "else",
+    "end if": "end",
+    "endif": "end",
+    "battery": "energy",
+    "lamp out": "lamp dark",
+    "lamp off": "lamp dark",
+    "light": "lamp",
+    "lights": "lamps",
+    "rockfall ahead": "rockfall in front",
+    "rocks ahead": "rockfall in front",
+    "rock ahead": "rockfall in front",
+    "rocks in front": "rockfall in front",
+    "rock in front": "rockfall in front",
+    "path ahead blocked": "path blocked",
+    "path ahead clear": "path clear",
+    "way blocked": "path blocked",
+    "way clear": "path clear",
+    "fewer than": "less than",
+    "smaller than": "less than",
+    "below": "less than",
+    "greater than": "more than",
+    "bigger than": "more than",
+    "above": "more than",
+    "equal": "equals",
+    "same as": "equals",
+    "send": "report",
+    "tell": "report",
+    "print": "report",
+    "say": "report",
+    "take away": "subtract",
+    "increase": "add",
+    "decrease": "subtract"
+  },
+  "remove_synonyms": ["cell", "power cell", "powercell", "pickup", "grab", "collect", "take", "get"],
+  "number_words": { "zero": 0 }
+}

@@ -5,6 +5,8 @@
 #   sudo robotlab-add-class class2                      a new class playing Robot Lab: wss://<domain>/class2
 #   sudo robotlab-add-class class2 --game fightlab      a new class playing Fight Lab
 #   sudo robotlab-add-class class3 --game fightlab 8790 (a particular internal port)
+#   sudo robotlab-add-class class4 --game citylab      a new class playing City Lab (kartlab: Kart Lab)
+#   sudo robotlab-add-class class5 --game missions     a new class playing the story missions (Missions)
 #   sudo robotlab-add-class class1 --game fightlab      move a class to another game: learners keep their class
 #                                                       code, and the Club Coders app opens the new game next time
 #
@@ -29,12 +31,12 @@ DATA=/var/lib/robotlab
 
 [ "$(id -u)" -eq 0 ] || { echo "Please run this as root: sudo robotlab-add-class $NAME" >&2; exit 1; }
 [[ "$NAME" =~ ^class[0-9]{1,2}$ ]] || { echo "Class names are class1, class2 ... (not '$NAME')." >&2; exit 1; }
-[ -z "$GAME" ] || [[ "$GAME" =~ ^(robotlab|fightlab|kartlab)$ ]] || { echo "The game can be robotlab, fightlab or kartlab (not '$GAME')." >&2; exit 1; }
+[ -z "$GAME" ] || [[ "$GAME" =~ ^(robotlab|fightlab|kartlab|citylab|missions)$ ]] || { echo "The game can be robotlab, fightlab, kartlab, citylab or missions (not '$GAME')." >&2; exit 1; }
 [ -f "$ETC/domain" ] || { echo "Run setup.sh first." >&2; exit 1; }
 DOMAIN=$(cat "$ETC/domain")
 ADDRESS="wss://$DOMAIN/$NAME"
 [ "$NAME" != "class1" ] || ADDRESS="wss://$DOMAIN"
-title() { case "$1" in fightlab) echo "Fight Lab" ;; kartlab) echo "Kart Lab" ;; *) echo "Robot Lab" ;; esac; }
+title() { case "$1" in fightlab) echo "Fight Lab" ;; kartlab) echo "Kart Lab" ;; citylab) echo "City Lab" ;; missions) echo "Missions" ;; *) echo "Robot Lab" ;; esac; }
 
 # ---------- an existing class: change its game ----------
 if [ -f "$ETC/$NAME.env" ]; then
@@ -77,7 +79,7 @@ install -d -m 700 -o robotlab -g robotlab "$DATA/$NAME"
 CODE=$(python3 -c "import secrets; a='abcdefghjkmnpqrstuvwxyz23456789'; print('-'.join(''.join(secrets.choice(a) for _ in range(4)) for _ in range(2)))")
 umask 027
 cat > "$ETC/$NAME.env" <<EOF
-# $NAME: $ADDRESS (robotlab-add-class). Its game (robotlab, fightlab or kartlab) and its own class code;
+# $NAME: $ADDRESS (robotlab-add-class). Its game (robotlab, fightlab, kartlab, citylab or missions) and its own class code;
 # the teacher code is shared.
 PORT=$PORT
 GAME=$GAME

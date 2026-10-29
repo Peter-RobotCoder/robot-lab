@@ -90,6 +90,10 @@ LAUNCH_SPEED, LAUNCH_ACCEL, LAUNCH_GRIP, LAUNCH_SPIN = 6.0, 0.35, 0.3, 150.0  # 
 TYRE_GRIP, TYRE_TOP, TYRE_ACCEL = 0.5, 0.08, 0.1
 TYRE_FRESH = 2.5         # seconds a pit stop takes to put new tyres on
 BAY_STOP = 1.5           # m/s: stopped in your pit bay (the lane's stop mends and changes the tyres)
+# (stall recovery) a kart whose driver (a learner, a brain, a computer kart) holds the throttle for STUCK_SECONDS
+# without getting STUCK_METRES from where it was (nose in the barrier, pinned by another kart, beached in the gravel
+# against the wall) is put back on the track as R does. The server's Race only: the step isn't changed
+STUCK_SECONDS, STUCK_METRES, STUCK_THROTTLE = 5.0, 3.0, 0.3
 FLAGS_GRID, FLAGS_RACE, FLAGS_OVER = 0, 1, 2   # the snapshot's flags byte: the race's phase
 
 # the wire record for one kart (engine.wire): both ends round their numbers to this every tick
@@ -552,6 +556,7 @@ class Race:
         self.user_mods = {}     # the engine's user mods switched on (USER_MODS): nothing uses them yet
         self.wear_rate = 0.0    # (CHANGE 178) tyre wear for each metre driven (0: off), see set_tyres
         self.no_wear = set()    # ...karts whose tyres never wear (none by default: the computer karts pit too, CHANGE 186)
+        self.stuck = {}         # (stall recovery) id -> [x, y, ticks]: where it was when it began trying, and for how long
 
     @property
     def time(self):
@@ -600,7 +605,8 @@ class Race:
         return k
 
     def remove(self, kid):
-        for d in (self.karts, self.designs, self.stats, self.finish, self.hits, self.lap_times, self.lap_start):
+        for d in (self.karts, self.designs, self.stats, self.finish, self.hits, self.lap_times, self.lap_start,
+                  self.stuck):
             d.pop(kid, None)
         self.no_wear.discard(kid)
 
@@ -616,6 +622,7 @@ class Race:
             self.items.shots, self.items.slicks, self.items.changed = [], [], True
         self.finish = {}
         self.lap_times, self.lap_start = {}, {}
+        self.stuck = {}
         self.phase = FLAGS_GRID
         self.go_tick = None
 
@@ -645,6 +652,11 @@ class Race:
             inp = (0.0, 0.0, 0) if frozen or kid in self.finish else inputs.get(kid, (0.0, 0.0, 0))
             if inp[2] & RESPAWN and not frozen:
                 self.respawn(k)
+                self.stuck.pop(kid, None)
+                inp = (0.0, 0.0, 0)
+            elif not frozen and kid not in self.finish and self.stalled(kid, k, inp):
+                self.respawn(k)
+                self.events.append((self.tick, f"{self.designs[kid]['name']} was stuck: back on the track"))
                 inp = (0.0, 0.0, 0)
             n = step(k, inp, STEP, self.track, self.stats[kid], self.damage,
                      0.0 if kid in self.no_wear else self.wear_rate)
@@ -660,6 +672,25 @@ class Race:
             self.phase = FLAGS_OVER
             self.events.append((self.tick, "Race over"))
         return self.karts
+
+    def stalled(self, kid, k, inp):
+        """(stall recovery) True once kart kid's driver has held the throttle (either way) for STUCK_SECONDS without
+        the kart getting STUCK_METRES from where it began trying. Letting go of the throttle, a burnout or donut
+        (wheelspin, the handbrake: on purpose) or the pit lane (its bay holds a kart still) starts the count again,
+        so a parked kart is never moved."""
+        if abs(inp[0]) < STUCK_THROTTLE or k["flags"] & (FLAG_WHEELSPIN | FLAG_HANDBRAKE) or \
+                surface(self.track, k["seg"], k["s"], k["lat"]) == "lane":
+            self.stuck.pop(kid, None)
+            return False
+        w = self.stuck.get(kid)
+        if w is None or kmath.hypot(k["x"] - w[0], k["y"] - w[1]) > STUCK_METRES:
+            self.stuck[kid] = [k["x"], k["y"], 0]
+            return False
+        w[2] += 1
+        if w[2] < STUCK_SECONDS / STEP:
+            return False
+        del self.stuck[kid]
+        return True
 
     def respawn(self, k):
         """Back onto the track at the last gate passed, facing the right way."""

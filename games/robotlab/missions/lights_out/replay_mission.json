@@ -1,0 +1,2625 @@
+{
+"mission_version": 1,
+"md5": "d8f2fe4891e2de8979feb10235f6db1a",
+"cases": [
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 3 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 3 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"lamps = 0\nrepeat 13 times\n  if robot.path_blocked():\n    use spinner\n  else:\n    move forward 1\n  end\n  if lamp_dark():\n    turn left\n    repair\n    turn right\n    lamps = lamps + 1\n  end\nend\nprint(lamps)"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "lamps = 0\nrepeat 13 times\n  if robot.path_blocked():\n    use spinner\n  else:\n    move forward 1\n  end\n  if lamp_dark():\n    turn left\n    repair\n    turn right\n    lamps = lamps + 1\n  end\nend\nprint(lamps)"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 3 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"move forward 1\nturn left\nrepair\nturn right\nuse spinner\nmove forward 4\nturn left\nrepair\nturn right\nuse spinner\nmove forward 3\nuse spinner\nmove forward 1\nturn left\nrepair\nturn right\nmove forward 1\nset lamps to 3\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\nturn left\nrepair\nturn right\nuse spinner\nmove forward 4\nturn left\nrepair\nturn right\nuse spinner\nmove forward 3\nuse spinner\nmove forward 1\nturn left\nrepair\nturn right\nmove forward 1\nset lamps to 3\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nset lamps to 3\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nset lamps to 3\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"repeat 10 times\nuse spinner\nmove forward 1\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 10 times\nuse spinner\nmove forward 1\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"repeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if path blokced\nuse spinner\nend",
+"move forward 1\nturn left\nrepair\nturn right\nuse spinner\nmove forward 4\nturn left\nrepair\nturn right\nuse spinner\nmove forward 3\nuse spinner\nmove forward 1\nturn left\nrepair\nturn right\nmove forward 1\nset lamps to 3\nreport lamps",
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps",
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blokced\nuse spinner\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nturn left\nrepair\nturn right\nuse spinner\nmove forward 4\nturn left\nrepair\nturn right\nuse spinner\nmove forward 3\nuse spinner\nmove forward 1\nturn left\nrepair\nturn right\nmove forward 1\nset lamps to 3\nreport lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "error stopped stopped complete -> 3 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 20 times\nrepeat 20 times\nrepeat 20 times\nturn left\nend\nend\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 20 times\nrepeat 20 times\nrepeat 20 times\nturn left\nend\nend\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"repeat 7 times\nmove forward 1\nreport lamps\nend\nif lamps equals 12\nuse spinner\nend\nif lamp dark\nsubtract 1 from lamps\nend\nmove forward 1\nif path clear\nmove forward 1\nelse\nlamps = lamps + 1\nend\ncount += 2\nset lamps to 0",
+"set lamps to 0\nmove forward 2\nset count to 0",
+"if energy less than 13\nmove forward 2\nend\nif rockfall in front\nlamps = lamps + 1\nend\nsubtract 1 from lamps\nrepeat 13 times\nuse spinner\nturn left\nend\nturn right\nif path blocked\nuse spinner\nend\nif energy equals 4\nset lamps to 0\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 7 times\nmove forward 1\nreport lamps\nend\nif lamps equals 12\nuse spinner\nend\nif lamp dark\nsubtract 1 from lamps\nend\nmove forward 1\nif path clear\nmove forward 1\nelse\nlamps = lamps + 1\nend\ncount += 2\nset lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nmove forward 2\nset count to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if energy less than 13\nmove forward 2\nend\nif rockfall in front\nlamps = lamps + 1\nend\nsubtract 1 from lamps\nrepeat 13 times\nuse spinner\nturn left\nend\nturn right\nif path blocked\nuse spinner\nend\nif energy equals 4\nset lamps to 0\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"report lamps",
+"set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "report lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"move back 1\nturn left\nif lamps equals 8\nturn left\nend\nmove back 1\nsubtract 1 from lamps\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nturn left\nif lamps equals 8\nturn left\nend\nmove back 1\nsubtract 1 from lamps\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"if path clear\nreport lamps\nelse\nmove back 1\nend\nif lamps more than 5\nreport energy\nend\nlamps = lamps + 1\nuse spinner\nturn right\nlamps = lamps + 1",
+"set count to 0\nif energy equals 1\nreport lamps\nend\nreport energy\nrepeat 9 times\nrepair\nmove back 1\nend\nturn left",
+"set lamps to 0\nmove forward 1"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path clear\nreport lamps\nelse\nmove back 1\nend\nif lamps more than 5\nreport energy\nend\nlamps = lamps + 1\nuse spinner\nturn right\nlamps = lamps + 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set count to 0\nif energy equals 1\nreport lamps\nend\nreport energy\nrepeat 9 times\nrepair\nmove back 1\nend\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"move back 1\nif path blocked\nreport lamps\nelse\nmove back 1\nend\nmove forward 2\nif path clear\nturn left\nend\nreport energy\nturn right",
+"move forward 1\nset count to 0\nrepair\nrepeat 12 times\nset lamps to 0\nmove forward 2\nend\nmove forward 1\ncount += 2"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nif path blocked\nreport lamps\nelse\nmove back 1\nend\nmove forward 2\nif path clear\nturn left\nend\nreport energy\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nset count to 0\nrepair\nrepeat 12 times\nset lamps to 0\nmove forward 2\nend\nmove forward 1\ncount += 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"repeat 5 times\nturn left\nmove forward 2\nend\nreport lamps",
+"repeat 2 times\nset count to 0\nturn left\nend\nturn right\nturn right\nrepair",
+"move forward 1"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 5 times\nturn left\nmove forward 2\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\nset count to 0\nturn left\nend\nturn right\nturn right\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 10 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 3 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"count += 2\nrepair\ncount += 2\nmove forward 2"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "count += 2\nrepair\ncount += 2\nmove forward 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 10 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"move forward 1\ncount += 2\nrepeat 3 times\nmove forward 2\ncount += 2\nend\nrepair\nmove forward 1\nrepeat 2 times\nset lamps to 0\nlamps = lamps + 1\nend",
+"report energy\nif rockfall in front\nset count to 0\nelse\ncount += 2\nend\nturn right\nreport lamps",
+"repeat 7 times\nreport energy\nset lamps to 0\nend\nreport energy\nrepeat 5 times\nlamps = lamps + 1\nadd 1 to lamps\nend\nreport lamps\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\ncount += 2\nrepeat 3 times\nmove forward 2\ncount += 2\nend\nrepair\nmove forward 1\nrepeat 2 times\nset lamps to 0\nlamps = lamps + 1\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report energy\nif rockfall in front\nset count to 0\nelse\ncount += 2\nend\nturn right\nreport lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 7 times\nreport energy\nset lamps to 0\nend\nreport energy\nrepeat 5 times\nlamps = lamps + 1\nadd 1 to lamps\nend\nreport lamps\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if energy less than 0\nreport lamps\nend\nset count to 0",
+"set count to 0\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if energy less than 0\nreport lamps\nend\nset count to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set count to 0\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 10 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"repeat 7 times\nreport energy\nrepair\nend",
+"turn right\nmove back 1\nuse spinner\nif energy more than 13\nreport energy\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 7 times\nreport energy\nrepair\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nmove back 1\nuse spinner\nif energy more than 13\nreport energy\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"report energy",
+"set lamps to 0\nrepeat 10 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "report energy"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"turn right\nadd 1 to lamps\nset count to 0",
+"use spinner\nrepair\nturn left",
+"if lamp dark\nmove forward 2\nend\nturn right\nreport lamps\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn right\nadd 1 to lamps\nset count to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nrepair\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if lamp dark\nmove forward 2\nend\nturn right\nreport lamps\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"if energy less than 7\nmove forward 2\nend\nmove back 1\nif lamps less than 2\nreport lamps\nend\nset lamps to 0\nif path clear\nmove forward 2\nelse\nmove forward 2\nend\nset lamps to 0\nturn left",
+"report energy\nrepeat 11 times\nturn right\nturn left\nend\nset lamps to 0\nif path clear\nadd 1 to lamps\nend\nsubtract 1 from lamps\nturn right\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if energy less than 7\nmove forward 2\nend\nmove back 1\nif lamps less than 2\nreport lamps\nend\nset lamps to 0\nif path clear\nmove forward 2\nelse\nmove forward 2\nend\nset lamps to 0\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report energy\nrepeat 11 times\nturn right\nturn left\nend\nset lamps to 0\nif path clear\nadd 1 to lamps\nend\nsubtract 1 from lamps\nturn right\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"lamps = lamps + 1\nif path blocked\nlamps = lamps + 1\nelse\nset lamps to 0\nend\nif rockfall in front\nset lamps to 0\nelse\nturn left\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "lamps = lamps + 1\nif path blocked\nlamps = lamps + 1\nelse\nset lamps to 0\nend\nif rockfall in front\nset lamps to 0\nelse\nturn left\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"turn left\nsubtract 1 from lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left\nsubtract 1 from lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"if energy more than 10\nreport energy\nend\nrepeat 9 times\nuse spinner\nadd 1 to lamps\nend\nuse spinner",
+"turn left\nlamps = lamps + 1"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if energy more than 10\nreport energy\nend\nrepeat 9 times\nuse spinner\nadd 1 to lamps\nend\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\nlamps = lamps + 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 14 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 14 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"if path clear\ncount += 2\nend\nif energy more than 18\nuse spinner\nend\nreport energy",
+"if path blocked\nlamps = lamps + 1\nelse\nlamps = lamps + 1\nend\ncount += 2\nset count to 0\nadd 1 to lamps",
+"repeat 1 times\nreport lamps\ncount += 2\nend\nif energy less than 20\nadd 1 to lamps\nend\nturn right\nturn right\nsubtract 1 from lamps\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path clear\ncount += 2\nend\nif energy more than 18\nuse spinner\nend\nreport energy"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path blocked\nlamps = lamps + 1\nelse\nlamps = lamps + 1\nend\ncount += 2\nset count to 0\nadd 1 to lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nreport lamps\ncount += 2\nend\nif energy less than 20\nadd 1 to lamps\nend\nturn right\nturn right\nsubtract 1 from lamps\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if lamp dark\nreport energy\nelse\nsubtract 1 from lamps\nend\nrepeat 10 times\nadd 1 to lamps\nmove forward 2\nend\nmove forward 2\nif energy equals 15\nsubtract 1 from lamps\nend\nset count to 0\nset lamps to 0\nmove back 1",
+"repair",
+"set count to 0\nif path clear\nset lamps to 0\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if lamp dark\nreport energy\nelse\nsubtract 1 from lamps\nend\nrepeat 10 times\nadd 1 to lamps\nmove forward 2\nend\nmove forward 2\nif energy equals 15\nsubtract 1 from lamps\nend\nset count to 0\nset lamps to 0\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set count to 0\nif path clear\nset lamps to 0\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"add 1 to lamps\nmove forward 2\nif path clear\nset count to 0\nend\nrepeat 11 times\nmove forward 2\nreport energy\nend\nif path clear\nuse spinner\nelse\nlamps = lamps + 1\nend\nset lamps to 0",
+"if path blocked\nset lamps to 0\nend\nrepair\nturn left\nif energy less than 8\nmove back 1\nend\nif energy more than 5\nset count to 0\nend",
+"report energy\nif path clear\nreport energy\nend\nrepair\nmove back 1\nif lamps less than 18\nrepair\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "add 1 to lamps\nmove forward 2\nif path clear\nset count to 0\nend\nrepeat 11 times\nmove forward 2\nreport energy\nend\nif path clear\nuse spinner\nelse\nlamps = lamps + 1\nend\nset lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path blocked\nset lamps to 0\nend\nrepair\nturn left\nif energy less than 8\nmove back 1\nend\nif energy more than 5\nset count to 0\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report energy\nif path clear\nreport energy\nend\nrepair\nmove back 1\nif lamps less than 18\nrepair\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 3 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"count += 2"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "count += 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"subtract 1 from lamps",
+"set lamps to 0\nrepeat 14 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    set lamps to 1\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "subtract 1 from lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 14 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    set lamps to 1\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"if path blocked\nset lamps to 0\nend\nadd 1 to lamps\nlamps = lamps + 1"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blocked\nset lamps to 0\nend\nadd 1 to lamps\nlamps = lamps + 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if lamp dark\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if lamp dark\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"turn right\nif lamp dark\nturn right\nend\nreport energy\nreport energy\nif lamp dark\nset lamps to 0\nelse\nmove forward 2\nend\nrepair\nmove back 1"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn right\nif lamp dark\nturn right\nend\nreport energy\nreport energy\nif lamp dark\nset lamps to 0\nelse\nmove forward 2\nend\nrepair\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"use spinner",
+"set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if energy less than 12\nmove forward 2\nend",
+"report lamps\nmove forward 2",
+"report energy\nif rockfall in front\nmove back 1\nelse\nset count to 0\nend\nrepair\nif lamps less than 2\nreport energy\nend\nmove back 1"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if energy less than 12\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report lamps\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report energy\nif rockfall in front\nmove back 1\nelse\nset count to 0\nend\nrepair\nif lamps less than 2\nreport energy\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"report lamps",
+"set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "report lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"add 1 to lamps\ncount += 2\nsubtract 1 from lamps\nif lamps more than 16\nmove forward 1\nend\nif energy less than 12\nset count to 0\nend\nset lamps to 0",
+"repair\nif rockfall in front\nmove back 1\nelse\nset count to 0\nend\nadd 1 to lamps\nif energy less than 4\ncount += 2\nend\nreport energy\nsubtract 1 from lamps",
+"repair\nturn right"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "add 1 to lamps\ncount += 2\nsubtract 1 from lamps\nif lamps more than 16\nmove forward 1\nend\nif energy less than 12\nset count to 0\nend\nset lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nif rockfall in front\nmove back 1\nelse\nset count to 0\nend\nadd 1 to lamps\nif energy less than 4\ncount += 2\nend\nreport energy\nsubtract 1 from lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if rockfall in front\ncount += 2\nelse\nset lamps to 0\nend\nset lamps to 0\nif lamps equals 4\nlamps = lamps + 1\nend",
+"set lamps to 0\nset count to 0\nif lamps equals 18\nadd 1 to lamps\nend\nrepair\nadd 1 to lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if rockfall in front\ncount += 2\nelse\nset lamps to 0\nend\nset lamps to 0\nif lamps equals 4\nlamps = lamps + 1\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nset count to 0\nif lamps equals 18\nadd 1 to lamps\nend\nrepair\nadd 1 to lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 14 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport count"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 14 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport count"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if path blocked\nturn right\nend\nmove forward 1\nif rockfall in front\nreport energy\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blocked\nturn right\nend\nmove forward 1\nif rockfall in front\nreport energy\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"use spinner\nreport lamps\nreport lamps\nreport lamps",
+"if path clear\nmove forward 2\nend\nset lamps to 0\nturn left\ncount += 2"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nreport lamps\nreport lamps\nreport lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path clear\nmove forward 2\nend\nset lamps to 0\nturn left\ncount += 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nmove forward 1\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nmove forward 1\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if path blocked\nturn left\nelse\nmove back 1\nend\nif lamps less than 1\nmove forward 1\nend\ncount += 2\nmove forward 2\nadd 1 to lamps\nuse spinner\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blocked\nturn left\nelse\nmove back 1\nend\nif lamps less than 1\nmove forward 1\nend\ncount += 2\nmove forward 2\nadd 1 to lamps\nuse spinner\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if path blocked\nturn right\nelse\nturn right\nend\nreport lamps\nturn left\nmove forward 1\nrepair",
+"set count to 0\nrepeat 13 times\nmove forward 2\nmove back 1\nend\nif lamps less than 8\nuse spinner\nend\nturn left\nset lamps to 0\nrepair\ncount += 2",
+"report energy\nreport energy\nrepeat 2 times\nreport energy\nturn left\nend\nif energy more than 9\ncount += 2\nend\nrepeat 9 times\ncount += 2\ncount += 2\nend\nmove forward 2\nturn left"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blocked\nturn right\nelse\nturn right\nend\nreport lamps\nturn left\nmove forward 1\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set count to 0\nrepeat 13 times\nmove forward 2\nmove back 1\nend\nif lamps less than 8\nuse spinner\nend\nturn left\nset lamps to 0\nrepair\ncount += 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report energy\nreport energy\nrepeat 2 times\nreport energy\nturn left\nend\nif energy more than 9\ncount += 2\nend\nrepeat 9 times\ncount += 2\ncount += 2\nend\nmove forward 2\nturn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"lamps = lamps + 1",
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "lamps = lamps + 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"add 1 to lamps\nif path blocked\nmove forward 2\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "add 1 to lamps\nif path blocked\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 10 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"count += 2\nadd 1 to lamps\nrepeat 4 times\nsubtract 1 from lamps\nmove forward 1\nend\nmove back 1",
+"if path clear\nreport energy\nelse\nmove forward 1\nend\ncount += 2\nif rockfall in front\nset count to 0\nend\nif lamp dark\nreport energy\nend\nif rockfall in front\nadd 1 to lamps\nend\nset lamps to 0",
+"if path clear\nmove back 1\nelse\nturn left\nend\nmove forward 2\nset count to 0\nset lamps to 0"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "count += 2\nadd 1 to lamps\nrepeat 4 times\nsubtract 1 from lamps\nmove forward 1\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path clear\nreport energy\nelse\nmove forward 1\nend\ncount += 2\nif rockfall in front\nset count to 0\nend\nif lamp dark\nreport energy\nend\nif rockfall in front\nadd 1 to lamps\nend\nset lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path clear\nmove back 1\nelse\nturn left\nend\nmove forward 2\nset count to 0\nset lamps to 0"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"repair",
+"move forward 1\nif rockfall in front\nrepair\nelse\ncount += 2\nend\nif lamp dark\nreport energy\nend\nset count to 0\nif path clear\nmove forward 2\nelse\nmove back 1\nend",
+"if rockfall in front\nadd 1 to lamps\nelse\nrepair\nend\nrepeat 12 times\nuse spinner\nlamps = lamps + 1\nend\nadd 1 to lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nif rockfall in front\nrepair\nelse\ncount += 2\nend\nif lamp dark\nreport energy\nend\nset count to 0\nif path clear\nmove forward 2\nelse\nmove back 1\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if rockfall in front\nadd 1 to lamps\nelse\nrepair\nend\nrepeat 12 times\nuse spinner\nlamps = lamps + 1\nend\nadd 1 to lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    set lamps to 1\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path clear\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    set lamps to 1\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"move back 1\nturn left\nturn left\nreport energy\nif lamp dark\nturn left\nend\nmove back 1",
+"turn right\nreport energy\nif rockfall in front\nset lamps to 0\nend\nif lamp dark\nlamps = lamps + 1\nelse\nrepair\nend\nturn right"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nturn left\nturn left\nreport energy\nif lamp dark\nturn left\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nreport energy\nif rockfall in front\nset lamps to 0\nend\nif lamp dark\nlamps = lamps + 1\nelse\nrepair\nend\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 12 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"repeat 12 times\nreport lamps\nturn left\nend\nif path clear\nlamps = lamps + 1\nend\nadd 1 to lamps\nrepair\nadd 1 to lamps\nrepeat 3 times\nmove forward 1\nlamps = lamps + 1\nend\nif path blocked\nlamps = lamps + 1\nelse\nset lamps to 0\nend",
+"if path clear\nrepair\nend\nlamps = lamps + 1\nsubtract 1 from lamps\nset lamps to 0"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 12 times\nreport lamps\nturn left\nend\nif path clear\nlamps = lamps + 1\nend\nadd 1 to lamps\nrepair\nadd 1 to lamps\nrepeat 3 times\nmove forward 1\nlamps = lamps + 1\nend\nif path blocked\nlamps = lamps + 1\nelse\nset lamps to 0\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path clear\nrepair\nend\nlamps = lamps + 1\nsubtract 1 from lamps\nset lamps to 0"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"if lamps more than 15\nturn right\nend\nif lamps equals 0\nset lamps to 0\nend\nturn left",
+"add 1 to lamps\nadd 1 to lamps\nrepeat 2 times\nlamps = lamps + 1\nrepair\nend\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if lamps more than 15\nturn right\nend\nif lamps equals 0\nset lamps to 0\nend\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "add 1 to lamps\nadd 1 to lamps\nrepeat 2 times\nlamps = lamps + 1\nrepair\nend\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nmove forward 1\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nmove forward 1\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if lamps equals 0\nreport energy\nend\nif lamp dark\nrepair\nend",
+"set count to 0"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if lamps equals 0\nreport energy\nend\nif lamp dark\nrepair\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set count to 0"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nmove forward 1\nif energy equals 15\nmove forward 2\nend\ncount += 2\nmove forward 2",
+"if lamp dark\nrepair\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nmove forward 1\nif energy equals 15\nmove forward 2\nend\ncount += 2\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if lamp dark\nrepair\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"repair",
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"use spinner\nif path blocked\nreport lamps\nelse\nadd 1 to lamps\nend\nlamps = lamps + 1\nuse spinner\nmove forward 1\nmove forward 1\nuse spinner"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nif path blocked\nreport lamps\nelse\nadd 1 to lamps\nend\nlamps = lamps + 1\nuse spinner\nmove forward 1\nmove forward 1\nuse spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if lamps less than 12\nmove forward 1\nend\nuse spinner\nset lamps to 0\nif energy less than 5\nsubtract 1 from lamps\nend\nturn right\nif lamps equals 12\ncount += 2\nend",
+"if energy less than 13\ncount += 2\nend\nif path blocked\nsubtract 1 from lamps\nend\nuse spinner\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if lamps less than 12\nmove forward 1\nend\nuse spinner\nset lamps to 0\nif energy less than 5\nsubtract 1 from lamps\nend\nturn right\nif lamps equals 12\ncount += 2\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if energy less than 13\ncount += 2\nend\nif path blocked\nsubtract 1 from lamps\nend\nuse spinner\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"lamps = lamps + 1",
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "lamps = lamps + 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped complete -> 2 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"repeat 11 times\nturn right\ncount += 2\nend\nif path blocked\nset count to 0\nelse\nrepair\nend\nrepeat 8 times\nrepair\nrepair\nend",
+"subtract 1 from lamps\nrepeat 11 times\nreport lamps\nsubtract 1 from lamps\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 11 times\nturn right\ncount += 2\nend\nif path blocked\nset count to 0\nelse\nrepair\nend\nrepeat 8 times\nrepair\nrepair\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "subtract 1 from lamps\nrepeat 11 times\nreport lamps\nsubtract 1 from lamps\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0",
+"set lamps to 0\nrepeat 10 times\n  if rockfall in front\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if rockfall in front\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    subtract 1 from lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"repeat 2 times\nuse spinner\nsubtract 1 from lamps\nend\nset lamps to 0\nreport lamps\nuse spinner\nmove forward 1"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nuse spinner\nsubtract 1 from lamps\nend\nset lamps to 0\nreport lamps\nuse spinner\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 2 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nturn right"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0",
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"if path clear\nturn right\nelse\nuse spinner\nend\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path clear\nturn right\nelse\nuse spinner\nend\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 14 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 14 times\n  if lamp dark\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"turn left",
+"use spinner\nif lamps equals 13\nturn right\nend\nrepair\nuse spinner",
+"if path blocked\nadd 1 to lamps\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nif lamps equals 13\nturn right\nend\nrepair\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path blocked\nadd 1 to lamps\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 13 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"if lamp dark\nrepair\nend\nif path clear\ncount += 2\nelse\ncount += 2\nend\nif lamps more than 3\nadd 1 to lamps\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if lamp dark\nrepair\nend\nif path clear\ncount += 2\nelse\ncount += 2\nend\nif lamps more than 3\nadd 1 to lamps\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"subtract 1 from lamps",
+"set lamps to 0\nrepeat 14 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nmove forward 1\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "subtract 1 from lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 14 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nmove forward 1\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"repeat 6 times\nmove forward 2\nturn right\nend\nsubtract 1 from lamps\nadd 1 to lamps",
+"repair\nif lamps more than 9\nsubtract 1 from lamps\nend\nset lamps to 0\nif rockfall in front\nlamps = lamps + 1\nelse\nreport energy\nend\nif energy more than 0\nset lamps to 0\nend\nset lamps to 0"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 6 times\nmove forward 2\nturn right\nend\nsubtract 1 from lamps\nadd 1 to lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nif lamps more than 9\nsubtract 1 from lamps\nend\nset lamps to 0\nif rockfall in front\nlamps = lamps + 1\nelse\nreport energy\nend\nif energy more than 0\nset lamps to 0\nend\nset lamps to 0"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"count += 2",
+"set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "count += 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"if rockfall in front\nuse spinner\nelse\nmove forward 1\nend\nrepeat 9 times\nuse spinner\nsubtract 1 from lamps\nend",
+"subtract 1 from lamps\nadd 1 to lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if rockfall in front\nuse spinner\nelse\nmove forward 1\nend\nrepeat 9 times\nuse spinner\nsubtract 1 from lamps\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "subtract 1 from lamps\nadd 1 to lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 16 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"repeat 11 times\nset lamps to 0\nset count to 0\nend\nrepeat 4 times\nlamps = lamps + 1\nmove forward 1\nend\ncount += 2\nturn right\nif path clear\nreport energy\nend",
+"move forward 2\nturn right\nif lamps less than 20\ncount += 2\nend",
+"if rockfall in front\nreport lamps\nend\nrepeat 1 times\nsubtract 1 from lamps\nlamps = lamps + 1\nend\nif lamp dark\nsubtract 1 from lamps\nelse\nturn left\nend\nreport energy\nif lamps less than 9\nturn right\nend\nset lamps to 0\nsubtract 1 from lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 11 times\nset lamps to 0\nset count to 0\nend\nrepeat 4 times\nlamps = lamps + 1\nmove forward 1\nend\ncount += 2\nturn right\nif path clear\nreport energy\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2\nturn right\nif lamps less than 20\ncount += 2\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if rockfall in front\nreport lamps\nend\nrepeat 1 times\nsubtract 1 from lamps\nlamps = lamps + 1\nend\nif lamp dark\nsubtract 1 from lamps\nelse\nturn left\nend\nreport energy\nif lamps less than 9\nturn right\nend\nset lamps to 0\nsubtract 1 from lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"report energy",
+"set lamps to 0\nrepeat 11 times\n  if lamp dark\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "report energy"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if lamp dark\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if path blocked\nturn right\nend\nrepeat 2 times\nset lamps to 0\nreport lamps\nend\nif lamps equals 3\nmove forward 1\nend\nset lamps to 0\nif path clear\nreport energy\nelse\nadd 1 to lamps\nend\nreport lamps",
+"subtract 1 from lamps\nif path blocked\nturn left\nend\nmove forward 1\nset lamps to 0"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blocked\nturn right\nend\nrepeat 2 times\nset lamps to 0\nreport lamps\nend\nif lamps equals 3\nmove forward 1\nend\nset lamps to 0\nif path clear\nreport energy\nelse\nadd 1 to lamps\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "subtract 1 from lamps\nif path blocked\nturn left\nend\nmove forward 1\nset lamps to 0"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    set lamps to 1\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    set lamps to 1\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if path blocked\nlamps = lamps + 1\nelse\nset count to 0\nend\nturn right\nsubtract 1 from lamps\nrepeat 12 times\nadd 1 to lamps\nmove back 1\nend\nif energy less than 14\nreport lamps\nend",
+"count += 2\nif path blocked\nuse spinner\nend\ncount += 2\nmove back 1\nif path blocked\nrepair\nend\nrepair",
+"set count to 0\nif lamps equals 1\nmove back 1\nend\nif lamps more than 15\nlamps = lamps + 1\nend\nreport energy"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if path blocked\nlamps = lamps + 1\nelse\nset count to 0\nend\nturn right\nsubtract 1 from lamps\nrepeat 12 times\nadd 1 to lamps\nmove back 1\nend\nif energy less than 14\nreport lamps\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "count += 2\nif path blocked\nuse spinner\nend\ncount += 2\nmove back 1\nif path blocked\nrepair\nend\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set count to 0\nif lamps equals 1\nmove back 1\nend\nif lamps more than 15\nlamps = lamps + 1\nend\nreport energy"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 2 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"move back 1\nif lamps less than 13\nturn left\nend\nset count to 0\nmove forward 1\nrepair",
+"repeat 8 times\nset lamps to 0\nrepair\nend\nif lamps more than 1\nadd 1 to lamps\nend\nif energy less than 14\nreport energy\nend\nlamps = lamps + 1",
+"set lamps to 0\nif rockfall in front\nmove back 1\nend\nif lamps less than 19\nset lamps to 0\nend\nrepeat 5 times\nreport energy\nreport lamps\nend\nsubtract 1 from lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nif lamps less than 13\nturn left\nend\nset count to 0\nmove forward 1\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 8 times\nset lamps to 0\nrepair\nend\nif lamps more than 1\nadd 1 to lamps\nend\nif energy less than 14\nreport energy\nend\nlamps = lamps + 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nif rockfall in front\nmove back 1\nend\nif lamps less than 19\nset lamps to 0\nend\nrepeat 5 times\nreport energy\nreport lamps\nend\nsubtract 1 from lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"set lamps to 0",
+"set lamps to 0\nrepeat 9 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 9 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"turn right\nif path clear\nset count to 0\nend\ncount += 2\nif lamp dark\nmove back 1\nelse\nsubtract 1 from lamps\nend\nturn right\ncount += 2",
+"count += 2\nmove forward 1",
+"report lamps\nreport lamps\nrepeat 5 times\nmove forward 1\nmove forward 2\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn right\nif path clear\nset count to 0\nend\ncount += 2\nif lamp dark\nmove back 1\nelse\nsubtract 1 from lamps\nend\nturn right\ncount += 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "count += 2\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "report lamps\nreport lamps\nrepeat 5 times\nmove forward 1\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"move forward 1",
+"set lamps to 0\nrepeat 10 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 2 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"move forward 1\nif lamps less than 6\nturn left\nend\nset lamps to 0\nif rockfall in front\nreport lamps\nelse\nturn right\nend",
+"if path blocked\nmove forward 2\nelse\nturn right\nend\nuse spinner\nreport lamps\nrepeat 1 times\ncount += 2\nlamps = lamps + 1\nend\nif rockfall in front\nmove back 1\nelse\nset lamps to 0\nend",
+"if lamps equals 18\ncount += 2\nend\nmove forward 2\nlamps = lamps + 1\nmove back 1\nuse spinner\nadd 1 to lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\nif lamps less than 6\nturn left\nend\nset lamps to 0\nif rockfall in front\nreport lamps\nelse\nturn right\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if path blocked\nmove forward 2\nelse\nturn right\nend\nuse spinner\nreport lamps\nrepeat 1 times\ncount += 2\nlamps = lamps + 1\nend\nif rockfall in front\nmove back 1\nelse\nset lamps to 0\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if lamps equals 18\ncount += 2\nend\nmove forward 2\nlamps = lamps + 1\nmove back 1\nuse spinner\nadd 1 to lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"subtract 1 from lamps",
+"set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "subtract 1 from lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"report energy\nreport energy\nlamps = lamps + 1\nturn right\nif path blocked\nset count to 0\nend\nif lamps less than 11\nmove forward 1\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "report energy\nreport energy\nlamps = lamps + 1\nturn right\nif path blocked\nset count to 0\nend\nif lamps less than 11\nmove forward 1\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"add 1 to lamps",
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "add 1 to lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"report lamps\nmove forward 2\nif energy more than 20\nmove forward 2\nend\ncount += 2",
+"add 1 to lamps\nadd 1 to lamps\nrepeat 12 times\nturn right\nmove back 1\nend\nmove forward 1\nif path clear\nset count to 0\nelse\nrepair\nend\nif lamp dark\ncount += 2\nend\nrepeat 5 times\nreport lamps\nturn right\nend",
+"move forward 2\nrepeat 3 times\nmove back 1\nadd 1 to lamps\nend\nlamps = lamps + 1\nif path blocked\nrepair\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "report lamps\nmove forward 2\nif energy more than 20\nmove forward 2\nend\ncount += 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "add 1 to lamps\nadd 1 to lamps\nrepeat 12 times\nturn right\nmove back 1\nend\nmove forward 1\nif path clear\nset count to 0\nelse\nrepair\nend\nif lamp dark\ncount += 2\nend\nrepeat 5 times\nreport lamps\nturn right\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2\nrepeat 3 times\nmove back 1\nadd 1 to lamps\nend\nlamps = lamps + 1\nif path blocked\nrepair\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if rockfall in front\nmove back 1\nelse\nreport energy\nend",
+"count += 2"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if rockfall in front\nmove back 1\nelse\nreport energy\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "count += 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"turn right",
+"set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"if rockfall in front\nreport lamps\nend\nmove forward 2\nif path clear\nset lamps to 0\nelse\nturn left\nend\ncount += 2\nif energy equals 15\nturn left\nend\nmove forward 2\nif energy less than 4\nsubtract 1 from lamps\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "if rockfall in front\nreport lamps\nend\nmove forward 2\nif path clear\nset lamps to 0\nelse\nturn left\nend\ncount += 2\nif energy equals 15\nturn left\nend\nmove forward 2\nif energy less than 4\nsubtract 1 from lamps\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"set lamps to 0\nrepeat 10 times\n  if rockfall in front\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 10 times\n  if rockfall in front\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"move back 1\nrepeat 13 times\nlamps = lamps + 1\nturn left\nend\nset count to 0\nif lamps more than 1\nturn left\nend\nif lamps more than 2\nlamps = lamps + 1\nend\nuse spinner",
+"if rockfall in front\nuse spinner\nend\nmove forward 1\nrepeat 10 times\nuse spinner\nuse spinner\nend\nreport lamps\nmove back 1\nset lamps to 0\nturn left"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nrepeat 13 times\nlamps = lamps + 1\nturn left\nend\nset count to 0\nif lamps more than 1\nturn left\nend\nif lamps more than 2\nlamps = lamps + 1\nend\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "if rockfall in front\nuse spinner\nend\nmove forward 1\nrepeat 10 times\nuse spinner\nuse spinner\nend\nreport lamps\nmove back 1\nset lamps to 0\nturn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"set lamps to 0",
+"set lamps to 0\nrepeat 11 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if rockfall in front\n    use spinner\n  end\n  move forward 1\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"turn left\nif rockfall in front\nset lamps to 0\nend\nif lamp dark\nsubtract 1 from lamps\nelse\nset lamps to 0\nend\nrepeat 1 times\nset lamps to 0\nset count to 0\nend\nif lamp dark\nturn right\nend\ncount += 2"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left\nif rockfall in front\nset lamps to 0\nend\nif lamp dark\nsubtract 1 from lamps\nelse\nset lamps to 0\nend\nrepeat 1 times\nset lamps to 0\nset count to 0\nend\nif lamp dark\nturn right\nend\ncount += 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 15 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 2 stars"
+},
+{
+"robot": "TITAN",
+"solar": true,
+"runs": [
+"if lamp dark\ncount += 2\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "if lamp dark\ncount += 2\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": true,
+"runs": [
+"add 1 to lamps",
+"set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "add 1 to lamps"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 12 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport count"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"repeat 10 times\nreport energy\nset lamps to 0\nend"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 10 times\nreport energy\nset lamps to 0\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"solar": false,
+"runs": [
+"report energy",
+"set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"
+],
+"keys": [
+["key", "f2"],
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "report energy"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "set lamps to 0\nrepeat 11 times\n  if path blocked\n    use spinner\n  else\n    move forward 1\n  end\n  if lamp dark\n    turn left\n    repair\n    turn right\n    add 1 to lamps\n  end\nend\nreport lamps"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"solar": false,
+"runs": [
+"count += 2",
+"subtract 1 from lamps\nreport lamps\nreport energy\nset count to 0\nset lamps to 0\nsubtract 1 from lamps\nrepeat 8 times\ncount += 2\nrepair\nend",
+"move forward 1\nuse spinner\nturn right\nif energy less than 19\nturn right\nend\nuse spinner\nuse spinner\nrepair"
+],
+"keys": [
+["key", "f2"],
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "count += 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "subtract 1 from lamps\nreport lamps\nreport energy\nset count to 0\nset lamps to 0\nsubtract 1 from lamps\nrepeat 8 times\ncount += 2\nrepair\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nuse spinner\nturn right\nif energy less than 19\nturn right\nend\nuse spinner\nuse spinner\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+}
+],
+"results": "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"
+}

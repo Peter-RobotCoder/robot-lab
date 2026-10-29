@@ -188,6 +188,16 @@ def look():
     return line_look.look()
 
 
+def sun():
+    """The key light's NodePath (None on mesh and lines): a game turns its shadows on and off in a run (CHANGE 188)."""
+    return _state.get("sun")
+
+
+def pipeline():
+    """The simplepbr pipeline in use, or None (basic, mesh, lines): its msaa_samples can change in a run."""
+    return _state.get("pipeline")
+
+
 def set_line_colour(text):
     """mesh and lines: the learner's line colour, at once on everything drawn (CHANGE 145)."""
     line_look.set_line_colour(text)

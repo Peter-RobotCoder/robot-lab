@@ -1447,12 +1447,16 @@ export class FightGame {
 
     learnerTabs() { return [["camera", "Camera"]]; }
 
-    controlSent(msg, now) { this.ahead.control(now / 1000, msg.f, msg.s, msg.hold); }  // (play.js: CHANGE 167)
+    controlSent(msg, now) {  // (play.js: CHANGE 167; a punch's start-up drawn at once: CHANGE 193)
+        this.ahead.control(now / 1000, msg.f, msg.s, msg.hold);
+        if (msg.press) this.ahead.press(now / 1000, msg.press);
+    }
 
     message(m) {
         if (m.type === "roster") {
             this.roster = m;
             this.move = new Map((m.fighters || []).filter(x => x.move).map(x => [x.id, x.move]));  // (CHANGE 167)
+            this.punch = new Map((m.fighters || []).filter(x => x.punch).map(x => [x.id, x.punch]));  // (CHANGE 193)
             this.scene.setSetup({rings: m.rings || [0], rs: m.rs || 4.5, hazards: m.hazards || {}, look: m.look || {}});
             this.scene.setFighters(m.fighters || []);
             this.scene.watchRing = this.watched();
@@ -1465,7 +1469,7 @@ export class FightGame {
             if (myId !== null && m.acks && m.acks[myId] !== undefined && this.app.ctrl) this.app.ctrl.ack(m.acks[myId], performance.now());
             this.app.pushSnap(m, performance.now());
             const mine = myId !== null ? (m.rings || []).find(r => (r.f || []).some(x => x.id === myId)) : null;
-            this.ahead.snapshot(m.sm / 1000, mine ? mine.f : [], myId);  // (CHANGE 167)
+            this.ahead.snapshot(m.sm / 1000, mine ? mine.f : [], myId, mine ? mine.ph : null);  // (CHANGE 167, 193)
             this.last = m;
             this.scene.impacts(m.fx || [], m.rings || []);  // (sparks, flashes, dust, debris and the shake: fightfx.js)
             this.impacts = (this.impacts || []).concat(m.fx || []);  // (heard on the next frame: sound.js)
@@ -1508,7 +1512,8 @@ export class FightGame {
             const ri = (fighters.find(x => x.id === my) || {}).ri;
             if (ri !== undefined) {
                 const drawn = new Map(this.ahead.adjust(fighters.filter(x => x.ri === ri), now / 1000, (now - S.offset) / 1000,
-                                                        S.rttS ?? (S.pingMs || 0) / 1000, my, this.move.get(my) || null, dt).map(x => [x.id, x]));
+                                                        S.rttS ?? (S.pingMs || 0) / 1000, my, this.move.get(my) || null, dt,
+                                                        (this.punch && this.punch.get(my)) || null).map(x => [x.id, x]));
                 fighters = fighters.map(x => drawn.get(x.id) || x);
             }
         }

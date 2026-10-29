@@ -30,7 +30,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # club-coders/ (or the public repository)
 CLUB_SERVER = "wss://play.clubcoders.co.uk"
 GAMES = {"robotlab": ("Robot Lab", "shared-world-demo"), "fightlab": ("Fight Lab", "BeatEmUp"),
-         "kartlab": ("Kart Lab", "kart")}  # each game: its name and its folder in the club's development repository
+         "kartlab": ("Kart Lab", "kart"), "citylab": ("City Lab", "city")}  # each game: its name and its folder in the club's development repository
 TEACHER_FILE = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "ClubCoders", "teacher.json")
 TEXT = 4000  # (card fields are cut to this, as a learner's card is)
 

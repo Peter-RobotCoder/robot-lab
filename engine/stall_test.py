@@ -1,6 +1,6 @@
 """One window that stops reading mustn't hold up everyone else's game (CHANGE 160).
 
-    python engine/stall_test.py [robot|fight|kart|all]
+    python engine/stall_test.py [robot|fight|kart|city|all]
 
 A laptop server for the game; a teacher's connection reading everything; a learner's connection that logs in and
 then stops reading (a laptop lid half shut, a weak Wi-Fi corner: its socket's receive buffer is made tiny, so the
@@ -32,6 +32,7 @@ GAMES = {  # folder, server, data folder's variable, version module
     "robot": (game_folder("shared-world-demo", "robotlab"), "lab_server.py", "ROBOTLAB_DATA", "lab_version"),
     "fight": (game_folder("BeatEmUp", "fightlab"), "fight_server.py", "FIGHTLAB_DATA", "fight_version"),
     "kart": (game_folder("kart", "kartlab"), "kart_server.py", "KARTLAB_DATA", "kart_version"),
+    "city": (game_folder("city", "citylab"), "city_server.py", "CITYLAB_DATA", "city_version"),  # (CHANGE 194)
 }
 WATCH = 12.0
 MOST_GAP = 0.5
@@ -89,7 +90,8 @@ def run(game):
     port = free_port()
     env = {k: v for k, v in os.environ.items() if k not in ("JOIN_CODE", "TEACHER_CODE")}
     env[data_var] = os.path.join(work, "data")
-    args = [sys.executable, script, "--port", str(port)] + (["--cpu", "3"] if game == "kart" else [])
+    args = [sys.executable, script, "--port", str(port)] + (["--cpu", "3"] if game == "kart" else
+                                                            ["--traffic", "2", "--robots", "1"] if game == "city" else [])
     server = subprocess.Popen(args, cwd=os.path.join(ROOT, folder), env=env, stdout=open(os.path.join(work, "log"), "w"),
                               stderr=subprocess.STDOUT)
     try:

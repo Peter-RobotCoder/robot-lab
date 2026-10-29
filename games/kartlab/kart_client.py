@@ -89,7 +89,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEACHER_SETTINGS = os.path.join(HERE, "teacher_settings.json")  # the teacher's laptop only: never in git
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "KartLab")
 from engine import editor as code_editor  # noqa: E402  (the engine: shared by every game)
-from engine import hud  # noqa: E402
+from engine import hud, reopen  # noqa: E402
 from engine import garage, schema  # noqa: E402
 from engine.hud import DARK, button, check, label, load_json, remember, text_button, word  # noqa: E402,F401
 from engine.hud import YELLOW, WHITE, GREY, RED, GREEN, BLUE, ORANGE, PANEL, ON, OFF, BOX, HANDLE  # noqa: E402,F401
@@ -752,20 +752,10 @@ class Lab(hud.HudKit, ShowBase):
                 del argv[i:i + 2]
         if TEACHER:
             argv += ["--name", name]
-        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        program = [sys.executable] if kart_version.FROZEN else [sys.executable, os.path.abspath(__file__)]
-        log_dir = SETTINGS_DIR if kart_version.FROZEN else HERE
-        os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, "window.log"), "a") as log:
-            child = subprocess.Popen(program + argv, cwd=os.getcwd() if kart_version.FROZEN else HERE, env=env,
-                                     stdout=log, stderr=log, creationflags=flags)
-        if os.environ.get("CLUBCODERS_WINDOW_PID_FILE"):  # (the app that opened this window follows the new one:
-            try:                                          # CHANGE 154)
-                with open(os.environ["CLUBCODERS_WINDOW_PID_FILE"], "w", encoding="utf-8") as f:
-                    f.write(str(child.pid))
-            except OSError:
-                pass
-        os._exit(0)
+        # (the new process, window.log, the app told the new process id, os._exit: engine.reopen, shared by every
+        # game's window since CHANGE 189)
+        reopen.reopen(__file__, argv, env, frozen=kart_version.FROZEN,
+                      log_dir=SETTINGS_DIR if kart_version.FROZEN else HERE)
 
     def toggle_code(self):
         self.show_code = not self.show_code

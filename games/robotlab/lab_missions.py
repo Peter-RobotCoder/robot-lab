@@ -145,6 +145,24 @@ MISSIONS = {
 }
 
 
+# ---------- story missions ----------
+# A different kind from MISSIONS above (a lesson's objectives, checked by the class server): a story played on its own,
+# one learner and no server, in its own window, driven with pseudo code (docs/plans/wake-up-call-3d.md). What a
+# mission unlocks is kept on the learner's computer for the next one (mission_wake_up.record_finish).
+STORY_MISSIONS = {
+    "wake_up_call": dict(number=1, title="Wake-Up Call", window="wake_up_call.py", outcomes=["ALG", "VAR"],
+                         unlocks="solar_panel",
+                         text="Your robot has crash-landed above Brookfield with a nearly flat battery. Recharge it, "
+                              "pick up a tool, clear the rockfall, reach the village and repair its power supply, "
+                              "all in pseudo code that is shown as Python beside it."),
+    "lights_out": dict(number=2, title="Lights Out", window="wake_up_call.py --mission lights_out",
+                       outcomes=["SEL", "VAR", "ALG"], uses="solar_panel",
+                       text="Night falls: rocks come down on the hill road and lamps go out, in different places "
+                            "every night. One program has to work on three nights, so it looks with if and else and "
+                            "keeps count of the lamps it repairs in a variable."),
+}
+
+
 def points_words(text, limits):
     """A mission's words with the teacher's own numbers in them: the missions are written for 100 points to share
     and 5 to 50 for each (the standard limits), and the teacher can change both (the Limits tab)."""

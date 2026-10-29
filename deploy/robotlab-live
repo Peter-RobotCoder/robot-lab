@@ -27,7 +27,8 @@ DATA = "/var/lib/robotlab"
 sys.path.insert(0, os.path.join(APP, "live"))
 import live_format as lf  # noqa: E402
 
-VERSION_FILES = {"robotlab": "lab_version.py", "fightlab": "fight_version.py"}
+VERSION_FILES = {"robotlab": "lab_version.py", "fightlab": "fight_version.py", "kartlab": "kart_version.py",
+                 "citylab": "city_version.py"}
 ID = re.compile(lf.ID_PATTERN)
 
 
@@ -151,7 +152,8 @@ def running(game):
         if (plays.group(1) if plays else "robotlab") != game:
             continue
         cls = name[:-4]
-        path = os.path.join(DATA, cls, *(["fightlab"] if game == "fightlab" else []), "running_code")
+        path = os.path.join(DATA, cls, *([game] if game != "robotlab" else []), "running_code")  # (every game but
+        # Robot Lab keeps the class's data in its own folder: run-class.sh)
         try:
             with open(path, encoding="utf-8") as f:
                 out[cls] = f.read().strip()

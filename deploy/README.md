@@ -1,6 +1,6 @@
 # Club Coders class server: setting up the IONOS VPS
 
-This folder turns a fresh IONOS VPS (Ubuntu 24.04) into the always-on class server at `wss://play.<club domain>`. Each of the club's games (Robot Lab, Fight Lab) has one game server. Learners use one app, **Club Coders**, and log in with a username and password: the server's club desk sends them to the game their launched group is playing. The teacher logs in to the same app to manage learners and groups, and to launch and stop a group.
+This folder turns a fresh IONOS VPS (Ubuntu 24.04) into the always-on class server at `wss://play.<club domain>`. Each of the club's games (Robot Lab, Fight Lab, Kart Lab, City Lab) has one game server. Learners use one app, **Club Coders**, and log in with a username and password: the server's club desk sends them to the game their launched group is playing. The teacher logs in to the same app to manage learners and groups, and to launch and stop a group.
 
 ## What the kit does
 
@@ -15,7 +15,7 @@ This folder turns a fresh IONOS VPS (Ubuntu 24.04) into the always-on class serv
 | `robotlab-backup`, plus the `.timer` | Nightly backup at 02:30 to `/var/backups/robotlab`, readable by root only and kept 14 days. |
 | `requirements-server.txt` | The Python packages the servers need. |
 
-The server keeps learners' data per class in `/var/lib/robotlab/<class>/` (Fight Lab's in `/var/lib/robotlab/<class>/fightlab/`): profiles, evidence and AI cards. Learners' robots and fighters are in each game's `mods/` folder under `/opt/robotlab/app/games/`. The teacher code is in `/etc/robotlab.env`, readable only by root, the desk and the game servers. The desk's records (usernames, scrambled passwords, groups, session records with notes) are in `/var/lib/robotlab/desk`, readable only by the desk.
+The server keeps learners' data per class in `/var/lib/robotlab/<class>/` (Fight Lab's in `/var/lib/robotlab/<class>/fightlab/`, Kart Lab's in `.../kartlab/`, City Lab's in `.../citylab/`): profiles, evidence and AI cards. Learners' robots, fighters, karts and drivers are in each game's `mods/` folder under `/opt/robotlab/app/games/`. The teacher code is in `/etc/robotlab.env`, readable only by root, the desk and the game servers. The desk's records (usernames, scrambled passwords, groups, session records with notes) are in `/var/lib/robotlab/desk`, readable only by the desk.
 
 ## Before you start
 
@@ -46,11 +46,14 @@ Everything day to day is done in the Club Coders app's **Teacher** screen, or th
 
 ## Game servers
 
-Each game has one server; groups take turns on it (one group is live at a time). `setup.sh` starts Robot Lab's (`class1`). Fight Lab's is added once:
+Each game has one server; groups take turns on it (one group is live at a time). `setup.sh` starts Robot Lab's (`class1`). The others are added once each:
 
 | Command (on the VPS) | What it does |
 | --- | --- |
 | `sudo robotlab-add-class class2 --game fightlab` | Fight Lab's game server (`wss://play.<club domain>/class2`); the desk finds it by its `GAME=` |
+| `sudo robotlab-add-class class3 --game kartlab` | Kart Lab's game server |
+| `sudo robotlab-add-class class4 --game citylab` | City Lab's game server (CHANGE 194) |
+| `sudo robotlab-add-class class5 --game missions` | the Missions class server: the story missions launched for a group (CHANGE 195) |
 
 The desk uses the first server it finds for each game, so there's no need for more. (The per-class code these commands print is unused now.)
 
@@ -63,7 +66,7 @@ teacher password (the app's Teacher screen one). Since 1.9.4 it is the whole Tea
 Launch and Stop, this session's notes, and Records, printed (or saved as PDFs) from the browser. Watching a class,
 the desk gives it a ticket; it draws the race from the same snapshots the windows get, carries the lesson controls
 and shows how every learner's window is doing (fps, ping, stalls). Only one teacher window may be open on a class, so close the
-Kart Lab teacher window on the laptop first. Since 1.9.5 it draws all three games and has every teacher tab (learners, outcomes, AI cards, rules, warnings,
+Kart Lab teacher window on the laptop first. Since 1.9.5 it draws every game (City Lab since 1.9.25) and has every teacher tab (learners, outcomes, AI cards, rules, warnings,
 Restart server); sending an AI card to Claude still happens in the app on your laptop. Since 1.9.6 it lights the
 games as the app does (its tiers, textures and skies, from `web/tex/`) and draws a capped number of pixels per tier.
 `robotlab-update` installs the new Caddy settings with the release.

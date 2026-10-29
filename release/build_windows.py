@@ -35,7 +35,19 @@ GAMES = {"robotlab": ("Robot Lab", "lab_server.py", "ROBOTLAB_DATA",
                       "rw_textures.ensure(); rw_sound.ensure(); fight_sound.ensure()"),
          "kartlab": ("Kart Lab", "kart_server.py", "KARTLAB_DATA",
                      "import kart_version; from engine import rw_textures, rw_sound; import kart_sound; "
-                     "rw_textures.ensure(); rw_sound.ensure(); kart_sound.ensure()")}
+                     "rw_textures.ensure(); rw_sound.ensure(); kart_sound.ensure()"),
+         # (CHANGE 194) City Lab draws Kart Lab's cars and Fight Lab's fighters and plays their sounds: city_version
+         # puts games/kartlab and games/fightlab on the path, so their sound makers import from games/citylab
+         "citylab": ("City Lab", "city_server.py", "CITYLAB_DATA",
+                     "import city_version; from engine import rw_textures, rw_sound; import kart_sound, fight_sound; "
+                     "rw_textures.ensure(); rw_sound.ensure(); kart_sound.ensure(); fight_sound.ensure()"),
+         # (CHANGE 195) Missions: the story missions as a class game; its server and window live in Robot Lab's folder
+         "missions": ("Missions", "missions_server.py", "MISSIONS_DATA", "")}
+FOLDERS = {"missions": "robotlab"}  # a game whose files live in another game's folder (games/<folder>)
+
+
+def game_folder(game):
+    return os.path.join(ROOT, "games", FOLDERS.get(game, game))
 # (the textures and sounds are made into engine/assets, which the app carries beside games/)
 
 READ_ME = """CLUB CODERS
@@ -45,8 +57,8 @@ READ_ME = """CLUB CODERS
 2. Type the class code from your welcome letter and press GO. Your class's game opens:
    log in with the username and password from your welcome letter.
 3. From the lesson where you write a brain, it's in the brains folder next to this file:
-   brains\\robotlab\\my_brain.py (Robot Lab), brains\\fightlab\\my_brain.py (Fight Lab) or
-   brains\\kartlab\\my_brain.py (Kart Lab).
+   brains\\robotlab\\my_brain.py (Robot Lab), brains\\fightlab\\my_brain.py (Fight Lab),
+   brains\\kartlab\\my_brain.py (Kart Lab) or brains\\citylab\\my_brain.py (City Lab).
    Open it with Notepad, then press U in the game to upload it.
 
 Only use a nickname or first name as your username. Never put personal information in the game.
@@ -98,11 +110,14 @@ def main():
     with open(os.path.join(ROOT, "build", "release_config.json"), "w", encoding="utf-8") as f:
         json.dump(config, f)
     for game, (_, _, _, make_assets) in GAMES.items():
-        run([sys.executable, "-c", make_assets], cwd=os.path.join(ROOT, "games", game))
+        if make_assets:
+            run([sys.executable, "-c", make_assets], cwd=game_folder(game))
     shutil.rmtree(APP, ignore_errors=True)
     run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--distpath", DIST,
          "--workpath", os.path.join(ROOT, "build"), os.path.join("release", "clubcoders.spec")])
     for game in GAMES:  # learners edit these, so they sit next to the app, not inside it
+        if game in FOLDERS:  # (Missions has no brain: the robot is driven by the mission's code)
+            continue
         os.makedirs(os.path.join(APP, "brains", game), exist_ok=True)
         shutil.copy(os.path.join(ROOT, "games", game, "brains", "my_brain.py"),
                     os.path.join(APP, "brains", game, "my_brain.py"))
@@ -161,7 +176,7 @@ def check():
             port = free_port()
             games[game] = f"ws://127.0.0.1:{port}"
             procs.append(subprocess.Popen(
-                [sys.executable, server, "--class-server", "--port", str(port)], cwd=os.path.join(ROOT, "games", game),
+                [sys.executable, server, "--class-server", "--port", str(port)], cwd=game_folder(game),
                 env=dict(env, **{data_env: os.path.join(tmp, game)},
                          CLUBCODERS_DESK_INBOX=os.path.join(desk_data, "inbox", game)),
                 stdout=log(f"server-{game}"), stderr=subprocess.STDOUT))

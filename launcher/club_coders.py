@@ -10,10 +10,15 @@ desk: learners (add, reset a password, remove), groups (name, game, learners), L
 Launch opens the teacher window in that game. While the teacher password is still the server setup's teacher
 code, logging in asks the teacher to choose their own (CHANGE 148).
 
+Four games (CHANGE 189): Robot Lab, Fight Lab and Kart Lab, which a class is launched into, and Missions (Mission 1,
+Wake-Up Call, and the Mission 2 prototype, Lights Out: one learner driving a robot with pseudo code), which needs no class and no login: its button is on
+the first screen for everyone, and the app waits behind its window as it does behind a class's game.
+
     Club Coders.exe                          the downloaded app: this window
     Club Coders.exe --game robotlab ...      the app running one game (how this window starts a game)
     python launcher/club_coders.py           from the source files; "Play on: This computer (test)" opens a game on
-                                             the laptop test servers (Robot Lab ws://127.0.0.1:8780, Fight Lab 8781)
+                                             the laptop test servers (Robot Lab ws://127.0.0.1:8780, Fight Lab 8781,
+                                             Kart Lab 8782, City Lab 8783, Missions 8784)
 
 Live updates: the teacher can put new game code on the class server without a new download (live/make_live.py).
 A class running one says which (its id). The app downloads it once from https://<server>/code/<game>/<id>.zip and
@@ -56,6 +61,12 @@ LIVE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or SETTINGS_DIR, "ClubCod
 
 # each game: its window's file, the environment variable it reopens itself with (see run_as_game), and its
 # laptop test server. dev: its folder in the club's development repository (next to club-coders/).
+# Missions (CHANGE 189): the story missions, Mission 1 "Wake-Up Call" and Mission 2 "Lights Out". Played alone from
+# the MISSIONS button on the first screen (no login, whether a class is live or not), and since CHANGE 195 a class
+# game too: the teacher launches a group into it and the Missions class server (missions_server.py) keeps each
+# learner's progress and reports to the desk. Its window lives in Robot Lab's folder (folder: it uses Robot Lab's
+# robots, effects and look) and reopens itself (a Graphics choice) carrying its state in WAKE_UP_CALL_REOPEN, which
+# is how the downloaded app knows to run it again (which_game).
 GAMES = {
     "robotlab": {"title": "Robot Lab", "client": "lab_client.py", "login_env": "ROBOTLAB_LOGIN",
                  "reopen_env": "ROBOTLAB_REOPENED",
@@ -66,11 +77,18 @@ GAMES = {
     "kartlab": {"title": "Kart Lab", "client": "kart_client.py", "login_env": "KARTLAB_LOGIN",
                 "reopen_env": "KARTLAB_REOPENED",
                 "local": "ws://127.0.0.1:8782", "dev": "kart"},
+    "citylab": {"title": "City Lab", "client": "city_client.py", "login_env": "CITYLAB_LOGIN",  # (CHANGE 194)
+                "reopen_env": "CITYLAB_REOPENED",
+                "local": "ws://127.0.0.1:8783", "dev": "city"},
+    "missions": {"title": "Missions", "client": "wake_up_call.py", "login_env": "WAKE_UP_CALL_REOPEN",
+                 "reopen_env": "MISSIONS_REOPENED", "folder": "robotlab",
+                 "local": "ws://127.0.0.1:8784", "dev": "shared-world-demo"},
 }
+CLASS_GAMES = tuple(GAMES)  # the games a class is launched into (every one since CHANGE 195)
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx", "--window")
 GFX_CHOICES = ("auto", "mesh", "lines", "low", "medium", "high", "ultra")  # the Graphics button on the first screen
-# (auto: the game picks; Kart Lab and Robot Lab draw all seven, CHANGE 144 and 145: Fight Lab draws mesh and lines
-# as basic and ultra as high)
+# (auto: the game picks; Kart Lab, Robot Lab and City Lab draw all seven, CHANGE 144, 145 and 194: Fight Lab draws
+# mesh and lines as basic and ultra as high)
 # the Window button (CHANGE 126): auto is the game's own remembered size (its Settings tab); the rest are passed
 # as --window, and the game remembers them too
 WINDOW_CHOICES = ("auto", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160", "full")
@@ -124,7 +142,8 @@ def release_config():
 def game_dir(game):
     """Where a game's files are: inside the downloaded app, in the public repository, or in the club's own
     development folders."""
-    for d in (os.path.join(BUNDLE, "games", game), os.path.join(ROOT, "games", game),
+    folder = GAMES[game].get("folder", game)  # (Missions lives in Robot Lab's folder)
+    for d in (os.path.join(BUNDLE, "games", folder), os.path.join(ROOT, "games", folder),
               os.path.join(ROOT, "..", GAMES[game]["dev"])):
         if os.path.exists(os.path.join(d, GAMES[game]["client"])):
             return os.path.abspath(d)
@@ -489,7 +508,9 @@ def launcher(args, passed_on):
             self.taskMgr.add(self.read_desk, "desk")
             if args.snap:  # (tests: a picture of this window after a few seconds, then close)
                 self.taskMgr.doMethodLater(args.snap, lambda t: self.finish(), "snap")
-            if args.login:
+            if args.test_missions:  # (tests: the Missions button pressed, as a learner would)
+                self.taskMgr.doMethodLater(0.5, lambda t: self.open_missions(), "auto")
+            elif args.login:
                 self.taskMgr.doMethodLater(0.5, lambda t: self.log_in(*args.login), "auto")
             elif args.teacher_password:
                 self.taskMgr.doMethodLater(0.5, lambda t: self.teacher_login(args.teacher_password), "auto")
@@ -544,8 +565,10 @@ def launcher(args, passed_on):
             label(f, "CLUB CODERS", 0, 0.62, 0.11, yellow)
             if self.local:
                 label(f, "Open a game on this computer's test server:", 0, 0.25, 0.045)
-                for i, (game, g) in enumerate(GAMES.items()):
-                    button(f, g["title"], -0.6 + i * 0.6, 0.08, self.open_local, [game], 0.07, (0.15, 0.45, 0.65, 1))
+                for i, game in enumerate(CLASS_GAMES):  # (five games since CHANGE 194 and 195: centred)
+                    x0 = -0.275 * (len(CLASS_GAMES) - 1)
+                    button(f, GAMES[game]["title"], x0 + i * 0.55, 0.08, self.open_local, [game], 0.06,
+                           (0.15, 0.45, 0.65, 1))
             else:
                 username = keep.get("user", saved.get("username", ""))
                 label(f, "Username", -0.55, 0.27, 0.05)
@@ -558,6 +581,11 @@ def launcher(args, passed_on):
                                             command=lambda t: self.log_in())
                 button(f, "LOG IN", 0, -0.08, self.log_in, (), 0.07, go_col)
                 label(f, "Teachers: your username is teacher.", 0, -0.25, 0.033, grey)
+            # Missions (CHANGE 189): on this computer alone, no class and no login, so it is here for everyone, a
+            # class live or not, beside the games a class is launched into
+            y = -0.22 if self.local else -0.36
+            label(f, "On your own, no login:", -0.72, y, 0.036, grey, TextNode.ARight)
+            button(f, "MISSIONS: Wake-Up Call, Lights Out", -0.08, y, self.open_missions, (), 0.045, (0.15, 0.45, 0.65, 1))
             if test_build() or self.local:  # (the laptop test servers: the club's own test builds and the source files)
                 button(f, "Play on: " + ("This computer (test)" if self.local else "Online class"), 1.22, -0.72,
                        self.set_where, [not self.local], 0.035)
@@ -618,7 +646,10 @@ def launcher(args, passed_on):
             self.game_proc = None  # the game window closed: the teacher stopped it, or the learner closed it
             self.came_back = True
             self.minimised(False)
-            if self.link is not None and self.link.open:
+            if self.game_title == GAMES["missions"]["title"]:  # (CHANGE 189: no class behind it: the first screen)
+                self.show("home")
+                self.say("Missions has closed. Open it again, or log in to your class.", grey)
+            elif self.link is not None and self.link.open:
                 self.show("waiting")
                 self.ask_desk({"type": "wait", "after": self.live_id})  # (the desk's next launch reaches this app)
             else:  # (the desk connection went while the game was open: once logged in again, the next game opens)
@@ -707,11 +738,15 @@ def launcher(args, passed_on):
                 when = f", {g['time']}" if g.get("time") else ""
                 label(f, f"{g['name']}  ({title}, {len(g['learners'])} learners{when})", 0.05, y, 0.038, white,
                       TextNode.ALeft)
-                if not live:
-                    label(f, "lesson", 0.72, y - 0.001, 0.028, grey, TextNode.ALeft)
-                    for n in st.get("lessons", [1, 2, 3, 4, 5]):
-                        button(f, str(n), 0.86 + (n - 1) * 0.065, y + 0.007, self.launch, [g["name"], n], 0.028,
-                               go_col if n == 1 else off)
+                if not live:  # (CHANGE 196: the game's own lessons; a game with a few, such as Missions, by their names)
+                    lessons = (st.get("lessons_for") or {}).get(g["game"]) or st.get("lessons", [1, 2, 3, 4, 5])
+                    titles = (st.get("lesson_titles") or {}).get(g["game"]) or {}
+                    label(f, "lesson" if len(lessons) > 3 else "launch", 0.72, y - 0.001, 0.028, grey, TextNode.ALeft)
+                    x = 0.86
+                    for i, n in enumerate(lessons):
+                        words = str(n) if len(lessons) > 3 else (titles.get(str(n)) or f"Lesson {n}").split(" (")[0][:26]
+                        button(f, words, x, y + 0.007, self.launch, [g["name"], n], 0.028, go_col if i == 0 else off)
+                        x += 0.065 if len(lessons) > 3 else 0.03 + 0.0145 * len(words)
                 button(f, "Edit", 1.2, y + 0.007, self.edit_group, [g["name"]], 0.028)
                 button(f, "Delete", 1.36, y + 0.007, self.delete_group, [g["name"]], 0.028, warn_col)
                 y -= 0.075
@@ -775,9 +810,9 @@ def launcher(args, passed_on):
             label(f, "RECORDS", -1.44, 0.82, 0.06, yellow, TextNode.ALeft)
             label(f, "Past sessions (newest first). PDFs go in Documents\\Club Coders records.", -1.44, 0.72, 0.036,
                   grey, TextNode.ALeft)
-            for i, game in enumerate(GAMES):
-                button(f, f"Print scheme of work: {GAMES[game]['title']}", 0.3 + i * 0.62, 0.82, self.print_scheme, [game],
-                       0.032, (0.15, 0.45, 0.65, 1))
+            for i, game in enumerate(CLASS_GAMES):  # (two rows of two since CHANGE 194: a fourth button fell off the screen)
+                button(f, f"Print scheme of work: {GAMES[game]['title']}", 0.5 + (i % 2) * 0.66, 0.84 - (i // 2) * 0.07,
+                       self.print_scheme, [game], 0.032, (0.15, 0.45, 0.65, 1))
             y = 0.6
             for s in self.sessions[:12]:
                 report = s.get("report") or {}
@@ -929,7 +964,7 @@ def launcher(args, passed_on):
                 self.show("waiting")
             elif m.get("go"):
                 g = m["go"]
-                if g.get("game") in GAMES and address_ok(g.get("address")):
+                if g.get("game") in CLASS_GAMES and address_ok(g.get("address")):
                     self.say(f"Opening {GAMES[g['game']]['title']}...", green)
                     self.graphicsEngine.renderFrame()
                     argv = ["--host", g["address"], "--ticket", g["ticket"]] + self.game_args()
@@ -987,6 +1022,21 @@ def launcher(args, passed_on):
         def open_local(self, game):
             start_game(game, ["--host", GAMES[game]["local"]] + self.game_args(), wait=args.wait)
             self.finish()
+
+        def open_missions(self):
+            """Missions (CHANGE 189): its window, on this computer, with the Graphics and Window choices; the app
+            stays open behind it as it does behind a class's game, and comes back when it closes."""
+            if args.wait:  # (tests: run it to its end, then exit with its result)
+                return self.finish(start_game("missions", self.game_args(), wait=True))
+            self.game_proc = follow(self.game_proc)
+            if self.game_proc is not None:
+                return self.say("A game is already open in its own window.", grey)
+            self.game_proc = start_game("missions", self.game_args())
+            self.game_title = GAMES["missions"]["title"]
+            self.show("playing")
+            self.minimised(True)
+            self.taskMgr.remove("watch game")
+            self.taskMgr.add(self.watch_game, "watch game")
 
         def log_in(self, user=None, password=None):
             user = user or self.field("user")
@@ -1209,6 +1259,7 @@ def _main():
     ap.add_argument("--screenshot-launcher", help="save a picture of this window before it closes (tests)")
     ap.add_argument("--snap", type=float, help="close this window after this many seconds (tests)")
     ap.add_argument("--test-stop", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--test-missions", action="store_true", help=argparse.SUPPRESS)  # (tests: press MISSIONS at once)
     ap.add_argument("--test-screen", help=argparse.SUPPRESS)  # (tests: start on this screen, e.g. teacher_password)
     ap.add_argument("--test-newer", help=argparse.SUPPRESS)   # (tests: as if this newer version were out)
     ap.add_argument("--offscreen", action="store_true")

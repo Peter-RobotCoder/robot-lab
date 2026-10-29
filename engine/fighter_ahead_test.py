@@ -47,11 +47,11 @@ def keys(seed, seconds):
 
 
 def key_at(script, t):
-    got = (0.0, 0.0, "", None)
+    got = (0.0, 0.0, "", None, None)
     for t0, f, s, h, p in script:
         if t0 > t:
             break
-        got = (f, s, h, p)
+        got = (f, s, h, p, t0)
     return got
 
 
@@ -66,14 +66,18 @@ class Recorder(ahead.FighterAhead):
         self.calls.append(["c", local_t, fwd, side, hold])
         super().control(local_t, fwd, side, hold)
 
-    def snapshot(self, server_t, fighters, my_id):
-        self.calls.append(["s", server_t, json.loads(json.dumps(fighters)), my_id])
-        super().snapshot(server_t, fighters, my_id)
+    def press(self, local_t, action):
+        self.calls.append(["p", local_t, action])
+        super().press(local_t, action)
 
-    def adjust(self, fighters, local_now, server_seen, rtt, my_id, stats, dt=1 / 60):
-        out = super().adjust(fighters, local_now, server_seen, rtt, my_id, stats, dt)
+    def snapshot(self, server_t, fighters, my_id, phase=None):
+        self.calls.append(["s", server_t, json.loads(json.dumps(fighters)), my_id, phase])
+        super().snapshot(server_t, fighters, my_id, phase)
+
+    def adjust(self, fighters, local_now, server_seen, rtt, my_id, stats, dt=1 / 60, punch=None):
+        out = super().adjust(fighters, local_now, server_seen, rtt, my_id, stats, dt, punch)
         self.calls.append(["a", json.loads(json.dumps(fighters)), local_now, server_seen, rtt, my_id, list(stats), dt,
-                           json.loads(json.dumps(out))])
+                           punch, json.loads(json.dumps(out))])
         return out
 
 
@@ -81,14 +85,18 @@ RUNNER = r"""
 import fs from "fs";
 import {FighterAhead} from "./ahead.js";
 const calls = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), fa = new FighterAhead();
-let worst = 0, n = 0;
+let worst = 0, n = 0, anims = 0;
 for (const c of calls) {
     if (c[0] === "c") fa.control(c[1], c[2], c[3], c[4]);
-    else if (c[0] === "s") fa.snapshot(c[1], c[2], c[3]);
-    else fa.adjust(c[1], c[2], c[3], c[4], c[5], c[6], c[7]).forEach((f, i) => f.pos.forEach((v, j) => {
-        worst = Math.max(worst, Math.abs(v - c[8][i].pos[j])); n++; }));
+    else if (c[0] === "p") fa.press(c[1], c[2]);
+    else if (c[0] === "s") fa.snapshot(c[1], c[2], c[3], c[4]);
+    else fa.adjust(c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]).forEach((f, i) => {
+        f.pos.forEach((v, j) => { worst = Math.max(worst, Math.abs(v - c[9][i].pos[j])); n++; });
+        if (f.a !== c[9][i].a) anims++;  // (CHANGE 193: the move drawn, and how far through it)
+        else if (f.k !== undefined) worst = Math.max(worst, Math.abs(f.k - c[9][i].k));
+    });
 }
-fs.writeFileSync(process.argv[3], JSON.stringify({worst, n}));
+fs.writeFileSync(process.argv[3], JSON.stringify({worst, n, anims}));
 """
 
 
@@ -116,16 +124,18 @@ def js_twin(calls):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def run(seconds=40.0, seed=1, step_key_at=None):
+def run(seconds=40.0, seed=1, step_key_at=None, script=None, drop_presses=False):
     rng = random.Random(seed)
     random.seed(seed)  # (the computer partner's brain uses the random module: the same fight every run)
     stage = sim.Stage(practice=True)
     ring = stage.add_ring()
     me = ring.add_fighter(sim.default_design("Me"), brain=None, owner="me")
-    ring.add_fighter(sim.default_design("Foe", body="robot"), brain=cpu_brains.for_level("easy", None) if step_key_at is None else None,
+    calm, once = step_key_at is not None or script is not None, script is not None
+    ring.add_fighter(sim.default_design("Foe", body="robot"), brain=None if calm else cpu_brains.for_level("easy", None),
                      owner="Computer")
-    stats = (me.stats["walk"], me.stats["sidestep"])
-    script = keys(seed, seconds) if step_key_at is None else [(0.0, 0.0, 0.0, "", None), (step_key_at, 1.0, 0.0, "", None)]
+    stats, punch = (me.stats["walk"], me.stats["sidestep"]), sim.punch_timing(me)
+    if script is None:
+        script = keys(seed, seconds) if step_key_at is None else [(0.0, 0.0, 0.0, "", None), (step_key_at, 1.0, 0.0, "", None)]
     snaps, ah = interp.Snapshots(interp.FIGHT_SPEC), Recorder()
     in_flight, to_server, truth, rows = [], [], {}, []
     t, tick, last_sent, pressed = 0.0, 0, -1.0, set()
@@ -133,18 +143,22 @@ def run(seconds=40.0, seed=1, step_key_at=None):
         stage.step()
     while t < seconds:
         if t - last_sent >= 1 / 30 - 1e-9:
-            f, s, h, p = key_at(script, t)
-            to_server.append((t + LATENCY, (f, s, h, p if p and (t, p) not in pressed else None)))
+            f, s, h, p, t0 = key_at(script, t)
+            p = p if p and not (once and t0 in pressed) else None  # (once: a press goes once, as the window sends it)
+            pressed.add(t0)
+            to_server.append((t + LATENCY, (f, s, h, None if drop_presses else p)))
             ah.control(t, f, s, h)
+            if p:
+                ah.press(t, p)
             last_sent = t
         while in_flight and in_flight[0][0] <= t:
             arrived, m = in_flight.pop(0)
             snaps.push(m, arrived)
-            ah.snapshot(m["sm"] / 1000, m["rings"][0]["f"], me.id)
+            ah.snapshot(m["sm"] / 1000, m["rings"][0]["f"], me.id, m["rings"][0]["ph"])
         blended = snaps.sample(t)
         if blended is not None:
             fs = blended["rings"][0]["f"]
-            drawn = ah.adjust(fs, t, snaps.clock.server_time(t), 2 * LATENCY, me.id, stats, 1 / 60)
+            drawn = ah.adjust(fs, t, snaps.clock.server_time(t), 2 * LATENCY, me.id, stats, 1 / 60, punch)
             rows.append((t, {f["id"]: f for f in fs}, {f["id"]: f for f in drawn}))
         while to_server and to_server[0][0] <= t:
             f, s, h, p = to_server.pop(0)[1]
@@ -153,7 +167,7 @@ def run(seconds=40.0, seed=1, step_key_at=None):
                 me.press(p, stage.time)
         stage.step()
         tick += 1
-        truth[round(t * 60) + 1] = (me.x, me.y, me.state)
+        truth[round(t * 60) + 1] = (me.x, me.y, me.state) + me.anim()
         if tick % 2 == 0:
             msg = {"type": "state", "sm": round((t + 1 / 60) * 1000), "rings": [sim.ring_state(ring, stage.time)]}
             in_flight.append((t + LATENCY + rng.uniform(-JITTER, JITTER), msg))
@@ -195,8 +209,8 @@ def main():
     if got is None:
         print("(node isn't here: ahead.js not checked)")
     else:
-        check(f"ahead.js draws what ahead.py does ({got['n']} numbers, the largest difference {got['worst']:.1e})",
-              got["worst"] < 1e-9 and got["n"] > 1000)
+        check(f"ahead.js draws what ahead.py does ({got['n']} numbers, the largest difference {got['worst']:.1e}, "
+              f"{got['anims']} moves drawn differently)", got["worst"] < 1e-9 and got["n"] > 1000 and got["anims"] == 0)
     rows, truth, me = run(seconds=4.0, step_key_at=2.0)
     start = truth[round(1.9 * 60)]
     real = next(k / 60 for k in sorted(truth) if k / 60 >= 2.0 and math.dist(truth[k][:2], start[:2]) > 0.02)
@@ -211,8 +225,65 @@ def main():
     fa.control(0.0, 1.0, 0.0, "")
     out = fa.adjust([hit], 0.0, 1.05, 0.08, 1, (2.0, 1.5), 1 / 60)
     check("a fighter being hit is drawn as blended (the server's word)", out[0]["pos"] == hit["pos"])
+    startup_checks()
     print(f"{sum(results)} of {len(results)} passed")
     sys.exit(0 if all(results) else 1)
+
+
+def startup_checks():
+    """(CHANGE 193) The punch button: its start-up drawn at once, on through the move from when it was pressed, never
+    rewound or drawn twice; taken back when the server doesn't start it; not drawn crouching, hit or before GO."""
+    press_at = 2.0
+    script = [(0.0, 0.0, 0.0, "", None), (press_at, 0.0, 0.0, "", "punch"), (press_at + 0.05, 0.0, 0.0, "", None)]
+    rows, truth, me = run(seconds=3.5, script=script)
+    move = sim.punch_timing(sim.Stage(practice=True).add_ring().add_fighter(sim.default_design("Me"), brain=None))
+    real = next(k / 60 for k in sorted(truth) if truth[k][2] == "attack")
+    first_a = next((t for t, b, d in rows if d[me]["a"] == move[0]), None)
+    first_b = next(t for t, b, d in rows if b[me]["a"] == move[0])
+    drawn = [(t, d[me]["k"]) for t, b, d in rows if d[me]["a"] == move[0]]
+    if first_a is None:
+        check("your punch: drawn starting at once", False, "never drawn before the blend")
+    else:
+        da, db = (first_a - real) * 1000, (first_b - real) * 1000
+        check(f"your punch: drawn starting {da:+.0f} ms from when the server's fighter started it (blended {db:+.0f} ms; "
+              f"pressed {(press_at - real) * 1000:+.0f} ms)",
+              first_a - press_at <= 1 / 30 + 1e-6 and da < -LATENCY * 1000 * 0.5 and db > 60)
+        back = max((k0 - k1 for (_, k0), (_, k1) in zip(drawn, drawn[1:])), default=0.0)
+        gaps = sum(1 for (t0, _), (t1, _) in zip(drawn, drawn[1:]) if t1 - t0 > 1.5 / 60)
+        check(f"drawn once, start to finish: {len(drawn)} frames, never rewound (at most {back:.3f}), no second punch "
+              f"({gaps} gaps), finished (k {drawn[-1][1]:.2f})", back <= 1e-9 and gaps == 0 and drawn[-1][1] > 2.9)
+
+        def secs(k):  # (how far into the move: the k sent, 0-1 start-up, 1-2 active, 2-3 recovery, in seconds)
+            return k * move[1] if k < 1 else move[1] + (k - 1) * move[2] if k < 2 else move[1] + move[2] + (k - 2) * move[3]
+        off = [0.0]  # (how far the drawn punch is from the server's at the moment a key pressed now takes effect)
+        for t, b, d in rows:
+            tr = truth.get(round((t + LATENCY) * 60))
+            if d[me]["a"] == move[0] and tr and tr[3] == move[0] and d[me]["k"] < 2.95:
+                off.append(abs(secs(d[me]["k"]) - secs(tr[4])))
+        check(f"the drawn punch keeps time with the server's: at most {1000 * max(off):.0f} ms apart ({len(off) - 1} "
+              f"frames)", len(off) > 10 and max(off) < 0.035)
+    rows, truth, me = run(seconds=3.5, script=script, drop_presses=True)
+    shown = [t for t, b, d in rows if d[me]["a"] == move[0]] or [0.0, 99.0]
+    check(f"a punch the server never started is taken back: drawn {1000 * (shown[-1] - shown[0] + 1 / 60):.0f} ms "
+          f"(a round trip {2000 * LATENCY:.0f} ms and {1000 * ahead.CONFIRM:.0f})",
+          shown[-1] - shown[0] <= 2 * LATENCY + ahead.CONFIRM + 1 / 60 and
+          not any(b[me]["a"] == move[0] for t, b, d in rows))
+    idle = {"id": 1, "pos": [0.0, 0.0, 0.0], "a": "idle", "k": 0.0}
+    foe = {"id": 2, "pos": [1.0, 0.0, 0.0], "a": "idle", "k": 0.0}
+
+    def pressed(phase="fight", hold="", then=None):
+        fa = ahead.FighterAhead()
+        fa.snapshot(1.0, [idle, foe], 1, phase)
+        fa.control(0.0, 0.0, 0.0, hold)
+        fa.press(0.0, "punch")
+        first = fa.adjust([idle, foe], 0.0, 1.0, 0.08, 1, (2.0, 1.5), 1 / 60, move)[0]["a"]
+        if then:
+            fa.snapshot(1.03, [dict(idle, a=then), foe], 1, phase)
+        return first, fa.adjust([idle, foe], 0.02, 1.02, 0.08, 1, (2.0, 1.5), 1 / 60, move)[0]["a"]
+    check("not drawn crouching (the low sweep) or before GO; taken back at once when "
+          "a snapshot shows you hit",
+          pressed()[0] == move[0] and pressed(hold="crouch")[0] == "idle" and pressed(phase="intro")[0] == "idle"
+          and pressed(then="hit_body") == (move[0], "idle") and pressed(then=move[0]) == (move[0], move[0]))
 
 
 if __name__ == "__main__":
