@@ -41,9 +41,14 @@ GAMES = {"robotlab": ("Robot Lab", "lab_server.py", "ROBOTLAB_DATA",
          "citylab": ("City Lab", "city_server.py", "CITYLAB_DATA",
                      "import city_version; from engine import rw_textures, rw_sound; import kart_sound, fight_sound; "
                      "rw_textures.ensure(); rw_sound.ensure(); kart_sound.ensure(); fight_sound.ensure()"),
+         # (CHANGE 200) Craft Lab: the engine only; its block textures are drawn by code as the window opens
+         "craftlab": ("Craft Lab", "craft_server.py", "CRAFTLAB_DATA",
+                      "import craft_version; from engine import rw_textures, rw_sound; import craft_sound; "
+                      "rw_textures.ensure(); rw_sound.ensure(); craft_sound.ensure()"),
          # (CHANGE 195) Missions: the story missions as a class game; its server and window live in Robot Lab's folder
          "missions": ("Missions", "missions_server.py", "MISSIONS_DATA", "")}
 FOLDERS = {"missions": "robotlab"}  # a game whose files live in another game's folder (games/<folder>)
+BRAIN_FILES = {"craftlab": "my_bot.py"}  # a game whose starter brain isn't my_brain.py (Craft Lab's drives its Bot)
 
 
 def game_folder(game):
@@ -58,7 +63,8 @@ READ_ME = """CLUB CODERS
    log in with the username and password from your welcome letter.
 3. From the lesson where you write a brain, it's in the brains folder next to this file:
    brains\\robotlab\\my_brain.py (Robot Lab), brains\\fightlab\\my_brain.py (Fight Lab),
-   brains\\kartlab\\my_brain.py (Kart Lab) or brains\\citylab\\my_brain.py (City Lab).
+   brains\\kartlab\\my_brain.py (Kart Lab), brains\\citylab\\my_brain.py (City Lab) or
+   brains\\craftlab\\my_bot.py (Craft Lab: your Craft Bot's brain).
    Open it with Notepad, then press U in the game to upload it.
 
 Only use a nickname or first name as your username. Never put personal information in the game.
@@ -118,9 +124,9 @@ def main():
     for game in GAMES:  # learners edit these, so they sit next to the app, not inside it
         if game in FOLDERS:  # (Missions has no brain: the robot is driven by the mission's code)
             continue
+        brain = BRAIN_FILES.get(game, "my_brain.py")
         os.makedirs(os.path.join(APP, "brains", game), exist_ok=True)
-        shutil.copy(os.path.join(ROOT, "games", game, "brains", "my_brain.py"),
-                    os.path.join(APP, "brains", game, "my_brain.py"))
+        shutil.copy(os.path.join(ROOT, "games", game, "brains", brain), os.path.join(APP, "brains", game, brain))
     with open(os.path.join(APP, "READ ME.txt"), "w", encoding="utf-8") as f:
         f.write(READ_ME.format(page="https://github.com/Peter-RobotCoder/robot-lab/releases/latest"))
 

@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(APP, "live"))
 import live_format as lf  # noqa: E402
 
 VERSION_FILES = {"robotlab": "lab_version.py", "fightlab": "fight_version.py", "kartlab": "kart_version.py",
-                 "citylab": "city_version.py"}
+                 "citylab": "city_version.py", "craftlab": "craft_version.py"}
 ID = re.compile(lf.ID_PATTERN)
 
 

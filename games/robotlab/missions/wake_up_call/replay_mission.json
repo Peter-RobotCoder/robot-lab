@@ -1,0 +1,2807 @@
+{
+"mission_version": 1,
+"md5": "78435b7bd9134e5126378eff5af98b1a",
+"cases": [
+{
+"robot": "TITAN",
+"runs": [
+"# 1 Battery\nMove forward 3.\nturn right\ngo ahead one step\nPick up the power cell!\n# 2 Tool\nturn left\nmove forward 2\nturn right\nrepeat 3 times\n  move forward 1\nend\ngrab the front spinner\n# 3 Blockage\nturn right\nmove forward 3\nturn left\nmove forward 2\nuse spinner\n# 4 Village\nmove forward 6\n# 5 Repair\nturn right\nrepair"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "# 1 Battery\nMove forward 3.\nturn right\ngo ahead one step\nPick up the power cell!\n# 2 Tool\nturn left\nmove forward 2\nturn right\nrepeat 3 times\n  move forward 1\nend\ngrab the front spinner\n# 3 Blockage\nturn right\nmove forward 3\nturn left\nmove forward 2\nuse spinner\n# 4 Village\nmove forward 6\n# 5 Repair\nturn right\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "complete -> 3 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 3\nturn right\nmove forward 1\npick up power cell",
+"turn left\nmove forward 2\nturn right\nmove forward 3\npick up spinner",
+"turn right\nmove forward 3\nturn left\nmove forward 2\nuse spinner",
+"move forward 6",
+"turn right\nrepair"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\nturn right\nmove forward 1\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\nmove forward 2\nturn right\nmove forward 3\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nmove forward 3\nturn left\nmove forward 2\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 6"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done done done done complete -> 3 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 5\nturn right\nmove forward 4",
+"turn left"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 5\nturn right\nmove forward 4"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "flat flat -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 3\nturn right\nmove forward 1\npick up power cell",
+"turn left\nmove forward 2\nturn right\nmove forward 3\npick up flipper",
+"turn right\nmove forward 3\nturn left\nmove forward 2\nuse flipper",
+"move forward 1",
+"use spinner",
+"pick up spinner",
+"turn right\nmove back 2\nturn right\nmove forward 1\nturn left\nmove forward 1"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\nturn right\nmove forward 1\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\nmove forward 2\nturn right\nmove forward 3\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nmove forward 3\nturn left\nmove forward 2\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nmove back 2\nturn right\nmove forward 1\nturn left\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done done done stopped stopped stopped done -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 20 times\nrepeat 20 times\nrepeat 20 times\nturn left\nend\nend\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 20 times\nrepeat 20 times\nrepeat 20 times\nturn left\nend\nend\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use spinner\nrepeat 4 times\nmove forward 3\nuse spinner\nend\nmove forward 2\nrepair\nuse flipper\nturn left\nuse drum",
+"turn right"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nrepeat 4 times\nmove forward 3\nuse spinner\nend\nmove forward 2\nrepair\nuse flipper\nturn left\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped done -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"turn left\nrepair\nrepair\nmove back 1\nrepeat 1 times\npick up spinner\nturn left\nend\nmove back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left\nrepair\nrepair\nmove back 1\nrepeat 1 times\npick up spinner\nturn left\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use hammer\npick up drum\npick up drum\nturn right\nmove forward 3\npick up power cell"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use hammer\npick up drum\npick up drum\nturn right\nmove forward 3\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repair\nrepeat 1 times\nrepair\nmove forward 1\nend\nrepeat 4 times\npick up flipper\npick up hammer\nend\nmove forward 1"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair\nrepeat 1 times\nrepair\nmove forward 1\nend\nrepeat 4 times\npick up flipper\npick up hammer\nend\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up spinner\npick up flipper\npick up flipper",
+"turn right\nmove forward 2\nuse flipper\nrepeat 2 times\nuse drum\nrepair\nend",
+"move back 1",
+"use flipper\nrepair\nmove back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner\npick up flipper\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nmove forward 2\nuse flipper\nrepeat 2 times\nuse drum\nrepair\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\nrepair\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped done stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move back 1\nmove forward 1\npick up hammer\nuse hammer\npick up spinner\nrepeat 4 times\nmove forward 1\nmove forward 2\nend\nmove forward 2\npick up drum",
+"pick up power cell\npick up hammer",
+"repeat 1 times\npick up power cell\nturn right\nend\nmove back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nmove forward 1\npick up hammer\nuse hammer\npick up spinner\nrepeat 4 times\nmove forward 1\nmove forward 2\nend\nmove forward 2\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up power cell\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\npick up power cell\nturn right\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use hammer\nrepair\nmove forward 2\nrepair"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use hammer\nrepair\nmove forward 2\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move back 1\nmove back 1\nmove forward 1",
+"repeat 2 times\nuse hammer\nrepair\nend\nturn right\npick up flipper\nmove forward 3\nuse drum\nmove back 1\npick up hammer",
+"use flipper\nrepeat 1 times\nmove back 1\nmove back 1\nend",
+"pick up flipper\npick up spinner\nmove back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nmove back 1\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\nuse hammer\nrepair\nend\nturn right\npick up flipper\nmove forward 3\nuse drum\nmove back 1\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\nrepeat 1 times\nmove back 1\nmove back 1\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\npick up spinner\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 3 times\nmove forward 1\nmove back 1\nend\npick up drum\nrepeat 3 times\nuse spinner\nmove back 1\nend\nrepeat 4 times\nuse hammer\nmove forward 1\nend\nmove back 1\nuse drum\nturn left\npick up flipper",
+"use spinner\npick up power cell\nuse flipper\nuse hammer\nuse spinner\nrepair\nmove forward 1",
+"turn left\npick up drum",
+"pick up spinner\npick up spinner\npick up power cell\nmove forward 1\nmove back 1\npick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 3 times\nmove forward 1\nmove back 1\nend\npick up drum\nrepeat 3 times\nuse spinner\nmove back 1\nend\nrepeat 4 times\nuse hammer\nmove forward 1\nend\nmove back 1\nuse drum\nturn left\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\npick up power cell\nuse flipper\nuse hammer\nuse spinner\nrepair\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\npick up spinner\npick up power cell\nmove forward 1\nmove back 1\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 2 times\nturn right\npick up drum\nend\nuse drum\nrepeat 3 times\nuse flipper\nuse flipper\nend\npick up hammer\nturn right\nuse spinner\nturn left",
+"move back 1\nrepeat 2 times\npick up power cell\nuse flipper\nend\nturn left\npick up drum\npick up flipper\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nturn right\npick up drum\nend\nuse drum\nrepeat 3 times\nuse flipper\nuse flipper\nend\npick up hammer\nturn right\nuse spinner\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1\nrepeat 2 times\npick up power cell\nuse flipper\nend\nturn left\npick up drum\npick up flipper\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 1\nuse hammer\nmove forward 2\nmove forward 3\npick up hammer\npick up flipper",
+"move forward 3\nrepeat 4 times\npick up drum\nturn left\nend\npick up power cell\npick up flipper\nturn right\npick up spinner\nrepeat 2 times\npick up hammer\nuse flipper\nend",
+"repeat 4 times\nuse drum\npick up power cell\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\nuse hammer\nmove forward 2\nmove forward 3\npick up hammer\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3\nrepeat 4 times\npick up drum\nturn left\nend\npick up power cell\npick up flipper\nturn right\npick up spinner\nrepeat 2 times\npick up hammer\nuse flipper\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 4 times\nuse drum\npick up power cell\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move back 1\nuse drum",
+"use hammer\nuse flipper\npick up flipper\nuse drum\nrepeat 2 times\npick up flipper\nuse hammer\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nuse flipper\npick up flipper\nuse drum\nrepeat 2 times\npick up flipper\nuse hammer\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use drum",
+"use spinner\nturn left\nmove forward 3\nrepair"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nturn left\nmove forward 3\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up drum\npick up flipper\npick up drum\nmove forward 2\nrepeat 4 times\npick up spinner\npick up spinner\nend",
+"pick up spinner\nrepair\nmove back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up drum\npick up flipper\npick up drum\nmove forward 2\nrepeat 4 times\npick up spinner\npick up spinner\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nrepair\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use spinner\nmove forward 3\npick up drum",
+"pick up drum\nuse spinner\nrepeat 2 times\npick up drum\npick up flipper\nend\npick up drum\nrepeat 2 times\nmove forward 2\nuse drum\nend\nuse spinner",
+"pick up spinner",
+"turn right\nuse spinner\nuse drum\nrepeat 1 times\npick up drum\nuse hammer\nend\nuse flipper"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nmove forward 3\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nuse spinner\nrepeat 2 times\npick up drum\npick up flipper\nend\npick up drum\nrepeat 2 times\nmove forward 2\nuse drum\nend\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nuse spinner\nuse drum\nrepeat 1 times\npick up drum\nuse hammer\nend\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up spinner"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up hammer\npick up hammer\nuse flipper\nrepair"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\npick up hammer\nuse flipper\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use drum",
+"move forward 3\nuse drum"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3\nuse drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move back 1\nmove forward 3\nmove forward 3\nrepair\nuse flipper\nuse drum",
+"repeat 3 times\nuse hammer\nturn left\nend\nmove forward 2\nuse drum"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nmove forward 3\nmove forward 3\nrepair\nuse flipper\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nuse hammer\nturn left\nend\nmove forward 2\nuse drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"turn left\nmove forward 2"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left\nmove forward 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repair\nrepeat 2 times\nturn left\nuse drum\nend\nmove back 1\nuse hammer\npick up spinner\nrepeat 4 times\nmove forward 1\nmove forward 2\nend\nuse flipper\npick up power cell",
+"repeat 2 times\npick up flipper\nturn left\nend\nmove forward 2\nturn right\npick up power cell"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair\nrepeat 2 times\nturn left\nuse drum\nend\nmove back 1\nuse hammer\npick up spinner\nrepeat 4 times\nmove forward 1\nmove forward 2\nend\nuse flipper\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\npick up flipper\nturn left\nend\nmove forward 2\nturn right\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"turn left\nuse spinner\npick up flipper\nturn right\npick up flipper"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left\nuse spinner\npick up flipper\nturn right\npick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use hammer\nturn right\nmove forward 1",
+"pick up drum\nuse flipper",
+"repair\npick up hammer\nmove forward 3\npick up hammer",
+"use flipper\nuse flipper\nturn right\nuse drum\nturn left\npick up flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use hammer\nturn right\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\npick up hammer\nmove forward 3\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\nuse flipper\nturn right\nuse drum\nturn left\npick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 4 times\nturn left\npick up drum\nend\nrepair\nmove forward 3\nuse hammer\nturn left\nuse flipper\nmove forward 2\nuse spinner",
+"move forward 1\nrepeat 4 times\nmove back 1\nturn right\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\nturn left\npick up drum\nend\nrepair\nmove forward 3\nuse hammer\nturn left\nuse flipper\nmove forward 2\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nrepeat 4 times\nmove back 1\nturn right\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up flipper\nrepair\nrepair\nrepeat 2 times\npick up flipper\npick up flipper\nend\nrepeat 1 times\nturn right\nturn right\nend\nmove forward 2\nturn left\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\nrepair\nrepair\nrepeat 2 times\npick up flipper\npick up flipper\nend\nrepeat 1 times\nturn right\nturn right\nend\nmove forward 2\nturn left\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up power cell\nuse spinner\npick up flipper\npick up spinner\nuse flipper\nuse drum\nuse flipper\nrepeat 3 times\nturn right\nuse drum\nend",
+"use drum\nrepair\nturn left\nrepair\nturn right\nuse hammer\npick up flipper\nuse drum",
+"use hammer\nuse spinner\nmove forward 3\npick up drum\nuse drum\npick up flipper",
+"turn left"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up power cell\nuse spinner\npick up flipper\npick up spinner\nuse flipper\nuse drum\nuse flipper\nrepeat 3 times\nturn right\nuse drum\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nrepair\nturn left\nrepair\nturn right\nuse hammer\npick up flipper\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nuse spinner\nmove forward 3\npick up drum\nuse drum\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped done -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up spinner\nrepeat 4 times\nuse flipper\nuse flipper\nend\nmove back 1\nrepeat 3 times\nmove forward 1\nturn right\nend\nrepeat 2 times\nuse drum\nmove forward 1\nend\nturn left\npick up flipper\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner\nrepeat 4 times\nuse flipper\nuse flipper\nend\nmove back 1\nrepeat 3 times\nmove forward 1\nturn right\nend\nrepeat 2 times\nuse drum\nmove forward 1\nend\nturn left\npick up flipper\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up flipper",
+"move back 1\npick up flipper\nrepeat 4 times\nuse hammer\npick up spinner\nend\nturn left",
+"pick up power cell\nrepeat 2 times\npick up drum\nrepair\nend\npick up spinner\nuse flipper\nuse spinner\nrepeat 2 times\nrepair\npick up spinner\nend\npick up flipper\nrepeat 2 times\nturn left\npick up flipper\nend",
+"repeat 1 times\nmove forward 1\nuse hammer\nend\nrepeat 4 times\nuse spinner\nuse drum\nend\nmove forward 2\nturn left\nrepair"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1\npick up flipper\nrepeat 4 times\nuse hammer\npick up spinner\nend\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up power cell\nrepeat 2 times\npick up drum\nrepair\nend\npick up spinner\nuse flipper\nuse spinner\nrepeat 2 times\nrepair\npick up spinner\nend\npick up flipper\nrepeat 2 times\nturn left\npick up flipper\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nmove forward 1\nuse hammer\nend\nrepeat 4 times\nuse spinner\nuse drum\nend\nmove forward 2\nturn left\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 3\npick up flipper\npick up hammer\npick up flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\npick up flipper\npick up hammer\npick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\npick up drum\nturn right\nend\nmove forward 3\nrepeat 3 times\nuse spinner\nturn right\nend\npick up spinner\nuse drum\nuse hammer\npick up drum",
+"pick up spinner\nmove forward 2\nuse spinner\nuse flipper\nrepeat 2 times\nrepair\nuse drum\nend\nmove forward 2\nturn right"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\npick up drum\nturn right\nend\nmove forward 3\nrepeat 3 times\nuse spinner\nturn right\nend\npick up spinner\nuse drum\nuse hammer\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nmove forward 2\nuse spinner\nuse flipper\nrepeat 2 times\nrepair\nuse drum\nend\nmove forward 2\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 2 times\nmove forward 3\nuse spinner\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nmove forward 3\nuse spinner\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up flipper\nuse flipper",
+"use flipper\nmove forward 1\nturn left",
+"turn left\nmove forward 2\nturn right",
+"repair"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\nmove forward 1\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\nmove forward 2\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper",
+"use drum\nuse flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\npick up spinner\nrepair\nend\nrepeat 4 times\nrepair\nrepair\nend\nuse hammer",
+"pick up drum\npick up drum\nmove forward 2\nmove forward 2\nrepeat 3 times\nuse flipper\nmove back 1\nend\nmove back 1\nuse flipper\npick up spinner"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\npick up spinner\nrepair\nend\nrepeat 4 times\nrepair\nrepair\nend\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\npick up drum\nmove forward 2\nmove forward 2\nrepeat 3 times\nuse flipper\nmove back 1\nend\nmove back 1\nuse flipper\npick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 3\nturn left\npick up drum",
+"pick up hammer\nrepeat 3 times\nuse hammer\npick up hammer\nend\nrepeat 2 times\nmove back 1\nturn right\nend\nuse hammer",
+"use hammer\nrepeat 2 times\nmove back 1\npick up power cell\nend\nturn right\nuse hammer\npick up power cell\nturn right",
+"pick up power cell\nrepair\nturn left\nrepeat 4 times\nuse flipper\npick up hammer\nend\nuse flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\nturn left\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nrepeat 3 times\nuse hammer\npick up hammer\nend\nrepeat 2 times\nmove back 1\nturn right\nend\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nrepeat 2 times\nmove back 1\npick up power cell\nend\nturn right\nuse hammer\npick up power cell\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up power cell\nrepair\nturn left\nrepeat 4 times\nuse flipper\npick up hammer\nend\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up spinner\npick up drum",
+"pick up spinner\nrepeat 2 times\nrepair\nuse hammer\nend\npick up drum",
+"repeat 1 times\nmove forward 2\nmove forward 3\nend\nrepair\nrepeat 2 times\nuse flipper\npick up drum\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nrepeat 2 times\nrepair\nuse hammer\nend\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nmove forward 2\nmove forward 3\nend\nrepair\nrepeat 2 times\nuse flipper\npick up drum\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 2\nrepeat 1 times\nuse flipper\nmove forward 2\nend\npick up drum\nuse drum\npick up hammer",
+"move forward 1\nuse drum\nrepair\nturn left\nuse drum",
+"repair\npick up power cell",
+"use hammer\npick up power cell\nmove forward 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 2\nrepeat 1 times\nuse flipper\nmove forward 2\nend\npick up drum\nuse drum\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nuse drum\nrepair\nturn left\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\npick up power cell\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 3\npick up hammer\nuse flipper\nmove forward 1\nuse drum\nmove forward 2",
+"move back 1\nrepair\nrepeat 2 times\nuse drum\nmove forward 3\nend\nrepeat 4 times\nrepair\nuse hammer\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\npick up hammer\nuse flipper\nmove forward 1\nuse drum\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1\nrepair\nrepeat 2 times\nuse drum\nmove forward 3\nend\nrepeat 4 times\nrepair\nuse hammer\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move back 1\npick up hammer\nrepair\nuse drum\nturn right\nrepeat 1 times\npick up hammer\npick up hammer\nend\nuse hammer\npick up drum"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\npick up hammer\nrepair\nuse drum\nturn right\nrepeat 1 times\npick up hammer\npick up hammer\nend\nuse hammer\npick up drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\nuse spinner\npick up spinner\nend\nmove forward 3\nmove forward 1\nrepair\nuse spinner\npick up power cell\nuse flipper\nrepeat 3 times\nrepair\nrepair\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\nuse spinner\npick up spinner\nend\nmove forward 3\nmove forward 1\nrepair\nuse spinner\npick up power cell\nuse flipper\nrepeat 3 times\nrepair\nrepair\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\npick up hammer\npick up power cell\nend\nuse hammer\nuse hammer",
+"turn left\nuse hammer\nturn left\nrepeat 2 times\nuse spinner\nrepair\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\npick up hammer\npick up power cell\nend\nuse hammer\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\nuse hammer\nturn left\nrepeat 2 times\nuse spinner\nrepair\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 4 times\nrepair\npick up power cell\nend\npick up drum\npick up flipper\nmove forward 1\nuse spinner\nuse drum\npick up power cell",
+"move back 1\npick up drum\npick up hammer\nuse drum\nrepeat 3 times\nmove forward 3\npick up drum\nend\nuse drum"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\nrepair\npick up power cell\nend\npick up drum\npick up flipper\nmove forward 1\nuse spinner\nuse drum\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1\npick up drum\npick up hammer\nuse drum\nrepeat 3 times\nmove forward 3\npick up drum\nend\nuse drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 1",
+"use spinner\nuse drum\nuse spinner\nrepeat 1 times\nturn right\npick up flipper\nend\npick up hammer\nturn right\nrepeat 3 times\nmove forward 2\npick up spinner\nend",
+"turn left",
+"pick up power cell\nrepair\nturn left"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nuse drum\nuse spinner\nrepeat 1 times\nturn right\npick up flipper\nend\npick up hammer\nturn right\nrepeat 3 times\nmove forward 2\npick up spinner\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up power cell\nrepair\nturn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done stopped done stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use drum\nrepair\nturn right\nrepeat 1 times\npick up power cell\npick up spinner\nend\nuse spinner\nuse hammer",
+"use hammer\nuse spinner\nrepeat 1 times\npick up hammer\nmove forward 1\nend\nuse hammer\nmove back 1\npick up hammer\npick up flipper",
+"use flipper\npick up flipper\npick up spinner",
+"repeat 3 times\npick up drum\nuse flipper\nend\nrepeat 3 times\nmove forward 2\nmove forward 2\nend\nmove back 1\nuse spinner\nuse spinner\nrepeat 4 times\nuse hammer\npick up spinner\nend\npick up hammer"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum\nrepair\nturn right\nrepeat 1 times\npick up power cell\npick up spinner\nend\nuse spinner\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nuse spinner\nrepeat 1 times\npick up hammer\nmove forward 1\nend\nuse hammer\nmove back 1\npick up hammer\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\npick up flipper\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\npick up drum\nuse flipper\nend\nrepeat 3 times\nmove forward 2\nmove forward 2\nend\nmove back 1\nuse spinner\nuse spinner\nrepeat 4 times\nuse hammer\npick up spinner\nend\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up flipper\nuse hammer\npick up flipper\npick up power cell\nmove forward 1\npick up power cell",
+"pick up spinner\nturn right\npick up hammer\npick up power cell\npick up hammer\npick up spinner\nrepeat 1 times\npick up drum\nturn right\nend\npick up hammer",
+"use drum\npick up hammer\npick up drum\nrepair\nuse flipper\nmove forward 1\npick up power cell\nmove forward 1"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\nuse hammer\npick up flipper\npick up power cell\nmove forward 1\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nturn right\npick up hammer\npick up power cell\npick up hammer\npick up spinner\nrepeat 1 times\npick up drum\nturn right\nend\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\npick up hammer\npick up drum\nrepair\nuse flipper\nmove forward 1\npick up power cell\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 3\npick up hammer\npick up drum\nrepeat 2 times\npick up drum\npick up hammer\nend\nmove forward 3\npick up hammer",
+"pick up flipper\nmove forward 3\nmove back 1\nturn left"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\npick up hammer\npick up drum\nrepeat 2 times\npick up drum\npick up hammer\nend\nmove forward 3\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\nmove forward 3\nmove back 1\nturn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up hammer\npick up hammer\nrepair\npick up hammer\npick up drum\nuse drum\nmove back 1\nrepair",
+"repeat 3 times\nuse drum\nmove forward 1\nend\nmove forward 1",
+"move forward 3\nmove forward 1\nmove forward 2\nrepair\nmove forward 3\nturn left\nturn right\nrepeat 1 times\nmove forward 1\npick up flipper\nend",
+"turn right\nturn left\nuse drum"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\npick up hammer\nrepair\npick up hammer\npick up drum\nuse drum\nmove back 1\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nuse drum\nmove forward 1\nend\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3\nmove forward 1\nmove forward 2\nrepair\nmove forward 3\nturn left\nturn right\nrepeat 1 times\nmove forward 1\npick up flipper\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nturn left\nuse drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\nmove back 1\nturn right\nend",
+"move forward 1\nuse hammer\nrepair"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\nmove back 1\nturn right\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nuse hammer\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 2\nrepair\nrepair\npick up drum",
+"use spinner\nmove forward 3\nturn left\npick up flipper\nuse hammer\npick up flipper\nrepeat 1 times\nuse hammer\nuse hammer\nend",
+"use drum\nuse hammer\npick up hammer\nturn right\nuse drum\nuse spinner",
+"repeat 3 times\nturn left\npick up hammer\nend\nuse hammer\nrepair\npick up hammer\nuse drum\nmove back 1\nmove forward 1\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 2\nrepair\nrepair\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nmove forward 3\nturn left\npick up flipper\nuse hammer\npick up flipper\nrepeat 1 times\nuse hammer\nuse hammer\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nuse hammer\npick up hammer\nturn right\nuse drum\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nturn left\npick up hammer\nend\nuse hammer\nrepair\npick up hammer\nuse drum\nmove back 1\nmove forward 1\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 2 times\nuse hammer\nmove forward 2\nend\nturn right\nrepeat 4 times\npick up hammer\npick up spinner\nend\nmove forward 1\nuse spinner",
+"move forward 1\nrepeat 1 times\nmove forward 1\npick up hammer\nend\nrepeat 2 times\nuse flipper\nmove forward 3\nend\nmove forward 2\nuse drum\nmove forward 2",
+"turn right\npick up spinner\nrepair\nrepeat 3 times\npick up flipper\npick up flipper\nend\nmove back 1",
+"repeat 3 times\nuse drum\npick up hammer\nend\nmove forward 3"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nuse hammer\nmove forward 2\nend\nturn right\nrepeat 4 times\npick up hammer\npick up spinner\nend\nmove forward 1\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nrepeat 1 times\nmove forward 1\npick up hammer\nend\nrepeat 2 times\nuse flipper\nmove forward 3\nend\nmove forward 2\nuse drum\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\npick up spinner\nrepair\nrepeat 3 times\npick up flipper\npick up flipper\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nuse drum\npick up hammer\nend\nmove forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 1",
+"use drum\nmove forward 2\nuse drum\nrepeat 3 times\nturn left\npick up drum\nend\npick up spinner",
+"turn right\nmove forward 1\npick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nmove forward 2\nuse drum\nrepeat 3 times\nturn left\npick up drum\nend\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nmove forward 1\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 1 times\npick up spinner\nuse hammer\nend\nuse spinner\nrepeat 2 times\nmove forward 2\nmove forward 3\nend\npick up power cell\nrepair",
+"repeat 1 times\npick up flipper\nmove forward 3\nend\nmove forward 2\npick up hammer\nrepeat 3 times\nturn right\nmove forward 1\nend\nrepeat 2 times\npick up spinner\nuse flipper\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 1 times\npick up spinner\nuse hammer\nend\nuse spinner\nrepeat 2 times\nmove forward 2\nmove forward 3\nend\npick up power cell\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\npick up flipper\nmove forward 3\nend\nmove forward 2\npick up hammer\nrepeat 3 times\nturn right\nmove forward 1\nend\nrepeat 2 times\npick up spinner\nuse flipper\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper\npick up drum\npick up hammer\nuse hammer\nmove back 1\nturn right\nmove back 1"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\npick up drum\npick up hammer\nuse hammer\nmove back 1\nturn right\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up spinner\nuse drum\nrepeat 2 times\npick up spinner\nmove forward 2\nend\nrepair\nrepeat 3 times\nturn left\npick up flipper\nend\nmove forward 2\nturn right"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner\nuse drum\nrepeat 2 times\npick up spinner\nmove forward 2\nend\nrepair\nrepeat 3 times\nturn left\npick up flipper\nend\nmove forward 2\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use flipper"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use spinner\nmove forward 3\nrepeat 2 times\nrepair\nmove back 1\nend\nturn left",
+"repair\nmove forward 3\nturn left\nmove back 1",
+"pick up flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nmove forward 3\nrepeat 2 times\nrepair\nmove back 1\nend\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nmove forward 3\nturn left\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repair\nturn right\npick up spinner\npick up spinner"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair\nturn right\npick up spinner\npick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 2 times\nuse spinner\nuse drum\nend\npick up drum\nrepeat 2 times\nuse spinner\nmove back 1\nend\npick up hammer\nrepair\nuse flipper",
+"turn right\nuse drum\npick up spinner\nrepeat 4 times\npick up flipper\nturn left\nend\npick up flipper\nmove forward 1",
+"repeat 2 times\npick up power cell\nmove forward 1\nend\npick up drum\nturn right\nrepeat 4 times\nmove back 1\nuse flipper\nend\npick up drum\nrepeat 1 times\nmove forward 3\nuse flipper\nend\nuse drum\nuse flipper",
+"move forward 2\nrepeat 1 times\nmove forward 3\nrepair\nend\npick up spinner\nturn right\nuse hammer\npick up power cell"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nuse spinner\nuse drum\nend\npick up drum\nrepeat 2 times\nuse spinner\nmove back 1\nend\npick up hammer\nrepair\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\nuse drum\npick up spinner\nrepeat 4 times\npick up flipper\nturn left\nend\npick up flipper\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\npick up power cell\nmove forward 1\nend\npick up drum\nturn right\nrepeat 4 times\nmove back 1\nuse flipper\nend\npick up drum\nrepeat 1 times\nmove forward 3\nuse flipper\nend\nuse drum\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2\nrepeat 1 times\nmove forward 3\nrepair\nend\npick up spinner\nturn right\nuse hammer\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repair\nuse flipper\npick up drum\nmove back 1\nuse drum\npick up hammer"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair\nuse flipper\npick up drum\nmove back 1\nuse drum\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper\nrepeat 4 times\nturn left\nmove forward 2\nend\nuse spinner\npick up flipper\nturn right\npick up hammer\npick up drum\npick up drum",
+"pick up flipper\nrepair\npick up flipper\nrepeat 4 times\nmove forward 1\npick up hammer\nend\nmove forward 3\npick up spinner\nmove back 1"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\nrepeat 4 times\nturn left\nmove forward 2\nend\nuse spinner\npick up flipper\nturn right\npick up hammer\npick up drum\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\nrepair\npick up flipper\nrepeat 4 times\nmove forward 1\npick up hammer\nend\nmove forward 3\npick up spinner\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use spinner\npick up hammer\npick up spinner\npick up drum",
+"repeat 3 times\nrepair\npick up flipper\nend\nrepeat 4 times\nuse hammer\nmove forward 2\nend\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\npick up hammer\npick up spinner\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nrepair\npick up flipper\nend\nrepeat 4 times\nuse hammer\nmove forward 2\nend\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 1 times\npick up flipper\nmove forward 2\nend\nmove back 1",
+"move forward 1",
+"use spinner\nmove forward 1\nmove forward 3\nmove back 1\npick up hammer\nuse flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 1 times\npick up flipper\nmove forward 2\nend\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nmove forward 1\nmove forward 3\nmove back 1\npick up hammer\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped done stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 2 times\nuse drum\nuse flipper\nend\nmove back 1\npick up power cell\npick up spinner",
+"repeat 3 times\npick up drum\nmove forward 3\nend\nmove forward 1\nrepeat 3 times\nuse flipper\nmove forward 2\nend\npick up flipper\nrepair",
+"use hammer"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nuse drum\nuse flipper\nend\nmove back 1\npick up power cell\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\npick up drum\nmove forward 3\nend\nmove forward 1\nrepeat 3 times\nuse flipper\nmove forward 2\nend\npick up flipper\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move back 1\nmove forward 2",
+"use flipper\nmove forward 1\npick up power cell",
+"move forward 2",
+"repair\npick up spinner\nuse drum\nuse drum\npick up drum"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\nmove forward 1\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\npick up spinner\nuse drum\nuse drum\npick up drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped done stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up spinner\nuse hammer\nrepeat 1 times\nrepair\nrepair\nend\nuse flipper\npick up hammer\nuse hammer\nturn left\npick up hammer",
+"repeat 3 times\npick up flipper\nmove forward 3\nend\nrepair\nuse drum\nturn left",
+"repair\nuse hammer",
+"move forward 3\npick up flipper\nrepair"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner\nuse hammer\nrepeat 1 times\nrepair\nrepair\nend\nuse flipper\npick up hammer\nuse hammer\nturn left\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\npick up flipper\nmove forward 3\nend\nrepair\nuse drum\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3\npick up flipper\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use flipper\nmove forward 2\nuse drum\nuse hammer\nmove forward 2\nrepeat 1 times\nmove back 1\npick up hammer\nend",
+"repeat 3 times\npick up hammer\nmove forward 3\nend\nmove forward 3\nturn left",
+"pick up hammer\nmove forward 2\nuse hammer\nturn left",
+"turn left\npick up drum\nrepeat 2 times\nmove forward 1\nmove forward 2\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\nmove forward 2\nuse drum\nuse hammer\nmove forward 2\nrepeat 1 times\nmove back 1\npick up hammer\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\npick up hammer\nmove forward 3\nend\nmove forward 3\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nmove forward 2\nuse hammer\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\npick up drum\nrepeat 2 times\nmove forward 1\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use spinner\nrepeat 1 times\nuse drum\nturn right\nend\npick up flipper\npick up hammer\nrepeat 2 times\nmove forward 3\nmove forward 3\nend\nrepeat 3 times\nuse drum\nuse spinner\nend\nrepeat 2 times\nmove forward 3\npick up drum\nend",
+"use spinner\nmove forward 1\nuse hammer\nuse drum\nturn right\nmove back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nrepeat 1 times\nuse drum\nturn right\nend\npick up flipper\npick up hammer\nrepeat 2 times\nmove forward 3\nmove forward 3\nend\nrepeat 3 times\nuse drum\nuse spinner\nend\nrepeat 2 times\nmove forward 3\npick up drum\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nmove forward 1\nuse hammer\nuse drum\nturn right\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repair\nmove back 1\nturn left\nrepair",
+"repeat 2 times\nmove back 1\npick up drum\nend\npick up hammer\nuse drum\nrepeat 2 times\npick up power cell\nturn left\nend\nuse drum",
+"move forward 1\nrepeat 2 times\npick up power cell\npick up flipper\nend\npick up drum\nuse drum\nuse hammer\nuse hammer",
+"use spinner"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair\nmove back 1\nturn left\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\nmove back 1\npick up drum\nend\npick up hammer\nuse drum\nrepeat 2 times\npick up power cell\nturn left\nend\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nrepeat 2 times\npick up power cell\npick up flipper\nend\npick up drum\nuse drum\nuse hammer\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper\npick up spinner\nrepair\nturn right\nuse spinner\nuse spinner\npick up hammer",
+"repeat 2 times\nmove forward 3\npick up hammer\nend\nmove forward 3"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\npick up spinner\nrepair\nturn right\nuse spinner\nuse spinner\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\nmove forward 3\npick up hammer\nend\nmove forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 1\npick up flipper\nmove back 1\nuse hammer",
+"pick up hammer\nmove forward 3\nmove forward 2\npick up drum\nmove forward 2\nmove back 1"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\npick up flipper\nmove back 1\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nmove forward 3\nmove forward 2\npick up drum\nmove forward 2\nmove back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 2 times\nmove forward 2\npick up power cell\nend",
+"repeat 1 times\nturn left\nmove back 1\nend",
+"pick up spinner\nuse drum\nturn left"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nmove forward 2\npick up power cell\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nturn left\nmove back 1\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nuse drum\nturn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped done stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up hammer",
+"move forward 1\nrepeat 4 times\npick up drum\nturn left\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nrepeat 4 times\npick up drum\nturn left\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 2",
+"pick up hammer\npick up hammer\npick up drum",
+"move forward 2\nturn right\nmove forward 1\npick up flipper\nrepair"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\npick up hammer\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2\nturn right\nmove forward 1\npick up flipper\nrepair"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper\nturn right\nrepair",
+"use spinner\nuse drum\nrepeat 4 times\nturn left\nuse flipper\nend\nmove forward 2"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\nturn right\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nuse drum\nrepeat 4 times\nturn left\nuse flipper\nend\nmove forward 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use spinner\nuse hammer\nmove back 1\nuse hammer\nrepeat 2 times\npick up power cell\nrepair\nend\nturn left\nrepeat 3 times\nuse hammer\nmove forward 2\nend",
+"pick up spinner\nturn left\npick up spinner\npick up power cell"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use spinner\nuse hammer\nmove back 1\nuse hammer\nrepeat 2 times\npick up power cell\nrepair\nend\nturn left\nrepeat 3 times\nuse hammer\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nturn left\npick up spinner\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 1 times\nturn left\npick up power cell\nend\nrepeat 4 times\nuse hammer\nturn left\nend\nmove forward 3\nturn left\nuse hammer\npick up drum\npick up power cell",
+"pick up hammer\nmove forward 1\nmove forward 1\npick up power cell\npick up flipper\npick up hammer",
+"repeat 3 times\nrepair\nrepair\nend\nmove forward 3\nuse flipper\npick up power cell\nmove forward 3\nmove forward 3\nmove forward 3\npick up drum",
+"move forward 2"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 1 times\nturn left\npick up power cell\nend\nrepeat 4 times\nuse hammer\nturn left\nend\nmove forward 3\nturn left\nuse hammer\npick up drum\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nmove forward 1\nmove forward 1\npick up power cell\npick up flipper\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nrepair\nrepair\nend\nmove forward 3\nuse flipper\npick up power cell\nmove forward 3\nmove forward 3\nmove forward 3\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up spinner\nrepeat 3 times\nturn right\npick up hammer\nend\npick up flipper\npick up spinner\nuse hammer\nmove forward 2",
+"use hammer\nuse spinner\nuse flipper\nrepeat 2 times\nturn right\nuse spinner\nend\nmove forward 3\nmove forward 1\npick up spinner\nuse hammer",
+"pick up hammer\nmove back 1\nuse spinner\nmove forward 2\nmove forward 3"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner\nrepeat 3 times\nturn right\npick up hammer\nend\npick up flipper\npick up spinner\nuse hammer\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nuse spinner\nuse flipper\nrepeat 2 times\nturn right\nuse spinner\nend\nmove forward 3\nmove forward 1\npick up spinner\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nmove back 1\nuse spinner\nmove forward 2\nmove forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up hammer\nuse flipper\npick up power cell\nmove forward 2\nrepeat 3 times\nturn right\nuse flipper\nend\nmove forward 1\nturn left\nmove forward 3"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\nuse flipper\npick up power cell\nmove forward 2\nrepeat 3 times\nturn right\nuse flipper\nend\nmove forward 1\nturn left\nmove forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up hammer\nuse spinner\nuse spinner\npick up spinner\nuse drum\nrepair",
+"use drum\nturn right\nrepair\nmove forward 1\nrepeat 4 times\nmove forward 2\nmove forward 1\nend",
+"move forward 1\nuse flipper"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\nuse spinner\nuse spinner\npick up spinner\nuse drum\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nturn right\nrepair\nmove forward 1\nrepeat 4 times\nmove forward 2\nmove forward 1\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repair\nmove forward 2\nmove forward 1\nuse drum\npick up flipper",
+"pick up flipper\nuse drum\nmove back 1\npick up power cell\nmove back 1",
+"use drum\nrepeat 1 times\npick up flipper\npick up spinner\nend\npick up flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repair\nmove forward 2\nmove forward 1\nuse drum\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\nuse drum\nmove back 1\npick up power cell\nmove back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nrepeat 1 times\npick up flipper\npick up spinner\nend\npick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up drum",
+"use spinner\nrepair\nuse spinner\npick up power cell\nmove back 1\nmove forward 2\nmove forward 2\nmove forward 3"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nrepair\nuse spinner\npick up power cell\nmove back 1\nmove forward 2\nmove forward 2\nmove forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 1\npick up hammer\npick up power cell\nturn right\nuse drum",
+"pick up hammer\nrepeat 4 times\nuse spinner\nuse drum\nend\npick up power cell\nuse flipper\nrepeat 4 times\nuse spinner\nuse flipper\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\npick up hammer\npick up power cell\nturn right\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nrepeat 4 times\nuse spinner\nuse drum\nend\npick up power cell\nuse flipper\nrepeat 4 times\nuse spinner\nuse flipper\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 3\nmove forward 2\nuse spinner\nmove forward 3\nmove forward 2\nrepair\nrepair",
+"pick up hammer\nuse flipper\npick up power cell\nuse flipper\nuse hammer\npick up power cell\nuse hammer",
+"use spinner\nturn left\nrepair\npick up flipper",
+"pick up flipper\npick up spinner\nturn left"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\nmove forward 2\nuse spinner\nmove forward 3\nmove forward 2\nrepair\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nuse flipper\npick up power cell\nuse flipper\nuse hammer\npick up power cell\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nturn left\nrepair\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\npick up spinner\nturn left"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up power cell\nrepeat 4 times\nmove forward 3\nmove forward 3\nend\nrepeat 3 times\npick up drum\nmove forward 1\nend\npick up spinner\nturn left\npick up power cell"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up power cell\nrepeat 4 times\nmove forward 3\nmove forward 3\nend\nrepeat 3 times\npick up drum\nmove forward 1\nend\npick up spinner\nturn left\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 1 times\nmove forward 3\npick up spinner\nend\nrepeat 4 times\nturn left\nmove forward 2\nend\nuse drum\npick up flipper\nrepair\nuse drum",
+"repair\nmove forward 2\nrepeat 4 times\npick up power cell\npick up power cell\nend\nrepeat 1 times\npick up hammer\npick up spinner\nend\npick up drum",
+"move back 1\nuse spinner\nturn right\nturn left\npick up drum\npick up drum\npick up power cell"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 1 times\nmove forward 3\npick up spinner\nend\nrepeat 4 times\nturn left\nmove forward 2\nend\nuse drum\npick up flipper\nrepair\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nmove forward 2\nrepeat 4 times\npick up power cell\npick up power cell\nend\nrepeat 1 times\npick up hammer\npick up spinner\nend\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1\nuse spinner\nturn right\nturn left\npick up drum\npick up drum\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"turn right\nmove forward 1\nturn right",
+"move forward 3\npick up hammer\nuse drum\npick up power cell"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn right\nmove forward 1\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3\npick up hammer\nuse drum\npick up power cell"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"turn left\nturn right\npick up power cell\nuse drum\nturn left\npick up power cell\npick up drum",
+"pick up flipper\nmove forward 3\nturn left\nuse flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn left\nturn right\npick up power cell\nuse drum\nturn left\npick up power cell\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\nmove forward 3\nturn left\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use drum\nrepair\nmove forward 2\npick up drum\nrepeat 1 times\nmove forward 3\nuse flipper\nend\nmove forward 1\nuse drum",
+"turn right",
+"use drum\nrepair\nuse flipper\nmove back 1\nmove forward 1",
+"pick up drum\nmove forward 1\nuse flipper\nrepeat 2 times\nmove forward 3\nmove forward 2\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum\nrepair\nmove forward 2\npick up drum\nrepeat 1 times\nmove forward 3\nuse flipper\nend\nmove forward 1\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nrepair\nuse flipper\nmove back 1\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nmove forward 1\nuse flipper\nrepeat 2 times\nmove forward 3\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped done stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use drum\nuse spinner\nuse flipper\npick up drum\npick up spinner"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum\nuse spinner\nuse flipper\npick up drum\npick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up drum\nrepair\nmove forward 1\nrepeat 4 times\npick up spinner\npick up flipper\nend",
+"use flipper",
+"repeat 2 times\nuse hammer\npick up drum\nend\npick up hammer\nuse spinner\nmove forward 1\nturn right"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up drum\nrepair\nmove forward 1\nrepeat 4 times\npick up spinner\npick up flipper\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\nuse hammer\npick up drum\nend\npick up hammer\nuse spinner\nmove forward 1\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper\npick up drum",
+"use drum\npick up hammer\nrepair",
+"use drum\nturn right",
+"repeat 1 times\nmove forward 3\nturn left\nend\npick up hammer\nmove forward 2"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\npick up drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\npick up hammer\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nmove forward 3\nturn left\nend\npick up hammer\nmove forward 2"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\npick up spinner\npick up spinner\nend\nrepeat 2 times\nmove back 1\npick up drum\nend\nturn right\npick up drum\npick up spinner\nmove forward 3\npick up hammer\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\npick up spinner\npick up spinner\nend\nrepeat 2 times\nmove back 1\npick up drum\nend\nturn right\npick up drum\npick up spinner\nmove forward 3\npick up hammer\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up hammer\nuse hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\nuse hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use hammer\nrepair\nmove forward 3\nuse spinner\npick up spinner\nturn left\nturn right",
+"pick up flipper\npick up hammer\npick up hammer\nrepeat 4 times\nmove back 1\nuse spinner\nend\nuse drum\npick up spinner"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use hammer\nrepair\nmove forward 3\nuse spinner\npick up spinner\nturn left\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up flipper\npick up hammer\npick up hammer\nrepeat 4 times\nmove back 1\nuse spinner\nend\nuse drum\npick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move forward 1\nmove forward 3\nturn left\npick up flipper",
+"move back 1\npick up power cell\nrepeat 3 times\npick up drum\npick up flipper\nend\nmove forward 3\nmove forward 3\nmove forward 1\npick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\nmove forward 3\nturn left\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1\npick up power cell\nrepeat 3 times\npick up drum\npick up flipper\nend\nmove forward 3\nmove forward 3\nmove forward 1\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use drum\nmove back 1\nmove forward 3\nuse spinner\nuse drum\nturn left\nrepeat 1 times\nuse flipper\npick up drum\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum\nmove back 1\nmove forward 3\nuse spinner\nuse drum\nturn left\nrepeat 1 times\nuse flipper\npick up drum\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 4 times\nmove forward 3\nturn right\nend\npick up power cell\npick up drum\nmove back 1\nmove back 1\nmove forward 1\nmove forward 1",
+"repeat 4 times\nmove forward 2\npick up power cell\nend\nmove back 1\nuse spinner\nmove forward 1\nuse spinner\nrepeat 3 times\nrepair\nmove forward 3\nend\npick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\nmove forward 3\nturn right\nend\npick up power cell\npick up drum\nmove back 1\nmove back 1\nmove forward 1\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 4 times\nmove forward 2\npick up power cell\nend\nmove back 1\nuse spinner\nmove forward 1\nuse spinner\nrepeat 3 times\nrepair\nmove forward 3\nend\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "flat flat -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up hammer",
+"pick up hammer\nmove forward 3\npick up flipper\npick up power cell",
+"repeat 1 times\nuse hammer\nmove forward 2\nend\nrepeat 1 times\npick up power cell\nturn right\nend\nuse hammer\nrepair\nuse spinner\nrepair",
+"repeat 2 times\nturn left\nmove forward 3\nend\nturn left\npick up hammer\nmove forward 3\nuse spinner\nmove forward 3"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nmove forward 3\npick up flipper\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nuse hammer\nmove forward 2\nend\nrepeat 1 times\npick up power cell\nturn right\nend\nuse hammer\nrepair\nuse spinner\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 2 times\nturn left\nmove forward 3\nend\nturn left\npick up hammer\nmove forward 3\nuse spinner\nmove forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"use hammer\nmove forward 1\nuse flipper\nturn left\nuse hammer\nrepeat 4 times\nuse drum\nmove forward 1\nend\npick up hammer",
+"repair\nuse drum\nuse flipper\nrepeat 2 times\npick up power cell\nuse flipper\nend\nmove back 1\nmove forward 1\nrepeat 2 times\nuse drum\nmove forward 2\nend\nuse drum",
+"pick up drum\nrepeat 1 times\nmove forward 2\nturn left\nend\npick up spinner",
+"move forward 3"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "use hammer\nmove forward 1\nuse flipper\nturn left\nuse hammer\nrepeat 4 times\nuse drum\nmove forward 1\nend\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nuse drum\nuse flipper\nrepeat 2 times\npick up power cell\nuse flipper\nend\nmove back 1\nmove forward 1\nrepeat 2 times\nuse drum\nmove forward 2\nend\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nrepeat 1 times\nmove forward 2\nturn left\nend\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped done -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up flipper\nturn right\nuse drum\nmove forward 2\nrepair\nmove forward 1\npick up hammer",
+"pick up drum\npick up flipper\nrepeat 2 times\nuse hammer\nuse hammer\nend\npick up drum\nmove forward 2",
+"pick up hammer\nturn right\nrepair\npick up flipper\nturn right\nturn right\npick up spinner"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\nturn right\nuse drum\nmove forward 2\nrepair\nmove forward 1\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\npick up flipper\nrepeat 2 times\nuse hammer\nuse hammer\nend\npick up drum\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up hammer\nturn right\nrepair\npick up flipper\nturn right\nturn right\npick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 1\npick up spinner",
+"use drum\nuse hammer\npick up flipper\nmove forward 1\nmove forward 2\npick up flipper\nrepair\nuse flipper",
+"repeat 3 times\nmove forward 1\npick up drum\nend\npick up flipper\nuse spinner\nturn left\nmove forward 2\nmove forward 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 1\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\nuse hammer\npick up flipper\nmove forward 1\nmove forward 2\npick up flipper\nrepair\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\nmove forward 1\npick up drum\nend\npick up flipper\nuse spinner\nturn left\nmove forward 2\nmove forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use flipper\nturn left\nmove back 1\nmove forward 2",
+"repeat 3 times\npick up drum\npick up power cell\nend\nmove forward 2\nuse spinner\npick up power cell\npick up drum\npick up drum\nrepair\nrepeat 2 times\nmove forward 1\nrepair\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use flipper\nturn left\nmove back 1\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 3 times\npick up drum\npick up power cell\nend\nmove forward 2\nuse spinner\npick up power cell\npick up drum\npick up drum\nrepair\nrepeat 2 times\nmove forward 1\nrepair\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use drum\nrepeat 4 times\nuse spinner\nturn left\nend\nmove forward 1\nrepair",
+"pick up drum"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum\nrepeat 4 times\nuse spinner\nturn left\nend\nmove forward 1\nrepair"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move forward 3\nmove forward 1\nrepair\npick up hammer",
+"use drum\npick up flipper",
+"repair\nturn left\npick up flipper\nmove forward 3\nmove forward 3\nuse drum\nmove forward 2",
+"pick up drum\nrepeat 3 times\nturn left\nmove forward 2\nend"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move forward 3\nmove forward 1\nrepair\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use drum\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nturn left\npick up flipper\nmove forward 3\nmove forward 3\nuse drum\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nrepeat 3 times\nturn left\nmove forward 2\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move back 1\npick up flipper\nmove forward 1\nturn right\npick up flipper\nrepeat 4 times\nrepair\npick up flipper\nend\nmove forward 2",
+"repair\npick up spinner\nturn left\nturn left\nrepeat 3 times\nmove forward 3\nuse flipper\nend\nmove forward 3\nturn right\npick up flipper"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\npick up flipper\nmove forward 1\nturn right\npick up flipper\nrepeat 4 times\nrepair\npick up flipper\nend\nmove forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\npick up spinner\nturn left\nturn left\nrepeat 3 times\nmove forward 3\nuse flipper\nend\nmove forward 3\nturn right\npick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up flipper\npick up spinner\nuse flipper\npick up drum"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\npick up spinner\nuse flipper\npick up drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"turn right\nrepeat 4 times\nrepair\nmove back 1\nend\nrepeat 4 times\nmove forward 2\nmove forward 3\nend\nturn right\nmove forward 3\nmove forward 2\nuse drum"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "turn right\nrepeat 4 times\nrepair\nmove back 1\nend\nrepeat 4 times\nmove forward 2\nmove forward 3\nend\nturn right\nmove forward 3\nmove forward 2\nuse drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up hammer\nmove back 1\npick up hammer\nuse hammer",
+"move forward 2",
+"pick up drum\nmove forward 1\nturn right\nuse drum"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\nmove back 1\npick up hammer\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nmove forward 1\nturn right\nuse drum"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped done stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"move back 1",
+"use flipper\npick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use hammer\nrepeat 4 times\npick up power cell\nrepair\nend\nrepeat 3 times\npick up drum\nuse drum\nend\nuse flipper\nmove forward 1\nuse hammer\nturn right\npick up power cell",
+"use spinner\nuse hammer\npick up drum\nmove back 1\nturn left\nmove forward 2\nuse flipper\nmove forward 1",
+"use flipper\nmove back 1\nrepeat 1 times\npick up power cell\nturn left\nend\nmove forward 1\nturn left\npick up spinner\npick up hammer\nturn left",
+"pick up power cell\npick up flipper\nmove forward 1\npick up power cell\nrepeat 1 times\nmove forward 1\nmove back 1\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use hammer\nrepeat 4 times\npick up power cell\nrepair\nend\nrepeat 3 times\npick up drum\nuse drum\nend\nuse flipper\nmove forward 1\nuse hammer\nturn right\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use spinner\nuse hammer\npick up drum\nmove back 1\nturn left\nmove forward 2\nuse flipper\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use flipper\nmove back 1\nrepeat 1 times\npick up power cell\nturn left\nend\nmove forward 1\nturn left\npick up spinner\npick up hammer\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up power cell\npick up flipper\nmove forward 1\npick up power cell\nrepeat 1 times\nmove forward 1\nmove back 1\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up spinner"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up spinner"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"move back 1\npick up flipper\nmove forward 1",
+"turn left\nuse hammer\nrepeat 2 times\nuse drum\npick up spinner\nend\nuse drum\npick up flipper",
+"move forward 3\nuse flipper\nuse drum",
+"move forward 3"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "move back 1\npick up flipper\nmove forward 1"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn left\nuse hammer\nrepeat 2 times\nuse drum\npick up spinner\nend\nuse drum\npick up flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3\nuse flipper\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 3"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up flipper\npick up drum\npick up flipper\nrepeat 2 times\nmove back 1\nrepair\nend\npick up drum\npick up power cell\nmove back 1\npick up hammer",
+"use hammer",
+"use hammer\nmove back 1\npick up flipper\nturn left\npick up flipper\npick up spinner\nturn right"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\npick up drum\npick up flipper\nrepeat 2 times\nmove back 1\nrepair\nend\npick up drum\npick up power cell\nmove back 1\npick up hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nmove back 1\npick up flipper\nturn left\npick up flipper\npick up spinner\nturn right"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"use drum\nuse spinner\nrepeat 3 times\nrepair\npick up hammer\nend\nuse drum\nmove forward 2\npick up hammer"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "use drum\nuse spinner\nrepeat 3 times\nrepair\npick up hammer\nend\nuse drum\nmove forward 2\npick up hammer"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"pick up power cell\nuse hammer\nrepair\nuse hammer",
+"move forward 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up power cell\nuse hammer\nrepair\nuse hammer"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped done -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"repeat 2 times\nmove forward 2\nturn right\nend",
+"pick up drum\nmove forward 3\nuse spinner\nturn left\nturn right\npick up hammer\npick up power cell",
+"repair\npick up flipper\npick up flipper\nrepeat 3 times\npick up power cell\npick up flipper\nend\nrepeat 2 times\nrepair\nmove forward 3\nend\nmove forward 3\nrepeat 3 times\nmove forward 3\nuse hammer\nend",
+"repeat 1 times\nmove forward 2\npick up power cell\nend"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 2 times\nmove forward 2\nturn right\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up drum\nmove forward 3\nuse spinner\nturn left\nturn right\npick up hammer\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\npick up flipper\npick up flipper\nrepeat 3 times\npick up power cell\npick up flipper\nend\nrepeat 2 times\nrepair\nmove forward 3\nend\nmove forward 3\nrepeat 3 times\nmove forward 3\nuse hammer\nend"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nmove forward 2\npick up power cell\nend"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "done stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up flipper\nturn left\nuse flipper\nrepeat 3 times\nuse drum\npick up power cell\nend\nturn left",
+"repair\nmove forward 1\nuse hammer\nuse drum",
+"repeat 1 times\nuse spinner\nuse drum\nend\nmove forward 2\npick up drum\npick up power cell",
+"turn right\npick up flipper\nturn right\npick up flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up flipper\nturn left\nuse flipper\nrepeat 3 times\nuse drum\npick up power cell\nend\nturn left"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nmove forward 1\nuse hammer\nuse drum"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repeat 1 times\nuse spinner\nuse drum\nend\nmove forward 2\npick up drum\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "turn right\npick up flipper\nturn right\npick up flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "TITAN",
+"runs": [
+"pick up hammer\nrepeat 4 times\npick up drum\nuse drum\nend\nuse hammer\npick up spinner",
+"move forward 2\nturn left\nuse spinner\nmove forward 1\nuse flipper",
+"use hammer\nuse hammer\nuse drum\npick up hammer\npick up hammer\nuse flipper"
+],
+"keys": [
+["key", "1"],
+["key", "c"],
+["key", "control-a"],
+["type", "pick up hammer\nrepeat 4 times\npick up drum\nuse drum\nend\nuse hammer\npick up spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move forward 2\nturn left\nuse spinner\nmove forward 1\nuse flipper"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "use hammer\nuse hammer\nuse drum\npick up hammer\npick up hammer\nuse flipper"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped -> 0 stars"
+},
+{
+"robot": "RAZORBACK",
+"runs": [
+"repeat 4 times\npick up drum\nrepair\nend\nrepair\nrepeat 2 times\nturn right\nuse drum\nend\npick up drum\nturn right",
+"pick up spinner\nturn left\npick up drum\npick up flipper\nuse drum\npick up power cell\npick up flipper\npick up power cell",
+"repair\nuse spinner",
+"move back 1"
+],
+"keys": [
+["key", "2"],
+["key", "c"],
+["key", "control-a"],
+["type", "repeat 4 times\npick up drum\nrepair\nend\nrepair\nrepeat 2 times\nturn right\nuse drum\nend\npick up drum\nturn right"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "pick up spinner\nturn left\npick up drum\npick up flipper\nuse drum\npick up power cell\npick up flipper\npick up power cell"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "repair\nuse spinner"],
+["key", "control-enter"],
+["wait"],
+["key", "control-a"],
+["type", "move back 1"],
+["key", "control-enter"],
+["wait"]
+],
+"ends": "stopped stopped stopped stopped -> 0 stars"
+}
+],
+"results": "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Dgm+99snvhH8aW+f+Ebw+2+feMondulB87vbiextxnC73GQRTT4xeT+ZzZ+2TzSh/n61mdEu3s7ePy3pW7/5OM++3cN589i80s+Lx/vb3XaMT7sxdnPEoTZcHKe1m7/i3eKgPRdnPzx+ePjdtok/PUjYPnhY7R62TVar74vtZPzm83jVE4ac7Txu1c6jvdv5swdyb5sm+7ydV+tF83K332jqzTaH5bS4W9zfbjYiP8uqvyvmi/XzHcu52/GiVTuOj9OO24t3j3ZsLtblpjOYLz5tv9p8ZddRbP6OVbF5Lj2bv/jkLWezXrZq1otOm/Xw1eMtW6dq99T48ii3pFQDkLZbz9IGnzkHb7v3LG3wVYYcvO5Z8EfNwevXbh/LF/xFi0/+aOfA9CL4Lz75ox0FUtaRgq9b76J6zRaX3oQ+oG0uX1sh9fnKLwukjrdA6rOdLtuf+q0FUgee21q/civZvyu7TLVw5CLHebXVQOMuBxr3+UDj5ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptvvvnmm2+++eabb7755ptv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"
+}

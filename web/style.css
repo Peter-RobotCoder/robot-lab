@@ -543,3 +543,257 @@ body.touch #toast { top: 214px; font-size: 15px; max-width: 80vw; text-align: ce
 .karthud .ktop > .mini-btn { right: 2px; top: -6px; }  /* (the box spans the screen: its button inside the edge) */
 body.clean #events, body.clean #perf, body.clean #places, body.clean #keyhelp, body.clean #topbar .pill, body.clean #topbar .title,
 body.clean .karthud .ktop, body.clean .karthud .kbottom, body.clean #kh-mapbox, body.clean #kh-dmg, body.clean #kh-tyres, body.clean #kh-item { display: none !important; }
+
+/* (CHANGE 199) the Missions (missions.js), as the mission window has them: the HUD (hud.js's MissionHud: the mission's
+   box top left, what to do now, the log bottom left, the class top right), the first screen (the missions, the story,
+   the two robots), the code panel (the Pseudo code tab: what is typed, the Python beside each line, what's wrong and
+   the hint, RUN and RESET, the phrasebook; the Code tab), the end card and the flat battery's banner */
+body.missionscreen #events, body.missionscreen #places { display: none; }
+body.missionscreen #keyhelp { left: auto; right: 12px; bottom: 70px; transform: none; max-width: min(560px, 40vw); justify-content: flex-end; }
+.missionhud .mbox { position: absolute; background: rgba(8, 10, 18, 0.86); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+#mh-status { left: 12px; top: 52px; width: min(390px, calc(100vw - 24px)); }
+#mh-status .mtitle { color: var(--yellow); font-weight: 700; font-size: 17px; letter-spacing: 0.03em; }
+#mh-status .mrow { display: flex; gap: 10px; align-items: center; margin: 3px 0; }
+#mh-status .mdim { color: var(--grey); font-size: 12px; letter-spacing: 0.05em; margin-top: 4px; }
+#mh-status .mbar { flex: 1; height: 12px; background: #26262b; border-radius: 3px; overflow: hidden; }
+#mh-status .mbar b { display: block; height: 100%; }
+#mh-status .mstars { margin-left: auto; font-size: 20px; letter-spacing: 4px; }
+.missionhud .mstars i, #missiondone .md-stars i { font-style: normal; color: #4d525f; }
+.missionhud .mstars i.on, #missiondone .md-stars i.on { color: #ffd133; }
+#mh-objectives div { display: flex; gap: 8px; color: var(--grey); }
+#mh-objectives div b { width: 3em; flex: none; font-weight: 500; }
+#mh-objectives div.done { color: var(--green); }
+#mh-objectives div.now { color: var(--yellow); }
+#mh-vars { color: #3ee9ff; font: 13px "JetBrains Mono", Consolas, monospace; margin-top: 4px; }
+#mh-legend { color: var(--grey); font-size: 12px; margin-top: 4px; }
+#mh-status .mbtns { display: flex; gap: 6px; margin-top: 8px; }
+#mh-status .mbtns button { padding: 4px 9px; font-size: 13px; background: #29496b; }
+button.mreset, #mh-status .mbtns button.mreset { background: #bf801a; color: #000; }
+#mh-now { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); max-width: 44vw; text-align: center; color: var(--yellow);
+          font-size: 18px; text-shadow: 0 1px 4px #000, 0 0 8px #000; }
+#mh-class { position: absolute; right: 12px; top: 48px; text-align: right; white-space: pre; font-size: 13px; text-shadow: 0 1px 3px #000, 0 0 6px #000; }
+#mh-log { left: 12px; bottom: 12px; width: min(560px, calc(100vw - 24px)); font-size: 13px; }
+#missionintro, #missiondone { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, calc(100vw - 24px));
+    max-height: calc(100vh - 70px); overflow: auto; background: rgba(5, 8, 13, 0.92); border-radius: 12px; padding: 20px 26px; z-index: 3; text-align: center; }
+#missionintro[hidden], #missioncode[hidden], #missiondone[hidden], #missionflat[hidden] { display: none; }
+#missionintro .mi-missions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+#missionintro .mi-missions button { background: #1f2638; padding: 8px 16px; }
+#missionintro .mi-missions button.on, #missioncode header button.on { background: #338ca6; color: #fff; }
+#missionintro h1 { color: var(--yellow); margin: 14px 0 6px; font-size: 30px; letter-spacing: 0.03em; }
+#missionintro p { margin: 8px auto; max-width: 860px; }
+#missionintro .mi-choose, #missionintro .mi-rules, #missionintro .mi-parts { color: var(--grey); font-size: 14px; }
+#missionintro .mi-parts.ok { color: var(--green); }
+#missionintro .mi-cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+#missionintro .mi-card { width: min(400px, 100%); background: #1a1f2e; display: flex; flex-direction: column; gap: 6px; padding: 14px 18px; text-align: left; }
+#missionintro .mi-card b { font-size: 24px; text-align: center; }
+#missionintro .mi-blurb { color: var(--grey); font-size: 13px; text-align: center; }
+#missionintro .mi-stat { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+#missionintro .mi-stat i { font-style: normal; width: 5.5em; }
+#missionintro .mi-stat i:last-child { width: auto; margin-left: auto; }
+#missionintro .mi-stat em { display: block; height: 12px; }
+#missioncode { --c-bg: rgba(10, 14, 30, 0.95); --c-edge: rgba(62, 233, 255, 0.35); --c-text: #e6ebff; --c-dim: #9aa6c8; --c-ln: #4c587c;
+               --c-box: rgba(4, 7, 18, 0.7); --c-boxedge: rgba(62, 233, 255, 0.12); --c-gutedge: rgba(76, 88, 124, 0.35); --c-k: #ff4fd8;
+               --c-f: #3ee9ff; --c-s: #ffb02e; --c-n: #b6ff3b; --c-c: #7f8bb0; --c-t: #3ee9ff; --c-p: #c3cbe8; --c-caret: #b6ff3b; --c-errnum: #e5484d;
+               position: fixed; right: 12px; top: 52px; bottom: 12px; width: min(760px, calc(100vw - 24px)); z-index: 4; color: var(--c-text);
+               background: var(--c-bg); border: 2px solid var(--c-edge); border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+               padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+body.light #missioncode { --c-bg: #ffffff; --c-edge: #c5ccd8; --c-text: #1f1f1f; --c-dim: #616161; --c-ln: #6e7681; --c-box: #ffffff; --c-boxedge: #e1e4ea;
+    --c-gutedge: #eceef2; --c-k: #0000ff; --c-f: #795e26; --c-s: #a31515; --c-n: #098658; --c-c: #008000; --c-t: #267f99; --c-p: #1f1f1f; --c-caret: #000000; --c-errnum: #e51400; }
+#missioncode header { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; font-size: 14px; }
+#missioncode header .dots { display: flex; gap: 7px; margin-right: 2px; }
+#missioncode header .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+#missioncode header .dots i:nth-child(2) { background: #febc2e; }
+#missioncode header .dots i:nth-child(3) { background: #28c840; }
+#missioncode .spacer { flex: 1; }
+#mc-file { font: 500 12.5px "JetBrains Mono", Consolas, monospace; color: var(--c-dim); }
+#missioncode header button { padding: 3px 10px; font-size: 13px; }
+#missioncode .mcol { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow: auto; }
+#missioncode .mcol[hidden] { display: none; }
+#missioncode .mc-heads { display: flex; padding-left: 3.8em; font-size: 11.5px; color: var(--c-dim); letter-spacing: 0.04em; }
+#missioncode .mc-heads span { flex: 1; }
+#missioncode .codebox { flex: none; height: 318px; display: flex; background: var(--c-box); border: 1px solid var(--c-boxedge); border-radius: 8px; overflow: hidden; }
+#missioncode pre, #missioncode textarea { margin: 0; padding: 8px 10px; border: 0; white-space: pre; tab-size: 4;
+    font: 400 13px/20px "JetBrains Mono", Consolas, "Cascadia Mono", "Courier New", monospace; font-variant-ligatures: none; }
+#mc-gutter { flex: none; min-width: 3.4em; text-align: right; color: var(--c-ln); overflow: hidden; border-right: 1px solid var(--c-gutedge); user-select: none; }
+#mc-gutter b { color: #fff; background: var(--c-errnum); border-radius: 3px; padding: 0 3px; font-weight: 700; }
+#mc-text { flex: 1; min-width: 0; resize: none; outline: none; background: transparent; color: var(--c-text); caret-color: var(--c-caret); overflow: auto; }
+#mc-py { flex: 1; min-width: 0; overflow: hidden; color: var(--c-text); border-left: 1px solid var(--c-gutedge); }
+.mpy .k { color: var(--c-k); }
+.mpy .f { color: var(--c-f); }
+.mpy .s { color: var(--c-s); }
+.mpy .n { color: var(--c-n); }
+.mpy .c { color: var(--c-c); }
+.mpy .t { color: var(--c-t); }
+.mpy .p { color: var(--c-p); }
+#mc-py .err { color: var(--red); }
+#mc-py .run { background: rgba(255, 217, 51, 0.25); border-radius: 2px; }
+#mc-problems { font-size: 13px; min-height: 1.3em; white-space: pre-wrap; }
+#mc-problems .bad { color: var(--red); }
+#mc-problems .hint { color: var(--yellow); }
+#mc-problems .ok { color: var(--green); }
+#missioncode .row { display: flex; gap: 10px; align-items: center; }
+#mc-run { padding: 6px 24px; font-weight: 700; }
+#mc-run:disabled { background: #383f4d; color: #8b93a5; cursor: default; filter: none; }
+#mc-runinfo { font-size: 13px; color: var(--c-dim); white-space: pre; }
+#mc-book { background: rgba(255, 255, 255, 0.04); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: var(--c-dim); }
+#mc-book h3 { color: var(--yellow); font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+#mc-book h3 small { color: var(--c-dim); font-weight: 400; }
+#mc-book p { margin: 6px 0 0; }
+#mc-book .mc-says { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+#mc-book .mc-says div { display: flex; flex-direction: column; }
+#mc-book .mc-says b, #mc-book .mc-py-way { color: var(--c-f); font: 500 12.5px "JetBrains Mono", Consolas, monospace; }
+#mc-book .mc-values { color: var(--c-text); }
+#mc-whole { flex: 1; overflow: auto; background: var(--c-box); border: 1px solid var(--c-boxedge); border-radius: 8px; }
+#missiondone { width: min(760px, calc(100vw - 24px)); z-index: 7; padding: 22px 30px; }
+#missiondone h1 { color: var(--yellow); font-size: 36px; margin: 0; }
+#missiondone .md-stars { font-size: 52px; letter-spacing: 12px; }
+#missiondone .ok { color: var(--green); }
+#missiondone .dim { color: var(--grey); }
+#missiondone .md-part { display: flex; gap: 16px; align-items: center; text-align: left; margin: 14px 0; }
+#missiondone .md-part p { margin: 4px 0 0; color: var(--grey); font-size: 14px; }
+#missiondone .md-panel { width: 62px; height: 56px; background: #293d73; border-radius: 3px; display: flex; gap: 6px; padding: 0 8px; flex: none; }
+#missiondone .md-panel i { width: 3px; background: #8cb3ff; }
+#missiondone .md-btns { display: flex; gap: 20px; justify-content: center; }
+#missionflat { position: fixed; left: 50%; top: 28%; transform: translateX(-50%); background: rgba(89, 13, 13, 0.92); border-radius: 10px;
+               padding: 12px 22px; display: flex; gap: 18px; align-items: center; z-index: 3; font-size: 17px; }
+#missionflat p { margin: 0; }
+body.clean #mh-status, body.clean #mh-log, body.clean #mh-class { display: none !important; }
+
+/* (CHANGE 201) City Lab (city.js, hud.js's CityHud), as the window's overlay: the job top middle with its arrow, the
+   minimap top right with the cash and chips under it, health bottom left, km/h and the damage bottom right, the hint,
+   the countdown and the banners; the touch controls' on-foot layout (touch.js: the stick and the moves) */
+body.cityscreen #places { display: none; }
+body.cityscreen #events { bottom: 54px; }
+.cityhud .ctop { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); text-align: center; width: min(760px, 60vw); }
+.cityhud #ch-job { font-size: 22px; font-weight: 700; color: #ffd94d; text-shadow: 0 2px 6px #000; }
+.cityhud #ch-job2 { font-size: 16px; text-shadow: 0 1px 4px #000; margin-top: 2px; }
+.cityhud #ch-arrow { display: none; position: absolute; left: 50%; top: 66px; width: 0; height: 0; transform-origin: 0 22px; }
+.cityhud #ch-arrow i { position: absolute; left: -16px; top: 0; width: 0; height: 0; border-left: 16px solid transparent; border-right: 16px solid transparent;
+                       border-bottom: 30px solid #ffd933; filter: drop-shadow(0 2px 3px #000); }
+.cityhud #ch-arrow i::after { content: ""; position: absolute; left: -5px; top: 29px; width: 10px; height: 14px; background: inherit; }
+.cityhud #ch-mapbox { position: absolute; right: 12px; top: 52px; width: 230px; }
+.cityhud #ch-map { display: block; width: 230px; height: 230px; border-radius: 6px; }
+.cityhud #ch-cash { text-align: right; font-size: 26px; font-weight: 800; color: #80ff80; text-shadow: 0 2px 6px #000; margin-top: 4px; }
+.cityhud #ch-chips { text-align: right; font-size: 15px; color: #80ff99; text-shadow: 0 1px 4px #000; }
+.cityhud #ch-count { position: absolute; left: 0; right: 0; top: 26%; text-align: center; font-size: 96px; font-weight: 900; color: #ffe633; text-shadow: 0 4px 12px #000; }
+.cityhud #ch-banner { position: absolute; left: 0; right: 0; top: 38%; text-align: center; font-size: 56px; font-weight: 900; color: #ff5940; text-shadow: 0 4px 10px #000; }
+.cityhud #ch-hint { position: absolute; left: 0; right: 0; bottom: 92px; text-align: center; font-size: 26px; font-weight: 700; color: #ffe64d; text-shadow: 0 2px 6px #000; }
+.cityhud #ch-view { position: absolute; left: 12px; top: 52px; font-size: 13px; color: #d9d9d9; text-shadow: 0 1px 3px #000; }
+.cityhud .cbottom { position: absolute; right: 28px; bottom: 70px; text-align: right; }
+.cityhud #ch-speed { font-size: 40px; font-weight: 700; text-shadow: 0 2px 6px #000; }
+.cityhud #ch-damage { font-size: 16px; color: #d9d9d9; text-shadow: 0 1px 4px #000; }
+.cityhud #ch-health { position: absolute; left: 12px; bottom: 12px; width: 260px; }
+.cityhud #ch-health span { font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000; }
+.cityhud .cmeter { height: 14px; background: rgba(0, 0, 0, 0.55); border: 3px solid rgba(0, 0, 0, 0.55); border-radius: 3px; }
+.cityhud .cmeter b { display: block; height: 100%; }
+body.clean .cityhud #ch-mapbox, body.clean .cityhud .cbottom, body.clean .cityhud #ch-health { display: none !important; }
+body.touch .cityhud #ch-mapbox { width: 120px; top: 78px; }
+body.touch .cityhud #ch-map { width: 120px; height: 120px; }
+body.touch .cityhud #ch-cash { font-size: 18px; }
+body.touch .cityhud .ctop { top: 44px; width: 70vw; }
+body.touch .cityhud #ch-job { font-size: 16px; }
+body.touch .cityhud #ch-job2 { font-size: 13px; }
+body.touch .cityhud #ch-hint { bottom: 170px; font-size: 20px; }
+body.touch .cityhud .cbottom { right: auto; left: 50%; transform: translateX(-50%); bottom: max(8px, env(safe-area-inset-bottom)); text-align: center; }
+body.touch .cityhud #ch-speed { font-size: 26px; }
+body.touch .cityhud #ch-health { left: 50%; transform: translateX(-50%); bottom: auto; top: 8px; width: 160px; }
+body.touch .cityhud #ch-count { font-size: 64px; }
+body.touch .cityhud #ch-banner { font-size: 34px; }
+#touchpad .tp-foot { display: none; }
+#touchpad.foot .tp-left, #touchpad.foot .tp-right { display: none; }
+#touchpad.foot .tp-foot { display: block; }
+#touchpad .tp-stickbox { position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom)); width: 150px; height: 150px;
+                         border-radius: 50%; background: rgba(38, 42, 53, 0.55); border: 2px solid rgba(255, 255, 255, 0.22); }
+#touchpad .tp-stickbox i { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; background: var(--yellow);
+                           box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
+#touchpad .tp-moves { position: absolute; right: max(10px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); display: grid;
+                      grid-template-columns: 70px 70px 70px; grid-template-rows: 38px 62px 62px; gap: 8px;
+                      grid-template-areas: "run block reset" "punch kick getin" "jump jump getin"; }
+#touchpad .tp-moves [data-btn="run"] { grid-area: run; font-size: 12px; }
+#touchpad .tp-moves [data-btn="block"] { grid-area: block; font-size: 12px; }
+#touchpad .tp-moves [data-btn="reset"] { grid-area: reset; font-size: 11px; }
+#touchpad .tp-moves [data-btn="punch"] { grid-area: punch; background: rgba(143, 95, 47, 0.9); }
+#touchpad .tp-moves [data-btn="kick"] { grid-area: kick; background: rgba(143, 47, 47, 0.9); }
+#touchpad .tp-moves [data-btn="getin"] { grid-area: getin; background: rgba(47, 95, 143, 0.9); }
+#touchpad .tp-moves [data-btn="jump"] { grid-area: jump; background: rgba(47, 143, 74, 0.9); }
+
+/* ---------- (CHANGE 202) Craft Lab: the HUD and the screens, as craft_ui.py draws them ---------- */
+.cr-icon { display: block; width: 78%; height: 78%; margin: 11%; background-image: var(--craft-atlas, url("tex/craft_atlas.png")); background-size: 1600% 1600%; image-rendering: pixelated; image-rendering: crisp-edges; }
+.cr-icon.cr-empty { opacity: 0.28; }
+.cr-slot { position: relative; width: 46px; height: 46px; background: rgba(56, 61, 77, 0.95); border-radius: 3px; box-sizing: border-box; }
+.cr-slot .cr-n { position: absolute; right: 3px; bottom: 1px; font-size: 14px; font-weight: 700; color: #fff; text-shadow: 1px 1px 0 #000, 0 0 3px #000; }
+.cr-slot .cr-wear { position: absolute; left: 10%; bottom: 4px; height: 3px; }
+.crafthud .cr-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -54%); font-size: 30px; color: rgba(255, 255, 255, 0.85); text-shadow: 0 0 3px rgba(0, 0, 0, 0.6); }
+.crafthud #cr-dark { position: absolute; inset: 0; background: rgba(153, 0, 0, 0.22); display: none; }
+.crafthud #cr-dark.hurt { display: block; }
+.crafthud #cr-news { position: absolute; left: 0; right: 0; top: 26%; text-align: center; font-size: 26px; font-weight: 600; color: var(--yellow); text-shadow: 0 2px 4px #000; }
+.crafthud #cr-title { position: absolute; right: 14px; top: 84px; font-size: 15px; color: var(--yellow); text-shadow: 0 1px 3px #000; }
+.crafthud #cr-log { position: absolute; left: 14px; bottom: 120px; font-size: 14px; color: #fff; text-shadow: 0 1px 3px #000; max-width: 40vw; }
+.crafthud #cr-debug { position: absolute; left: 14px; top: 84px; font-size: 13px; color: #fff; text-shadow: 0 1px 3px #000; font-family: "JetBrains Mono", monospace; }
+.crafthud #cr-bottom { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto; }
+.crafthud #cr-bottom[hidden] { display: none; }
+.crafthud #cr-picked { min-height: 20px; font-size: 16px; color: #fff; text-shadow: 0 1px 3px #000; }
+.crafthud .cr-rows { display: flex; justify-content: space-between; width: 470px; }
+.crafthud .cr-pips { display: flex; gap: 6px; min-height: 16px; }
+.crafthud .cr-pips.right { flex-direction: row-reverse; }
+.crafthud .cr-pip { width: 15px; height: 15px; border-radius: 2px; background: rgba(38, 20, 20, 0.8); box-shadow: 0 0 2px #000; }
+.crafthud .cr-pip.heart.on { background: rgb(217, 31, 38); }
+.crafthud .cr-pip.heart.half { background: rgb(217, 102, 102); }
+.crafthud .cr-pip.food { background: rgba(31, 23, 15, 0.8); }
+.crafthud .cr-pip.food.on { background: rgb(191, 122, 51); }
+.crafthud .cr-pip.food.half { background: rgb(153, 115, 77); }
+.crafthud .cr-pip.armour { width: 13px; height: 13px; background: rgba(36, 41, 51, 0.8); }
+.crafthud .cr-pip.armour.on { background: rgb(199, 214, 242); }
+.crafthud .cr-pip.armour.half { background: rgb(140, 153, 179); }
+.crafthud .cr-pip.bubble { width: 12px; height: 12px; border-radius: 50%; background: rgb(140, 204, 255); }
+.crafthud .cr-pip.bubble.gone { visibility: hidden; }
+.crafthud #cr-hotbar { display: flex; gap: 3px; padding: 3px; background: rgba(10, 12, 20, 0.55); border-radius: 4px; }
+.crafthud #cr-hotbar .cr-slot { width: 50px; height: 50px; cursor: pointer; }
+.crafthud #cr-hotbar .cr-slot.lit { background: rgb(242, 209, 77); }
+#craftscreen { inset: 0; z-index: 4; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+#craftscreen .cr-panel { background: rgba(20, 23, 31, 0.95); border-radius: 8px; padding: 14px 18px 10px; display: flex; flex-direction: column; gap: 8px; max-height: 96vh; overflow: auto; }
+#craftscreen .cr-head { color: var(--yellow); font-size: 18px; font-weight: 600; letter-spacing: 0.04em; }
+#craftscreen .cr-inv, #craftscreen .cr-box { display: grid; grid-template-columns: repeat(9, var(--slot, 46px)); gap: 4px; }
+#craftscreen .cr-panel.creative { --slot: 38px; padding-top: 10px; gap: 5px; }
+#craftscreen .cr-panel .cr-slot { width: var(--slot, 46px); height: var(--slot, 46px); }
+#craftscreen .cr-panel .cr-slot.big { width: calc(var(--slot, 46px) + 10px); height: calc(var(--slot, 46px) + 10px); }
+#craftscreen .cr-inv.hot { margin-top: 6px; }
+#craftscreen .cr-top { display: flex; align-items: center; gap: 18px; min-height: 104px; }
+#craftscreen .cr-armourcol { display: flex; flex-direction: column; gap: 4px; margin-right: 18px; }
+#craftscreen .cr-grid { display: grid; gap: 4px; }
+#craftscreen .cr-grid.w2 { grid-template-columns: repeat(2, var(--slot, 46px)); }
+#craftscreen .cr-grid.w3 { grid-template-columns: repeat(3, var(--slot, 46px)); }
+#craftscreen .cr-arrow { font-size: 30px; color: #fff; }
+#craftscreen .cr-slot.big { width: 56px; height: 56px; }
+#craftscreen .cr-slot:hover { outline: 2px solid rgba(255, 255, 255, 0.6); }
+#craftscreen .cr-note { font-size: 13px; color: var(--grey); min-height: 16px; }
+#craftscreen .cr-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#craftscreen .cr-flame { width: 12px; height: 26px; background: rgba(60, 40, 20, 0.7); display: flex; align-items: flex-end; }
+#craftscreen .cr-flame b { display: block; width: 100%; background: rgb(255, 140, 38); }
+#craftscreen .cr-progress { width: 90px; height: 10px; background: rgba(255, 255, 255, 0.15); }
+#craftscreen .cr-progress b { display: block; height: 100%; background: #fff; width: 0; }
+#craftscreen .cr-creative .cr-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--grey); font-size: 13px; margin-bottom: 4px; }
+#craftscreen .cr-slot.cursor { position: fixed; pointer-events: none; transform: translate(-50%, -50%); background: transparent; z-index: 6; }
+body.craftscreen #events { top: 120px; bottom: auto; }
+body.craftscreen #places { display: none; }
+body.craftscreen #keyhelp { bottom: 132px; }
+body.touch .crafthud #cr-bottom { bottom: 6px; transform: translateX(-50%) scale(0.82); transform-origin: 50% 100%; }
+body.touch .crafthud #cr-log { top: 96px; bottom: auto; font-size: 12px; max-width: 34vw; }
+body.touch.craftscreen #perf { top: 54px; bottom: auto; right: auto; left: 50%; transform: translateX(-50%); max-width: 40vw; }
+body.touch .crafthud #cr-title { display: none; }
+#craftscreen .cr-panel > * { flex-shrink: 0; }
+#touchpad .tp-craft { display: none; }
+#touchpad.craft .tp-left, #touchpad.craft .tp-right, #touchpad.craft .tp-foot { display: none; }
+#touchpad.craft .tp-craft { display: block; }
+#touchpad .tp-craft .tp-stickbox { bottom: max(90px, env(safe-area-inset-bottom)); }
+#touchpad .tp-cmoves { position: absolute; right: max(10px, env(safe-area-inset-right)); bottom: max(90px, env(safe-area-inset-bottom)); display: grid;
+    grid-template-columns: 64px 64px 78px; grid-template-rows: 40px 56px 64px; gap: 8px;
+    grid-template-areas: "fly inv drop" "sneak run place" "sneak jump dig"; }
+#touchpad .tp-cmoves [data-btn="fly"] { grid-area: fly; font-size: 12px; }
+#touchpad .tp-cmoves [data-btn="inv"] { grid-area: inv; font-size: 12px; }
+#touchpad .tp-cmoves [data-btn="drop"] { grid-area: drop; font-size: 12px; }
+#touchpad .tp-cmoves [data-btn="sneak"] { grid-area: sneak; font-size: 12px; }
+#touchpad .tp-cmoves [data-btn="run"] { grid-area: run; font-size: 12px; }
+#touchpad .tp-cmoves [data-btn="place"] { grid-area: place; background: rgba(47, 95, 143, 0.9); }
+#touchpad .tp-cmoves [data-btn="jump"] { grid-area: jump; background: rgba(47, 143, 74, 0.9); }
+#touchpad .tp-cmoves [data-btn="dig"] { grid-area: dig; background: rgba(143, 95, 47, 0.9); font-size: 18px; }

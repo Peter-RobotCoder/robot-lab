@@ -5,6 +5,9 @@
 //     sound.robotFrame(arena, msg, impacts, myRobotId, {listener, weapons});    every frame, Robot Lab
 //     sound.fightFrame(rings, impacts, watchedRing, {listener, robots});         every frame, Fight Lab
 //     sound.kartFrame(myKart, race, {top, place, karts});                        every frame, Kart Lab
+//     sound.cityFrame(myCar, me, {top, race, mine});  sound.cityHit(kind, at)    every frame, City Lab (CHANGE 201)
+//     sound.craftFrame(dayT, me);  sound.craftPlay(name, at, listener, volume)   Craft Lab (CHANGE 202): its own
+//                                  sounds (craft_sound.py's, c_ files), the day's tune or the night's
 //
 // The directors are the windows' own code ported line for line: lab_client.py (hit_sound, machine_sounds,
 // show_intro and the layers), fight_client.py (draw_state's hits, event_sounds), kart_client.py (sounds) with
@@ -31,8 +34,14 @@ export const SETTINGS_ROWS = {
                ["motors", "Motors (the robots' drive motors)", "motors_volume"], ["effects", "Hit sounds", "volume"]],
     fightlab: [["crowd", "Crowd", "crowd_volume"], ["effects", "Hits and moves", "volume"]],
     kartlab: [],  // (the window has one switch: "Engine, tyres, the countdown and the finish", which is mute)
+    missions: [["weapons", "Tools", "weapons_volume"], ["motors", "Motors (your robot's drive motors)", "motors_volume"],
+               ["effects", "Bumps, clangs and beeps", "volume"]],  // (CHANGE 199: Robot Lab's sounds, as the mission window plays them)
+    citylab: [["motors", "Engines and tyres", "motors_volume"], ["effects", "Punches, kicks, zaps and the countdown", "volume"]],  // (CHANGE 201)
+    craftlab: [["effects", "Digging, placing, the creatures and the rest", "volume"], ["crowd", "The day's tune and the night's", "crowd_volume"]],  // (CHANGE 202)
 };
-export const HAS_MUSIC = {robotlab: true, fightlab: true, kartlab: false};
+export const HAS_MUSIC = {robotlab: true, fightlab: true, kartlab: false, missions: false, citylab: false, craftlab: false};
+// (CHANGE 201) City Lab's sounds: Kart Lab's and Fight Lab's (the window has none of its own yet: the plan's step 7)
+const CITY_SOUNDS = ["motor", "k_skid", "f_punch", "f_kick", "f_heavy", "f_whoosh", "f_jump", "f_zap", "f_metal", "beep", "go", "horn", "bump"];
 
 const BOOLS = ["crowd", "arena", "effects", "weapons", "motors"];
 const VOLUMES = ["music_volume", "crowd_volume", "arena_volume", "volume", "weapons_volume", "motors_volume"];
@@ -132,6 +141,7 @@ export class Sound {
         this._r = {fireCounts: new Map(), wasKo: new Map(), lastWinner: null, introWas: false, beeped: new Set()};
         this._f = {lastPhase: new Map(), lastWinner: new Map(), lastAnim: new Map(), lastBanner: new Map()};
         this._k = {wasBoosting: false, wasFinished: false, cdLast: null, race: null, raceAt: 0, near: new Set(), bumpAt: 0, me: null};
+        this._c = {preloaded: false, move: 0, air: false, cdLast: null, raceGo: null, listener: null};  // (City Lab: CHANGE 201)
     }
 
     // ---------- starting (after a click or a key) ----------
@@ -181,6 +191,16 @@ export class Sound {
         for (const name of (this.manifest.games || {})[game] || []) {
             const info = this.manifest.sounds[name];
             if (info && info.channel !== "music") for (const f of info.files) this._load(f, info);
+        }
+    }
+
+    // (CHANGE 199) sounds a game plays besides its own list (the Missions' beep and horn): fetched now, so the first
+    // one isn't lost to the fetch
+    preload(names) {
+        if (!this.manifest || !this.ctx) return;
+        for (const n of names) {
+            const info = this.manifest.sounds[n];
+            if (info) for (const f of info.files) this._load(f, info);
         }
     }
 
@@ -693,6 +713,91 @@ export class Sound {
             }
         }
         K.near = near;
+    }
+
+    // ---------- City Lab (CHANGE 201) ----------
+    // Every frame. car: the car you drive (its record, blended or predicted) or null on foot; me: your person (null:
+    // nobody of yours in the city); opts: top (your car's top speed, m/s), race (the jobs message's race), mine (your
+    // job), now (ms). Kart Lab's engine and tyres while you drive (kart_sound's), Fight Lab's whoosh as your punch or
+    // kick starts and its jump, the street race's 3, 2, 1 beeps and GO, the horn as you finish
+    cityFrame(car, me, opts = {}) {
+        this.use("citylab");
+        const C = this._c;
+        if (!C.preloaded && this.ready) { this.preload(CITY_SOUNDS); C.preloaded = true; }
+        const rel = ch => { const [on, v] = CHANNELS[ch]; return this.settings[on] ? this.settings[v] / DEFAULT_SOUND[v] : 0; };
+        const fx = rel("effects"), motors = rel("motors");
+        C.listener = me ? [me.x, me.y, me.z || 0] : null;
+        if (car && !this.muted) {  // (KartSounds.update: the engine climbs with the speed, the tyres squeal in a slide)
+            const flags = car.flags || 0, top = opts.top || 24.3, v = car.v || 0, speed = Math.min(1, Math.abs(v) / Math.max(1, top));
+            const drifting = !!(flags & FLAG_DRIFT), spinning = !!(flags & FLAG_SPINNING);
+            const e = this._pitch("motor").kart, sk = this._pitch("k_skid"), revs = spinning && Math.abs(v) < 6 ? 0.35 : 0;
+            this.loop("engine", "motor", (e.volume[0] + e.volume[1] * speed + revs * 0.4) * motors, e.rate[0] + e.rate[1] * speed + revs * 2.0);
+            if (spinning) this.loop("skid", "k_skid", (0.5 + 0.1 * speed) * motors, 1.05 + 0.2 * speed);
+            else if (drifting && Math.abs(v) > sk.min_speed) this.loop("skid", "k_skid", (sk.volume[0] + sk.volume[1] * speed) * motors, sk.rate[0] + sk.rate[1] * speed);
+            else this.stop("skid");
+        } else {
+            this.stop("engine");
+            this.stop("skid");
+        }
+        if (me && !car) {  // (your own moves, as fight_client's event_sounds: an attack starting, a jump)
+            if ((me.move === 1 || me.move === 2) && me.move !== C.move && fx) this.swing(me.move === 1 ? "punch" : "kick", 0.7 * this.settings.volume * fx);
+            const air = !!((me.flags || 0) & 2);
+            if (air && !C.air && fx) this.play("f_jump", {volume: 0.4 * this.settings.volume * fx});
+            C.move = me.move;
+            C.air = air;
+        }
+        // the street race: 3, 2, 1 and GO while you are on its grid; the horn as the race ends with you in it
+        const race = opts.race, mine = opts.mine, inRace = !!(race && mine && mine.kind === "race");
+        if (inRace && race.state !== "racing") {
+            const n = Math.ceil((race.go_in || 0) - 1e-6);
+            if (n !== C.cdLast && n >= 1 && n <= 3) this.play("beep", {volume: 0.8 * fx});
+            C.cdLast = n;
+            C.raceGo = true;
+        } else if (inRace && race.state === "racing" && C.raceGo) {
+            this.play("go", {volume: 0.8 * fx});
+            C.raceGo = false;
+            C.cdLast = null;
+        } else if (!race && C.raceGo === false) {
+            this.play("horn", {volume: 0.7 * fx});
+            C.raceGo = null;
+        }
+        if (!inRace && race === null) C.cdLast = null;
+    }
+
+    // a punch, a kick or a zap landing at the game point at (fight_sound's hit, a robot's clang of metal on top),
+    // quieter the further it is from you
+    cityHit(kind, at, robot = false) {
+        const s = this.settings;
+        if (!s.effects) return;
+        const listener = this._c.listener, far = listener && at ? Math.hypot(at[0] - listener[0], at[1] - listener[1]) : 0;
+        const volume = 0.75 * s.volume * Math.max(0.15, 1 - far / 30);
+        this.fightHit(kind, volume, robot);
+    }
+
+    // ---------- Craft Lab (CHANGE 202) ----------
+    // a sound the game names (craft_sound.Sounds.play: "dig_pick", "place", "pop", "zap"...): quieter the further it is
+    // from the listener, nothing past 32 m, a little higher or lower each time
+    craftPlay(name, at = null, listener = null, volume = 1) {
+        this.use("craftlab");
+        if (!this.ready || !this.settings.effects) return;
+        const key = "c_" + name;
+        if (!this.manifest.sounds[key]) return;
+        let v = volume * 0.8 * this.settings.volume / DEFAULT_SOUND.volume;
+        if (at && listener) {
+            const d = dist(at, listener);
+            if (d > 32) return;
+            v *= Math.max(0, 1 - d / 32) ** 1.5;
+        }
+        this.play(key, {volume: v, rate: 0.92 + Math.random() * 0.16, vary: false});
+    }
+
+    // every frame: the day's tune by day, the night's at night (craft_client: music_night from dusk to dawn), at the
+    // window's 0.35 times the tunes' setting
+    craftFrame(dayT) {
+        this.use("craftlab");
+        const name = dayT > 0.53 && dayT < 0.97 ? "c_music_night" : "c_music_day";
+        const v = this.settings.crowd ? 0.35 * this.settings.crowd_volume / DEFAULT_SOUND.crowd_volume : 0;
+        if (this.manifest && this.manifest.sounds[name]) this.loop("craft music", name, Math.min(1, v), 1);
     }
 
     // ---------- helpers for the games' files ----------

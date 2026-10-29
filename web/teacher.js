@@ -66,7 +66,9 @@ function armed(app, key) {
 // ---------- the Mods tab's items and the vote (CHANGE 143: as engine/hud.py build_mods and each window's stage_items) ----------
 const STAGE_WORDS = {robotlab: {pit: "Drop zone open", floor_flipper: "Floor flipper", saws: "Floor saws", spikes: "Wall spikes"},
                      fightlab: {ring_out: "Ring-outs (no ropes)", electric_ropes: "Electric ropes", fire_jets: "Fire jets",
-                                slippery: "Slippery ice", spikes: "Spikes"}};
+                                slippery: "Slippery ice", spikes: "Spikes"},
+                     citylab: {traffic: "Traffic", robots: "Robots"},  // (CHANGE 201: city_server's hazards)
+                     craftlab: {mobs: "Creatures at night", hunger: "Hunger"}};  // (CHANGE 202: craft_missions.NO_HAZARDS)
 
 export function houseOn(app) {  // (lab_sim.house_list: True is all four, a list is those named)
     const all = Object.keys((app.state.rules || {}).house || {}), v = ((app.state.lesson || {}).hazards || {}).house_robots;
@@ -119,7 +121,7 @@ export function learnerModsHtml(app, preview = false) {
     const game = app.game ? app.game.id : "", on = allUserMods(app);
     const off = preview ? "disabled" : "";
     const items = stageItems(app).filter(it => arenaIn[it.key] !== false || it.on);
-    let html = `<h3>The ${game === "kartlab" ? "track" : game === "fightlab" ? "stage" : "arena"}</h3>
+    let html = `<h3>The ${game === "kartlab" ? "track" : game === "fightlab" ? "stage" : game === "citylab" ? "city" : "arena"}</h3>
       <p class="note">Tick what you'd like in the game: your teacher sees the votes.</p>`;
     html += items.length ? `<table>${items.map(it => {
         const voters = asked[it.key] || [];
@@ -278,7 +280,7 @@ function pickBody(app, box) {
             build: d => {
                 if (!who) return buildMine(app);
                 const name = $("dz-name");  // (the window's send_design_for: the name as it is in the box)
-                if (name) d.name = Array.from(name.value).slice(0, game.id === "kartlab" ? 12 : 16).join("");
+                if (name) d.name = Array.from(name.value).slice(0, ["kartlab", "citylab"].includes(game.id) ? 12 : 16).join("");
                 if (S.pick === "*all") send({type: "design_for_all", design: d});
                 else send({type: "cpu_robot", ...which, design: d});
             }});
@@ -327,7 +329,7 @@ function pickBody(app, box) {
     if ($("dzgarage")) {
         renderGarage(app, $("dzgarage"), {who: p.name, pre: "dz", build: d => {
             const name = $("dz-name");  // (the window's send_design_for: the name as it is in the box)
-            if (name) d.name = Array.from(name.value).slice(0, game.id === "kartlab" ? 12 : 16).join("");
+            if (name) d.name = Array.from(name.value).slice(0, ["kartlab", "citylab"].includes(game.id) ? 12 : 16).join("");
             send({type: "design_for", learner: p.name, design: d});
         }});
     }

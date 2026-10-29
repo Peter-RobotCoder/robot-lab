@@ -1,6 +1,6 @@
 """A learner whose connection drops keeps their place a while; nobody else is started again (CHANGE 164).
 
-    python engine/seat_test.py [robot|fight|kart|city|all]
+    python engine/seat_test.py [robot|fight|kart|city|craft|all]
 
 A laptop server for the game (its seats held 6 s here, 45 in class), a teacher reading everything, learners Amy and
 Ben. Ben moves away from his start. Amy's connection is cut (no goodbye: a lid shut). Then: her robot, fighter or
@@ -106,6 +106,10 @@ def units(game, w):
     elif game == "city" and w.roster:  # (CHANGE 194: a person each; the cars and robots are the computer's)
         for k in w.roster["people"]:
             out[k["owner"] or f"cpu{k['id']}"] = (k["id"], None)
+    elif game == "craft" and w.roster:  # (CHANGE 200: a player each, by id; a kept place is still in the roster)
+        for pid, k in w.roster["players"].items():
+            if k["role"] == "learner":
+                out[k["name"]] = (int(pid), None)
     return out
 
 
@@ -161,7 +165,7 @@ def run(game):
         now = units(game, w)
         key = "Amy (away)" if game in ("kart", "city") else "Amy"
         check(f"{game}: Amy's connection cut, her {UNIT[game]} is kept", now.get(key, (None,))[0] == amy_id, str(now))
-        if game not in ("kart", "city"):  # (a rebuilt arena or stage starts its clock again: everyone back at their start)
+        if game not in ("kart", "city", "craft"):  # (a rebuilt arena or stage starts its clock again: everyone back at their start)
             check(f"{game}: ...and nobody was started again (Ben where he was, the clock running on)",
                   w.state["t"] > t_before and (game == "fight" or far(before["Ben"][1], now["Ben"][1]) < 0.6),
                   f"t {t_before} then {w.state['t']}; Ben {before['Ben']} then {now.get('Ben')}")
@@ -169,7 +173,7 @@ def run(game):
         wait(lambda: units(game, w).get("Amy", (None,))[0] == amy_id, 5)
         now = units(game, w)
         check(f"{game}: Amy logs in again and has the same {UNIT[game]} back", now.get("Amy", (None,))[0] == amy_id, str(now))
-        if game not in ("kart", "city"):
+        if game not in ("kart", "city", "craft"):
             check(f"{game}: ...and still nobody was started again", w.state["t"] > t_before + 2 and
                   (game == "fight" or far(before["Ben"][1], now["Ben"][1]) < 0.6),
                   f"t {t_before} then {w.state['t']}; Ben {before['Ben']} then {now.get('Ben')}")
@@ -195,7 +199,7 @@ def run(game):
         shutil.rmtree(work, ignore_errors=True)
 
 
-UNIT = {"robot": "robot", "fight": "fighter", "kart": "kart", "city": "driver"}
+UNIT = {"robot": "robot", "fight": "fighter", "kart": "kart", "city": "driver", "craft": "player"}
 
 
 def main():

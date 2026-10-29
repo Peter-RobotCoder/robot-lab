@@ -10,6 +10,7 @@ two windows, and the window offline and online (CHANGE 194).
 
 Exit code 0 when every check passed.
 """
+import copy
 import json
 import os
 import socket
@@ -667,6 +668,74 @@ def server_end_to_end():
         stop(proc)
 
 
+def the_sounds():
+    """(Step 7) What the city sounds like, worked out each frame: the mixer given pretend sounds, so no sound card is
+    needed. Driving: the engine note rises with the speed and the tyres squeal with the handbrake; a punch starts its
+    whoosh and lands its thump; a robot hit clangs; near the park the crowd murmurs, far from it it is quiet."""
+    import city_sound
+
+    class Sfx:
+        PLAYING = 2
+
+        def __init__(self):
+            self.volume, self.rate, self.on = 0.0, 1.0, False
+
+        def status(self):
+            return self.PLAYING if self.on else 1
+
+        def setVolume(self, v):
+            self.volume = v
+
+        def setPlayRate(self, r):
+            self.rate = r
+
+        def setLoop(self, on):
+            pass
+
+        def play(self):
+            self.on = True
+
+        def stop(self):
+            self.on = False
+
+    class Base:
+        class loader:
+            @staticmethod
+            def loadSfx(path):
+                return Sfx()
+    snd = city_sound.CitySounds(Base(), on=True)
+    played = []
+    snd.play = lambda name, volume=1.0, rate=1.0: played.append(name) if volume > 0.02 else None
+    c, w = make_world()
+    x, y, yaw = road_spot(c)
+    me = sim.new_person(0, x, y, yaw)
+    car = sim.new_car(32, x, y, yaw)
+    things = {0: me, 32: dict(car, v=6.0, flags=0)}
+    snd.frame(0.0, 0, things, 32, c)
+    slow = (snd.loops["engine"].volume, snd.loops["engine"].rate)
+    things[32] = dict(car, v=25.0, flags=sim.FLAG_HANDBRAKE)
+    snd.frame(0.1, 0, things, 32, c)
+    fast = (snd.loops["engine"].volume, snd.loops["engine"].rate)
+    assert fast[0] > slow[0] and fast[1] > slow[1], ("the engine note rises", slow, fast)
+    assert "skid" in snd.loops, "the tyres squeal with the handbrake on"
+    things[32] = dict(car, v=0.0, flags=0)
+    snd.frame(0.2, 0, things, 32, c)
+    assert "bump" in played, ("a car stopped dead bumps", played)
+    snd.frame(0.3, 0, {0: me}, None, c)
+    assert "engine" not in snd.loops, "out of the car the engine stops"
+    played.clear()
+    snd.frame(0.4, 0, {0: dict(me, move=sim.MOVE_PUNCH)}, None, c)
+    rid = 128
+    robot = sim.new_robot(rid, x + 1.0, y, yaw)
+    snd.landed({0: me, rid: dict(robot, hp=robot["hp"] - sim.HIT[sim.MOVE_KICK])}, {0: me, rid: robot}, (x, y))
+    assert "f_whoosh" in played and "f_kick" in played and "f_metal" in played, played
+    park = next(b for b in c.blocks if b["kind"] == "park")
+    snd.frame(0.5, 0, {0: dict(me, x=(park["x0"] + park["x1"]) / 2, y=(park["y0"] + park["y1"]) / 2)}, None, c)
+    near = snd.loops.get("crowd").volume if "crowd" in snd.loops else 0.0
+    snd.frame(0.6, 0, {0: dict(me, x=c.xmax + 200, y=c.ymax + 200)}, None, c)
+    assert near > 0.1 and "crowd" not in snd.loops, ("the park's crowd near it, quiet far away", near)
+
+
 def windows():
     """The window offline (step 1): the city drawn and a person running round it, on medium and on lines. (Online
     windows come in step 5.)"""
@@ -702,6 +771,71 @@ def windows():
                            capture_output=True, text=True, timeout=180, env=env)
         assert r.returncode == 0 and "Traceback" not in r.stderr, r.stdout[-1500:] + r.stderr[-1500:]
         assert os.path.exists(shot) and os.path.getsize(shot) > 20000, f"no {job} screenshot"
+
+
+def lessons():
+    """(Step 6) Mission 1 done as the Garage and the code panel do it, over the wire: a new name (1a), two points
+    changed (1b), a colour (1c), then a change in the code (1d); each build answered, each objective ticked in the
+    learner's missions message; then the prediction box (mission 2) kept."""
+    from websockets.sync.client import connect
+    import city_version
+    port = free_port()
+    proc = start_server(port)
+    try:
+        ws = connect(f"ws://127.0.0.1:{port}", compression=None, max_size=None)
+        ws.send(json.dumps({"type": "hello", "name": "Dev", "code": "CLUB42", "password": "dev-pass-1",
+                            "version": city_version.VERSION}))
+
+        def wait(kind, test=lambda m: True, secs=10):
+            end = time.time() + secs
+            while time.time() < end:
+                m = ws.recv(timeout=max(0.1, end - time.time()))
+                if isinstance(m, str):
+                    d = json.loads(m)
+                    if d.get("type") == kind and test(d):
+                        return d
+            raise AssertionError(f"no {kind} message")
+        d = copy.deepcopy(wait("welcome")["design"])
+        builds = [({"name": "DEVI"}, False), ({"points": {"speed": 40, "acceleration": 30, "grip": 30}}, False),
+                  ({"colour": [60, 130, 230]}, False), ({"body": "muscle"}, True)]
+        for change, by_code in builds:
+            d.update(change)
+            ws.send(json.dumps({"type": "design", "design": d, "code": by_code}))
+            r = wait("design_result")
+            assert r["ok"], r.get("problems")
+        m = wait("missions", lambda m: sum(x["done"] for x in m["missions"]) >= 4)
+        done = {x["id"] for x in m["missions"] if x["done"]}
+        assert {"1a", "1b", "1c", "1d"} <= done, done
+        ws.send(json.dumps({"type": "prediction", "value": 42}))
+        m = wait("missions", lambda m: m.get("prediction") == 42)
+        ws.close()
+    finally:
+        stop(proc)
+
+
+def panels():
+    """(Step 6) The side panel: a learner's Mission, Garage (with the code panel) and AI card tabs and the teacher's
+    Controls, drawn from a server's messages; offline the Garage. Each window must draw it without a mistake."""
+    port = free_port()
+    proc = start_server(port)
+    env = {**os.environ, "CITYLAB_DATA": TMP}
+    url = f"ws://127.0.0.1:{port}"
+    try:
+        runs = [("teacher", ["--host", url, "--teacher", "--tab", "teacher"]),
+                ("missions", ["--host", url, "--name", "Cara", "--password", "cara-pass-1", "--tab", "missions"]),
+                ("garage", ["--host", url, "--name", "Cara", "--password", "cara-pass-1", "--tab", "garage",
+                            "--show-code"]),
+                ("ai", ["--host", url, "--name", "Cara", "--password", "cara-pass-1", "--tab", "ai"]),
+                ("offline_garage", ["--offline", "--tab", "garage", "--show-code"])]
+        for what, extra in runs:
+            shot = os.path.join(TMP, f"panel_{what}.png")
+            r = subprocess.run([PY, "city_client.py", *extra, "--offscreen", "--mute", "--gfx", "low", "--after", "6",
+                                "--screenshot", shot], capture_output=True, text=True, timeout=180, env=env)
+            out = r.stdout + r.stderr
+            assert r.returncode == 0 and "Traceback" not in out, (what, out[-2000:])
+            assert os.path.exists(shot) and os.path.getsize(shot) > 20000, f"no {what} screenshot"
+    finally:
+        stop(proc)
 
 
 def online_windows():
@@ -749,9 +883,16 @@ if __name__ == "__main__":
     check("the computer's drivers: six traffic cars drive a minute without a crash, the robots patrol, an expert "
           "racer completes a course", the_drivers)
     check("the prediction: a person and a car predicted five ticks ahead of the server with no corrections", prediction_no_network)
+    check("the sounds: the engine rises with the speed, the tyres squeal, a bump, a punch's whoosh and a robot's "
+          "clang, the park's crowd only near the park", the_sounds)
     if mode in ("server", "online", "all"):
         check("the server with two windows: welcome, roster, jobs, 30 snapshots a second, acks, a design built, "
               "Amy runs, the teacher's Enter opens a street race", server_end_to_end)
+    if mode in ("server", "online", "all"):
+        check("the lessons: mission 1 a to d built as the Garage and the code panel build them, each ticked; a "
+              "prediction kept", lessons)
+        check("the side panel: a learner's Mission, Garage and code, AI card; the teacher's Controls; offline the "
+              "Garage", panels)
     if mode in ("online", "all"):
         check("two windows online over pretend school Wi-Fi: a teacher driving and a learner running, the prediction "
               "rarely put right, a window that stops for 3 s picks up again", online_windows)

@@ -939,6 +939,7 @@ class CityServer:
                 L[key] = v
                 if key in ("traffic", "robots") and v > 0 and not L["hazards"].get(key):
                     L["hazards"][key] = True
+                    rebuild = True  # (CHANGE 201: switched on here, the hazards' own switch below sees no change)
         for key in ("teacher_player", "designs_locked"):
             if key in update:
                 rebuild |= key == "teacher_player" and bool(update[key]) != bool(L.get(key))

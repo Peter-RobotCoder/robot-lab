@@ -18,7 +18,7 @@ the first screen for everyone, and the app waits behind its window as it does be
     Club Coders.exe --game robotlab ...      the app running one game (how this window starts a game)
     python launcher/club_coders.py           from the source files; "Play on: This computer (test)" opens a game on
                                              the laptop test servers (Robot Lab ws://127.0.0.1:8780, Fight Lab 8781,
-                                             Kart Lab 8782, City Lab 8783, Missions 8784)
+                                             Kart Lab 8782, City Lab 8783, Missions 8784, Craft Lab 8785)
 
 Live updates: the teacher can put new game code on the class server without a new download (live/make_live.py).
 A class running one says which (its id). The app downloads it once from https://<server>/code/<game>/<id>.zip and
@@ -80,15 +80,24 @@ GAMES = {
     "citylab": {"title": "City Lab", "client": "city_client.py", "login_env": "CITYLAB_LOGIN",  # (CHANGE 194)
                 "reopen_env": "CITYLAB_REOPENED",
                 "local": "ws://127.0.0.1:8783", "dev": "city"},
+    # (CHANGE 200) Craft Lab, the block-building island: a class game, and on your own from the first screen
+    # (CRAFT LAB, no login: its window with --offline keeps its own world on this computer)
+    "craftlab": {"title": "Craft Lab", "client": "craft_client.py", "login_env": "CRAFTLAB_LOGIN",
+                 "reopen_env": "CRAFTLAB_REOPENED",
+                 "local": "ws://127.0.0.1:8785", "dev": "craft"},
     "missions": {"title": "Missions", "client": "wake_up_call.py", "login_env": "WAKE_UP_CALL_REOPEN",
                  "reopen_env": "MISSIONS_REOPENED", "folder": "robotlab",
                  "local": "ws://127.0.0.1:8784", "dev": "shared-world-demo"},
+    # (CHANGE 197) Experience 1, the orientation: one player, no server, played from the first screen by anyone
+    "experience": {"title": "Experience 1", "client": "experience_1.py", "login_env": "EXPERIENCE_1_REOPEN",
+                   "reopen_env": "EXPERIENCE_1_REOPENED", "folder": "robotlab",
+                   "local": None, "dev": "shared-world-demo", "offline": True},
 }
-CLASS_GAMES = tuple(GAMES)  # the games a class is launched into (every one since CHANGE 195)
+CLASS_GAMES = tuple(g for g, d in GAMES.items() if not d.get("offline"))  # the games a class is launched into
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx", "--window")
 GFX_CHOICES = ("auto", "mesh", "lines", "low", "medium", "high", "ultra")  # the Graphics button on the first screen
-# (auto: the game picks; Kart Lab, Robot Lab and City Lab draw all seven, CHANGE 144, 145 and 194: Fight Lab draws
-# mesh and lines as basic and ultra as high)
+# (auto: the game picks; Kart Lab, Robot Lab, City Lab and Craft Lab draw all seven, CHANGE 144, 145, 194 and 200:
+# Fight Lab draws mesh and lines as basic and ultra as high)
 # the Window button (CHANGE 126): auto is the game's own remembered size (its Settings tab); the rest are passed
 # as --window, and the game remembers them too
 WINDOW_CHOICES = ("auto", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160", "full")
@@ -490,6 +499,7 @@ def launcher(args, passed_on):
             self.teacher_proc = None  # the teacher's game window, while the app has one open
             self.game_proc = None     # a learner's game window, while it is open (the app waits behind it)
             self.game_title, self.live_id, self.came_back = "", None, False
+            self.alone = False        # the open game is one played on your own (open_alone), not a class's
             self.teacher_view = "session"  # while a group is live: "session" or "desk" (learners and groups)
             self.pending_record = None  # a session just stopped, waiting for "make the PDFs?"
             self.sessions = []        # past sessions' records, from the desk
@@ -565,9 +575,9 @@ def launcher(args, passed_on):
             label(f, "CLUB CODERS", 0, 0.62, 0.11, yellow)
             if self.local:
                 label(f, "Open a game on this computer's test server:", 0, 0.25, 0.045)
-                for i, game in enumerate(CLASS_GAMES):  # (five games since CHANGE 194 and 195: centred)
-                    x0 = -0.275 * (len(CLASS_GAMES) - 1)
-                    button(f, GAMES[game]["title"], x0 + i * 0.55, 0.08, self.open_local, [game], 0.06,
+                for i, game in enumerate(CLASS_GAMES):  # (six games since CHANGE 194, 195 and 200: centred)
+                    x0 = -0.25 * (len(CLASS_GAMES) - 1)
+                    button(f, GAMES[game]["title"], x0 + i * 0.5, 0.08, self.open_local, [game], 0.06,
                            (0.15, 0.45, 0.65, 1))
             else:
                 username = keep.get("user", saved.get("username", ""))
@@ -584,8 +594,12 @@ def launcher(args, passed_on):
             # Missions (CHANGE 189): on this computer alone, no class and no login, so it is here for everyone, a
             # class live or not, beside the games a class is launched into
             y = -0.22 if self.local else -0.36
-            label(f, "On your own, no login:", -0.72, y, 0.036, grey, TextNode.ARight)
-            button(f, "MISSIONS: Wake-Up Call, Lights Out", -0.08, y, self.open_missions, (), 0.045, (0.15, 0.45, 0.65, 1))
+            label(f, "On your own, no login:", -0.86, y, 0.036, grey, TextNode.ARight)
+            button(f, "MISSIONS: Wake-Up Call, Lights Out", -0.39, y, self.open_missions, (), 0.045, (0.15, 0.45, 0.65, 1))
+            button(f, "EXPERIENCE 1: Orientation", 0.39, y, self.open_alone, ["experience"], 0.045,
+                   (0.55, 0.35, 0.1, 1))  # (CHANGE 197: the first session, in Robot Lab's arena)
+            button(f, "CRAFT LAB", 0.92, y, self.open_alone, ["craftlab", ["--offline"]], 0.045,
+                   (0.2, 0.5, 0.25, 1))  # (CHANGE 200: your own island, kept on this computer)
             if test_build() or self.local:  # (the laptop test servers: the club's own test builds and the source files)
                 button(f, "Play on: " + ("This computer (test)" if self.local else "Online class"), 1.22, -0.72,
                        self.set_where, [not self.local], 0.035)
@@ -646,9 +660,9 @@ def launcher(args, passed_on):
             self.game_proc = None  # the game window closed: the teacher stopped it, or the learner closed it
             self.came_back = True
             self.minimised(False)
-            if self.game_title == GAMES["missions"]["title"]:  # (CHANGE 189: no class behind it: the first screen)
+            if self.game_title == GAMES["missions"]["title"] or self.alone:  # (no class behind it: the first screen)
                 self.show("home")
-                self.say("Missions has closed. Open it again, or log in to your class.", grey)
+                self.say(f"{self.game_title} has closed. Open it again, or log in to your class.", grey)
             elif self.link is not None and self.link.open:
                 self.show("waiting")
                 self.ask_desk({"type": "wait", "after": self.live_id})  # (the desk's next launch reaches this app)
@@ -973,6 +987,7 @@ def launcher(args, passed_on):
                     else:  # (CHANGE 54) the app stays open behind the game, still logged in: when the game window
                         self.game_proc = start_game(g["game"], argv, code=g.get("code"))  # closes, it comes back
                         self.game_title, self.live_id = GAMES[g["game"]]["title"], g.get("live_id")
+                        self.alone = False
                         self.show("playing")
                         self.minimised(True)
                         self.taskMgr.remove("watch game")
@@ -1026,13 +1041,18 @@ def launcher(args, passed_on):
         def open_missions(self):
             """Missions (CHANGE 189): its window, on this computer, with the Graphics and Window choices; the app
             stays open behind it as it does behind a class's game, and comes back when it closes."""
+            self.open_alone("missions")
+
+        def open_alone(self, game, extra=()):
+            """A game played alone on this computer (Missions, Experience 1, Craft Lab with --offline): the app waits
+            behind its window."""
             if args.wait:  # (tests: run it to its end, then exit with its result)
-                return self.finish(start_game("missions", self.game_args(), wait=True))
+                return self.finish(start_game(game, list(extra) + self.game_args(), wait=True))
             self.game_proc = follow(self.game_proc)
             if self.game_proc is not None:
                 return self.say("A game is already open in its own window.", grey)
-            self.game_proc = start_game("missions", self.game_args())
-            self.game_title = GAMES["missions"]["title"]
+            self.game_proc = start_game(game, list(extra) + self.game_args())
+            self.game_title, self.alone = GAMES[game]["title"], True
             self.show("playing")
             self.minimised(True)
             self.taskMgr.remove("watch game")

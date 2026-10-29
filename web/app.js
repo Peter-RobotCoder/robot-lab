@@ -5,11 +5,16 @@
 // wire.js; Robot Lab's and Fight Lab's JSON). The game's own file (kart.js, robot.js, fight.js) draws them two
 // snapshots behind the newest, as the windows do (engine/interp.py), and carries its controls; teacher.js has the
 // tabs every game shares. Learners' windows report how they are doing (fps, ping, stalls) and the Learners tab
-// shows it. The teacher desk (desk.js) is the app's Teacher screen.
+// shows it. The teacher desk (desk.js) is the app's Teacher screen. (CHANGE 199) The Missions (missions.js) are played
+// on the page: their server runs each learner's program and the page plays the events back in 3D. (CHANGE 201) City Lab
+// (city.js) is drawn and played: the city from the welcome, everyone in it from its binary snapshots, your own person
+// or car predicted as the window predicts it. (CHANGE 202) Craft Lab (craft.js) is drawn and played: the island from the
+// server's packed world, everyone on it from its binary snapshots, your own player predicted as the window predicts it.
 //
 // Query string: ?host=ws://127.0.0.1:8782 for a laptop test server (the class picker is then "another server"),
 // ?code=TEACH99 to prefill the code, ?tier=mesh|lines|blocks|low|medium|high|ultra, ?version=1.9.1 (a class server wants the release's
-// number; on the VPS the page reads it from /live/version), ?touch=1 or 0 for Kart Lab's touch controls (CHANGE 187, touch.js).
+// number; on the VPS the page reads it from /live/version), ?touch=1 or 0 for Kart Lab's touch controls (CHANGE 187, touch.js),
+// ?speed=20 for the Missions' runs played that many times faster (the tests).
 
 import {TIERS, GAME_TIERS, LINE_TIERS, TIER_SETTINGS, PARTS, SCREEN, AutoTier, pageEngine, engineInfo, setSkyData, setGraphics,
         cappedTier, tierSettings, cleanParts, gameTier, LINE_COLOURS, getLineColour, setLineColour, cleanColour} from "./base3d.js";
@@ -19,6 +24,9 @@ import {TouchPad, coarsePointer} from "./touch.js";
 import {HudMini} from "./hudmini.js";
 import {RobotGame} from "./robot.js";
 import {FightGame} from "./fight.js";
+import {MissionsGame} from "./missions.js";
+import {CityGame} from "./city.js";
+import {CraftGame} from "./craft.js";
 import {TEACHER_TABS, renderTeacherTab, missionRow, wireMissionRow, restartRow, wireRestartRow, download, esc, twice, claudeChanged} from "./teacher.js";
 import {LEARNER_TABS, renderLearnerTab, uploadBrain} from "./learner.js";
 import {setupCodePanel, toggleCode, renderCode, designResult} from "./garage.js";
@@ -189,7 +197,7 @@ function showLoginPart(part) {
 // (CHANGE 148) the one login form: the username teacher is the teacher (the desk lets no learner have it)
 function isTeacher() { return $("lname").value.trim().toLowerCase() === "teacher"; }
 
-const DRAWN = new Set(["kartlab", "robotlab", "fightlab"]);  // the games this page draws
+const DRAWN = new Set(["kartlab", "robotlab", "fightlab", "missions", "citylab", "craftlab"]);  // the games this page draws (Missions: CHANGE 199; City Lab: 201; Craft Lab: 202)
 
 function deskShown() { return !$("desk").hidden; }
 
@@ -373,9 +381,10 @@ function send(msg) {
 
 // ---------- messages ----------
 // What every game sends is kept here (the lesson, the class, the roster's perf, teaching, warnings...); the game
-// (kart.js, robot.js, fight.js) draws its own world from its snapshots and the rest.
-const GAMES = [KartGame, RobotGame, FightGame];
-const GAME_BY_ID = {kartlab: KartGame, robotlab: RobotGame, fightlab: FightGame};
+// (kart.js, robot.js, fight.js) draws its own world from its snapshots and the rest; missions.js (CHANGE 199) plays
+// back the runs its server sends.
+const GAMES = [CraftGame, MissionsGame, CityGame, KartGame, RobotGame, FightGame];
+const GAME_BY_ID = {kartlab: KartGame, robotlab: RobotGame, fightlab: FightGame, missions: MissionsGame, citylab: CityGame, craftlab: CraftGame};
 
 function startGame(m) {
     const wanted = (state.ticket && GAME_BY_ID[state.ticket.game] && !state.codeMode) ? GAME_BY_ID[state.ticket.game]
@@ -646,7 +655,7 @@ function loop() {
             send({type: "perf", fps: state.fps, ping: Math.round(state.pingMs), tier: "web-" + drawnTier() + (state.softwareGl ? " NO GPU" : ""),
                   stalls: rep.stalls, delay: rep.delay_ms, underruns: rep.underruns, hitches: state.stalls,
                   ctrl: state.ctrl && state.ctrl.ctrlMs !== null ? Math.round(state.ctrl.ctrlMs) : null,
-                  ...(state.game && state.game.id === "kartlab" ? {corr: pred ? pred.corrections : null} : {})});
+                  ...(state.game && ["kartlab", "citylab", "craftlab"].includes(state.game.id) ? {corr: pred ? pred.corrections : null} : {})});
             if (state.prefsDirty && now - (state.prefsAt || 0) > 3000) { state.prefsDirty = false; state.prefsAt = now; send({type: "prefs", prefs: state.prefs}); }
         }
     }
@@ -886,6 +895,7 @@ function toast(text, big = false, ms = 3500) {
 // ---------- the side panel ----------
 function allTabs() {
     const g = state.game;
+    if (g && g.panelTabs) return g.panelTabs(state.role);  // (a game with tabs of its own alone: the Missions, CHANGE 199)
     if (state.role === "learner") {  // (the learner window's tabs, then the page's own)
         const own = g && g.learnerTabs ? g.learnerTabs() : [["camera", "Camera"]];
         return [...LEARNER_TABS, ...own, ["graphics", "Settings"], ["about", "Keys"]];
@@ -988,7 +998,7 @@ function drawPanel(body) {
           <div class="row">Wheel zoom <button data-izoom="0" class="${state.invertZoom ? "" : "on"}">Normal</button><button data-izoom="1" class="${state.invertZoom ? "on" : ""}">Inverted</button></div>
           <div class="note">Normal: wheel up zooms in. Inverted: wheel up zooms out. ${state.role === "learner" ? "Yours: kept with your profile, as in the game windows." : "Kept on this computer."}</div>
           <div class="row">Touch controls ${["auto", "on", "off"].map(m => `<button data-touch="${m}" class="${touchMode() === m ? "on" : ""}">${m[0].toUpperCase() + m.slice(1)}</button>`).join("")}</div>
-          <div class="note">Kart Lab on a phone or a tablet: a steering slider, GO, BRAKE, DRIFT, your item, the handbrake and RESET on the screen, and a FULL SCREEN button. Auto shows them on a touchscreen whose main pointer is a finger${coarsePointer() ? " (this one)" : " (not this one)"}; ?touch=1 in the address does the same.${params.has("touch") ? " The address has chosen for now." : ""}</div>`);
+          <div class="note">Kart Lab and City Lab on a phone or a tablet: a steering slider, GO, BRAKE, DRIFT, your item, the handbrake and RESET on the screen (City Lab on foot: a stick, RUN, JUMP, PUNCH, KICK, BLOCK and GET IN; Craft Lab: a stick, a finger dragged to look, DIG, PLACE, JUMP, SNEAK, RUN, FLY, BAG and DROP), and a FULL SCREEN button. Auto shows them on a touchscreen whose main pointer is a finger${coarsePointer() ? " (this one)" : " (not this one)"}; ?touch=1 in the address does the same.${params.has("touch") ? " The address has chosen for now." : ""}</div>`);
         body.querySelectorAll("button[data-tsize]").forEach(b => b.onclick = () => { setLook({textSize: Number(b.dataset.tsize)}); renderPanel(); });
         body.querySelectorAll("button[data-look]").forEach(b => b.onclick = () => { setLook({look: b.dataset.look}); renderPanel(); });
         body.querySelectorAll("button[data-iscroll]").forEach(b => b.onclick = () => { setLook({invertScroll: b.dataset.iscroll === "1"}); renderPanel(); });
@@ -1021,7 +1031,8 @@ function drawPanel(body) {
       <h2>About</h2>
       <p class="note">Club Coders Live ${esc(state.version || "")}: the teacher's desk and live view of a class in the browser. It
         joins the class server as the teacher window does, draws the game from the same 30-a-second snapshots, two behind so
-        the picture is smooth, and sends the same commands. Kart Lab, Robot Lab and Fight Lab are drawn.</p>
+        the picture is smooth, and sends the same commands. Kart Lab, Robot Lab, Fight Lab, City Lab and Craft Lab are drawn, and the Missions
+        (Wake-Up Call and Lights Out) are played, their runs played back from the Missions server.</p>
       <p class="note">The TEACHER DESK button (top left) is the app's Teacher screen: learners, groups, Launch and Stop, this
         session's notes and the printed records.</p>
       <p class="note">Sending AI cards to Claude (Send, Keep, Undo) and the Changes tab need Claude for the browser running on a
@@ -1056,6 +1067,7 @@ function keyList() {
     if (state.role !== "learner" && g.fixMine && !has("F") && !has("Shift+F")) list.push([g.id === "fightlab" ? "Shift+F" : "F", "fix your own " + (g.id === "robotlab" ? "robot" : g.id === "fightlab" ? "fighter" : "kart")]);  // (CHANGE 182)
     for (const [k, what] of [["U", "upload your brain"], ["P", "autopilot on or off (your brain drives)"], ["N", "sound on or off"],
                              ["I", "the panel (or Tab)"], ["C", "your code"], ["H", "the key list over the game: shown or hidden"]]) {
+        if (g.noBrains && (k === "U" || k === "P")) continue;  // (the Missions: no brain, CHANGE 199)
         if (!has(k)) list.push([k, what]);
     }
     return list;
@@ -1083,6 +1095,7 @@ const appApi = {
     lineColour: c => chooseLineColour(c),
     get canvas() { return $("view"); }, get engine() { return engine; }, params,
     send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, renderTime, esc,
+    keyHelp: () => renderKeyHelp(),  // (CHANGE 201: City Lab's keys change as you get in and out of a car)
     missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
     restartRow: () => restartRow(appApi), wireRestartRow: body => wireRestartRow(appApi, body),
     twice: (key, text, then) => twice(appApi, key, text, then), keepPrefs: p => keepPrefs(p),
@@ -1189,9 +1202,9 @@ function setTouch(mode) {
     try { localStorage.setItem("touch", mode); } catch (e) { /* private window */ }
     applyTouch();
 }
-function applyTouch() {  // (shown over Kart Lab, playing, when wanted; the controller reads it as a pad)
+function applyTouch() {  // (shown over Kart Lab, City Lab and Craft Lab, playing, when wanted; the controller reads it as a pad)
     const g = state.game;
-    if (g && g.id === "kartlab" && state.connected && touchWanted() && $("login").style.display === "none") touch.show();
+    if (g && ["kartlab", "citylab", "craftlab"].includes(g.id) && state.connected && touchWanted() && $("login").style.display === "none") touch.show();
     else touch.hide();
     if (state.ctrl) state.ctrl.touch = touch;
 }
@@ -1202,6 +1215,7 @@ keys.onKey = (k, e) => {
     if (!state.connected || deskShown()) return;
     const g = state.game, teacher = state.role !== "learner";
     const onPage = !(e.target && e.target.closest && e.target.closest("button, a, #panel, #codepanel, #brainpanel"));  // (Enter on a button presses it)
+    if (g && g.onKey && g.onKey(k, e)) return;  // (a game's own keys first: the Missions' C, R, 1 and 2, F1 and F2: CHANGE 199)
     if (k === "i") { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); }
     else if (k === "c" && g) toggleCode(appApi);
     else if (k === "p") { if (brainsOn(appApi)) send({type: "autopilot"}); }

@@ -17,7 +17,9 @@ START A RACE, TO THE GRID, a mission button and the track picker reach the serve
 graphics tier can be changed; then a note, LAUNCH LEARNERS' WINDOWS, STOP and the printed record, a password reset,
 a learner removed, login slips, the teacher password changed; a learner's own page: her Garage drawn from the
 game's schema, her code panel (APPLY CODE changes a value, a mistake is shown on its line, BUILD reaches the
-server); the teacher's own garage in Robot Lab and Fight Lab; lessons.json, schemas.json and tex/ are up to date,
+server); the teacher's own garage in Robot Lab and Fight Lab; (CHANGE 202) Craft Lab: the teacher's page watching a class
+on every tier and at night, a learner's page over a pretend school Wi-Fi walking, jumping, digging, placing, crafting
+planks, her Garage and the touch controls; lessons.json, schemas.json, craft.json and tex/ are up to date,
 and schema_test.py passes (schema.js against the windows' Python). Screenshots are
 kept in the test folder. Exit code 0 = every check passed; the test
 says so and passes if no Chrome or Edge is installed. WEB_TEST_STOP_AFTER="a few words of a check's name" ends the
@@ -49,6 +51,33 @@ def game_folder(public, dev):  # (games/<game> in the public repository, the gam
 
 
 ROBOT, FIGHT = game_folder("robotlab", "shared-world-demo"), game_folder("fightlab", "BeatEmUp")
+
+
+def mission_program(test_file, name, fallback):
+    """(CHANGE 199) A program a mission's own test keeps (wake_up_call_test.STEPS, lights_out_test.SOLUTION), read from
+    its file without running it; the copy given here where the file isn't (a folder without the tests)."""
+    import ast
+    path = os.path.join(ROBOT or "", test_file)
+    if ROBOT is None or not os.path.exists(path):
+        return fallback
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            v = node.value
+            value = ast.literal_eval(v.args[0]) if isinstance(v, ast.Call) else ast.literal_eval(v)  # (a "\n".join([...]))
+            return "\n".join(x if isinstance(x, str) else x[1] for x in value)  # (STEPS: (objective, its lines))
+    return fallback
+
+
+# Mission 1's five steps as one program (17 lines, three stars) and Mission 2's solution (15 lines, three stars)
+MISSION_1 = mission_program("wake_up_call_test.py", "STEPS", "\n".join([
+    "move forward 3", "turn right", "move forward 1", "pick up power cell", "turn left", "move forward 2", "turn right",
+    "move forward 3", "pick up spinner", "turn right", "move forward 3", "turn left", "move forward 2", "use spinner",
+    "move forward 6", "turn right", "repair"]))
+MISSION_2 = mission_program("lights_out_test.py", "SOLUTION", "\n".join([
+    "set lamps to 0", "repeat 13 times", "  if path blocked", "    use spinner", "  else", "    move forward 1", "  end",
+    "  if lamp dark", "    turn left", "    repair", "    turn right", "    add 1 to lamps", "  end", "end", "report lamps"]))
 DESK_PASSWORD = "web-test-teacher-password"
 BROWSERS = [r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -215,6 +244,36 @@ class Learner:
             self.ws.close()
         except Exception:
             pass
+
+
+class CityWalker(Learner):
+    """(CHANGE 201) A City Lab learner's window, scripted: logs in with the laptop server's learner code and walks
+    round in a circle by the depot, an 18-byte input (engine.wire.pack_input) 60 times a second, as a window sends
+    them, so the teacher's page sees someone walking."""
+
+    def __init__(self, port, name):
+        super().__init__(port, name)
+        self.walking = True
+        threading.Thread(target=self.walk, daemon=True).start()
+
+    def walk(self):
+        import math
+        import struct
+        frame = struct.Struct("<BHHIbbBbbBbbB")
+        seq, t0 = 1, time.time()
+        try:
+            while self.walking:
+                t = time.time() - t0
+                mx, my = round(math.cos(t * 0.5) * 100), round(math.sin(t * 0.5) * 100)
+                self.ws.send(frame.pack(2, seq & 0xFFFF, 0, int(t * 1000) & 0xFFFFFFFF, mx, my, 0, mx, my, 0, mx, my, 0))
+                seq += 1
+                time.sleep(1 / 60)
+        except Exception:
+            pass
+
+    def close(self):
+        self.walking = False
+        super().close()
 
 
 class Chrome:
@@ -1267,8 +1326,8 @@ def main():
         game_env.update({"TEACHER_CODE": "TEACH99", "JOIN_CODE": "CLUB42"})
         servers = {}
 
-        def start_server(key, folder, script, port, data_var):
-            servers[key] = subprocess.Popen([sys.executable, script, "--port", str(port)], cwd=folder,
+        def start_server(key, folder, script, port, data_var, extra=()):  # (extra: the server's own arguments)
+            servers[key] = subprocess.Popen([sys.executable, script, "--port", str(port), *extra], cwd=folder,
                                             env={**game_env, data_var: os.path.join(work, key)},
                                             stdout=open(os.path.join(work, key + ".log"), "a"), stderr=subprocess.STDOUT)
             if not wait_port(port, 60):
@@ -1831,8 +1890,579 @@ def main():
               "the rings for their size, the crowd and seats in twelve pieces of the stands, the flat and far casting no shadow, the hall "
               "in its haze) from models/fight_ultra.json and stage_ultra.json, fetched on ultra alone, with soft 4096 shadows "
               "and a glow", fight_ultra)
+
+        # ---------- (CHANGE 199) the Missions on the page, run by the Missions server ----------
+        missions_port = free_port()
+        page = f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{missions_port}&autoconnect=1&auto=0&speed=8"
+
+        def press(key):  # (a key as the page hears it, not typed into anything)
+            chrome.js(f"window.dispatchEvent(new KeyboardEvent('keydown', {{key: {json.dumps(key)}}}));"
+                      f"window.dispatchEvent(new KeyboardEvent('keyup', {{key: {json.dumps(key)}}}))")
+
+        def type_code(text):
+            chrome.js(f"{{ const t = document.getElementById('mc-text'); t.value = {json.dumps(text)}; t.dispatchEvent(new Event('input')); }}")
+
+        def missions_1():
+            if ROBOT is None:
+                print("    (Robot Lab's folder, with the Missions server, isn't beside this folder: not tested)")
+                return
+            start_server("missions", ROBOT, "missions_server.py", missions_port, "MISSIONS_DATA")
+            servers["ben"] = ben = Learner(missions_port, "ben")  # (another learner, as a window: his runs, his robot)
+            ben.send({"type": "start", "mission": "wake_up_call", "robot": "RAZORBACK"})
+            chrome.call("Page.navigate", url="about:blank")
+            time.sleep(1.0)
+            chrome.call("Page.navigate", url=page + "&code=CLUB42&name=amy&tier=low")
+            chrome.wait_for("window.__state && window.__state.connected === true && !!window.__state.game", 30, "amy's login to the Missions class")
+            assert chrome.js("[window.__state.game.id, window.__state.role, window.__state.game.mid].join()") == "missions,learner,wake_up_call"
+            # the valley as the window builds it: the squares and hills, the power cell, the crate, the rockfall, the
+            # power supply and the sign; the first screen (the missions, the two robots)
+            got = chrome.js("""(() => { const sc = window.__state.scene, g = window.__state.game;
+                return {cell: !!sc.cell, crate: !!sc.crate, tools: Object.keys(sc.tools || {}).length, rocks: sc.rockfall.parts.length,
+                        supply: !!sc.supply, sign: sc.scene.meshes.some(m => m.name === 'words'), meshes: sc.scene.meshes.length,
+                        intro: !document.getElementById('missionintro').hidden, cards: document.querySelectorAll('#missionintro button[data-robot]').length,
+                        missions: document.querySelectorAll('#missionintro button[data-mission]').length,
+                        phrasebook: document.querySelectorAll('#mc-book .mc-says b').length}; })()""")
+            assert got["cell"] and got["crate"] and got["tools"] == 4 and got["rocks"] == 11 and got["supply"] and got["sign"], got
+            assert got["intro"] and got["cards"] == 2 and got["missions"] == 2 and got["phrasebook"] >= 6, got
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 15, "the valley drawn properly on low")
+            press("1")  # TITAN
+            chrome.wait_for("window.__state.game.robotName === 'TITAN' && document.getElementById('missionintro').hidden"
+                            " && !!window.__state.game.parsed && window.__state.scene.robots.has('me')", 10, "TITAN in the valley")
+            chrome.wait_for("window.__state.game.ghosts.has('ben')", 10, "ben's robot from the world message")
+            # ben runs: his robot drawn where his run takes it, dimmed, his name over it
+            ben.send({"type": "program", "mission": "wake_up_call", "text": "move forward 3\nturn right\nmove forward 4"})
+            chrome.wait_for("""(() => { const g = window.__state.game.ghosts.get('ben'), v = window.__state.scene.robots.get('ghost ben');
+                return g && !g.anim && !g.steps.length && g.at[0] === 5 && g.at[1] === 3 && v && v.root.isEnabled() && v.label.isEnabled()
+                    && v.tints.chassis && v.tints.chassis !== '1,1,1'; })()""", 30, "ben's robot driven to where his run left it, dimmed, his name over it")
+            # C: the code panel; a near miss shows its hint (never corrected) and RUN stays off
+            press("c")
+            chrome.wait_for("!document.getElementById('missioncode').hidden", 5, "the code panel (C)")
+            type_code("move forward 3\npick up the powr cell")
+            chrome.wait_for("document.getElementById('mc-problems').textContent.includes('Did you mean')", 10, "the near miss's hint")
+            assert chrome.js("document.getElementById('mc-run').disabled") is True, "RUN on with a line it can't read"
+            assert "<b>2</b>" in chrome.js("document.getElementById('mc-gutter').innerHTML"), "the line not marked"
+            assert chrome.js("document.getElementById('mc-text').value").endswith("powr cell"), "the line was corrected"
+            # the five steps (wake_up_call_test.STEPS) as one program, the Python beside each line, RUN: three stars
+            type_code(MISSION_1)
+            chrome.wait_for("!document.getElementById('mc-run').disabled && document.getElementById('mc-problems').textContent.includes('All 17 lines understood')",
+                            10, "RUN on with the five steps read")
+            py = chrome.js("document.getElementById('mc-py').textContent")
+            assert "robot.move_forward(3)" in py and 'robot.pick_up("power cell")' in py and "robot.repair()" in py, py
+            chrome.js("document.querySelector('#missioncode button[data-mtab=\"code\"]').click()")
+            assert "from clubcoders import robot" in chrome.js("document.getElementById('mc-whole').textContent")
+            chrome.js("document.querySelector('#missioncode button[data-mtab=\"pseudo\"]').click()")
+            chrome.js("document.getElementById('mc-run').click()")
+            chrome.wait_for("window.__state.game.playing && window.__state.game.event", 15, "the run's events playing")
+            chrome.wait_for("!document.getElementById('missiondone').hidden", 60, "MISSION COMPLETE")
+            got = chrome.js("""(() => { const g = window.__state.game; return {stars: g.doneStars, complete: g.s.complete, lines: g.s.linesUsed,
+                energy: g.s.energy, hud: document.querySelectorAll('#mh-stars i.on').length, done: document.querySelectorAll('#mh-objectives .done').length,
+                solar: g.progress.parts.includes('solar_panel'), log: g.logRows.map(r => r[0]).join('|'), at: [g.view.x, g.view.y],
+                card: document.getElementById('missiondone').textContent}; })()""")
+            assert got["stars"] == 3 and got["complete"] and got["lines"] == 17 and got["energy"] == 8 and got["hud"] == 3 and got["done"] == 5, got
+            assert got["solar"] and "Unlocked: Solar Panel" in got["card"] and "lights come on all over Brookfield" in got["log"], got
+            assert "Run 1: 17 lines" in got["log"] and got["at"] == [13, 4], got
+            chrome.js("document.getElementById('md-close').click()")
+            time.sleep(1.5)
+            chrome.screenshot(os.path.join(work, "missions_valley.png"))
+            no_errors()
+        check("Missions: the page logs in to a Missions class, draws the valley and TITAN, shows a near miss's hint, types the "
+              "five steps (the Python beside each line) and finishes with three stars; another learner's robot (a raw "
+              "client's) is drawn where his run left it, dimmed, his name over it", missions_1)
+
+        def missions_tiers():  # every tier the page has, as the mission window's
+            if "ben" not in servers:
+                return
+            tab("graphics")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == \
+                "mesh,lines,blocks,low,medium,high,ultra"
+            for tier in ("mesh", "lines", "blocks", "medium", "high", "ultra", "low"):
+                chrome.js(f"window.__app.setTier('{tier}')")
+                chrome.wait_for(f"window.__state.scene.tier === '{tier}' && window.__state.scene.robots.size >= 2 && {DRAWN_RIGHT} === 'ok'",
+                                30, f"the valley drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                time.sleep(0.8)
+                got = chrome.js("""(() => { const sc = window.__state.scene, s = sc.scene, c = s.clearColor;
+                    const lines = s.meshes.filter(m => m.material && m.material.name.startsWith('cclines') && m.getTotalVertices() > 0);
+                    const robots = [...sc.robots.values()];
+                    return {black: c.r + c.g + c.b === 0, place: lines.filter(m => m.name === 'missionlines').length,
+                            robots: robots.length, lined: robots.filter(v => v.root.getChildMeshes(false).some(m => m.name === 'robotlines')).length,
+                            lamps: !!(sc.glows.warning && sc.glows.warning.lines), ultra: !!sc.ultraRobots, segments: sc.lineStats.segments,
+                            lit: s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name.includes(':'))}; })()""")
+                if tier in ("mesh", "lines"):
+                    print(f"    {tier}: {got['segments']} line segments for the valley")
+                    assert got["black"] and got["place"] >= 10 and got["lined"] == got["robots"] and got["lamps"] and not got["lit"], got
+                else:
+                    assert not got["black"] and got["place"] == 0 and (got["lit"] or tier == "blocks"), got
+                if tier == "ultra" and os.path.exists(os.path.join(HERE, "models", "robot_ultra.json")):
+                    chrome.wait_for("window.__state.scene.ultraRobots && window.__state.scene.robots.size >= 2", 30, "the window's smooth robots on ultra")
+                chrome.screenshot(os.path.join(work, f"missions_{tier}.png"))
+            no_errors()
+        check("Missions on every tier: mesh and lines (black, the valley's, the robots' and the lights' own lines), blocks to "
+              "high, ultra (the window's smooth robots)", missions_tiers)
+
+        def missions_2():  # Lights Out: the hill road at night, the recorded solution (lights_out_test.SOLUTION)
+            if "ben" not in servers:
+                return
+            chrome.js("window.__state.game.showIntro()")
+            press("F2")
+            chrome.wait_for("window.__state.game.mid === 'lights_out' && !document.getElementById('missionintro').hidden"
+                            " && window.__state.scene.mid === 'lights_out'", 10, "Mission 2 from the first screen (F2)")
+            got = chrome.js("""(() => { const sc = window.__state.scene, e = x => sc.glows['lamp' + x].mat._vectors3.emission.x;
+                return {lamps: Object.keys(sc.lamps).map(Number), piles: Object.keys(sc.piles).length, mast: !!sc.mast,
+                        dark: [4, 8, 12].map(e), lit: [6, 10].map(e), moon: sc.look.pbr.sun.colour.join(),
+                        ghost: sc.robots.has('ghost ben') && sc.robots.get('ghost ben').root.isEnabled()}; })()""")
+            assert got["lamps"] == [4, 6, 8, 10, 12] and got["piles"] >= 8 and got["mast"] and got["moon"] == "0.38,0.45,0.75", got
+            assert all(v < 0.1 for v in got["dark"]) and all(v > 5 for v in got["lit"]) and not got["ghost"], got
+            press("1")
+            chrome.wait_for("window.__state.game.s && window.__state.game.s.night === 1 && !!window.__state.game.parsed", 10, "Mission 2 started")
+            press("c")
+            type_code(MISSION_2)
+            chrome.wait_for("!document.getElementById('mc-run').disabled", 10, "RUN on with the solution read")
+            chrome.js("window.__state.game.closePanel(); document.getElementById('mc-run').click()")
+            chrome.wait_for("document.getElementById('mh-tool').textContent.includes('Night 2 of 3') && "
+                            "document.getElementById('mh-vars').textContent.includes('lamps = ')", 120, "night 2 and the variables in the HUD")
+            time.sleep(1.5)
+            chrome.screenshot(os.path.join(work, "missions_night.png"))
+            chrome.wait_for("!document.getElementById('missiondone').hidden", 240, "MISSION COMPLETE on all three nights")
+            got = chrome.js("""(() => { const g = window.__state.game, sc = window.__state.scene;
+                return {stars: g.doneStars, nights: g.s.nightEnergy, lines: g.s.linesUsed, night3: g.logRows.some(r => r[0].startsWith('Night 3 of 3')),
+                        lamps: Object.keys(sc.lamps).map(x => sc.glows['lamp' + x].mat._vectors3.emission.x), card: document.getElementById('missiondone').textContent}; })()""")
+            assert got["stars"] == 3 and len(got["nights"]) == 3 and got["lines"] == 15 and got["night3"], got
+            assert all(v > 5 for v in got["lamps"]) and "one program lit the hill road" in got["card"], got
+            chrome.js("document.getElementById('md-close').click()")
+            no_errors()
+        check("Missions: Lights Out on the page: the hill road at night (the lamps dark and lit as the night has them), the "
+              "recorded solution played to three stars, the nights and the variables in the HUD, every lamp lit at the end", missions_2)
+
+        def missions_teacher():  # the teacher's page: the class listed, the mission changed for everyone
+            if "ben" not in servers:
+                return
+            chrome.call("Page.navigate", url="about:blank")
+            time.sleep(1.0)
+            chrome.call("Page.navigate", url=page + "&code=TEACH99&tier=low")
+            chrome.wait_for("window.__state && window.__state.connected === true && window.__state.game && window.__state.game.id === 'missions'", 30,
+                            "the teacher's login to the Missions class")
+            chrome.wait_for("!!document.getElementById('mi-watch')", 10, "WATCH THE CLASS on the teacher's first screen")
+            chrome.js("document.getElementById('mi-watch').click()")
+            chrome.wait_for("document.getElementById('mh-class').textContent.includes('ben:')", 10, "the class top right")
+            chrome.wait_for("window.__state.scene.robots.has('ghost ben')", 10, "ben's robot on the teacher's page")
+            tab("class")
+            assert "ben" in chrome.js("document.getElementById('panelbody').textContent")
+            assert chrome.js("[...document.querySelectorAll('#panelhead button')].map(b => b.dataset.tab).join(',')") == "class,missions,graphics,about"
+            chrome.js("document.querySelector('button[data-lesson=\"2\"]').click()")
+            chrome.wait_for("window.__state.game.classMsg.lesson === 2 && window.__state.game.mid === 'lights_out'", 10,
+                            "Mission 2 for the class (the teacher's page goes to it too)")
+            chrome.js("document.querySelector('button[data-lesson=\"1\"]').click()")
+            no_errors()
+        check("Missions: the teacher's page lists the class top right and in the Class tab, draws the learners' robots and "
+              "changes the mission for everyone", missions_teacher)
+        for key in list(servers):  # (the other games done with: the laptop's memory back for City Lab)
+            proc = servers.pop(key)
+            proc.close() if isinstance(proc, Learner) else stop(proc)
+
+        # ---------- (CHANGE 201) City Lab on the page ----------
+        city_port = free_port()
+        CITY = game_folder("citylab", "city")
+        CITY_STATE = """(() => { const g = window.__state.game, sc = g.scene, s = sc.scene, c = s ? s.clearColor : null;
+            const lines = s ? s.meshes.filter(m => m.material && m.material.name.startsWith('cclines') && m.getTotalVertices() > 0) : [];
+            return {built: !!sc.city && (sc.cityMeshes || []).length, karts: sc.karts.size, fighters: sc.fighters.size, robots: sc.robots.size,
+                    black: !!c && c.r + c.g + c.b === 0, cityLines: lines.filter(m => m.name === 'citylines').length,
+                    carLines: lines.filter(m => m.name === 'kartlines').length,
+                    fighterLines: lines.filter(m => m.name === 'fighterlines' || m.name.endsWith(' lines') || m.name.endsWith(' rim')).length,
+                    lit: s ? s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name.startsWith('citywalls')) : false,
+                    tier: sc.tier, time: sc.time, markers: Object.keys(sc.markers || {}).length, chips: sc.city ? sc.city.chips.length : 0}; })()"""
+
+        def hold(key, secs):  # (a key held down for a while, as the page hears it)
+            chrome.js(f"window.dispatchEvent(new KeyboardEvent('keydown', {{key: {json.dumps(key)}}}))")
+            time.sleep(secs)
+            chrome.js(f"window.dispatchEvent(new KeyboardEvent('keyup', {{key: {json.dumps(key)}}}))")
+
+        def city_watch():  # the teacher's page watches a City Lab class: the city, a window's person and the cars moving
+            if CITY is None:
+                print("    (City Lab's folder isn't beside this one: not tested)")
+                return
+            start_server("citylab", CITY, "city_server.py", city_port, "CITYLAB_DATA")
+            servers["ben-city"] = CityWalker(city_port, "ben")
+            open_game(city_port, "citylab", "&cam=city")
+            chrome.js("window.__app.send({type: 'lesson', lesson: {hazards: {traffic: true, robots: true}, traffic: 6, robots: 6}})")
+            chrome.wait_for(f"(() => {{ const s = {CITY_STATE}; return s.built >= 10 && s.karts >= 16 && s.fighters >= 2 && s.robots >= 6; }})()", 40,
+                            "the city, its cars (parked and traffic), the teacher and ben as fighters, the robots")
+            got = chrome.js(CITY_STATE)
+            assert got["markers"] == 3 and got["chips"] >= 20, got
+            # ben (a window, scripted) walks, the traffic drives: both drawn moving
+            where = "(() => { const g = window.__state.game, out = {}; for (const [id, e] of g.latest) out[id] = [e.x, e.y]; return out; })()"
+            ben = chrome.wait_for("(() => { const r = window.__state.roster; return r && r.mine && r.mine.ben !== undefined && r.mine.ben !== null ? String(r.mine.ben) : null; })()", 10, "ben's person")
+            a = chrome.js(where)
+            time.sleep(3)
+            b = chrome.js(where)
+            moved = {int(k): ((b[k][0] - v[0]) ** 2 + (b[k][1] - v[1]) ** 2) ** 0.5 for k, v in a.items() if k in b}
+            assert moved.get(int(ben), 0) > 3, f"ben didn't walk: {moved.get(int(ben))}"
+            assert sum(1 for k, d in moved.items() if 32 <= k < 128 and d > 5) >= 3, f"the traffic didn't drive: {moved}"
+            assert chrome.js(f"(() => {{ const f = window.__state.scene.fighters.get({ben}); return !!f && f.root.isEnabled(); }})()"), "ben not drawn"
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 20, "the city drawn properly on low")
+            tab("graphics")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == \
+                "mesh,lines,blocks,low,medium,high,ultra"
+            for tier in ("mesh", "lines", "blocks", "medium", "high", "ultra", "low"):
+                chrome.js(f"window.__app.setTier('{tier}')")
+                chrome.wait_for(f"window.__state.scene.tier === '{tier}' && {DRAWN_RIGHT} === 'ok' && "
+                                f"(() => {{ const s = {CITY_STATE}; return s.built >= 8 && s.karts >= 16 && s.fighters >= 2 && s.robots >= 6; }})()",
+                                40, f"the city drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                time.sleep(1.0)
+                got = chrome.js(CITY_STATE)
+                if tier in ("mesh", "lines"):
+                    print(f"    {tier}: {chrome.js('window.__state.scene.lineStats.segments')} line segments for the city")
+                    assert got["black"] and got["cityLines"] >= 4 and got["carLines"] >= 10 and got["fighterLines"] >= 2 and not got["lit"], got
+                else:
+                    assert not got["black"] and got["cityLines"] == 0 and (got["lit"] or tier == "blocks"), got
+                chrome.screenshot(os.path.join(work, f"city_{tier}.png"))
+            # the teacher's Controls: night for everyone (the headlights, the street lamps), then day again
+            tab("controls")
+            assert chrome.js("!!document.getElementById('btn-start') && !!document.getElementById('sel-city') && "
+                             "document.querySelectorAll('button[data-job]').length === 4")
+            chrome.js("document.querySelector('button[data-time=\"night\"]').click()")
+            chrome.wait_for("window.__state.scene.time === 'night' && (window.__state.lesson || {}).time === 'night'", 10, "night for the class")
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok'", 20, "the city drawn properly at night")
+            time.sleep(1.0)
+            chrome.screenshot(os.path.join(work, "city_night.png"))
+            assert chrome.js("window.__state.scene.lighting.lights.count") >= 5, "no headlights at night"
+            chrome.js("document.querySelector('button[data-time=\"day\"]').click()")
+            chrome.wait_for("window.__state.scene.time === 'day'", 10, "day again")
+            no_errors()
+        check("City Lab: the teacher's page watches a City Lab class: the city built from the server's (its blocks, buildings, "
+              "markings, places, rings and chips), the people as Fight Lab's fighters, the cars as Kart Lab's, the robots "
+              "as Robot Lab's, a learner's window walking and the traffic driving, on every tier (mesh and lines black with the "
+              "city's, the cars' and the fighters' lines), night from Controls", city_watch)
+
+        def city_learner():  # a learner's page: logs in, walks, gets into a car and drives, predicted
+            if "citylab" not in servers:
+                return
+            chrome.call("Page.navigate", url="about:blank")
+            time.sleep(1.0)
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{city_port}"
+                                             "&code=CLUB42&name=amy&auto=0&tier=low")
+            chrome.wait_for("!!window.__app && !!document.getElementById('cpass')", 20, "the page")
+            time.sleep(1.0)
+            chrome.js("document.getElementById('cpass').value = 'amy-pass-1'; document.getElementById('connect').click()")
+            chrome.wait_for("window.__state && window.__state.connected === true && window.__state.game && window.__state.game.id === 'citylab'", 30,
+                            "amy's login to the City Lab class")
+            chrome.wait_for("!!window.__state.game.predictor && window.__state.game.predId === window.__state.game.myId()", 20, "her person predicted")
+            p = "window.__state.game.predictor"
+            a = chrome.js(f"[{p}.state.x, {p}.state.y]")
+            hold("w", 2.5)  # (W walks away from the camera, by the keys as the window reads them)
+            time.sleep(0.6)
+            b = chrome.js(f"[{p}.state.x, {p}.state.y, {p}.corrections]")
+            walked = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+            server = chrome.js("(() => { const g = window.__state.game, e = g.latest.get(g.myId()); return [e.x, e.y]; })()")
+            print(f"    walked {walked:.1f} m, {b[2]} corrections; the server has her {((server[0] - b[0]) ** 2 + (server[1] - b[1]) ** 2) ** 0.5:.2f} m from the prediction")
+            assert walked > 4 and b[2] <= 3, b
+            assert ((server[0] - b[0]) ** 2 + (server[1] - b[1]) ** 2) ** 0.5 < 0.1, "the server's person isn't where the page predicted"
+            chrome.screenshot(os.path.join(work, "city_street.png"))
+            # into the nearest car (the window's own test walk: demo_get_in), then the keys drive it
+            chrome.js("window.__state.game.demo = 'getin'")
+            chrome.wait_for("window.__state.game.driving() && window.__state.game.predId === window.__state.game.myCar()", 40, "in a car, predicted")
+            chrome.js("window.__state.game.demo = null")
+            time.sleep(0.5)
+            speeds = []
+            down = lambda k: chrome.js(f"window.dispatchEvent(new KeyboardEvent('keydown', {{key: '{k}'}}))")
+            up = lambda k: chrome.js(f"window.dispatchEvent(new KeyboardEvent('keyup', {{key: '{k}'}}))")
+            for keys, secs in ((["s"], 2.0), (["w", "a"], 2.5)):  # (out of the bay backwards, then away and round to the left)
+                for k in keys:
+                    down(k)
+                for _ in range(int(secs / 0.25)):
+                    time.sleep(0.25)
+                    speeds.append(chrome.js(f"{p}.state.v"))
+                if "w" in keys:
+                    chrome.screenshot(os.path.join(work, "city_driving.png"))
+                for k in keys:
+                    up(k)
+            c1 = chrome.js(f"[{p}.state.x, {p}.state.y, {p}.corrections]")
+            drove = max(abs(v) for v in speeds)
+            print(f"    drove at up to {drove * 3.6:.0f} km/h, {c1[2]} corrections in the car")
+            assert drove > 5 and c1[2] <= 5, (speeds, c1)
+            assert chrome.js("document.getElementById('ch-speed').textContent.endsWith('km/h')"), "no speed in the HUD"
+            # the touch controls: the car's (the item button gets you out), then on foot the stick and the moves
+            chrome.js("window.__app.setTouch('on')")
+            chrome.wait_for("!document.getElementById('touchpad').hidden && !document.getElementById('touchpad').classList.contains('foot') "
+                            "&& document.getElementById('tp-item').textContent === 'GET OUT'", 5, "the car's touch controls")
+            for _ in range(40):  # (the brake, a moment at a time, to a stop)
+                if abs(chrome.js(f"{p}.state.v")) < 1.0:
+                    break
+                hold("s", 0.12)
+            press("e")
+            chrome.wait_for("!window.__state.game.driving() && window.__state.game.predId === window.__state.game.myId()", 15, "out of the car, on foot")
+            chrome.wait_for("document.getElementById('touchpad').classList.contains('foot')", 5, "the touch controls on foot")
+            chrome.js("window.__app.setTouch('off')")
+            no_errors()
+        check("City Lab: a learner's page logs in, walks with the keys (her person predicted, the server agreeing), gets into "
+              "a car and drives it with the keys (the car predicted, few corrections), the touch controls for a car and on foot",
+              city_learner)
         for key, proc in servers.items():
             proc.close() if isinstance(proc, Learner) else stop(proc)
+        servers.clear()
+
+        # ---------- (CHANGE 202) Craft Lab on the page ----------
+        craft_port = free_port()
+        CRAFT = game_folder("craftlab", "craft")
+        CRAFT_STATE = """(() => { const g = window.__state.game, sc = g.scene, s = sc.scene, c = s ? s.clearColor : null, st = sc.stats();
+            const lines = s ? s.meshes.filter(m => m.material && m.material.ccLine && m.getTotalVertices() > 0) : [];
+            return {world: !!g.world, chunks: st.chunks, meshes: st.meshes, chunkLines: st.lines, models: st.models,
+                    black: !!c && c.r + c.g + c.b === 0, modelLines: lines.filter(m => !m.name.startsWith('chunklines')).length,
+                    lit: s ? s.materials.some(m => m.getClassName() === 'ShaderMaterial' && m.name === 'craftsolid') : false,
+                    shadow: !!sc.rtt, gl2: sc.engine.webGLVersion >= 2, sky: !!sc.sky, stars: !!(sc.sky && sc.sky.stars.isEnabled()),
+                    clouds: sc.sky ? sc.sky.clouds.length : 0, wave: !!(sc.mats && sc.mats.solid && sc.mats.solid._floats && sc.mats.solid._floats.u_wave),
+                    tier: sc.tier, time: sc.time}; })()"""
+
+        def craft_watch():  # the teacher's page watches a Craft Lab class: the island, a learner's window walking, every tier
+            if CRAFT is None:
+                print("    (Craft Lab's folder isn't beside this one: not tested)")
+                return
+            start_server("craftlab", CRAFT, "craft_server.py", craft_port, "CRAFTLAB_DATA", ("--seed", "2026", "--size", "small"))
+            servers["ben-craft"] = CityWalker(craft_port, "ben")  # (the same 18-byte inputs: a circle in the world's frame)
+            open_game(craft_port, "craftlab", "&cam=free")
+            chrome.wait_for(f"(() => {{ const s = {CRAFT_STATE}; return s.world && s.chunks >= 40 && s.models >= 2; }})()", 60,
+                            "the island built (its chunks meshed) and the teacher and ben as models")
+            ben = chrome.wait_for("(() => { const g = window.__state.game; const b = [...g.names.entries()].find(([, n]) => n.name === 'ben');"
+                                  " return b ? String(b[0]) : null; })()", 10, "ben in the roster")
+            where = f"(() => {{ const e = window.__state.game.latest.get({ben}); return e ? [e.x, e.y] : null; }})()"
+            a = chrome.wait_for(where, 10, "ben in the snapshots")
+            time.sleep(3)
+            b = chrome.js(where)
+            assert ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 > 1.5, f"ben didn't walk: {a} {b}"
+            # L: the camera follows ben (the teacher's view of each learner in turn)
+            press("l")
+            chrome.wait_for(f"window.__state.game.view === 'follow' && window.__state.game.watch === {ben}", 5, "the camera on ben")
+            time.sleep(1.0)
+            chrome.screenshot(os.path.join(work, "craft_follow.png"))
+            assert chrome.js(f"window.__state.scene.models.has({ben})"), "ben not drawn"
+            chrome.js("window.__state.game.setView('free')")
+            chrome.js("{ const g = window.__state.game, s = g.world.spawn; g.free = [s[0] - 24, s[1] - 24, s[2] + 16]; g.yaw = 45; g.pitch = -28; }")
+            tab("graphics")
+            assert chrome.js("[...document.querySelectorAll('button[data-tier]')].map(b => b.dataset.tier).join(',')") == \
+                "mesh,lines,blocks,low,medium,high,ultra"
+            for tier in ("mesh", "lines", "blocks", "low", "medium", "high", "ultra"):
+                chrome.js(f"window.__app.setTier('{tier}')")
+                chrome.wait_for(f"window.__state.scene.tier === '{tier}' && {DRAWN_RIGHT} === 'ok' && "
+                                f"(() => {{ const s = {CRAFT_STATE}; return s.chunks >= 40 && s.models >= 2; }})()",
+                                40, f"the island drawn properly on {tier} (last: {chrome.js(DRAWN_RIGHT)})")
+                time.sleep(1.5)
+                got = chrome.js(CRAFT_STATE)
+                if tier in ("mesh", "lines"):
+                    assert got["black"] and got["chunkLines"] >= 20 and got["modelLines"] >= 2 and not got["lit"] and not got["sky"], got
+                else:
+                    assert not got["black"] and got["lit"] and got["chunkLines"] == 0 and got["sky"], got
+                    assert got["shadow"] == (tier in ("medium", "high", "ultra") and got["gl2"]), got
+                    assert got["clouds"] == {"blocks": 0, "low": 1, "medium": 1, "high": 1, "ultra": 2}[tier], got
+                    assert got["wave"] == (tier in ("high", "ultra")), got
+                chrome.screenshot(os.path.join(work, f"craft_{tier}.png"))
+            chrome.js("window.__app.setTier('medium')")
+            # the teacher's Controls: night for everyone (the stars, the moon, the torches' light), then day again
+            tab("controls")
+            assert chrome.js("!!document.getElementById('cr-gather') && !!document.getElementById('cr-kit') && "
+                             "document.querySelectorAll('button[data-time]').length === 5")
+            chrome.js("document.querySelector('button[data-time=\"night\"]').click()")
+            chrome.wait_for("(window.__state.lesson || {}).time === 'night' && Math.abs(window.__state.scene.time - 0.75) < 0.01", 10, "night for the class")
+            chrome.wait_for(f"{DRAWN_RIGHT} === 'ok' && {CRAFT_STATE}.stars", 20, "the island at night, the stars out")
+            time.sleep(1.0)
+            chrome.screenshot(os.path.join(work, "craft_night.png"))
+            chrome.js("document.querySelector('button[data-time=\"day\"]').click()")
+            chrome.wait_for("(window.__state.lesson || {}).time === 'day' && !window.__state.scene.sky.stars.isEnabled()", 10, "day again")
+            no_errors()
+        check("Craft Lab: the teacher's page watches a Craft Lab class: the island from the server's packed world, meshed "
+              "chunk by chunk as the window meshes it, the teacher and a learner's window as models (ben walking, L follows "
+              "him), on every tier (mesh and lines black with the blocks' and the models' lines; blocks to ultra in Craft "
+              "Lab's own shader, the clouds, the sun's shadows from medium, the waving leaves on high and ultra), night "
+              "from Controls (the stars)", craft_watch)
+
+        def craft_learner():  # a learner's page over a school's Wi-Fi: walks, jumps, digs, places, crafts planks, a phone
+            if "craftlab" not in servers:
+                return
+            servers.pop("ben-craft").close()
+            for top in (os.path.dirname(HERE), os.path.dirname(os.path.dirname(HERE))):
+                if os.path.isdir(os.path.join(top, "engine")) and top not in sys.path:
+                    sys.path.insert(0, top)
+            from engine import fault_relay
+            relay = free_port()
+            fault_relay.run_relay(relay, craft_port, lag=60, jitter=15, stall=0.0, seed=5)  # (CLUBCODERS_LAG=60,15)
+            chrome.call("Page.navigate", url="about:blank")
+            time.sleep(1.0)
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{relay}"
+                                             "&code=CLUB42&name=amy&auto=0&tier=low&lock=0")
+            chrome.wait_for("!!window.__app && !!document.getElementById('cpass')", 20, "the page")
+            time.sleep(1.0)
+            chrome.js("document.getElementById('cpass').value = 'amy-pass-1'; document.getElementById('connect').click()")
+            chrome.wait_for("window.__state && window.__state.connected === true && window.__state.game && window.__state.game.id === 'craftlab'", 30,
+                            "amy's login to the Craft Lab class")
+            g, p = "window.__state.game", "window.__state.game.predictor"
+            chrome.wait_for(f"!!{p} && {g}.scene.stats().chunks >= 30 && !!{g}.inventory", 60, "her player predicted, the island drawn")
+            time.sleep(1.5)
+            # (the way with the most open ground ahead: the spawn may face a tree or a hill)
+            open_way = f"""(() => {{ const g = {g}, s = g.predictor.state, cube = g.scene.tables.cube;
+                let best = 0, most = -1;
+                for (let a = 0; a < 360; a += 30) {{
+                    let free = 0;
+                    for (let d = 1; d <= 8; d++) {{
+                        const x = Math.floor(s.x + Math.cos(a * Math.PI / 180) * d), y = Math.floor(s.y + Math.sin(a * Math.PI / 180) * d);
+                        const z = Math.floor(s.z + 0.01);
+                        if (cube[g.world.get(x, y, z)] || cube[g.world.get(x, y, z + 1)] || !cube[g.world.get(x, y, z - 1)]) break;
+                        free++;
+                    }}
+                    if (free > most) {{ most = free; best = a; }}
+                }}
+                g.yaw = best; g.pitch = -10; return most; }})()"""
+            chrome.js(open_way)
+            time.sleep(2.0)  # (the lead on the server settled after the island's first meshing: as a window's, a few seconds in)
+            a = chrome.js(f"[{p}.state.x, {p}.state.y, {p}.state.z]")
+            hold("w", 2.0)
+            time.sleep(1.0)
+            b = chrome.js(f"[{p}.state.x, {p}.state.y, {p}.state.z, {p}.corrections]")
+            walked = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+            server = chrome.js(f"(() => {{ const e = {g}.latest.get({g}.me); return [e.x, e.y, e.z]; }})()")
+            off = sum((server[i] - b[i]) ** 2 for i in range(3)) ** 0.5
+            print(f"    walked {walked:.1f} m over 60 ms each way and 15 ms of jitter, {b[3]} corrections; the server has her {off:.3f} m from the prediction")
+            assert walked > 2.5 and b[3] <= 3 and off < 0.05, (a, b, server)
+            # a jump: the feet over a block and a quarter up
+            z0 = chrome.js(f"{p}.state.z")
+            hold(" ", 0.1)
+            top = z0
+            for _ in range(12):
+                top = max(top, chrome.js(f"{p}.state.z"))
+                time.sleep(0.05)
+            assert top > z0 + 0.9, f"no jump: {z0} -> {top}"
+            time.sleep(1.0)
+            # dig the block at your feet in front (looked at), then put it back
+            chrome.js(f"{g}.pitch = -65")
+            time.sleep(0.4)
+            hit = chrome.wait_for(f"JSON.stringify({g}.lookTarget())", 5, "a block looked at")
+            pos, face = json.loads(hit)[:2]
+            block = chrome.js(f"{g}.world.get({pos[0]}, {pos[1]}, {pos[2]})")
+            before = chrome.js(f"JSON.stringify({g}.inventory.inv)")
+            chrome.js(f"{g}.mouse.left = true")
+            chrome.wait_for(f"{g}.world.get({pos[0]}, {pos[1]}, {pos[2]}) === 0", 8, "the block dug")
+            chrome.js(f"{g}.mouse.left = false")
+            chrome.wait_for(f"JSON.stringify({g}.inventory.inv) !== {json.dumps(before)}", 5, "what it dropped in her inventory")
+            time.sleep(1.0)
+            assert chrome.js(f"{g}.world.get({pos[0]}, {pos[1]}, {pos[2]})") == 0, "the server put the dug block back"
+            inv = json.loads(chrome.js(f"JSON.stringify({g}.inventory.inv)"))
+            slot = next(i for i, s in enumerate(inv[:9]) if s and s[0] != chrome.js(f"{g}.itemId('apple')"))
+            got = inv[slot][0]
+            press(str(slot + 1))
+            chrome.wait_for(f"{g}.inventory.selected === {slot}", 5, "the slot chosen")
+            # (somewhere clear of her own box, a few metres ahead: a block can't go where you stand)
+            put = json.loads(chrome.wait_for(f"""(() => {{ const g = {g}, grass = g.itemId('tall_grass');
+                const people = [...g.entities.values()].filter(e => e.kind === 0);
+                for (const pitch of [-35, -45, -28, -55, -20, -65]) for (const turn of [0, 40, -40, 80, -80]) {{
+                    g.pitch = pitch;
+                    g.yaw = (g.yaw + turn + 360) % 360;
+                    const hit = g.lookTarget();
+                    if (hit) {{
+                        const c = [0, 1, 2].map(i => hit[0][i] + hit[1][i]);
+                        const clear = people.every(s => c[0] + 1 <= s.x - 0.3 || c[0] >= s.x + 0.3 || c[1] + 1 <= s.y - 0.3 || c[1] >= s.y + 0.3 ||
+                                                         c[2] >= s.z + 1.8 || c[2] + 1 <= s.z);
+                        if (clear && [0, grass].includes(g.world.get(...c))) return JSON.stringify(c);
+                    }}
+                    g.yaw = (g.yaw - turn + 360) % 360;
+                }}
+                return null; }})()""", 5, "a clear place to put it"))
+            chrome.js(f"{g}.mouse.right = true")
+            time.sleep(0.12)
+            chrome.js(f"{g}.mouse.right = false")
+            chrome.wait_for(f"{g}.world.get({put[0]}, {put[1]}, {put[2]}) === {got}", 8, f"block {got} put down at {put}")
+            print(f"    dug block {block} at {pos} (block {got} in her inventory), put it down at {put}")
+            chrome.screenshot(os.path.join(work, "craft_learner.png"))
+            # planks in the inventory screen: the teacher makes the class creative (the creative box has every log)
+            from websockets.sync.client import connect
+            teacher, end = None, time.time() + 25
+            while teacher is None:  # (the teacher's page of the check before may be a moment letting go of its place)
+                ws = connect(f"ws://127.0.0.1:{craft_port}", max_size=None, open_timeout=20)
+                ws.send(json.dumps({"type": "hello", "name": "Mr T", "code": "TEACH99", "version": ""}))
+                try:
+                    while json.loads(ws.recv(timeout=10)).get("type") != "welcome":
+                        pass
+                    teacher = ws
+                except Exception:
+                    if time.time() > end:
+                        raise
+                    time.sleep(2)
+            def drain():  # (its messages read and dropped, so the server's outbox to it never fills)
+                try:
+                    while True:
+                        teacher.recv()
+                except Exception:
+                    pass
+            threading.Thread(target=drain, daemon=True).start()
+            teacher.send(json.dumps({"type": "mode"}))
+            chrome.wait_for(f"{g}.creative()", 10, "creative for the class")
+            press("e")
+            chrome.wait_for(f"!!{g}.screen && {g}.screen.kind === 'inventory' && !!document.querySelector('#craftscreen [data-area=palette]')", 5, "the inventory screen")
+            log, planks = chrome.js(f"{g}.itemId('log')"), chrome.js(f"{g}.itemId('planks')")
+            k = chrome.js(f"{g}.screen.creativeItems.indexOf({log})")
+            for _ in range(k // 36):
+                chrome.js("document.getElementById('cs-next').click()")
+            click = lambda sel, button=0: chrome.js(f"document.querySelector('#craftscreen {sel}').dispatchEvent(new PointerEvent('pointerdown', "
+                                                    f"{{bubbles: true, button: {button}}}))")
+            click(f'[data-area="palette"][data-i="{k % 36}"]')
+            chrome.wait_for(f"!!{g}.inventory.cursor && {g}.inventory.cursor[0] === {log}", 5, "a stack of logs taken")
+            click('[data-area="grid"][data-i="0"]', 2)  # (the right button: one log in the grid)
+            chrome.wait_for(f"!!{g}.inventory.result && {g}.inventory.result[0] === {planks} && {g}.inventory.result[1] === 4", 5, "four planks shown")
+            time.sleep(0.5)
+            chrome.screenshot(os.path.join(work, "craft_inventory.png"))
+            click('[data-area="inv"][data-i="9"]')  # (the logs left down in the inventory)
+            chrome.wait_for(f"!{g}.inventory.cursor", 5, "the logs put down")
+            click('[data-area="result"][data-i="0"]')
+            chrome.wait_for(f"!!{g}.inventory.cursor && {g}.inventory.cursor[0] === {planks}", 5, "the planks made")
+            click('[data-area="inv"][data-i="10"]')
+            chrome.wait_for(f"!!{g}.inventory.inv[10] && {g}.inventory.inv[10][0] === {planks} && {g}.inventory.inv[10][1] === 4", 5, "the planks in her inventory")
+            press("e")
+            chrome.wait_for(f"!{g}.screen", 5, "the screen closed")
+            teacher.send(json.dumps({"type": "mode"}))
+            teacher.close()
+            # her Craft Bot's Garage (the engine's, from schemas.json) and code panel: the code as Python, BUILD reaching the server
+            tab("garage")
+            chrome.wait_for("['bot_name', 'dig', 'build', 'speed', 'colour'].every(w => document.getElementById('panelbody').textContent.includes(w))"
+                            " && !!document.getElementById('gz-build')", 10, "her Craft Bot's garage")
+            chrome.js("document.getElementById('gz-build').click()")
+            chrome.wait_for("(window.__state.garageMsg || [''])[0].startsWith('Built!')", 10, "her Bot built by the server")
+            press("c")
+            chrome.wait_for("!document.getElementById('codepanel').hidden && document.getElementById('code-text').value.includes('dig: int = ')"
+                            " && document.getElementById('code-text').value.includes('# MY CRAFT BOT as Python code')", 5, "her Bot as Python in the code panel")
+            press("c")
+            chrome.js("document.getElementById('panel').classList.remove('open')")
+            # the touch controls: the stick walks, a phone's layout
+            chrome.js("window.__app.setTouch('on')")
+            chrome.wait_for("!document.getElementById('touchpad').hidden && document.getElementById('touchpad').classList.contains('craft') "
+                            "&& document.querySelectorAll('#touchpad .tp-cmoves [data-btn]').length === 8", 5, "the touch controls for Craft Lab")
+            chrome.js(open_way)
+            time.sleep(0.3)
+            a = chrome.js(f"[{p}.state.x, {p}.state.y]")
+            chrome.js("{ const r = document.getElementById('tp-cstick').getBoundingClientRect();"
+                      "document.getElementById('tp-cstick').dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, pointerId: 7, "
+                      "clientX: r.left + r.width / 2, clientY: r.top + 4})); }")
+            time.sleep(1.2)
+            chrome.js("document.getElementById('tp-cstick').dispatchEvent(new PointerEvent('pointerup', {bubbles: true, pointerId: 7}))")
+            time.sleep(0.4)
+            b = chrome.js(f"[{p}.state.x, {p}.state.y]")
+            assert ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 > 1, f"the stick didn't walk her: {a} {b}"
+            chrome.call("Emulation.setDeviceMetricsOverride", width=844, height=390, deviceScaleFactor=2, mobile=True)
+            time.sleep(1.5)
+            chrome.screenshot(os.path.join(work, "craft_phone.png"))
+            chrome.call("Emulation.clearDeviceMetricsOverride")
+            chrome.js("window.__app.setTouch('off')")
+            corr = chrome.js(f"{p}.corrections")
+            print(f"    {corr} corrections in all")
+            assert corr <= 6, corr
+            no_errors()
+        check("Craft Lab: a learner's page over a school's Wi-Fi (60 ms each way, 15 ms of jitter) walks with the keys (her "
+              "player predicted, the server agreeing to the centimetre), jumps, digs a block and puts it down again, crafts "
+              "planks in the inventory screen (a stack taken, one put in the grid, the planks made and put away), her Craft "
+              "Bot's Garage and code panel (BUILD reaching the server), the touch controls (the stick walks her) and a "
+              "phone's layout", craft_learner)
+        for key, proc in servers.items():
+            proc.close() if isinstance(proc, Learner) else stop(proc)
+
+        def craft_current():  # (CHANGE 202) Craft Lab's atlas and tables (make_craft.py, from craft_art and craft_blocks)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "make_craft.py"), "--check"], capture_output=True, text=True)
+            assert r.returncode == 0, r.stdout + r.stderr
+        check("craft.json and tex/craft_atlas.png (Craft Lab's tables and atlas) match craft/'s files", craft_current)
 
         def lessons_current():
             r = subprocess.run([sys.executable, os.path.join(HERE, "make_lessons.py"), "--check"], capture_output=True, text=True)

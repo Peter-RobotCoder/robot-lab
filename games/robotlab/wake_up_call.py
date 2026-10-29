@@ -178,6 +178,22 @@ class ClassLink:
         self.role = welcome.get("role") or self.role
         self.take_lesson(welcome.get("lesson"))
         self.progress = welcome.get("progress") if isinstance(welcome.get("progress"), dict) else None
+        # (CHANGE 198) the server runs the missions: the class's robots now, and this person's own mission when
+        # they're coming back to it (a reopened window, a dropped connection), sent straight after the welcome
+        self.runs_here = bool(welcome.get("runs_here"))
+        self.early, self.back = [], None
+        if self.runs_here:
+            world, _ = self.wait_for("world", 3)
+            self.early.append(world or {"type": "world", "robots": []})
+            import queue
+            try:
+                m = self.net.inbox.get(timeout=0.3)
+                if m.get("type") == "state" and m.get("back"):
+                    self.back = m
+                else:
+                    self.early.append(m)
+            except queue.Empty:
+                pass
 
     def wait_for(self, kind, seconds=8):
         import queue
@@ -205,7 +221,7 @@ class ClassLink:
     def messages(self):
         """What has come from the server since the last frame."""
         import queue
-        out = []
+        out, self.early = list(getattr(self, "early", [])), []
         if self.net is None:
             return out
         while True:
@@ -216,6 +232,10 @@ class ClassLink:
 
 
 LINK = ClassLink() if args.host else None
+# (CHANGE 198) a class server that runs the missions: the programs go to it and its events are played here
+RUNS_ON_SERVER = LINK is not None and LINK.net is not None and getattr(LINK, "runs_here", False)
+SERVER_WAIT = 10.0  # seconds a run waits for the server before it is run on this computer instead
+GHOST_TINT = (0.55, 0.6, 0.72, 1)  # the others' robots, dimmed
 if LINK is not None and LINK.lesson:
     args.mission = LINK.lesson["mission"]  # (the lesson's mission: the first screen can still change it)
 if LINK is not None and LINK.net is not None and not args.progress and LINK.role == "learner":
@@ -325,6 +345,15 @@ LOOK_FADE = (160.0, 400.0)
 def world(x, y, z=0.0):
     """A square (x across, y down the map) to the world: x east, y north, the map's middle at 0, 0."""
     return Point3((x - (G.W - 1) / 2) * SQ, ((G.H - 1) / 2 - y) * SQ, z)
+
+
+def unpack_events(before, events):
+    """(CHANGE 198) A class server's run: each event's whole state again from what changed ("d", missions_server)."""
+    cur, out = dict(before), []
+    for e in events:
+        cur = dict(cur, **e.get("d", {}))
+        out.append(dict({k: v for k, v in e.items() if k != "d"}, state=cur))
+    return out
 
 
 def heading(d):
@@ -920,6 +949,88 @@ class RobotModel:
         return Point3(pos.x, pos.y, 0.4) + q.getForward() * SQ * 0.6
 
 
+class Ghost:
+    """(CHANGE 198) Someone else's robot in the valley, in a class whose server runs the missions: dimmed, its owner's
+    name over it, a little off the middle of its square (so two robots on one square both show), playing the steps
+    the server sends of each of their runs at the window's own pace (faster when it has fallen behind). Only the
+    robots on this window's mission are shown; they never bump into anything of this window's."""
+
+    def __init__(self, app, name, robot, mission):
+        self.name, self.robot_name, self.mission = name, robot, mission
+        self.node = app.render.attachNewNode("ghost " + name)
+        self.node.setColorScale(*GHOST_TINT)
+        self.model = RobotModel(self.node, app.designs.get(robot) or G.ROBOTS[robot])
+        self.tool, self.at, self.anim, self.steps = None, None, None, []
+        self.model.hold(None)
+        a = hashed(len(name), sum(map(ord, name)), 3) * math.tau
+        self.off = Vec3(math.cos(a) * 0.45, math.sin(a) * 0.45, 0)
+        tag = TextNode("name " + name)
+        tag.setText(name)
+        tag.setAlign(TextNode.ACenter)
+        tag.setTextColor(1, 1, 1, 1)
+        tag.setCardColor(0.02, 0.08, 0.16, 0.9)
+        tag.setCardAsMargin(0.3, 0.3, 0.15, 0.1)
+        tag.setCardDecal(True)
+        self.tag = self.node.attachNewNode(tag)
+        self.tag.setBillboardPointEye()
+        self.tag.setScale(0.8)
+        self.tag.setTransparency(True)
+        self.tag.setShaderOff(1)  # (the scene's lit shader and fog would grey it out)
+        self.tag.setFogOff(1)
+        self.tag.setLightOff()
+        self.tag.setColorScaleOff(1)
+
+    def take(self, steps):
+        self.steps.extend(s for s in steps if isinstance(s, list) and len(s) == 5)
+
+    def show(self, on):
+        self.node.show() if on else self.node.hide()
+
+    def update(self, dt):
+        speed, use = 0.0, 0.0
+        while self.anim is None and self.steps:
+            kind, x, y, d, tool = self.steps.pop(0)
+            if tool != self.tool:
+                self.tool = tool
+                self.model.hold(tool)
+            h = heading(d)
+            if self.at is not None:
+                h = self.at[2] + (h - self.at[2] + 180) % 360 - 180  # (the short way round)
+            to = (x, y, h)
+            if kind in ("place", "night") or self.at is None:
+                self.at = to
+                continue
+            hurry = 0.3 if len(self.steps) > 30 else 1.0
+            self.anim = [self.at, to, 0.0, DURATION.get(kind, 0.45) * hurry, kind]
+        x, y, h = self.at or (0, 0, 0)
+        if self.anim is not None:
+            (x0, y0, h0), (x1, y1, h1), t, dur, kind = self.anim
+            t += dt
+            self.anim[2] = t
+            k = min(1.0, t / dur) if dur > 0 else 1.0
+            e = 2 * k * k if k < 0.5 else 1 - (-2 * k + 2) ** 2 / 2
+            x, y, h = x0 + (x1 - x0) * e, y0 + (y1 - y0) * e, h0 + (h1 - h0) * e
+            if kind == "move":
+                speed = SQ / max(0.05, dur) * math.sin(math.pi * k) * 1.6
+            elif kind == "use":
+                use = k
+            if k >= 1.0:
+                self.at, self.anim = (x1, y1, h1), None
+        if self.at is None:
+            return
+        p = world(x, y) + self.off
+        self.model.place(p, h, dt, speed, use)
+        self.tag.setPos(p.x, p.y, 2.3)
+
+    def where(self):
+        return self.at[:2] if self.at else None
+
+    def destroy(self):
+        for v, _ in self.model.models.values():
+            v.destroy()
+        self.node.removeNode()
+
+
 class RememberedFullScreen(full_screen.FullScreen):
     """The engine's Full screen button (top right, Esc comes back out), and the choice kept on this computer as the
     games' Settings tabs keep it ("fullscreen" in settings.json), so the next start and the launcher's Window
@@ -977,6 +1088,10 @@ class WakeUpCall(ShowBase):
         self.run_line = None
         self.log_lines = []
         self.speed = 0.06 if args.selftest else 0.0 if args.fast else 1.0
+        # (CHANGE 198) in a class whose server runs the missions: the others' robots, and a run sent and not yet back
+        self.ghosts = {}
+        self.server_runs = RUNS_ON_SERVER
+        self.waiting = None
         self.build_hud()
         self.build_intro()
         # Full screen, top right, as every game's window (engine.full_screen, CHANGE 146): Esc comes back out of it
@@ -1229,17 +1344,28 @@ class WakeUpCall(ShowBase):
                 v.destroy()
         self.robot = RobotModel(self.render, self.designs[name])
         self.intro.hide()
+        back = LINK.back if LINK is not None and self.server_runs else None
+        if back and back.get("mission") == G.MISSION_ID and back.get("robot") == name and isinstance(back.get("state"), dict):
+            LINK.back = None  # (coming back to the class: the mission carries on where the server has it)
+            self.reset_mission(send=False)
+            self.adopt(back["state"])
+            self.log("Back in the class: your mission carries on where it was.", "info")
+            return
         self.reset_mission()
 
-    def reset_mission(self):
+    def reset_mission(self, send=True):
         """The mission back to its start: the robot on its square, the battery, the tools on the crate, the rockfall,
         the objectives and the stars. Your code stays in the editor, to fix and run again. Any time after a robot is
         chosen, even while a run is being played (the playing stops) or after the battery went flat. The camera and
         the graphics are not the mission's: they stay as they are. (Before CHANGE 188 only R did this, and R typed
-        an r into the code whenever the code panel was open, and did nothing while a run was playing.)"""
+        an r into the code whenever the code panel was open, and did nothing while a run was playing.) In a class
+        whose server runs the missions (CHANGE 198) the server's copy starts again too."""
         if self.robot_name is None:
             return
+        if send and self.server_runs:
+            LINK.send({"type": "start", "mission": G.MISSION_ID, "robot": self.robot_name})
         self.queue, self.event, self.playing, self.run_line = [], None, False, None
+        self.waiting = None
         self.bumped = False
         self.snd.stop("tool")
         self.mission = self.new_mission()
@@ -1261,6 +1387,22 @@ class WakeUpCall(ShowBase):
                      f"with {s['energy']} energy and the front spinner." + (" The Solar Panel is fitted." if s.get("solar")
                                                                              else ""), "info")
         self.log(TEXT["first"], "info")
+        self.update_hud(s)
+        self.refresh_code()
+
+    def adopt(self, s):
+        """(CHANGE 198) The mission as the class server has it (this window's copy of it follows the server's): the
+        robot, the valley, the HUD and the code panel shown as that state says."""
+        if self.mission is None:
+            return
+        self.mission.s = dict(s)
+        s = self.mission.snapshot()
+        self.view = {"x": s["x"], "y": s["y"], "h": heading(s["dir"]), "state": s}
+        self.robot.hold(s["tool"])
+        self.valley.reset()
+        self.valley.show(s)
+        if s.get("failed"):
+            self.banner.show()
         self.update_hud(s)
         self.refresh_code()
 
@@ -1695,8 +1837,17 @@ class WakeUpCall(ShowBase):
         if not self.can_run():
             self.refresh_code()
             return
-        result = self.mission.run(self.parsed["program"], self.parsed["code_lines"])
-        n = self.parsed["code_lines"]
+        if self.server_runs:  # (CHANGE 198: the class server runs it; its events come back to read_link's "ran")
+            LINK.send({"type": "program", "mission": G.MISSION_ID, "text": "\n".join(self.code_state["lines"])})
+            self.waiting = time.perf_counter()
+            self.playing = True
+            self.refresh_code()
+            return
+        self.play_result(self.mission.run(self.parsed["program"], self.parsed["code_lines"]))
+
+    def play_result(self, result):
+        """A run's events played: here, by the window's own Python, or as the class server sent them (CHANGE 198)."""
+        n = self.parsed["code_lines"] if self.parsed else 0
         self.log(f"Run {self.mission.s['runs']}: {n} line{'' if n == 1 else 's'}.", "info")
         self.queue = list(result["events"])
         self.result = result
@@ -1780,7 +1931,61 @@ class WakeUpCall(ShowBase):
             o = next((o for o in self.mission.objectives() if o["now"]), None)
             if o:
                 self.log(f"Next: {o['title']}. {o['text']}", "info")
-        self.report_run(result)
+        if not self.server_runs:  # (CHANGE 198: a server that ran it has marked the objectives itself)
+            self.report_run(result)
+
+    # ---------- a class whose server runs the missions (CHANGE 198) ----------
+    def server_ran(self, m):
+        """The class server's answer to a run: its events played as this window's own would be."""
+        if self.waiting is None or m.get("mission") != G.MISSION_ID:
+            return
+        self.waiting = None
+        status = m.get("status")
+        if status not in ("done", "complete", "flat", "stopped"):
+            self.playing = False
+            self.log({"error": "The class server couldn't read a line of that program.",
+                      "too soon": "Wait a moment, then run again."}.get(status, f"The class server: {status}."), "bad")
+            if status == "no mission":  # (the server has restarted: the mission starts again there and here)
+                self.reset_mission()
+            self.refresh_code()
+            return
+        events = unpack_events(m.get("before") or self.mission.snapshot(), m.get("events") or [])
+        if isinstance(m.get("state"), dict):
+            self.mission.s = dict(m["state"])
+        self.play_result({"status": status, "events": events})
+
+    def run_here_instead(self, why):
+        """No answer from the class server: the run (and the rest of the mission) played by this window itself, as
+        when playing alone, each run reported as before CHANGE 198."""
+        self.log(f"{why} Your mission carries on on this computer.", "warn")
+        self.server_runs, self.waiting, self.playing = False, None, False
+        self.run_code()
+
+    def world_robot(self, m):
+        name = str(m.get("name", ""))[:20]
+        if not name or name == LINK.name:
+            return
+        if m.get("gone"):
+            g = self.ghosts.pop(name, None)
+            if g is not None:
+                g.destroy()
+            return
+        mid, robot = m.get("mission"), m.get("robot")
+        if mid not in MISSIONS or robot not in ("TITAN", "RAZORBACK"):
+            return
+        g = self.ghosts.get(name)
+        if g is None or g.robot_name != robot or g.mission != mid:
+            if g is not None:
+                g.destroy()
+            g = self.ghosts[name] = Ghost(self, name, robot, mid)
+        g.take(m.get("steps") or [])
+        g.show(mid == G.MISSION_ID)
+
+    def update_ghosts(self, dt):
+        for g in self.ghosts.values():
+            g.show(g.mission == G.MISSION_ID)
+            if g.mission == G.MISSION_ID:
+                g.update(dt)
 
     def show_done(self):
         st = self.mission.stars()
@@ -1853,6 +2058,19 @@ class WakeUpCall(ShowBase):
                     lines.append(f"{L['name']}: M{1 if L.get('mission') == 'wake_up_call' else 2}  {L.get('runs', 0)} runs  "
                                  f"{words}  [{' '.join(L.get('done') or []) or '-'}]")
                 self.t_class.setText("\n".join(lines))
+            elif kind == "ran":
+                self.server_ran(m)
+            elif kind == "state":  # (the mission started on the server: this window's copy takes the server's state)
+                if (m.get("mission") == G.MISSION_ID and m.get("robot") == self.robot_name and not self.playing
+                        and isinstance(m.get("state"), dict) and not m.get("back")):
+                    self.adopt(m["state"])
+            elif kind == "world":
+                for r in m.get("robots") or []:
+                    if isinstance(r, dict) and isinstance(r.get("at"), list) and len(r["at"]) == 4:
+                        self.world_robot({"name": r.get("name"), "mission": r.get("mission"), "robot": r.get("robot"),
+                                          "steps": [["place"] + r["at"]]})
+            elif kind == "robot":
+                self.world_robot(m)
             elif kind == "notice":
                 self.log(str(m.get("text", ""))[:120], "info")
             elif kind == "welcome":  # (back after a dropped connection)
@@ -1860,6 +2078,14 @@ class WakeUpCall(ShowBase):
             elif kind == "closed":
                 reason = m.get("reason") or "the connection closed"
                 self.log(f"The class server: {reason}. Your runs carry on; the class won't see them.", "warn")
+                for g in self.ghosts.values():
+                    g.destroy()
+                self.ghosts = {}
+                if self.waiting is not None:
+                    self.server_runs = False
+                    self.waiting, self.playing = None, False
+                    self.run_code()
+                self.server_runs = False
                 if m.get("code") == 4009:  # (the session ended, or the teacher took you out: the window closes)
                     self.taskMgr.doMethodLater(5, lambda t: self.userExit(), "session over")
 
@@ -1891,7 +2117,9 @@ class WakeUpCall(ShowBase):
         use, speed, nudge = 0.0, 0.0, 0.0
         if self.read_at is not None and now >= self.read_at:  # (the typing has paused: read the code)
             self.refresh_code()
-        if self.playing and self.speed > 0:
+        if self.waiting is not None and time.perf_counter() - self.waiting > SERVER_WAIT:
+            self.run_here_instead("The class server didn't answer.")
+        if self.playing and self.speed > 0 and self.waiting is None:
             if self.event is None:
                 if self.queue:
                     self.next_event()
@@ -1929,6 +2157,7 @@ class WakeUpCall(ShowBase):
             else:
                 self.snd.stop("tool")
             self.snd.loop("motor", "motor", 0.05 + min(0.3, abs(speed) / 20), 0.6 + abs(speed) / 8)
+        self.update_ghosts(dt)
         self.valley.update(dt)
         self.fx.update(dt)
         self.mouse_drag()
@@ -2063,6 +2292,9 @@ class WakeUpCall(ShowBase):
             results.append({"final": m.snapshot(), "stars": m.stars(), "objectives": m.objectives()})
             print("REPLAY " + json.dumps({"case": i, "mission": G.MISSION_ID, "robot": self.robot_name,
                                           "result": results}, sort_keys=True), flush=True)
+        if self.ghosts:  # (CHANGE 198: the class's other robots, where this window drew them)
+            print("REPLAY GHOSTS " + json.dumps({n: [g.mission, g.robot_name, g.where()] for n, g in self.ghosts.items()}),
+                  flush=True)
         print(f"REPLAY DONE: {len(cases)} missions played", flush=True)
         os._exit(0)
 

@@ -26,7 +26,7 @@ from websockets.sync.client import connect
 
 # (what the class's own server has that the try mustn't: its codes, the desk, the live update's pointer)
 DROP = ("JOIN_CODE", "TEACHER_CODE", "PORT", "NOTIFY_SOCKET", "WATCHDOG_USEC", "WATCHDOG_PID")
-DATA_VARS = ("ROBOTLAB_DATA", "FIGHTLAB_DATA", "KARTLAB_DATA", "CITYLAB_DATA")
+DATA_VARS = ("ROBOTLAB_DATA", "FIGHTLAB_DATA", "KARTLAB_DATA", "CITYLAB_DATA", "CRAFTLAB_DATA")
 
 
 def free_port():
@@ -47,9 +47,9 @@ def wait_port(port, seconds):
 
 
 def version_here():
-    """The game's VERSION, from its version module (lab_version, fight_version, kart_version or city_version) in
-    this folder."""
-    for name in ("lab_version", "fight_version", "kart_version", "city_version"):
+    """The game's VERSION, from its version module (lab_version, fight_version, kart_version, city_version or
+    craft_version) in this folder."""
+    for name in ("lab_version", "fight_version", "kart_version", "city_version", "craft_version"):
         if os.path.exists(f"{name}.py"):
             sys.path.insert(0, os.getcwd())
             try:

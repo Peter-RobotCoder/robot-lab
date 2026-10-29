@@ -18,7 +18,7 @@
 	# live code updates the teacher signed (robotlab-live): only their .zip and .sig files, no folder listings.
 	# Learners' apps download them and check the signature before running anything.
 	handle_path /code/* {
-		@not_update not path_regexp ^/(robotlab|fightlab|kartlab|citylab)/[0-9a-f]{24}\.(zip|sig)$
+		@not_update not path_regexp ^/(robotlab|fightlab|kartlab|citylab|craftlab)/[0-9a-f]{24}\.(zip|sig)$
 		respond @not_update 404
 		root * /var/www/clubcoders-code
 		file_server

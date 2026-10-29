@@ -9,7 +9,10 @@ const $ = id => document.getElementById(id);
 
 // [selector, the pill's name]
 export const BOXES = [["#events", "LOG"], ["#perf", "STATS"], ["#places", "PLACES"], ["#kh-mapbox", "MAP"], ["#kh-dmg", "DAMAGE"],
-                      ["#kh-tyres", "TYRES"], [".karthud .kbottom", "SPEED"], [".karthud .ktop", "LAP"]];
+                      ["#kh-tyres", "TYRES"], [".karthud .kbottom", "SPEED"], [".karthud .ktop", "LAP"],
+                      ["#mh-status", "MISSION"], ["#mh-log", "RUN LOG"],  // (the Missions': CHANGE 199)
+                      ["#ch-mapbox", "CITY MAP"], ["#ch-health", "HEALTH"],  // (City Lab's: CHANGE 201)
+                      ["#cr-log", "MESSAGES"], ["#cr-title", "WHO"]];  // (Craft Lab's: CHANGE 202)
 
 export class HudMini {
     constructor() {

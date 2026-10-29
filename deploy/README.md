@@ -1,6 +1,6 @@
 # Club Coders class server: setting up the IONOS VPS
 
-This folder turns a fresh IONOS VPS (Ubuntu 24.04) into the always-on class server at `wss://play.<club domain>`. Each of the club's games (Robot Lab, Fight Lab, Kart Lab, City Lab) has one game server. Learners use one app, **Club Coders**, and log in with a username and password: the server's club desk sends them to the game their launched group is playing. The teacher logs in to the same app to manage learners and groups, and to launch and stop a group.
+This folder turns a fresh IONOS VPS (Ubuntu 24.04) into the always-on class server at `wss://play.<club domain>`. Each of the club's games (Robot Lab, Fight Lab, Kart Lab, City Lab, Craft Lab) has one game server. Learners use one app, **Club Coders**, and log in with a username and password: the server's club desk sends them to the game their launched group is playing. The teacher logs in to the same app to manage learners and groups, and to launch and stop a group.
 
 ## What the kit does
 
@@ -15,7 +15,7 @@ This folder turns a fresh IONOS VPS (Ubuntu 24.04) into the always-on class serv
 | `robotlab-backup`, plus the `.timer` | Nightly backup at 02:30 to `/var/backups/robotlab`, readable by root only and kept 14 days. |
 | `requirements-server.txt` | The Python packages the servers need. |
 
-The server keeps learners' data per class in `/var/lib/robotlab/<class>/` (Fight Lab's in `/var/lib/robotlab/<class>/fightlab/`, Kart Lab's in `.../kartlab/`, City Lab's in `.../citylab/`): profiles, evidence and AI cards. Learners' robots, fighters, karts and drivers are in each game's `mods/` folder under `/opt/robotlab/app/games/`. The teacher code is in `/etc/robotlab.env`, readable only by root, the desk and the game servers. The desk's records (usernames, scrambled passwords, groups, session records with notes) are in `/var/lib/robotlab/desk`, readable only by the desk.
+The server keeps learners' data per class in `/var/lib/robotlab/<class>/` (Fight Lab's in `/var/lib/robotlab/<class>/fightlab/`, Kart Lab's in `.../kartlab/`, City Lab's in `.../citylab/`, Craft Lab's in `.../craftlab/` with its world): profiles, evidence and AI cards. Learners' robots, fighters, karts, drivers and Craft Bots are in each game's `mods/` folder under `/opt/robotlab/app/games/`. The teacher code is in `/etc/robotlab.env`, readable only by root, the desk and the game servers. The desk's records (usernames, scrambled passwords, groups, session records with notes) are in `/var/lib/robotlab/desk`, readable only by the desk.
 
 ## Before you start
 
@@ -54,6 +54,7 @@ Each game has one server; groups take turns on it (one group is live at a time).
 | `sudo robotlab-add-class class3 --game kartlab` | Kart Lab's game server |
 | `sudo robotlab-add-class class4 --game citylab` | City Lab's game server (CHANGE 194) |
 | `sudo robotlab-add-class class5 --game missions` | the Missions class server: the story missions launched for a group (CHANGE 195) |
+| `sudo robotlab-add-class class6 --game craftlab` | Craft Lab's game server (CHANGE 200) |
 
 The desk uses the first server it finds for each game, so there's no need for more. (The per-class code these commands print is unused now.)
 

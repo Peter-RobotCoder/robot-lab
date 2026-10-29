@@ -1,6 +1,6 @@
 """One window that stops reading mustn't hold up everyone else's game (CHANGE 160).
 
-    python engine/stall_test.py [robot|fight|kart|city|all]
+    python engine/stall_test.py [robot|fight|kart|city|craft|all]
 
 A laptop server for the game; a teacher's connection reading everything; a learner's connection that logs in and
 then stops reading (a laptop lid half shut, a weak Wi-Fi corner: its socket's receive buffer is made tiny, so the
@@ -33,6 +33,7 @@ GAMES = {  # folder, server, data folder's variable, version module
     "fight": (game_folder("BeatEmUp", "fightlab"), "fight_server.py", "FIGHTLAB_DATA", "fight_version"),
     "kart": (game_folder("kart", "kartlab"), "kart_server.py", "KARTLAB_DATA", "kart_version"),
     "city": (game_folder("city", "citylab"), "city_server.py", "CITYLAB_DATA", "city_version"),  # (CHANGE 194)
+    "craft": (game_folder("craft", "craftlab"), "craft_server.py", "CRAFTLAB_DATA", "craft_version"),  # (CHANGE 200)
 }
 WATCH = 12.0
 MOST_GAP = 0.5

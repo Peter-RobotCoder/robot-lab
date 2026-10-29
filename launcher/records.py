@@ -1,7 +1,7 @@
 """The club's paper trail: learner cards, session summaries and the scheme of work, as PDFs on the teacher's laptop.
 
 Made from a session's record (from the club desk: the group, game and lesson, who was there, what each learner
-completed, the AI cards, the teacher's notes) and the game's own lesson file (lab_missions.py, fight_missions.py, kart_missions.py or city_missions.py:
+completed, the AI cards, the teacher's notes) and the game's own lesson file (lab_missions.py, fight_missions.py, kart_missions.py, city_missions.py or craft_missions.py:
 lessons, outcomes and, where written, each lesson's overall task and lesson pieces).
 
     learner card     one page per learner whose achievements changed in the session:
@@ -20,9 +20,9 @@ import sys
 
 RECORDS = os.environ.get("CLUBCODERS_RECORDS") or os.path.join(os.path.expanduser("~"), "Documents", "Club Coders records")
 LESSON_FILES = {"robotlab": "lab_missions", "fightlab": "fight_missions", "kartlab": "kart_missions",
-                "citylab": "city_missions", "missions": "mission_lessons"}
+                "citylab": "city_missions", "craftlab": "craft_missions", "missions": "mission_lessons"}
 TITLES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab", "kartlab": "Kart Lab", "citylab": "City Lab",
-          "missions": "Missions"}
+          "craftlab": "Craft Lab", "missions": "Missions"}
 
 
 def lesson_module(game, folder):

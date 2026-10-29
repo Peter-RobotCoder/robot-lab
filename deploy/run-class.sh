@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Starts one class's game server (run by robotlab@<class>.service). The class's game is GAME in
 # /etc/robotlab/<class>.env: robotlab (Robot Lab, the default), fightlab (Fight Lab), kartlab (Kart Lab), citylab
-# (City Lab) or missions (Missions: the story missions as a class game, whose server lives in Robot Lab's folder).
+# (City Lab), craftlab (Craft Lab) or missions (Missions: the story missions as a class game, whose server lives in
+# Robot Lab's folder).
 # The game's code is the release's (/opt/robotlab/app/games/<game>), or a live update the teacher sent
 # (robotlab-live: /opt/robotlab/live/<game>/<id>, used from the class's next restart).
 # Each game keeps the class's data in its own place: Robot Lab in /var/lib/robotlab/<class>, Fight Lab in
 # /var/lib/robotlab/<class>/fightlab, Kart Lab in /var/lib/robotlab/<class>/kartlab, City Lab in
-# /var/lib/robotlab/<class>/citylab, Missions in /var/lib/robotlab/<class>/missions, so a class that changes game
+# /var/lib/robotlab/<class>/citylab, Craft Lab in /var/lib/robotlab/<class>/craftlab, Missions in
+# /var/lib/robotlab/<class>/missions, so a class that changes game
 # keeps them all.
 set -euo pipefail
 CLASS="$1"
@@ -16,9 +18,9 @@ DATA="/var/lib/robotlab/$CLASS"
 GAME="${GAME:-robotlab}"
 
 case "$GAME" in
-    robotlab|fightlab|kartlab|citylab|missions) ;;
+    robotlab|fightlab|kartlab|citylab|craftlab|missions) ;;
     *)
-        echo "Unknown GAME '$GAME' in /etc/robotlab/$CLASS.env: it can be robotlab, fightlab, kartlab, citylab or missions." >&2
+        echo "Unknown GAME '$GAME' in /etc/robotlab/$CLASS.env: it can be robotlab, fightlab, kartlab, citylab, craftlab or missions." >&2
         exit 1
         ;;
 esac
@@ -47,6 +49,7 @@ case "$GAME" in
     fightlab) SCRIPT=fight_server.py ;;
     kartlab) SCRIPT=kart_server.py ;;
     citylab) SCRIPT=city_server.py ;;
+    craftlab) SCRIPT=craft_server.py ;;
     missions) SCRIPT=missions_server.py ;;
 esac
 # (the canary logs a teacher in and waits for snapshots: Missions' server sends none, so its class runs a live
@@ -79,6 +82,11 @@ case "$GAME" in
         mkdir -p "$DATA/citylab"
         export CITYLAB_DATA="$DATA/citylab"
         exec "$PY" city_server.py --class-server --port "$PORT"
+        ;;
+    craftlab)
+        mkdir -p "$DATA/craftlab"
+        export CRAFTLAB_DATA="$DATA/craftlab"
+        exec "$PY" craft_server.py --class-server --port "$PORT"
         ;;
     missions)
         mkdir -p "$DATA/missions"

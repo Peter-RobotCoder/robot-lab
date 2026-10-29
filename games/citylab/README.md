@@ -21,6 +21,29 @@ Kart Lab's kart is) and everything else is blended between the server's snapshot
 makes a profile), reconnecting when the server restarts, reopening when the server runs newer code. The teacher's
 Enter starts a street race for everyone, G sends everyone to the depot, F mends the teacher's car, P pauses. A
 person drives as their design's points say (speed, acceleration and grip), in any car they take.
+Step 6 (29 October 2026, CHANGE 205): the lessons in the window. **I** (or Tab) opens the side panel
+(`city_panels.py`, on the engine's HUD kit as Kart Lab's): a learner's Mission tab (the lesson's missions, each
+objective ticked as it is done, the guidance, mission 2's predicted delivery time and the written answers), Garage
+(the driver and car as variables: driver_name, car, look and colour, and the 100 points between speed, acceleration
+and grip, with what they buy a car; five saved drivers; BUILD MY DRIVER), AI card, My card and Settings; **C** the
+code panel (the design as Python: APPLY CODE, BUILD MY DRIVER); **U** uploads `brains/my_brain.py` and **P** switches
+the autopilot. The teacher's Controls (the mission, the street race and the computer's racers, the city, the
+traffic, robots and parked cars, the jobs, the time of day, damage, locking designs, user mods, what learners can
+change, restarting for code changes), My driver, User mods, Warnings, Limits and Settings; the class's Learners,
+Outcomes, AI cards and Changes are on the teacher's page. Offline: the Garage and Settings. `brain_test.py`: the
+starter and demo brains each deliver a parcel by themselves.
+Step 7 (29 October 2026, CHANGE 204): looks and sound. At dusk and night the street lamps glow with a halo and a
+pool of light on the road round them, and windows light up (every shop front); the sounds are Kart Lab's and Fight
+Lab's in one set (`city_sound.py`): your car's engine note rising with the speed, the tyres squealing in a drift or
+with the handbrake, bumps, a punch's or a kick's whoosh and thump, a robot's clang, a zap, the other cars going by,
+the crowd in the park, the race's beeps and a horn when you're paid. `city_preview.py` takes a picture of each of the
+seven tiers (`--time night`, `--fps`: low and medium in a school laptop's 1366 x 768 window).
+Steps 8a and 8b (29 October 2026, CHANGE 201): City Lab on the browser page (`club-coders/web`'s `city.js`). The
+teacher's page watches the class (the city drawn from the server's JSON as `city_gfx.py` draws it, the people as Fight
+Lab's fighters, the cars as Kart Lab's, the robots as Robot Lab's, on every tier) with a Controls tab; a learner plays
+on the page with the keyboard, a game pad or a phone's touch controls, their person and car predicted as the window
+predicts them (`city_sim.js` is `city_sim.py`'s person and car steps, ported line for line: `city_sim_test.py` in
+`club-coders/web` proves them the same to the last bit, and `city_sim.SIM_VERSION`'s fingerprint is kept there).
 
 ## Run it
 

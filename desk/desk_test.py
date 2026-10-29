@@ -32,13 +32,15 @@ from engine import club_ticket  # noqa: E402
 TMP = tempfile.mkdtemp(prefix="desk_test_")
 PY = sys.executable
 DESK, RL, FL, KL, CL, ML = 8880, 8881, 8882, 8883, 8884, 8885
+CR = 8960  # (Craft Lab, CHANGE 200: 8886 is the second desk's, below)
 GAMES = {"robotlab": ("games/robotlab" if PUBLIC else "shared-world-demo", "lab_server.py", "ROBOTLAB_DATA", RL),
          "fightlab": ("games/fightlab" if PUBLIC else "BeatEmUp", "fight_server.py", "FIGHTLAB_DATA", FL),
          "kartlab": ("games/kartlab" if PUBLIC else "kart", "kart_server.py", "KARTLAB_DATA", KL),
          "citylab": ("games/citylab" if PUBLIC else "city", "city_server.py", "CITYLAB_DATA", CL),  # (CHANGE 194)
+         "craftlab": ("games/craftlab" if PUBLIC else "craft", "craft_server.py", "CRAFTLAB_DATA", CR),  # (CHANGE 200)
          "missions": ("games/robotlab" if PUBLIC else "shared-world-demo", "missions_server.py", "MISSIONS_DATA", ML)}  # (CHANGE 195)
 VERSION_MODULES = {"robotlab": "lab_version", "fightlab": "fight_version", "kartlab": "kart_version", "citylab": "city_version",
-                   "missions": "lab_version"}
+                   "craftlab": "craft_version", "missions": "lab_version"}
 results, procs = [], []
 
 
@@ -122,7 +124,7 @@ try:
     def scheme_of_work():  # (CHANGE 143) the app's Print scheme of work and lesson guide, for the page: teachers only
         m = ask(teacher, {"type": "scheme"}, want="scheme")
         sc = m.get("scheme", {})
-        assert {"robotlab", "fightlab", "kartlab", "citylab"} <= set(sc), sorted(sc)
+        assert {"robotlab", "fightlab", "kartlab", "citylab", "craftlab"} <= set(sc), sorted(sc)
         assert sc["robotlab"].get("guide", {}).get("1"), "Robot Lab's lesson guide is missing"
         with connect(f"ws://127.0.0.1:{DESK}") as ws:
             m = ask(ws, {"type": "scheme"}, want="scheme")
@@ -394,6 +396,25 @@ try:
             ask(teacher, {"type": "stop"})
     check("City Lab: a group launched into it; the learner's and the teacher's tickets open the city", city_lab_launch)
 
+    def craft_lab_launch():  # (CHANGE 200) a group launched into Craft Lab: the learner's and the teacher's tickets
+        assert ask(teacher, {"type": "set_group", "name": "Craft", "game": "craftlab", "learners": ["Sam"]}).get("ok")
+        assert ask(teacher, {"type": "launch", "group": "Craft", "lesson": 1}).get("ok")
+        try:
+            launched = ask(teacher, {"type": "teacher_window"})["teacher_window"]
+            assert launched["game"] == "craftlab" and launched.get("ticket"), launched
+            assert ask(teacher, {"type": "open_learners"}).get("ok")
+            with connect(f"ws://127.0.0.1:{DESK}") as ws:
+                m = ask(ws, {"type": "login", "name": "Sam", "password": "sam-own-pass"}, want="go")
+                assert m["go"]["game"] == "craftlab", m
+            time.sleep(3)  # (the game server reads live.json every 2 s)
+            welcome, code = game_hello(CR, {"ticket": m["go"]["ticket"]}, versions["craftlab"])
+            assert welcome and welcome["name"] == "Sam" and welcome.get("me") is not None, (welcome, code)
+            welcome, code = game_hello(CR, {"ticket": launched["ticket"]}, versions["craftlab"])
+            assert welcome and welcome["role"] == "teacher", (welcome, code)
+        finally:
+            ask(teacher, {"type": "stop"})
+    check("Craft Lab: a group launched into it; the learner's and the teacher's tickets open the island", craft_lab_launch)
+
     def missions_launch():  # (CHANGE 195) a group launched into Missions on lesson 2: Mission 2, a run reported
         assert ask(teacher, {"type": "set_group", "name": "Story", "game": "missions", "learners": ["Sam"]}).get("ok")
         assert ask(teacher, {"type": "launch", "group": "Story", "lesson": 2}).get("ok")
@@ -498,7 +519,7 @@ try:
         store.set_password("Tess", "tess-own-pass", by_learner=True)
         store.learners["Teacher"] = store.learners.pop("Tess")  # (as an old learners.json would have them)
         store.save()
-        port = DESK + 6  # (8886: past the five game servers, 8881 to 8885)
+        port = DESK + 6  # (8886: past the five game servers, 8881 to 8885; Craft Lab's is 8960)
         procs.append(subprocess.Popen([PY, os.path.join(HERE, "club_desk.py"), "--port", str(port), "--games",
                                        os.path.join(TMP, "games.json")],
                                       env=dict(env, CLUBCODERS_DESK_DATA=os.path.join(TMP, "desk2")),

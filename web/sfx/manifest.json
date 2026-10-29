@@ -3,14 +3,15 @@
   "rw_sound": "9",
   "kart_sound": "1",
   "fight_sound": "1",
-  "maker": "1"
+  "maker": "1",
+  "craft_sound": "1"
  },
  "format": "mp3",
  "encoding": "MP3, mono, 44.1 kHz, LAME VBR -q:a 5 (ffmpeg)",
  "loop_pad": 0.5,
  "onset_threshold": 0.05,
- "bytes": 1542993,
- "seconds": 201.6,
+ "bytes": 2498226,
+ "seconds": 335.5,
  "left_out": {
   "yours": "the teacher's own music files (engine/music): never copied to the page"
  },
@@ -89,6 +90,32 @@
    "horn",
    "k_skid",
    "k_boost"
+  ],
+  "craftlab": [
+   "c_dig_pick",
+   "c_dig_axe",
+   "c_dig_shovel",
+   "c_dig_soft",
+   "c_dig_None",
+   "c_place",
+   "c_step",
+   "c_splash",
+   "c_pop",
+   "c_eat",
+   "c_door",
+   "c_open",
+   "c_craft",
+   "c_break",
+   "c_hurt",
+   "c_fuse",
+   "c_blast",
+   "c_beep",
+   "c_baa",
+   "c_zap",
+   "c_clank",
+   "c_grow",
+   "c_music_day",
+   "c_music_night"
   ]
  },
  "sounds": {
@@ -1150,6 +1177,406 @@
    "seconds": [
     1.0
    ]
+  },
+  "c_dig_pick": {
+   "files": [
+    "c_dig_pick.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    9e-05
+   ],
+   "seconds": [
+    0.12
+   ]
+  },
+  "c_dig_axe": {
+   "files": [
+    "c_dig_axe.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00018
+   ],
+   "seconds": [
+    0.16
+   ]
+  },
+  "c_dig_shovel": {
+   "files": [
+    "c_dig_shovel.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00023
+   ],
+   "seconds": [
+    0.2
+   ]
+  },
+  "c_dig_soft": {
+   "files": [
+    "c_dig_soft.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00116
+   ],
+   "seconds": [
+    0.22
+   ]
+  },
+  "c_dig_None": {
+   "files": [
+    "c_dig_None.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00023
+   ],
+   "seconds": [
+    0.18
+   ]
+  },
+  "c_place": {
+   "files": [
+    "c_place.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00023
+   ],
+   "seconds": [
+    0.14
+   ]
+  },
+  "c_step": {
+   "files": [
+    "c_step.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00014
+   ],
+   "seconds": [
+    0.08
+   ]
+  },
+  "c_splash": {
+   "files": [
+    "c_splash.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00204
+   ],
+   "seconds": [
+    0.6
+   ]
+  },
+  "c_pop": {
+   "files": [
+    "c_pop.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00023
+   ],
+   "seconds": [
+    0.12
+   ]
+  },
+  "c_eat": {
+   "files": [
+    "c_eat.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00011
+   ],
+   "seconds": [
+    0.27
+   ]
+  },
+  "c_door": {
+   "files": [
+    "c_door.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00023
+   ],
+   "seconds": [
+    0.25
+   ]
+  },
+  "c_open": {
+   "files": [
+    "c_open.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00039
+   ],
+   "seconds": [
+    0.35
+   ]
+  },
+  "c_craft": {
+   "files": [
+    "c_craft.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00018
+   ],
+   "seconds": [
+    0.25
+   ]
+  },
+  "c_break": {
+   "files": [
+    "c_break.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00018
+   ],
+   "seconds": [
+    0.3
+   ]
+  },
+  "c_hurt": {
+   "files": [
+    "c_hurt.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00059
+   ],
+   "seconds": [
+    0.25
+   ]
+  },
+  "c_fuse": {
+   "files": [
+    "c_fuse.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00293
+   ],
+   "seconds": [
+    3.0
+   ]
+  },
+  "c_blast": {
+   "files": [
+    "c_blast.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00066
+   ],
+   "seconds": [
+    2.8
+   ]
+  },
+  "c_beep": {
+   "files": [
+    "c_beep.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00016
+   ],
+   "seconds": [
+    0.16
+   ]
+  },
+  "c_baa": {
+   "files": [
+    "c_baa.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00027
+   ],
+   "seconds": [
+    0.45
+   ]
+  },
+  "c_zap": {
+   "files": [
+    "c_zap.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00027
+   ],
+   "seconds": [
+    0.25
+   ]
+  },
+  "c_clank": {
+   "files": [
+    "c_clank.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.0
+   ],
+   "seconds": [
+    1.4
+   ]
+  },
+  "c_grow": {
+   "files": [
+    "c_grow.mp3"
+   ],
+   "loop": false,
+   "volume": 1.0,
+   "channel": "effects",
+   "games": [
+    "craftlab"
+   ],
+   "onset": [
+    0.00016
+   ],
+   "seconds": [
+    0.4
+   ]
+  },
+  "c_music_day": {
+   "files": [
+    "c_music_day.mp3"
+   ],
+   "loop": true,
+   "volume": 0.35,
+   "channel": "crowd",
+   "games": [
+    "craftlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 53.333333
+  },
+  "c_music_night": {
+   "files": [
+    "c_music_night.mp3"
+   ],
+   "loop": true,
+   "volume": 0.35,
+   "channel": "crowd",
+   "games": [
+    "craftlab"
+   ],
+   "loop_start": 0.25,
+   "loop_len": 68.571429
   }
  }
 }

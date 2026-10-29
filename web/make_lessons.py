@@ -1,5 +1,5 @@
 """lessons.json for Club Coders Live: each game's lesson titles, aims, learning outcomes and missions, from the
-games' own lesson files (lab_missions.py, fight_missions.py, kart_missions.py), so the page's printed session
+games' own lesson files (lab_missions.py, fight_missions.py, kart_missions.py, city_missions.py, craft_missions.py), so the page's printed session
 records name what the app's PDFs name (records.py reads the same files).
 
     python make_lessons.py            write lessons.json beside this file (run after a lesson file changes)
@@ -15,8 +15,10 @@ OUT = os.path.join(HERE, "lessons.json")
 # each game: its lesson file, and its folder in the public repository (games/<game>) or the working folder
 GAMES = {"robotlab": ("Robot Lab", "lab_missions", "shared-world-demo"),
          "fightlab": ("Fight Lab", "fight_missions", "BeatEmUp"),
-         "kartlab": ("Kart Lab", "kart_missions", "kart")}
-SIMS = {"robotlab": "lab_sim", "fightlab": "fight_sim", "kartlab": "kart_sim"}  # (each game's USER_MODS: their titles)
+         "kartlab": ("Kart Lab", "kart_missions", "kart"),
+         "citylab": ("City Lab", "city_missions", "city"),  # (CHANGE 201: City Lab on the page)
+         "craftlab": ("Craft Lab", "craft_missions", "craft")}  # (CHANGE 202: Craft Lab on the page)
+SIMS = {"robotlab": "lab_sim", "fightlab": "fight_sim", "kartlab": "kart_sim", "citylab": "city_sim", "craftlab": "craft_design"}  # (each game's USER_MODS: their titles)
 
 
 def lesson_file(game):

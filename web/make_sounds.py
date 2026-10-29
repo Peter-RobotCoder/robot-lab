@@ -5,7 +5,10 @@ Every sound is made from maths by the games themselves (nothing recorded, nothin
   weapon's own), the arena hum, the crowd and its reactions, the 8-bit and rock music, the countdown's robot voice
   (engine/rw_voice.py: 3, 2, 1, Activate, Go), Kart Lab's beeps, GO and the horn;
 - Kart Lab's kart_sound.py: the tyres' squeal and the boost (k_ files; its engine is Robot Lab's motor loop);
-- Fight Lab's fight_sound.py: punches, kicks, blocks, whooshes, specials, the bell and the K.O. boom (f_ files).
+- Fight Lab's fight_sound.py: punches, kicks, blocks, whooshes, specials, the bell and the K.O. boom (f_ files);
+- (CHANGE 202) Craft Lab's craft_sound.py: digging (each tool's), placing, a splash, a pop, eating, a door, a chest,
+  crafting, a tool breaking, being hurt, a fuse and a blast, the creatures' calls, a crop's chime, and the day's and
+  the night's tunes (c_ files).
 
 The games write them as WAVs in engine/assets/sfx the first time they run; this calls the same generators (making
 any that are missing), then turns each one the page needs into a small MP3 (mono, 44.1 kHz as the app plays them,
@@ -45,10 +48,13 @@ LOOP_START = 0.25     # where the page's loop region starts in the saved file
 ONSET = 0.05          # a one-shot's onset: its first sample above this fraction of its peak
 
 # the sounds the page needs: name -> (folder: rw/kart/fight, versions, loop, base volume, channel, games)
-R, F, K = "robotlab", "fightlab", "kartlab"
+R, F, K, C = "robotlab", "fightlab", "kartlab", "craftlab"
 HITS = ["clang", "smash", "launch", "hammer", "flip", "saw", "spikes", "bump", "wall", "pneumatic", "swing"]
 FIGHT_VARIED = ["punch", "kick", "heavy", "block", "whoosh", "land", "metal"]
 FIGHT_SINGLE = ["jump", "blast_fire", "blast_hit", "uppercut", "spin", "slam", "zap", "fire", "bell", "ko", "counter"]
+# (CHANGE 202) craft_sound.make's sounds, and its two tunes (looped)
+CRAFT = ["dig_pick", "dig_axe", "dig_shovel", "dig_soft", "dig_None", "place", "step", "splash", "pop", "eat", "door", "open",
+         "craft", "break", "hurt", "fuse", "blast", "beep", "baa", "zap", "clank", "grow"]
 
 
 def wanted(rw_variants=3, fight_variants=3):
@@ -83,6 +89,10 @@ def wanted(rw_variants=3, fight_variants=3):
         s["f_" + name] = ("fight", fight_variants, False, 1.0, "effects", [F])
     for name in FIGHT_SINGLE:
         s["f_" + name] = ("fight", 0, False, 1.0, "effects", [F])
+    for name in CRAFT:
+        s["c_" + name] = ("craft", 0, False, 1.0, "effects", [C])
+    for name in ("music_day", "music_night"):
+        s["c_" + name] = ("craft", 0, True, 0.35, "crowd", [C])  # (the page's tunes setting: the crowd's switch, craftFrame)
     return s
 
 
@@ -122,14 +132,25 @@ def constant(path, name):
     return None
 
 
+def craft_root():
+    """(CHANGE 202) Craft Lab's folder: games/craftlab in the public repository, craft/ in the working one."""
+    for folder in (os.path.join(os.path.dirname(HERE), "games", "craftlab"), os.path.join(os.path.dirname(os.path.dirname(HERE)), "craft")):
+        if os.path.exists(os.path.join(folder, "craft_sound.py")):
+            return folder
+    return None
+
+
 def versions():
     engine, kart, fight = roots()
     if engine is None:
         return None
-    return {"rw_sound": constant(os.path.join(engine, "rw_sound.py"), "VERSION"),
-            "kart_sound": constant(os.path.join(kart, "kart_sound.py"), "VERSION"),
-            "fight_sound": constant(os.path.join(fight, "fight_sound.py"), "VERSION"),
-            "maker": MAKER}
+    out = {"rw_sound": constant(os.path.join(engine, "rw_sound.py"), "VERSION"),
+           "kart_sound": constant(os.path.join(kart, "kart_sound.py"), "VERSION"),
+           "fight_sound": constant(os.path.join(fight, "fight_sound.py"), "VERSION"),
+           "maker": MAKER}
+    if craft_root():
+        out["craft_sound"] = constant(os.path.join(craft_root(), "craft_sound.py"), "VERSION")
+    return out
 
 
 def check():
@@ -203,18 +224,26 @@ def build():
     import fight_sound
     sfx = kart_sound.ensure()   # (rw_sound.ensure() first, then the kart's own: each makes only what is missing)
     fight_sound.ensure()
+    craft_sfx = None
+    if craft_root():  # (CHANGE 202: Craft Lab's own, made in its assets/sfx)
+        sys.path.insert(0, craft_root())
+        import craft_sound
+        craft_sound.ensure()
+        craft_sfx = craft_sound.SFX
     ffmpeg = shutil.which("ffmpeg")
     ext = "mp3" if ffmpeg else "wav"
     os.makedirs(OUT, exist_ok=True)
     for f in os.listdir(OUT):
         if f.endswith((".mp3", ".wav", ".json")):
             os.remove(os.path.join(OUT, f))
-    sounds, games, seconds = {}, {R: [], F: [], K: []}, 0.0
+    sounds, games, seconds = {}, {R: [], F: [], K: [], C: []}, 0.0
     for name, (where, variants, loop, volume, channel, used) in wanted(rw_sound.VARIANTS, fight_sound.VARIANTS).items():
+        if where == "craft" and craft_sfx is None:
+            continue
         sources = [f"{name}_{v}" for v in range(variants)] if variants else [name]
         entry = {"files": [], "loop": loop, "volume": volume, "channel": channel, "games": used}
         for src in sources:
-            data, rate = read_wav(os.path.join(sfx, src + ".wav"))
+            data, rate = read_wav(os.path.join(craft_sfx, src[2:] + ".wav") if where == "craft" else os.path.join(sfx, src + ".wav"))
             secs = len(data) / rate
             seconds += secs
             if loop:
@@ -243,8 +272,10 @@ def build():
     with open(os.path.join(OUT, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(manifest, f, indent=1)
         f.write("\n")
+    wavs = [os.path.join(craft_sfx, n[2:] + ".wav") if n.startswith("c_") and craft_sfx else os.path.join(sfx, n + ".wav")
+            for n in (f.rsplit(".", 1)[0] for f in files)]
     print(f"wrote {len(files)} {ext.upper()} files and manifest.json to {OUT}: {total / 1e6:.2f} MB "
-          f"({seconds:.0f} s of sound; the game's WAVs are {sum(os.path.getsize(os.path.join(sfx, s + '.wav')) for s in [f.rsplit('.', 1)[0] for f in files]) / 1e6:.1f} MB)")
+          f"({seconds:.0f} s of sound; the game's WAVs are {sum(os.path.getsize(p) for p in wavs if os.path.exists(p)) / 1e6:.1f} MB)")
     if not ffmpeg:
         print("(no ffmpeg on the PATH: the files are 16-bit mono 22.05 kHz WAVs; install ffmpeg for MP3s about "
               "a tenth of the size)")

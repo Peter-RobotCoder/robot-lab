@@ -44,6 +44,7 @@ sys.path.insert(0, next((p for p in (os.path.dirname(HERE), os.path.dirname(os.p
 from engine import club_ticket  # noqa: E402
 
 GAMES = {"robotlab": "Robot Lab", "fightlab": "Fight Lab", "kartlab": "Kart Lab", "citylab": "City Lab",
+         "craftlab": "Craft Lab",  # (CHANGE 200)
          "missions": "Missions"}  # (Missions: the story missions as a class game, CHANGE 195)
 ETC = "/etc/robotlab"
 DATA = os.environ.get("CLUBCODERS_DESK_DATA", "/var/lib/robotlab/desk")
@@ -466,6 +467,7 @@ def running_code(game_info):
 # ---------- the games' lesson files (CHANGE 143): the scheme of work and the lesson guide for the browser ----------
 LESSON_FILES = {"robotlab": ("lab_missions", "shared-world-demo"), "fightlab": ("fight_missions", "BeatEmUp"),
                 "kartlab": ("kart_missions", "kart"), "citylab": ("city_missions", "city"),
+                "craftlab": ("craft_missions", "craft"),
                 "missions": ("mission_lessons", "shared-world-demo", "robotlab")}  # (in Robot Lab's folder)
 _schemes = {}  # game -> (the file's time, its scheme)
 

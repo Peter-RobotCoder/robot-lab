@@ -19,6 +19,8 @@ const GAME_WORDS = {
     robotlab: {targets: {robot: "My robot", arena: "The arena", rules: "The rules"}, reflections: ["2d", "5b"]},
     fightlab: {targets: {fighter: "My fighter", stage: "The stage", rules: "The rules"}, reflections: ["2e", "5b"]},
     kartlab: {targets: {kart: "My kart", track: "The track", rules: "The rules"}, reflections: ["2e", "5b"]},
+    citylab: {targets: {driver: "My driver and car", city: "The city", rules: "The rules"}, reflections: ["2e", "5b"]},  // (CHANGE 201)
+    craftlab: {targets: {bot: "My Craft Bot", world: "The world", rules: "The rules"}, reflections: ["5c"]},  // (CHANGE 202: craft_missions)
 };
 
 export function renderLearnerTab(app, tab, body) {

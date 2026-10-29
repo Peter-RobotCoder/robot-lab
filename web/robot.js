@@ -82,6 +82,20 @@ const HAZE = [0.012, 0.014, 0.02], HAZE_DENSITY = 0.012, EXPOSURE = 0.7;
 // TextNodes have no normals, so the arena's lights never reach them and each is one even colour on a tier (its
 // ambient light, its reflections, its glow): the floor's name a pale grey-beige (its paint is yellow), the score on the
 // big screen a pale yellow, a robot's name on its deck a light grey. blocks: as the window's basic; low: no reflections
+// rw_gfx.init's lights: a warm key light high over one corner, a spotlight on each corner tower aimed at the middle,
+// a dim blue fill, the arena's reflections; on ultra a haze over the hall alone (fog.picked: the far parts' materials,
+// as the window's), given as the colour the tone curve makes of its light. (CHANGE 199: a fresh copy each time, as
+// the Missions' window lights its valley with them too)
+export function robotLook() {
+    return {sky: [0.1, 0.11, 0.14], radius: 26, target: [0, 0, 0], ground: [0.25, 0.25, 0.28], sunDir: [-0.3, -0.85, 0.4],
+            pbr: {background: [0.02, 0.02, 0.03], exposure: EXPOSURE, ambient: [0.05, 0.055, 0.07], sky: "env",
+                  fog: {colour: toneMap(HAZE, Math.pow(2, EXPOSURE)), density: HAZE_DENSITY, picked: true},
+                  sun: {colour: [1.5, 1.42, 1.3], offset: [8, -14, 30], film: 26, near: 5, far: 60, bias: 0.005, follow: false},
+                  spots: [[-1, -1, [1.0, 0.85, 0.7]], [1, -1, [0.75, 0.85, 1.0]], [-1, 1, [0.75, 0.85, 1.0]], [1, 1, [1.0, 0.85, 0.7]]]
+                      .map(([sx, sy, c]) => ({pos: [sx * 12.5, sy * 12.5, 8.5], at: [sx * 2, sy * 2, 0],
+                                              colour: c.map(v => v * 3.2), fov: 38, att: [1, 0, 0.004]}))}};
+}
+
 const NAME_PAINT = {blocks: [137, 127, 115], low: [69, 53, 27], lit: [147, 136, 118]};
 const SCORE_GLOW = {blocks: [242, 239, 186], low: [242, 239, 186], lit: [242, 239, 186]};
 const DECK_PAINT = {blocks: [207, 207, 208], low: [207, 208, 208], lit: [213, 213, 213]};
@@ -96,18 +110,10 @@ export class RobotScene extends BaseScene {
     static TIER_TEXT = {lines: "lines: black, the outlines in one colour and a grid on the floor (an old vector arcade game).",
                         ultra: "ultra: for a strong graphics card: the window's smooth robots (round edges, tread, bolts, machined weapons) and arena (steel plates, the cage, towers, the rig, the stands and their crowd), soft 4096 shadows, sharper textures at a slant."};
 
-    constructor(canvas, tier, engine) {
-        // rw_gfx.init's lights: a warm key light high over one corner, a spotlight on each corner tower aimed at the
-        // middle, a dim blue fill, the arena's reflections; on ultra a haze over the hall alone (fog.picked: the far
-        // parts' materials, as the window's), given as the colour the tone curve makes of its light
-        super(canvas, tier, engine, {sky: [0.1, 0.11, 0.14], radius: 26, target: [0, 0, 0], ground: [0.25, 0.25, 0.28],
-                                     sunDir: [-0.3, -0.85, 0.4],
-                                     pbr: {background: [0.02, 0.02, 0.03], exposure: EXPOSURE, ambient: [0.05, 0.055, 0.07], sky: "env",
-                                           fog: {colour: toneMap(HAZE, Math.pow(2, EXPOSURE)), density: HAZE_DENSITY, picked: true},
-                                           sun: {colour: [1.5, 1.42, 1.3], offset: [8, -14, 30], film: 26, near: 5, far: 60, bias: 0.005, follow: false},
-                                           spots: [[-1, -1, [1.0, 0.85, 0.7]], [1, -1, [0.75, 0.85, 1.0]], [-1, 1, [0.75, 0.85, 1.0]], [1, 1, [1.0, 0.85, 0.7]]]
-                                               .map(([sx, sy, c]) => ({pos: [sx * 12.5, sy * 12.5, 8.5], at: [sx * 2, sy * 2, 0],
-                                                                       colour: c.map(v => v * 3.2), fov: 38, att: [1, 0, 0.004]}))}});
+    // (CHANGE 199) look: another game's in Robot Lab's lights (the Missions' valley, missionscene.js), later: built by
+    // that game once it knows what to draw
+    constructor(canvas, tier, engine, look = null, later = false) {
+        super(canvas, tier, engine, look || robotLook());
         this.setup = {hazards: {}, user_mods: {}, look: {}};
         this.robots = new Map();
         this.designs = [];
@@ -115,7 +121,7 @@ export class RobotScene extends BaseScene {
         this.follow = null;
         this.fx = null;
         this.cam = new RobotCamera("third");  // (the five views' own settings, kept over a tier change: CHANGE 143)
-        this.build();
+        if (!later) this.build();
     }
 
     build() {  // (ultra's after-effects let go before the scene they were made for: CHANGE 145)
@@ -1189,13 +1195,15 @@ export class RobotScene extends BaseScene {
             v.hp = r.hp;
             v.flash = Math.max(0, v.flash - dt);
             // the colours: a flash when hit, scorched as the body is hurt, each weak part darker (rw_gfx's colour scales)
+            // (CHANGE 199) r.tint: the whole robot's colour scale under those (a mission's others' robots, dimmed)
+            const T = r.tint, tk = c => T ? c.map((x, i) => x * T[i]) : c;
             const sc = v.scorch, ch = v.flash > 0 ? [2.2, 2.2, 2.2] : [1 - 0.4 * sc, 1 - 0.45 * sc, 1 - 0.5 * sc];
-            this.tint(v, "chassis", ch);
+            this.tint(v, "chassis", tk(ch));
             const a = v.weak.armour || 0;
-            this.tint(v, "armour", v.gone.has("armour") ? [1, 1, 1] : [ch[0] * (1 - 0.45 * a), ch[1] * (1 - 0.5 * a), ch[2] * (1 - 0.55 * a)]);
+            this.tint(v, "armour", tk(v.gone.has("armour") ? [1, 1, 1] : [ch[0] * (1 - 0.45 * a), ch[1] * (1 - 0.5 * a), ch[2] * (1 - 0.55 * a)]));
             const wd = v.weak.weapon || 0;
-            this.tint(v, "weapon", [1 - 0.45 * wd, 1 - 0.5 * wd, 1 - 0.55 * wd]);
-            for (let i = 0; i < 4; i++) { const k = 1 - 0.4 * (v.weak["wheel" + i] || 0); this.tint(v, "wheel" + i, [k, k, k]); }
+            this.tint(v, "weapon", tk([1 - 0.45 * wd, 1 - 0.5 * wd, 1 - 0.55 * wd]));
+            for (let i = 0; i < 4; i++) { const k = 1 - 0.4 * (v.weak["wheel" + i] || 0); this.tint(v, "wheel" + i, tk([k, k, k])); }
             const damage = 1 - Math.max(0, r.hp) / Math.max(1, r.max || 1);
             if (fx && damage > 0.55 && r.pos[2] > -1) fx.smoke(r.pos, (damage - 0.55) / 0.45 + (r.ko ? 1 : 0), dt);
             v.label.position = v3(r.pos[0], r.pos[1], r.pos[2] + 1.3 * Math.max(1, v.s));

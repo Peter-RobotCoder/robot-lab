@@ -1692,5 +1692,193 @@
     "muscle"
    ]
   }
+ },
+ "craftlab": {
+  "title": "Craft Lab",
+  "word": "CRAFT BOT",
+  "old_name": null,
+  "client_code_room": true,
+  "vars": [
+   {
+    "name": "dig",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "dig",
+    "note": "points for how fast your Craft Bot digs",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "dig"
+    ]
+   },
+   {
+    "name": "build",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "build",
+    "note": "points for how fast it puts blocks down",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "build"
+    ]
+   },
+   {
+    "name": "speed",
+    "kind": "int",
+    "group": "points",
+    "garage": "points",
+    "tool": "speed",
+    "note": "points for how fast it moves from block to block",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "points",
+     "speed"
+    ]
+   },
+   {
+    "name": "bot_name",
+    "kind": "str",
+    "group": "strings",
+    "garage": "strings",
+    "tool": "name_and_colour",
+    "note": "a string: text made of chars",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 12,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "name"
+    ]
+   },
+   {
+    "name": "colour",
+    "kind": "rgb",
+    "group": "lists",
+    "garage": "lists",
+    "tool": "name_and_colour",
+    "note": "red, green, blue: 0 to 255",
+    "list_name": null,
+    "list_note": "",
+    "max_len": 16,
+    "optional": false,
+    "none_text": "none",
+    "per_row": 4,
+    "step": 0.13,
+    "always": false,
+    "path": [
+     "colour"
+    ]
+   }
+  ],
+  "limits": {
+   "settings": {},
+   "full_settings": {},
+   "stats": [
+    "dig",
+    "build",
+    "speed"
+   ],
+   "stat_range": [
+    10,
+    60
+   ],
+   "full_stat": [
+    10,
+    60
+   ],
+   "points_total": 100,
+   "full_points_total": 100
+  },
+  "consts": {
+   "name_max": 12,
+   "swatches": [
+    [
+     220,
+     60,
+     50
+    ],
+    [
+     240,
+     140,
+     30
+    ],
+    [
+     240,
+     200,
+     40
+    ],
+    [
+     60,
+     190,
+     90
+    ],
+    [
+     60,
+     130,
+     230
+    ],
+    [
+     180,
+     90,
+     230
+    ],
+    [
+     230,
+     90,
+     160
+    ],
+    [
+     60,
+     200,
+     200
+    ],
+    [
+     240,
+     240,
+     240
+    ],
+    [
+     40,
+     40,
+     48
+    ]
+   ],
+   "stats_of": [
+    1.6,
+    0.022,
+    0.9,
+    0.012,
+    0.75,
+    0.01
+   ]
+  }
  }
 }

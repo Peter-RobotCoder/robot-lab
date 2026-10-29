@@ -16,6 +16,19 @@ export const KART_FIELDS = [["x", "i", 100], ["y", "i", 100], ["yaw", "h", 10], 
                             ["bg", "B", 1],  // (a bump's grace: CHANGE 159)
                             ["tyre", "H", 10000]];  // (tyre wear, 0 to 1: CHANGE 178)
 
+// (CHANGE 201) city_sim.SCHEMA_FIELDS: City Lab's one record for people, cars and robots (what a thing is comes from
+// its id: people 0 to 31, cars 32 to 127, robots 128 to 191)
+export const CITY_FIELDS = [["x", "i", 100], ["y", "i", 100], ["z", "h", 100], ["vz", "h", 100], ["yaw", "h", 10],
+                            ["v", "h", 100], ["u", "h", 100], ["hp", "B", 1], ["flags", "B", 1], ["link", "B", 1],
+                            ["move", "B", 1], ["mp", "B", 1], ["steer", "b", 100], ["dmg", "H", 1], ["job", "B", 1],
+                            ["jp", "B", 1], ["cash", "H", 1], ["aux", "H", 1], ["lk", "B", 1], ["bg", "B", 1]];
+
+// (CHANGE 202) craft_sim.SCHEMA_FIELDS: Craft Lab's one record for players, Craft Bots, creatures and things dropped
+// (what a thing is from its kind and its id: players 0 to 63, Bots 64 to 127, creatures 128 to 191, dropped 192 to 254)
+export const CRAFT_FIELDS = [["kind", "B", 1], ["x", "i", 1000], ["y", "i", 1000], ["z", "i", 1000], ["vx", "h", 100],
+                             ["vy", "h", 100], ["vz", "h", 100], ["yaw", "H", 100], ["pitch", "h", 100], ["flags", "B", 1],
+                             ["hp", "B", 1], ["food", "B", 1], ["held", "H", 1], ["fall", "H", 100]];
+
 const READ = {
     b: (dv, o) => [dv.getInt8(o), 1], B: (dv, o) => [dv.getUint8(o), 1],
     h: (dv, o) => [dv.getInt16(o, true), 2], H: (dv, o) => [dv.getUint16(o, true), 2],

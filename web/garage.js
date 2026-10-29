@@ -441,8 +441,9 @@ export function designResult(app, m) {
         S.draft = copy(S.myDesign);
         S.codeShown = null;
         S.garageMsg = [m.by_teacher ? `Your teacher changed your ${word}.` : id === "robotlab" ? "Built! Your robot is back at its start square."
-                       : id === "fightlab" ? "Built! Your fighter is back at the start of the round." : "Built! Your kart has its new design.", "green"];
-        if (S.codeBuilding) S.codeMsg = ["Built from your code! Your robot is back at its start square.", "green"];
+                       : id === "fightlab" ? "Built! Your fighter is back at the start of the round."
+                       : id === "craftlab" ? `Built! ${S.myDesign && S.myDesign.name ? S.myDesign.name : "Your Craft Bot"} has its new design.` : "Built! Your kart has its new design.", "green"];
+        if (S.codeBuilding) S.codeMsg = [id === "craftlab" ? "Built from your code! Your Craft Bot has its new design." : "Built from your code! Your robot is back at its start square.", "green"];
     } else {
         S.garageMsg = ["Not built: " + (m.problems || []).join("; "), "red"];
         if (S.codeBuilding) S.codeMsg = S.garageMsg;

@@ -15,6 +15,17 @@
 // your item, Back (Minus) respawns; Start is I (the side panel) in all three. (CHANGE 187) A phone's touch controls
 // (touch.js) are read in the pad's shape, so they drive the same way: the slider steers, GO and BRAKE the triggers, DRIFT
 // the right shoulder, HANDBRAKE the top button, the item button the left one, RESET Back.
+// (CHANGE 201) City Lab (city_client.read_keys): on foot WASD or the arrows walk (W is away from the camera: the game
+// turns the keys into a move in the world, as the window's FootCamera.move_from_keys), Shift runs, Space jumps, J
+// punches, K kicks, B blocks, E gets into the car beside you; in a car Kart Lab's keys (W go, S brake, A D steer, Shift
+// drift, B handbrake, the clutch drop), E gets out; R back to the depot. A pad on foot: the stick walks, the bottom
+// button jumps, the left punches, the right kicks, the top gets in, the left shoulder blocks, the right runs; in a car
+// as Kart Lab's (the left button or shoulder gets out). Ticked as the kart's: every 1/60 s tick an input, predicted.
+// (CHANGE 202) Craft Lab (craft_client.read_keys): WASD or the arrows walk the way you look (the game turns them into a
+// move in the world's frame by its yaw), Space jumps (and swims up, and flies up), Shift sneaks (and flies down), W
+// twice sprints; a pad's stick walks, the bottom button jumps, the right shoulder sprints, the left sneaks, the right
+// stick looks about, the triggers dig and place, the top button opens the inventory, the left throws one. The game
+// reads them itself (keysInput): the buttons JUMP 1, SPRINT 2, SNEAK 4, FLY 8, ticked and predicted as City Lab's.
 
 import {Pads} from "./pad.js";
 
@@ -67,7 +78,7 @@ export class Controller {
     constructor(app, keys, kind) {
         this.app = app;
         this.keys = keys;
-        this.kind = kind;            // "robot", "fight" or "kart"
+        this.kind = kind;            // "robot", "fight", "kart" or "city"
         this.seq = 0;
         this.last = null;
         this.lastSend = 0;
@@ -79,7 +90,7 @@ export class Controller {
             const game = this.app.game;
             if (!game || !game.myId || game.myId() === null || game.myId() === undefined) return;
             this.seq = (this.seq + 1) % 65536;
-            if (this.kind === "kart") { if (game.sendNeutral) game.sendNeutral(); }
+            if (this.kind === "kart" || this.kind === "city" || this.kind === "craft") { if (game.sendNeutral) game.sendNeutral(); }
             else if (this.kind === "fight") this.app.send({type: "control", seq: this.seq, f: 0, s: 0, hold: ""});
             else this.app.send({type: "control", seq: this.seq, throttle: 0, steer: 0, fire: false});
             this.last = null;
@@ -141,6 +152,63 @@ export class Controller {
         return {throttle, steer, buttons};
     }
 
+    // (CHANGE 201) City Lab's input (city_client.read_keys): in a car the pedals and the wheel as the kart's; on foot the
+    // move in the world's frame (throttle x east, steer y north: the game's footMove from the keys and the camera) and
+    // the buttons: RUN 1, ACTION 2 (E), RESPAWN 4 (R), BLOCK 16, PUNCH 32, KICK 64, JUMP 128
+    cityControl() {
+        const K = this.keys, game = this.app.game, pad = this.pad;
+        let buttons = 0;
+        if (this.tapped.includes("r")) buttons |= 4;
+        if (this.tapped.includes("e")) buttons |= 2;
+        if (game.driving && game.driving()) {
+            let throttle = (K.is("ArrowUp", "w") ? 1 : 0) - (K.is("ArrowDown", "s") ? 1 : 0);
+            let steer = (K.is("ArrowLeft", "a") ? 1 : 0) - (K.is("ArrowRight", "d") ? 1 : 0);
+            if (K.is("Shift")) buttons |= 1;   // DRIFT
+            if (K.is("b")) buttons |= 16;      // HANDBRAKE
+            if (pad) {
+                if (!throttle) throttle = Math.max(pad.rt, pad.held.has("south") ? 1 : 0) - Math.max(pad.lt, pad.held.has("east") ? 1 : 0);
+                if (!steer) steer = -pad.x;
+                if (pad.held.has("rb")) buttons |= 1;
+                if (pad.held.has("north")) buttons |= 16;
+                if (pad.pressed.has("back")) buttons |= 4;
+                if (pad.pressed.has("west") || pad.pressed.has("lb")) buttons |= 2;
+                pad.pressed = new Set();
+            }
+            buttons |= this.launchButton(throttle > 0);
+            this.consumed = true;
+            return {throttle, steer, buttons};
+        }
+        this.thWas = this.launchArmed = false;  // (on foot: the clutch is a car's)
+        let forward = (K.is("ArrowUp", "w") ? 1 : 0) - (K.is("ArrowDown", "s") ? 1 : 0);
+        let right = (K.is("ArrowRight", "d") ? 1 : 0) - (K.is("ArrowLeft", "a") ? 1 : 0);
+        if (pad && !forward && !right) { forward = pad.y || 0; right = pad.x || 0; }
+        if (K.is("Shift")) buttons |= 1;       // RUN
+        if (K.is(" ")) buttons |= 128;         // JUMP
+        if (K.is("b")) buttons |= 16;          // BLOCK
+        if (this.tapped.includes("j")) buttons |= 32;  // PUNCH (once per press)
+        if (this.tapped.includes("k")) buttons |= 64;  // KICK
+        if (pad) {
+            if (pad.held.has("south")) buttons |= 128;
+            if (pad.pressed.has("west")) buttons |= 32;
+            if (pad.pressed.has("east")) buttons |= 64;
+            if (pad.held.has("lb")) buttons |= 16;
+            if (pad.pressed.has("north")) buttons |= 2;
+            if (pad.held.has("rb")) buttons |= 1;
+            if (pad.pressed.has("back")) buttons |= 4;
+            pad.pressed = new Set();
+        }
+        const [mx, my] = game.footMove ? game.footMove(forward, right) : [0, 0];
+        this.consumed = true;
+        return {throttle: mx, steer: my, buttons};
+    }
+
+    // (CHANGE 202) Craft Lab's input: the game's own reading of the keys and the pad (CraftGame.keysInput)
+    craftControl() {
+        const game = this.app.game;
+        this.consumed = true;
+        return game.keysInput ? game.keysInput(this.keys, this.pad, this.tapped) : {throttle: 0, steer: 0, buttons: 0};
+    }
+
     // (CHANGE 181, kart_client.launch_button) the clutch dropped: the throttle let go and pressed again within 0.35 s
     // while the kart is nearly still arms LAUNCH, held until the throttle is let go (the step spins the back wheels
     // while the kart is under 6 m/s: a burnout, or a donut with the wheel turned)
@@ -164,7 +232,8 @@ export class Controller {
         this.keys.active = true;
         // (CHANGE 181) Kart Lab's taps wait for a tick: a frame with no tick in it (a 120 Hz screen draws two frames a
         // tick) threw the taps of that frame away, and a press of E (or R) was lost half the time
-        this.tapped = (this.kind === "kart" ? this.tapped || [] : []).concat(this.keys.takeTaps());
+        const ticked = this.kind === "kart" || this.kind === "city" || this.kind === "craft";
+        this.tapped = (ticked ? this.tapped || [] : []).concat(this.keys.takeTaps());
         let pad = this.pads.read();  // (CHANGE 170: every frame, so a button tapped between two isn't lost)
         const t = this.touch && this.touch.shown ? this.touch.read() : null;  // (CHANGE 187: a finger down, or no pad: the touch controls)
         if (t && (t.active || !pad)) pad = t;
@@ -173,11 +242,15 @@ export class Controller {
         this.pad = pad;
         if (this.pad && this.keys.typing()) this.pad = null;
         if (this.pad && this.pad.pressed.has("start") && this.keys.onKey) this.keys.onKey("i", {target: null});
-        if (this.kind === "kart" && game.controlFrame) {  // (Kart Lab ticks its own inputs: its prediction needs them)
+        if (ticked && game.controlFrame) {  // (Kart Lab, City Lab and Craft Lab tick their own inputs: their prediction needs them)
             const dt = Math.min(0.1, (now - (this.lastFrame || now)) / 1000);
             this.lastFrame = now;
             this.consumed = false;
-            game.controlFrame(now, () => { const c = this.kartControl(); this.tapped = []; return c; }, dt);
+            game.controlFrame(now, () => {
+                const c = this.kind === "city" ? this.cityControl() : this.kind === "craft" ? this.craftControl() : this.kartControl();
+                this.tapped = [];
+                return c;
+            }, dt);
             if (!this.consumed && this.pad && this.pad.pressed.size) this.padCarry = new Set(this.pad.pressed);
             if (this.tapped.length > 30) this.tapped = this.tapped.slice(-30);
             return;

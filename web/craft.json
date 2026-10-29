@@ -1,0 +1,3402 @@
+{
+ "maker": "1",
+ "art_version": "2",
+ "atlas": {
+  "file": "tex/craft_atlas.png",
+  "tile": 16,
+  "tiles": 16,
+  "used": 174,
+  "md5": "8bca987eea35b5d4f8bb7a48daa06692",
+  "where": {
+   "grass_top": [
+    0,
+    0
+   ],
+   "grass_side": [
+    1,
+    0
+   ],
+   "soil": [
+    2,
+    0
+   ],
+   "stone": [
+    3,
+    0
+   ],
+   "rubble": [
+    4,
+    0
+   ],
+   "corestone": [
+    5,
+    0
+   ],
+   "sand": [
+    6,
+    0
+   ],
+   "grit": [
+    7,
+    0
+   ],
+   "water": [
+    8,
+    0
+   ],
+   "log_top": [
+    9,
+    0
+   ],
+   "log_side": [
+    10,
+    0
+   ],
+   "leaves": [
+    11,
+    0
+   ],
+   "planks": [
+    12,
+    0
+   ],
+   "bench_top": [
+    13,
+    0
+   ],
+   "bench_side": [
+    14,
+    0
+   ],
+   "smelter_top": [
+    15,
+    0
+   ],
+   "smelter_front": [
+    0,
+    1
+   ],
+   "smelter_lit": [
+    1,
+    1
+   ],
+   "chest_top": [
+    2,
+    1
+   ],
+   "chest_side": [
+    3,
+    1
+   ],
+   "glass": [
+    4,
+    1
+   ],
+   "brick": [
+    5,
+    1
+   ],
+   "torch": [
+    6,
+    1
+   ],
+   "coal_ore": [
+    7,
+    1
+   ],
+   "copper_ore": [
+    8,
+    1
+   ],
+   "iron_ore": [
+    9,
+    1
+   ],
+   "crystal_ore": [
+    10,
+    1
+   ],
+   "lumen": [
+    11,
+    1
+   ],
+   "snow": [
+    12,
+    1
+   ],
+   "ice": [
+    13,
+    1
+   ],
+   "cactus_top": [
+    14,
+    1
+   ],
+   "cactus_side": [
+    15,
+    1
+   ],
+   "clay": [
+    0,
+    2
+   ],
+   "sandstone_top": [
+    1,
+    2
+   ],
+   "sandstone_side": [
+    2,
+    2
+   ],
+   "wool_white": [
+    3,
+    2
+   ],
+   "wool_red": [
+    4,
+    2
+   ],
+   "wool_orange": [
+    5,
+    2
+   ],
+   "wool_yellow": [
+    6,
+    2
+   ],
+   "wool_green": [
+    7,
+    2
+   ],
+   "wool_blue": [
+    8,
+    2
+   ],
+   "wool_purple": [
+    9,
+    2
+   ],
+   "wool_black": [
+    10,
+    2
+   ],
+   "door_low": [
+    11,
+    2
+   ],
+   "door_high": [
+    12,
+    2
+   ],
+   "ladder": [
+    13,
+    2
+   ],
+   "bed_top": [
+    14,
+    2
+   ],
+   "bed_side": [
+    15,
+    2
+   ],
+   "farmland": [
+    0,
+    3
+   ],
+   "wheat_7": [
+    1,
+    3
+   ],
+   "sapling": [
+    2,
+    3
+   ],
+   "berry_bush": [
+    3,
+    3
+   ],
+   "tall_grass": [
+    4,
+    3
+   ],
+   "flower_red": [
+    5,
+    3
+   ],
+   "flower_yellow": [
+    6,
+    3
+   ],
+   "bookshelf": [
+    7,
+    3
+   ],
+   "stone_bricks": [
+    8,
+    3
+   ],
+   "copper_block": [
+    9,
+    3
+   ],
+   "iron_block": [
+    10,
+    3
+   ],
+   "crystal_block": [
+    11,
+    3
+   ],
+   "magma": [
+    12,
+    3
+   ],
+   "blast_top": [
+    13,
+    3
+   ],
+   "blast_side": [
+    14,
+    3
+   ],
+   "dock_top": [
+    15,
+    3
+   ],
+   "dock_side": [
+    0,
+    4
+   ],
+   "mossy_rubble": [
+    1,
+    4
+   ],
+   "pine_top": [
+    2,
+    4
+   ],
+   "pine_side": [
+    3,
+    4
+   ],
+   "pine_leaves": [
+    4,
+    4
+   ],
+   "pale_top": [
+    5,
+    4
+   ],
+   "pale_side": [
+    6,
+    4
+   ],
+   "pale_leaves": [
+    7,
+    4
+   ],
+   "pine_planks": [
+    8,
+    4
+   ],
+   "window": [
+    9,
+    4
+   ],
+   "stick": [
+    10,
+    4
+   ],
+   "coal": [
+    11,
+    4
+   ],
+   "copper_ingot": [
+    12,
+    4
+   ],
+   "iron_ingot": [
+    13,
+    4
+   ],
+   "crystal": [
+    14,
+    4
+   ],
+   "wheat_item": [
+    15,
+    4
+   ],
+   "seeds": [
+    0,
+    5
+   ],
+   "bread": [
+    1,
+    5
+   ],
+   "apple": [
+    2,
+    5
+   ],
+   "berries": [
+    3,
+    5
+   ],
+   "roast_root": [
+    4,
+    5
+   ],
+   "root": [
+    5,
+    5
+   ],
+   "clay_ball": [
+    6,
+    5
+   ],
+   "brick_item": [
+    7,
+    5
+   ],
+   "scrap": [
+    8,
+    5
+   ],
+   "glitch_shard": [
+    9,
+    5
+   ],
+   "rust": [
+    10,
+    5
+   ],
+   "bucket": [
+    11,
+    5
+   ],
+   "water_bucket": [
+    12,
+    5
+   ],
+   "bot_kit": [
+    13,
+    5
+   ],
+   "charcoal": [
+    14,
+    5
+   ],
+   "wood_pick": [
+    15,
+    5
+   ],
+   "stone_pick": [
+    0,
+    6
+   ],
+   "copper_pick": [
+    1,
+    6
+   ],
+   "iron_pick": [
+    2,
+    6
+   ],
+   "crystal_pick": [
+    3,
+    6
+   ],
+   "wood_axe": [
+    4,
+    6
+   ],
+   "stone_axe": [
+    5,
+    6
+   ],
+   "copper_axe": [
+    6,
+    6
+   ],
+   "iron_axe": [
+    7,
+    6
+   ],
+   "crystal_axe": [
+    8,
+    6
+   ],
+   "wood_shovel": [
+    9,
+    6
+   ],
+   "stone_shovel": [
+    10,
+    6
+   ],
+   "copper_shovel": [
+    11,
+    6
+   ],
+   "iron_shovel": [
+    12,
+    6
+   ],
+   "crystal_shovel": [
+    13,
+    6
+   ],
+   "wood_sword": [
+    14,
+    6
+   ],
+   "stone_sword": [
+    15,
+    6
+   ],
+   "copper_sword": [
+    0,
+    7
+   ],
+   "iron_sword": [
+    1,
+    7
+   ],
+   "crystal_sword": [
+    2,
+    7
+   ],
+   "wood_hoe": [
+    3,
+    7
+   ],
+   "stone_hoe": [
+    4,
+    7
+   ],
+   "copper_hoe": [
+    5,
+    7
+   ],
+   "iron_hoe": [
+    6,
+    7
+   ],
+   "crystal_hoe": [
+    7,
+    7
+   ],
+   "cloth_helmet": [
+    8,
+    7
+   ],
+   "copper_helmet": [
+    9,
+    7
+   ],
+   "iron_helmet": [
+    10,
+    7
+   ],
+   "crystal_helmet": [
+    11,
+    7
+   ],
+   "cloth_chest": [
+    12,
+    7
+   ],
+   "copper_chest": [
+    13,
+    7
+   ],
+   "iron_chest": [
+    14,
+    7
+   ],
+   "crystal_chest": [
+    15,
+    7
+   ],
+   "cloth_legs": [
+    0,
+    8
+   ],
+   "copper_legs": [
+    1,
+    8
+   ],
+   "iron_legs": [
+    2,
+    8
+   ],
+   "crystal_legs": [
+    3,
+    8
+   ],
+   "cloth_boots": [
+    4,
+    8
+   ],
+   "copper_boots": [
+    5,
+    8
+   ],
+   "iron_boots": [
+    6,
+    8
+   ],
+   "crystal_boots": [
+    7,
+    8
+   ],
+   "wheat_0": [
+    8,
+    8
+   ],
+   "wheat_1": [
+    9,
+    8
+   ],
+   "wheat_2": [
+    10,
+    8
+   ],
+   "wheat_3": [
+    11,
+    8
+   ],
+   "wheat_4": [
+    12,
+    8
+   ],
+   "wheat_5": [
+    13,
+    8
+   ],
+   "wheat_6": [
+    14,
+    8
+   ],
+   "crack_0": [
+    15,
+    8
+   ],
+   "crack_1": [
+    0,
+    9
+   ],
+   "crack_2": [
+    1,
+    9
+   ],
+   "crack_3": [
+    2,
+    9
+   ],
+   "crack_4": [
+    3,
+    9
+   ],
+   "crack_5": [
+    4,
+    9
+   ],
+   "crack_6": [
+    5,
+    9
+   ],
+   "crack_7": [
+    6,
+    9
+   ],
+   "crack_8": [
+    7,
+    9
+   ],
+   "crack_9": [
+    8,
+    9
+   ],
+   "fluff_wool": [
+    9,
+    9
+   ],
+   "fluff_face": [
+    10,
+    9
+   ],
+   "bleep_face": [
+    11,
+    9
+   ],
+   "bleep_body": [
+    12,
+    9
+   ],
+   "glitch_face": [
+    13,
+    9
+   ],
+   "glitch_body": [
+    14,
+    9
+   ],
+   "rust_face": [
+    15,
+    9
+   ],
+   "rust_body": [
+    0,
+    10
+   ],
+   "skin": [
+    1,
+    10
+   ],
+   "player_face": [
+    2,
+    10
+   ],
+   "hair": [
+    3,
+    10
+   ],
+   "bot_face": [
+    4,
+    10
+   ],
+   "shirt": [
+    5,
+    10
+   ],
+   "trousers": [
+    6,
+    10
+   ],
+   "bot_body": [
+    7,
+    10
+   ],
+   "particle": [
+    8,
+    10
+   ],
+   "cloth_armour": [
+    9,
+    10
+   ],
+   "slot_helmet": [
+    10,
+    10
+   ],
+   "slot_chest": [
+    11,
+    10
+   ],
+   "slot_legs": [
+    12,
+    10
+   ],
+   "slot_boots": [
+    13,
+    10
+   ]
+  }
+ },
+ "blocks": [
+  {
+   "id": 0,
+   "key": "air",
+   "name": "Air",
+   "tiles": null,
+   "shape": "air",
+   "solid": false,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": null,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 1,
+   "key": "grass",
+   "name": "Grass",
+   "tiles": [
+    "grass_top",
+    "grass_side",
+    "soil"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.9,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 2,
+   "key": "soil",
+   "name": "Soil",
+   "tiles": [
+    "soil",
+    "soil",
+    "soil"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.75,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 3,
+   "key": "stone",
+   "name": "Stone",
+   "tiles": [
+    "stone",
+    "stone",
+    "stone"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.2,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 4,
+   "key": "rubble",
+   "name": "Rubble",
+   "tiles": [
+    "rubble",
+    "rubble",
+    "rubble"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.6,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 5,
+   "key": "corestone",
+   "name": "Corestone",
+   "tiles": [
+    "corestone",
+    "corestone",
+    "corestone"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": null,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 6,
+   "key": "sand",
+   "name": "Sand",
+   "tiles": [
+    "sand",
+    "sand",
+    "sand"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.75,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": true,
+   "hurts": 0
+  },
+  {
+   "id": 7,
+   "key": "grit",
+   "name": "Grit",
+   "tiles": [
+    "grit",
+    "grit",
+    "grit"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.9,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": true,
+   "hurts": 0
+  },
+  {
+   "id": 8,
+   "key": "water",
+   "name": "Water",
+   "tiles": [
+    "water",
+    "water",
+    "water"
+   ],
+   "shape": "liquid",
+   "solid": false,
+   "opaque": false,
+   "see": "blend",
+   "light": 0,
+   "hard": null,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 9,
+   "key": "log",
+   "name": "Log",
+   "tiles": [
+    "log_top",
+    "log_side",
+    "log_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 10,
+   "key": "leaves",
+   "name": "Leaves",
+   "tiles": [
+    "leaves",
+    "leaves",
+    "leaves"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.3,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 11,
+   "key": "planks",
+   "name": "Planks",
+   "tiles": [
+    "planks",
+    "planks",
+    "planks"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 12,
+   "key": "workbench",
+   "name": "Workbench",
+   "tiles": [
+    "bench_top",
+    "bench_side",
+    "planks"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.5,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": "workbench",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 13,
+   "key": "smelter",
+   "name": "Smelter",
+   "tiles": [
+    "smelter_top",
+    "smelter_front",
+    "smelter_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 3.5,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": "smelter",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 14,
+   "key": "smelter_lit",
+   "name": "Smelter (lit)",
+   "tiles": [
+    "smelter_top",
+    "smelter_lit",
+    "smelter_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 13,
+   "hard": 3.5,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": "smelter",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 15,
+   "key": "chest",
+   "name": "Chest",
+   "tiles": [
+    "chest_top",
+    "chest_side",
+    "chest_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.5,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": "chest",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 16,
+   "key": "glass",
+   "name": "Glass",
+   "tiles": [
+    "glass",
+    "glass",
+    "glass"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.4,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 17,
+   "key": "brick",
+   "name": "Brick",
+   "tiles": [
+    "brick",
+    "brick",
+    "brick"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 3.0,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 18,
+   "key": "torch",
+   "name": "Torch",
+   "tiles": [
+    "torch",
+    "torch",
+    "torch"
+   ],
+   "shape": "torch",
+   "solid": false,
+   "opaque": false,
+   "see": null,
+   "light": 14,
+   "hard": 0.05,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 19,
+   "key": "coal_ore",
+   "name": "Coal ore",
+   "tiles": [
+    "coal_ore",
+    "coal_ore",
+    "coal_ore"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 3.0,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 20,
+   "key": "copper_ore",
+   "name": "Copper ore",
+   "tiles": [
+    "copper_ore",
+    "copper_ore",
+    "copper_ore"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 3.2,
+   "tool": "pick",
+   "level": 2,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 21,
+   "key": "iron_ore",
+   "name": "Iron ore",
+   "tiles": [
+    "iron_ore",
+    "iron_ore",
+    "iron_ore"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 3.6,
+   "tool": "pick",
+   "level": 2,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 22,
+   "key": "crystal_ore",
+   "name": "Crystal ore",
+   "tiles": [
+    "crystal_ore",
+    "crystal_ore",
+    "crystal_ore"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 4.5,
+   "tool": "pick",
+   "level": 4,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 23,
+   "key": "lumen",
+   "name": "Lumen block",
+   "tiles": [
+    "lumen",
+    "lumen",
+    "lumen"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 15,
+   "hard": 0.6,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 24,
+   "key": "snow",
+   "name": "Snow",
+   "tiles": [
+    "snow",
+    "snow",
+    "snow"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.5,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 25,
+   "key": "ice",
+   "name": "Ice",
+   "tiles": [
+    "ice",
+    "ice",
+    "ice"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "blend",
+   "light": 0,
+   "hard": 0.8,
+   "tool": "pick",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 26,
+   "key": "cactus",
+   "name": "Cactus",
+   "tiles": [
+    "cactus_top",
+    "cactus_side",
+    "cactus_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.6,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 1
+  },
+  {
+   "id": 27,
+   "key": "clay",
+   "name": "Clay",
+   "tiles": [
+    "clay",
+    "clay",
+    "clay"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.9,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 28,
+   "key": "sandstone",
+   "name": "Sandstone",
+   "tiles": [
+    "sandstone_top",
+    "sandstone_side",
+    "sandstone_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 1.6,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 29,
+   "key": "wool",
+   "name": "White wool",
+   "tiles": [
+    "wool_white",
+    "wool_white",
+    "wool_white"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 30,
+   "key": "wool_red",
+   "name": "Red wool",
+   "tiles": [
+    "wool_red",
+    "wool_red",
+    "wool_red"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 31,
+   "key": "wool_orange",
+   "name": "Orange wool",
+   "tiles": [
+    "wool_orange",
+    "wool_orange",
+    "wool_orange"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 32,
+   "key": "wool_yellow",
+   "name": "Yellow wool",
+   "tiles": [
+    "wool_yellow",
+    "wool_yellow",
+    "wool_yellow"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 33,
+   "key": "wool_green",
+   "name": "Green wool",
+   "tiles": [
+    "wool_green",
+    "wool_green",
+    "wool_green"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 34,
+   "key": "wool_blue",
+   "name": "Blue wool",
+   "tiles": [
+    "wool_blue",
+    "wool_blue",
+    "wool_blue"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 35,
+   "key": "wool_purple",
+   "name": "Purple wool",
+   "tiles": [
+    "wool_purple",
+    "wool_purple",
+    "wool_purple"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 36,
+   "key": "wool_black",
+   "name": "Black wool",
+   "tiles": [
+    "wool_black",
+    "wool_black",
+    "wool_black"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.8,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 37,
+   "key": "door",
+   "name": "Door",
+   "tiles": [
+    "door_low",
+    "door_low",
+    "door_low"
+   ],
+   "shape": "door",
+   "solid": true,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": "door",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 38,
+   "key": "door_top",
+   "name": "Door",
+   "tiles": [
+    "door_high",
+    "door_high",
+    "door_high"
+   ],
+   "shape": "door",
+   "solid": true,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": "door",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 39,
+   "key": "ladder",
+   "name": "Ladder",
+   "tiles": [
+    "ladder",
+    "ladder",
+    "ladder"
+   ],
+   "shape": "ladder",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.6,
+   "tool": "axe",
+   "level": 0,
+   "climb": true,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 40,
+   "key": "bed",
+   "name": "Bed",
+   "tiles": [
+    "bed_top",
+    "bed_side",
+    "planks"
+   ],
+   "shape": "bed",
+   "solid": true,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": 0.4,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": "bed",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 41,
+   "key": "farmland",
+   "name": "Farmland",
+   "tiles": [
+    "farmland",
+    "soil",
+    "soil"
+   ],
+   "shape": "farmland",
+   "solid": true,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": 0.7,
+   "tool": "shovel",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 42,
+   "key": "wheat",
+   "name": "Wheat",
+   "tiles": [
+    "wheat_7",
+    "wheat_7",
+    "wheat_7"
+   ],
+   "shape": "crop",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.05,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 43,
+   "key": "sapling",
+   "name": "Sapling",
+   "tiles": [
+    "sapling",
+    "sapling",
+    "sapling"
+   ],
+   "shape": "cross",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.05,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 44,
+   "key": "berry_bush",
+   "name": "Berry bush",
+   "tiles": [
+    "berry_bush",
+    "berry_bush",
+    "berry_bush"
+   ],
+   "shape": "cross",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.2,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": "berries",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 45,
+   "key": "tall_grass",
+   "name": "Tall grass",
+   "tiles": [
+    "tall_grass",
+    "tall_grass",
+    "tall_grass"
+   ],
+   "shape": "cross",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.05,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 46,
+   "key": "flower_red",
+   "name": "Red flower",
+   "tiles": [
+    "flower_red",
+    "flower_red",
+    "flower_red"
+   ],
+   "shape": "cross",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.05,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 47,
+   "key": "flower_yellow",
+   "name": "Yellow flower",
+   "tiles": [
+    "flower_yellow",
+    "flower_yellow",
+    "flower_yellow"
+   ],
+   "shape": "cross",
+   "solid": false,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.05,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 48,
+   "key": "bookshelf",
+   "name": "Bookshelf",
+   "tiles": [
+    "planks",
+    "bookshelf",
+    "planks"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 1.6,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 49,
+   "key": "stone_bricks",
+   "name": "Stone bricks",
+   "tiles": [
+    "stone_bricks",
+    "stone_bricks",
+    "stone_bricks"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.6,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 50,
+   "key": "copper_block",
+   "name": "Copper block",
+   "tiles": [
+    "copper_block",
+    "copper_block",
+    "copper_block"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 4.0,
+   "tool": "pick",
+   "level": 2,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 51,
+   "key": "iron_block",
+   "name": "Iron block",
+   "tiles": [
+    "iron_block",
+    "iron_block",
+    "iron_block"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 4.5,
+   "tool": "pick",
+   "level": 2,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 52,
+   "key": "crystal_block",
+   "name": "Crystal block",
+   "tiles": [
+    "crystal_block",
+    "crystal_block",
+    "crystal_block"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 6,
+   "hard": 5.0,
+   "tool": "pick",
+   "level": 4,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 53,
+   "key": "magma",
+   "name": "Magma",
+   "tiles": [
+    "magma",
+    "magma",
+    "magma"
+   ],
+   "shape": "liquid",
+   "solid": false,
+   "opaque": true,
+   "see": null,
+   "light": 14,
+   "hard": null,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 3
+  },
+  {
+   "id": 54,
+   "key": "blast",
+   "name": "Blast block",
+   "tiles": [
+    "blast_top",
+    "blast_side",
+    "blast_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 0.1,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": "blast",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 55,
+   "key": "dock",
+   "name": "Bot dock",
+   "tiles": [
+    "dock_top",
+    "dock_side",
+    "dock_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 7,
+   "hard": 2.0,
+   "tool": "pick",
+   "level": 0,
+   "climb": false,
+   "use": "dock",
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 56,
+   "key": "mossy_rubble",
+   "name": "Mossy rubble",
+   "tiles": [
+    "mossy_rubble",
+    "mossy_rubble",
+    "mossy_rubble"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.6,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 57,
+   "key": "pine_log",
+   "name": "Pine log",
+   "tiles": [
+    "pine_top",
+    "pine_side",
+    "pine_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 58,
+   "key": "pine_leaves",
+   "name": "Pine needles",
+   "tiles": [
+    "pine_leaves",
+    "pine_leaves",
+    "pine_leaves"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.3,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 59,
+   "key": "pale_log",
+   "name": "Pale log",
+   "tiles": [
+    "pale_top",
+    "pale_side",
+    "pale_top"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 60,
+   "key": "pale_leaves",
+   "name": "Pale leaves",
+   "tiles": [
+    "pale_leaves",
+    "pale_leaves",
+    "pale_leaves"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.3,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 61,
+   "key": "pine_planks",
+   "name": "Pine planks",
+   "tiles": [
+    "pine_planks",
+    "pine_planks",
+    "pine_planks"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": true,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 62,
+   "key": "glass_pane",
+   "name": "Window",
+   "tiles": [
+    "window",
+    "window",
+    "window"
+   ],
+   "shape": "cube",
+   "solid": true,
+   "opaque": false,
+   "see": "cutout",
+   "light": 0,
+   "hard": 0.4,
+   "tool": null,
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 63,
+   "key": "slab",
+   "name": "Rubble slab",
+   "tiles": [
+    "rubble",
+    "rubble",
+    "rubble"
+   ],
+   "shape": "slab",
+   "solid": true,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": 2.0,
+   "tool": "pick",
+   "level": 1,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  },
+  {
+   "id": 64,
+   "key": "plank_slab",
+   "name": "Plank slab",
+   "tiles": [
+    "planks",
+    "planks",
+    "planks"
+   ],
+   "shape": "slab",
+   "solid": true,
+   "opaque": false,
+   "see": null,
+   "light": 0,
+   "hard": 1.5,
+   "tool": "axe",
+   "level": 0,
+   "climb": false,
+   "use": null,
+   "falls": false,
+   "hurts": 0
+  }
+ ],
+ "items": [
+  {
+   "id": 1,
+   "key": "grass",
+   "name": "Grass",
+   "icon": "grass_side",
+   "block": 1,
+   "stack": 64
+  },
+  {
+   "id": 2,
+   "key": "soil",
+   "name": "Soil",
+   "icon": "soil",
+   "block": 2,
+   "stack": 64
+  },
+  {
+   "id": 3,
+   "key": "stone",
+   "name": "Stone",
+   "icon": "stone",
+   "block": 3,
+   "stack": 64
+  },
+  {
+   "id": 4,
+   "key": "rubble",
+   "name": "Rubble",
+   "icon": "rubble",
+   "block": 4,
+   "stack": 64
+  },
+  {
+   "id": 5,
+   "key": "corestone",
+   "name": "Corestone",
+   "icon": "corestone",
+   "block": 5,
+   "stack": 64
+  },
+  {
+   "id": 6,
+   "key": "sand",
+   "name": "Sand",
+   "icon": "sand",
+   "block": 6,
+   "stack": 64
+  },
+  {
+   "id": 7,
+   "key": "grit",
+   "name": "Grit",
+   "icon": "grit",
+   "block": 7,
+   "stack": 64
+  },
+  {
+   "id": 8,
+   "key": "water",
+   "name": "Water",
+   "icon": "water",
+   "block": 8,
+   "stack": 64
+  },
+  {
+   "id": 9,
+   "key": "log",
+   "name": "Log",
+   "icon": "log_side",
+   "block": 9,
+   "stack": 64
+  },
+  {
+   "id": 10,
+   "key": "leaves",
+   "name": "Leaves",
+   "icon": "leaves",
+   "block": 10,
+   "stack": 64
+  },
+  {
+   "id": 11,
+   "key": "planks",
+   "name": "Planks",
+   "icon": "planks",
+   "block": 11,
+   "stack": 64
+  },
+  {
+   "id": 12,
+   "key": "workbench",
+   "name": "Workbench",
+   "icon": "bench_side",
+   "block": 12,
+   "stack": 64
+  },
+  {
+   "id": 13,
+   "key": "smelter",
+   "name": "Smelter",
+   "icon": "smelter_front",
+   "block": 13,
+   "stack": 64
+  },
+  {
+   "id": 14,
+   "key": "smelter_lit",
+   "name": "Smelter (lit)",
+   "icon": "smelter_lit",
+   "block": 14,
+   "stack": 64
+  },
+  {
+   "id": 15,
+   "key": "chest",
+   "name": "Chest",
+   "icon": "chest_side",
+   "block": 15,
+   "stack": 64
+  },
+  {
+   "id": 16,
+   "key": "glass",
+   "name": "Glass",
+   "icon": "glass",
+   "block": 16,
+   "stack": 64
+  },
+  {
+   "id": 17,
+   "key": "brick",
+   "name": "Brick",
+   "icon": "brick",
+   "block": 17,
+   "stack": 64
+  },
+  {
+   "id": 18,
+   "key": "torch",
+   "name": "Torch",
+   "icon": "torch",
+   "block": 18,
+   "stack": 64
+  },
+  {
+   "id": 19,
+   "key": "coal_ore",
+   "name": "Coal ore",
+   "icon": "coal_ore",
+   "block": 19,
+   "stack": 64
+  },
+  {
+   "id": 20,
+   "key": "copper_ore",
+   "name": "Copper ore",
+   "icon": "copper_ore",
+   "block": 20,
+   "stack": 64
+  },
+  {
+   "id": 21,
+   "key": "iron_ore",
+   "name": "Iron ore",
+   "icon": "iron_ore",
+   "block": 21,
+   "stack": 64
+  },
+  {
+   "id": 22,
+   "key": "crystal_ore",
+   "name": "Crystal ore",
+   "icon": "crystal_ore",
+   "block": 22,
+   "stack": 64
+  },
+  {
+   "id": 23,
+   "key": "lumen",
+   "name": "Lumen block",
+   "icon": "lumen",
+   "block": 23,
+   "stack": 64
+  },
+  {
+   "id": 24,
+   "key": "snow",
+   "name": "Snow",
+   "icon": "snow",
+   "block": 24,
+   "stack": 64
+  },
+  {
+   "id": 25,
+   "key": "ice",
+   "name": "Ice",
+   "icon": "ice",
+   "block": 25,
+   "stack": 64
+  },
+  {
+   "id": 26,
+   "key": "cactus",
+   "name": "Cactus",
+   "icon": "cactus_side",
+   "block": 26,
+   "stack": 64
+  },
+  {
+   "id": 27,
+   "key": "clay",
+   "name": "Clay",
+   "icon": "clay",
+   "block": 27,
+   "stack": 64
+  },
+  {
+   "id": 28,
+   "key": "sandstone",
+   "name": "Sandstone",
+   "icon": "sandstone_side",
+   "block": 28,
+   "stack": 64
+  },
+  {
+   "id": 29,
+   "key": "wool",
+   "name": "White wool",
+   "icon": "wool_white",
+   "block": 29,
+   "stack": 64
+  },
+  {
+   "id": 30,
+   "key": "wool_red",
+   "name": "Red wool",
+   "icon": "wool_red",
+   "block": 30,
+   "stack": 64
+  },
+  {
+   "id": 31,
+   "key": "wool_orange",
+   "name": "Orange wool",
+   "icon": "wool_orange",
+   "block": 31,
+   "stack": 64
+  },
+  {
+   "id": 32,
+   "key": "wool_yellow",
+   "name": "Yellow wool",
+   "icon": "wool_yellow",
+   "block": 32,
+   "stack": 64
+  },
+  {
+   "id": 33,
+   "key": "wool_green",
+   "name": "Green wool",
+   "icon": "wool_green",
+   "block": 33,
+   "stack": 64
+  },
+  {
+   "id": 34,
+   "key": "wool_blue",
+   "name": "Blue wool",
+   "icon": "wool_blue",
+   "block": 34,
+   "stack": 64
+  },
+  {
+   "id": 35,
+   "key": "wool_purple",
+   "name": "Purple wool",
+   "icon": "wool_purple",
+   "block": 35,
+   "stack": 64
+  },
+  {
+   "id": 36,
+   "key": "wool_black",
+   "name": "Black wool",
+   "icon": "wool_black",
+   "block": 36,
+   "stack": 64
+  },
+  {
+   "id": 37,
+   "key": "door",
+   "name": "Door",
+   "icon": "door_low",
+   "block": 37,
+   "stack": 64
+  },
+  {
+   "id": 38,
+   "key": "door_top",
+   "name": "Door",
+   "icon": "door_high",
+   "block": 38,
+   "stack": 64
+  },
+  {
+   "id": 39,
+   "key": "ladder",
+   "name": "Ladder",
+   "icon": "ladder",
+   "block": 39,
+   "stack": 64
+  },
+  {
+   "id": 40,
+   "key": "bed",
+   "name": "Bed",
+   "icon": "bed_side",
+   "block": 40,
+   "stack": 64
+  },
+  {
+   "id": 41,
+   "key": "farmland",
+   "name": "Farmland",
+   "icon": "soil",
+   "block": 41,
+   "stack": 64
+  },
+  {
+   "id": 42,
+   "key": "wheat",
+   "name": "Wheat",
+   "icon": "wheat_7",
+   "block": 42,
+   "stack": 64
+  },
+  {
+   "id": 43,
+   "key": "sapling",
+   "name": "Sapling",
+   "icon": "sapling",
+   "block": 43,
+   "stack": 64
+  },
+  {
+   "id": 44,
+   "key": "berry_bush",
+   "name": "Berry bush",
+   "icon": "berry_bush",
+   "block": 44,
+   "stack": 64
+  },
+  {
+   "id": 45,
+   "key": "tall_grass",
+   "name": "Tall grass",
+   "icon": "tall_grass",
+   "block": 45,
+   "stack": 64
+  },
+  {
+   "id": 46,
+   "key": "flower_red",
+   "name": "Red flower",
+   "icon": "flower_red",
+   "block": 46,
+   "stack": 64
+  },
+  {
+   "id": 47,
+   "key": "flower_yellow",
+   "name": "Yellow flower",
+   "icon": "flower_yellow",
+   "block": 47,
+   "stack": 64
+  },
+  {
+   "id": 48,
+   "key": "bookshelf",
+   "name": "Bookshelf",
+   "icon": "bookshelf",
+   "block": 48,
+   "stack": 64
+  },
+  {
+   "id": 49,
+   "key": "stone_bricks",
+   "name": "Stone bricks",
+   "icon": "stone_bricks",
+   "block": 49,
+   "stack": 64
+  },
+  {
+   "id": 50,
+   "key": "copper_block",
+   "name": "Copper block",
+   "icon": "copper_block",
+   "block": 50,
+   "stack": 64
+  },
+  {
+   "id": 51,
+   "key": "iron_block",
+   "name": "Iron block",
+   "icon": "iron_block",
+   "block": 51,
+   "stack": 64
+  },
+  {
+   "id": 52,
+   "key": "crystal_block",
+   "name": "Crystal block",
+   "icon": "crystal_block",
+   "block": 52,
+   "stack": 64
+  },
+  {
+   "id": 53,
+   "key": "magma",
+   "name": "Magma",
+   "icon": "magma",
+   "block": 53,
+   "stack": 64
+  },
+  {
+   "id": 54,
+   "key": "blast",
+   "name": "Blast block",
+   "icon": "blast_side",
+   "block": 54,
+   "stack": 64
+  },
+  {
+   "id": 55,
+   "key": "dock",
+   "name": "Bot dock",
+   "icon": "dock_side",
+   "block": 55,
+   "stack": 64
+  },
+  {
+   "id": 56,
+   "key": "mossy_rubble",
+   "name": "Mossy rubble",
+   "icon": "mossy_rubble",
+   "block": 56,
+   "stack": 64
+  },
+  {
+   "id": 57,
+   "key": "pine_log",
+   "name": "Pine log",
+   "icon": "pine_side",
+   "block": 57,
+   "stack": 64
+  },
+  {
+   "id": 58,
+   "key": "pine_leaves",
+   "name": "Pine needles",
+   "icon": "pine_leaves",
+   "block": 58,
+   "stack": 64
+  },
+  {
+   "id": 59,
+   "key": "pale_log",
+   "name": "Pale log",
+   "icon": "pale_side",
+   "block": 59,
+   "stack": 64
+  },
+  {
+   "id": 60,
+   "key": "pale_leaves",
+   "name": "Pale leaves",
+   "icon": "pale_leaves",
+   "block": 60,
+   "stack": 64
+  },
+  {
+   "id": 61,
+   "key": "pine_planks",
+   "name": "Pine planks",
+   "icon": "pine_planks",
+   "block": 61,
+   "stack": 64
+  },
+  {
+   "id": 62,
+   "key": "glass_pane",
+   "name": "Window",
+   "icon": "window",
+   "block": 62,
+   "stack": 64
+  },
+  {
+   "id": 63,
+   "key": "slab",
+   "name": "Rubble slab",
+   "icon": "rubble",
+   "block": 63,
+   "stack": 64
+  },
+  {
+   "id": 64,
+   "key": "plank_slab",
+   "name": "Plank slab",
+   "icon": "planks",
+   "block": 64,
+   "stack": 64
+  },
+  {
+   "id": 256,
+   "key": "stick",
+   "name": "Stick",
+   "icon": "stick",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 257,
+   "key": "coal",
+   "name": "Coal",
+   "icon": "coal",
+   "block": null,
+   "stack": 64,
+   "fuel": 8
+  },
+  {
+   "id": 258,
+   "key": "copper_ingot",
+   "name": "Copper ingot",
+   "icon": "copper_ingot",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 259,
+   "key": "iron_ingot",
+   "name": "Iron ingot",
+   "icon": "iron_ingot",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 260,
+   "key": "crystal",
+   "name": "Crystal",
+   "icon": "crystal",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 261,
+   "key": "wheat_item",
+   "name": "Wheat",
+   "icon": "wheat_item",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 262,
+   "key": "seeds",
+   "name": "Seeds",
+   "icon": "seeds",
+   "block": null,
+   "stack": 64,
+   "plants": "wheat"
+  },
+  {
+   "id": 263,
+   "key": "bread",
+   "name": "Bread",
+   "icon": "bread",
+   "block": null,
+   "stack": 64,
+   "food": 5
+  },
+  {
+   "id": 264,
+   "key": "apple",
+   "name": "Apple",
+   "icon": "apple",
+   "block": null,
+   "stack": 64,
+   "food": 4
+  },
+  {
+   "id": 265,
+   "key": "berries",
+   "name": "Berries",
+   "icon": "berries",
+   "block": null,
+   "stack": 64,
+   "food": 2
+  },
+  {
+   "id": 266,
+   "key": "roast_potato",
+   "name": "Baked root",
+   "icon": "roast_root",
+   "block": null,
+   "stack": 64,
+   "food": 6
+  },
+  {
+   "id": 267,
+   "key": "root",
+   "name": "Root",
+   "icon": "root",
+   "block": null,
+   "stack": 64,
+   "food": 1,
+   "smelts": "roast_potato"
+  },
+  {
+   "id": 268,
+   "key": "clay_ball",
+   "name": "Clay",
+   "icon": "clay_ball",
+   "block": null,
+   "stack": 64,
+   "smelts": "brick_item"
+  },
+  {
+   "id": 269,
+   "key": "brick_item",
+   "name": "Brick",
+   "icon": "brick_item",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 270,
+   "key": "scrap",
+   "name": "Scrap",
+   "icon": "scrap",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 271,
+   "key": "glitch_shard",
+   "name": "Glitch shard",
+   "icon": "glitch_shard",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 272,
+   "key": "rust",
+   "name": "Rust",
+   "icon": "rust",
+   "block": null,
+   "stack": 64
+  },
+  {
+   "id": 273,
+   "key": "bucket",
+   "name": "Bucket",
+   "icon": "bucket",
+   "block": null,
+   "stack": 16
+  },
+  {
+   "id": 274,
+   "key": "water_bucket",
+   "name": "Water bucket",
+   "icon": "water_bucket",
+   "block": null,
+   "stack": 1,
+   "places": "water"
+  },
+  {
+   "id": 275,
+   "key": "bot_kit",
+   "name": "Bot kit",
+   "icon": "bot_kit",
+   "block": null,
+   "stack": 1
+  },
+  {
+   "id": 276,
+   "key": "charcoal",
+   "name": "Charcoal",
+   "icon": "charcoal",
+   "block": null,
+   "stack": 64,
+   "fuel": 8
+  },
+  {
+   "id": 277,
+   "key": "wood_pick",
+   "name": "Wooden pick",
+   "icon": "wood_pick",
+   "block": null,
+   "stack": 1,
+   "tool": "pick",
+   "level": 1,
+   "speed": 2.0,
+   "uses": 60,
+   "damage": 1
+  },
+  {
+   "id": 278,
+   "key": "stone_pick",
+   "name": "Stone pick",
+   "icon": "stone_pick",
+   "block": null,
+   "stack": 1,
+   "tool": "pick",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 130,
+   "damage": 2
+  },
+  {
+   "id": 279,
+   "key": "copper_pick",
+   "name": "Copper pick",
+   "icon": "copper_pick",
+   "block": null,
+   "stack": 1,
+   "tool": "pick",
+   "level": 3,
+   "speed": 5.0,
+   "uses": 200,
+   "damage": 2
+  },
+  {
+   "id": 280,
+   "key": "iron_pick",
+   "name": "Iron pick",
+   "icon": "iron_pick",
+   "block": null,
+   "stack": 1,
+   "tool": "pick",
+   "level": 4,
+   "speed": 6.5,
+   "uses": 300,
+   "damage": 3
+  },
+  {
+   "id": 281,
+   "key": "crystal_pick",
+   "name": "Crystal pick",
+   "icon": "crystal_pick",
+   "block": null,
+   "stack": 1,
+   "tool": "pick",
+   "level": 5,
+   "speed": 9.0,
+   "uses": 900,
+   "damage": 3
+  },
+  {
+   "id": 282,
+   "key": "wood_axe",
+   "name": "Wooden axe",
+   "icon": "wood_axe",
+   "block": null,
+   "stack": 1,
+   "tool": "axe",
+   "level": 1,
+   "speed": 2.0,
+   "uses": 60,
+   "damage": 3
+  },
+  {
+   "id": 283,
+   "key": "stone_axe",
+   "name": "Stone axe",
+   "icon": "stone_axe",
+   "block": null,
+   "stack": 1,
+   "tool": "axe",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 130,
+   "damage": 4
+  },
+  {
+   "id": 284,
+   "key": "copper_axe",
+   "name": "Copper axe",
+   "icon": "copper_axe",
+   "block": null,
+   "stack": 1,
+   "tool": "axe",
+   "level": 3,
+   "speed": 5.0,
+   "uses": 200,
+   "damage": 5
+  },
+  {
+   "id": 285,
+   "key": "iron_axe",
+   "name": "Iron axe",
+   "icon": "iron_axe",
+   "block": null,
+   "stack": 1,
+   "tool": "axe",
+   "level": 4,
+   "speed": 6.5,
+   "uses": 300,
+   "damage": 6
+  },
+  {
+   "id": 286,
+   "key": "crystal_axe",
+   "name": "Crystal axe",
+   "icon": "crystal_axe",
+   "block": null,
+   "stack": 1,
+   "tool": "axe",
+   "level": 5,
+   "speed": 9.0,
+   "uses": 900,
+   "damage": 7
+  },
+  {
+   "id": 287,
+   "key": "wood_shovel",
+   "name": "Wooden shovel",
+   "icon": "wood_shovel",
+   "block": null,
+   "stack": 1,
+   "tool": "shovel",
+   "level": 1,
+   "speed": 2.0,
+   "uses": 60,
+   "damage": 1
+  },
+  {
+   "id": 288,
+   "key": "stone_shovel",
+   "name": "Stone shovel",
+   "icon": "stone_shovel",
+   "block": null,
+   "stack": 1,
+   "tool": "shovel",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 130,
+   "damage": 2
+  },
+  {
+   "id": 289,
+   "key": "copper_shovel",
+   "name": "Copper shovel",
+   "icon": "copper_shovel",
+   "block": null,
+   "stack": 1,
+   "tool": "shovel",
+   "level": 3,
+   "speed": 5.0,
+   "uses": 200,
+   "damage": 2
+  },
+  {
+   "id": 290,
+   "key": "iron_shovel",
+   "name": "Iron shovel",
+   "icon": "iron_shovel",
+   "block": null,
+   "stack": 1,
+   "tool": "shovel",
+   "level": 4,
+   "speed": 6.5,
+   "uses": 300,
+   "damage": 3
+  },
+  {
+   "id": 291,
+   "key": "crystal_shovel",
+   "name": "Crystal shovel",
+   "icon": "crystal_shovel",
+   "block": null,
+   "stack": 1,
+   "tool": "shovel",
+   "level": 5,
+   "speed": 9.0,
+   "uses": 900,
+   "damage": 3
+  },
+  {
+   "id": 292,
+   "key": "wood_sword",
+   "name": "Wooden sword",
+   "icon": "wood_sword",
+   "block": null,
+   "stack": 1,
+   "tool": "sword",
+   "level": 1,
+   "speed": 2.0,
+   "uses": 60,
+   "damage": 4
+  },
+  {
+   "id": 293,
+   "key": "stone_sword",
+   "name": "Stone sword",
+   "icon": "stone_sword",
+   "block": null,
+   "stack": 1,
+   "tool": "sword",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 130,
+   "damage": 5
+  },
+  {
+   "id": 294,
+   "key": "copper_sword",
+   "name": "Copper sword",
+   "icon": "copper_sword",
+   "block": null,
+   "stack": 1,
+   "tool": "sword",
+   "level": 3,
+   "speed": 5.0,
+   "uses": 200,
+   "damage": 6
+  },
+  {
+   "id": 295,
+   "key": "iron_sword",
+   "name": "Iron sword",
+   "icon": "iron_sword",
+   "block": null,
+   "stack": 1,
+   "tool": "sword",
+   "level": 4,
+   "speed": 6.5,
+   "uses": 300,
+   "damage": 7
+  },
+  {
+   "id": 296,
+   "key": "crystal_sword",
+   "name": "Crystal sword",
+   "icon": "crystal_sword",
+   "block": null,
+   "stack": 1,
+   "tool": "sword",
+   "level": 5,
+   "speed": 9.0,
+   "uses": 900,
+   "damage": 8
+  },
+  {
+   "id": 297,
+   "key": "wood_hoe",
+   "name": "Wooden hoe",
+   "icon": "wood_hoe",
+   "block": null,
+   "stack": 1,
+   "tool": "hoe",
+   "level": 1,
+   "speed": 2.0,
+   "uses": 60,
+   "damage": 1
+  },
+  {
+   "id": 298,
+   "key": "stone_hoe",
+   "name": "Stone hoe",
+   "icon": "stone_hoe",
+   "block": null,
+   "stack": 1,
+   "tool": "hoe",
+   "level": 2,
+   "speed": 4.0,
+   "uses": 130,
+   "damage": 2
+  },
+  {
+   "id": 299,
+   "key": "copper_hoe",
+   "name": "Copper hoe",
+   "icon": "copper_hoe",
+   "block": null,
+   "stack": 1,
+   "tool": "hoe",
+   "level": 3,
+   "speed": 5.0,
+   "uses": 200,
+   "damage": 2
+  },
+  {
+   "id": 300,
+   "key": "iron_hoe",
+   "name": "Iron hoe",
+   "icon": "iron_hoe",
+   "block": null,
+   "stack": 1,
+   "tool": "hoe",
+   "level": 4,
+   "speed": 6.5,
+   "uses": 300,
+   "damage": 3
+  },
+  {
+   "id": 301,
+   "key": "crystal_hoe",
+   "name": "Crystal hoe",
+   "icon": "crystal_hoe",
+   "block": null,
+   "stack": 1,
+   "tool": "hoe",
+   "level": 5,
+   "speed": 9.0,
+   "uses": 900,
+   "damage": 3
+  },
+  {
+   "id": 302,
+   "key": "cloth_helmet",
+   "name": "Cloth helmet",
+   "icon": "cloth_helmet",
+   "block": null,
+   "stack": 1,
+   "uses": 55,
+   "armour": 0,
+   "points": 1
+  },
+  {
+   "id": 303,
+   "key": "copper_helmet",
+   "name": "Copper helmet",
+   "icon": "copper_helmet",
+   "block": null,
+   "stack": 1,
+   "uses": 120,
+   "armour": 0,
+   "points": 2
+  },
+  {
+   "id": 304,
+   "key": "iron_helmet",
+   "name": "Iron helmet",
+   "icon": "iron_helmet",
+   "block": null,
+   "stack": 1,
+   "uses": 220,
+   "armour": 0,
+   "points": 2
+  },
+  {
+   "id": 305,
+   "key": "crystal_helmet",
+   "name": "Crystal helmet",
+   "icon": "crystal_helmet",
+   "block": null,
+   "stack": 1,
+   "uses": 480,
+   "armour": 0,
+   "points": 3
+  },
+  {
+   "id": 306,
+   "key": "cloth_chest",
+   "name": "Cloth chest guard",
+   "icon": "cloth_chest",
+   "block": null,
+   "stack": 1,
+   "uses": 55,
+   "armour": 1,
+   "points": 3
+  },
+  {
+   "id": 307,
+   "key": "copper_chest",
+   "name": "Copper chest guard",
+   "icon": "copper_chest",
+   "block": null,
+   "stack": 1,
+   "uses": 120,
+   "armour": 1,
+   "points": 5
+  },
+  {
+   "id": 308,
+   "key": "iron_chest",
+   "name": "Iron chest guard",
+   "icon": "iron_chest",
+   "block": null,
+   "stack": 1,
+   "uses": 220,
+   "armour": 1,
+   "points": 6
+  },
+  {
+   "id": 309,
+   "key": "crystal_chest",
+   "name": "Crystal chest guard",
+   "icon": "crystal_chest",
+   "block": null,
+   "stack": 1,
+   "uses": 480,
+   "armour": 1,
+   "points": 8
+  },
+  {
+   "id": 310,
+   "key": "cloth_legs",
+   "name": "Cloth leg guards",
+   "icon": "cloth_legs",
+   "block": null,
+   "stack": 1,
+   "uses": 55,
+   "armour": 2,
+   "points": 2
+  },
+  {
+   "id": 311,
+   "key": "copper_legs",
+   "name": "Copper leg guards",
+   "icon": "copper_legs",
+   "block": null,
+   "stack": 1,
+   "uses": 120,
+   "armour": 2,
+   "points": 4
+  },
+  {
+   "id": 312,
+   "key": "iron_legs",
+   "name": "Iron leg guards",
+   "icon": "iron_legs",
+   "block": null,
+   "stack": 1,
+   "uses": 220,
+   "armour": 2,
+   "points": 5
+  },
+  {
+   "id": 313,
+   "key": "crystal_legs",
+   "name": "Crystal leg guards",
+   "icon": "crystal_legs",
+   "block": null,
+   "stack": 1,
+   "uses": 480,
+   "armour": 2,
+   "points": 6
+  },
+  {
+   "id": 314,
+   "key": "cloth_boots",
+   "name": "Cloth boots",
+   "icon": "cloth_boots",
+   "block": null,
+   "stack": 1,
+   "uses": 55,
+   "armour": 3,
+   "points": 1
+  },
+  {
+   "id": 315,
+   "key": "copper_boots",
+   "name": "Copper boots",
+   "icon": "copper_boots",
+   "block": null,
+   "stack": 1,
+   "uses": 120,
+   "armour": 3,
+   "points": 1
+  },
+  {
+   "id": 316,
+   "key": "iron_boots",
+   "name": "Iron boots",
+   "icon": "iron_boots",
+   "block": null,
+   "stack": 1,
+   "uses": 220,
+   "armour": 3,
+   "points": 2
+  },
+  {
+   "id": 317,
+   "key": "crystal_boots",
+   "name": "Crystal boots",
+   "icon": "crystal_boots",
+   "block": null,
+   "stack": 1,
+   "uses": 480,
+   "armour": 3,
+   "points": 3
+  }
+ ],
+ "item_base": 256,
+ "n_built_in": 65,
+ "hand": {
+  "tool": null,
+  "level": 0,
+  "speed": 1.0,
+  "damage": 1
+ },
+ "armour_parts": [
+  [
+   "helmet",
+   "helmet"
+  ],
+  [
+   "chest",
+   "chest guard"
+  ],
+  [
+   "legs",
+   "leg guards"
+  ],
+  [
+   "boots",
+   "boots"
+  ]
+ ],
+ "armour_share": 0.04,
+ "fuel": {
+  "9": 4,
+  "11": 2,
+  "57": 4,
+  "59": 4,
+  "61": 2,
+  "256": 1,
+  "257": 8,
+  "276": 8
+ },
+ "smelts": {
+  "4": 3,
+  "6": 16,
+  "9": 276,
+  "20": 258,
+  "21": 259,
+  "27": 17,
+  "57": 276,
+  "59": 276,
+  "267": 266,
+  "268": 269,
+  "272": 259
+ },
+ "mesh": {
+  "face_shade": [
+   0.800000011920929,
+   0.800000011920929,
+   0.6600000262260437,
+   0.6600000262260437,
+   1.0,
+   0.5
+  ],
+  "ao": [
+   0.41999998688697815,
+   0.6200000047683716,
+   0.800000011920929,
+   1.0
+  ],
+  "wavy": [
+   "leaves",
+   "pale_leaves",
+   "pine_leaves"
+  ]
+ }
+}

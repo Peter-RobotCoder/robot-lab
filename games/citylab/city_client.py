@@ -88,6 +88,9 @@ ap.add_argument("--fps", action="store_true", help="print the frame rate every s
 ap.add_argument("--freeze-at", type=float, help=argparse.SUPPRESS)  # (tests: the window stops for 3 s once, this long in)
 ap.add_argument("--view", help="start in this view (behind, shoulder, above; chase, hood)")
 ap.add_argument("--mute", action="store_true")
+ap.add_argument("--tab", help="(tests and pictures) open the side panel on this tab: missions, garage, ai, card, "
+                              "settings; the teacher's teacher, mods, warnings, limits")
+ap.add_argument("--show-code", action="store_true", help="(tests and pictures) open the code panel (C)")
 ap.add_argument("--x", type=int, help="window position (left edge)")
 args = ap.parse_args()
 if os.environ.get("CITYLAB_LOGIN") and not args.name:  # reopened by itself (to load code changes): the same login
@@ -147,7 +150,9 @@ from panda3d.core import ClockObject, Filename, KeyboardButton, TextNode, Window
 import city_gfx  # noqa: E402
 import city_jobs  # noqa: E402
 import city_map  # noqa: E402
+import city_panels  # noqa: E402
 import city_sim as sim  # noqa: E402
+import city_sound  # noqa: E402
 import cpu_brains  # noqa: E402
 import kart_gfx  # noqa: E402
 from engine import gamepad, interp, predict, wire  # noqa: E402
@@ -166,9 +171,10 @@ def send(msg):
     if net is not None:
         net.send(msg)
 FOOT_KEYS = ("WASD walk   Shift run   Space jump   J punch   K kick   B block   E get in   R depot   "
-             "V view" + ("   N day/night" if OFFLINE else "") + "   H keys")
+             "V view" + ("   N day/night" if OFFLINE else "") + "   I panel   C code" + ("" if OFFLINE or TEACHER else
+                                                                                  "   U brain   P autopilot") + "   H keys")
 CAR_KEYS = ("W go   S brake   A D steer   Shift drift   B handbrake   E get out   R depot   V view"
-            + ("   N day/night" if OFFLINE else "") + "   H keys")
+            + ("   N day/night" if OFFLINE else "") + "   I panel   C code   H keys")
 TIMES = ("day", "dusk", "night")
 DRAW_PEOPLE, DRAW_CARS, DRAW_ROBOTS = 110.0, 160.0, 90.0  # (metres from the camera each kind is drawn within)
 GET_IN_REACH = sim.ENTER_REACH + sim.CAR_R
@@ -190,7 +196,12 @@ def text(parent, x, y, scale, align=TextNode.ALeft, fg=(1, 1, 1, 1)):
     return t
 
 
-class CityWindow(ShowBase):
+class CityWindow(city_panels.CityPanels, hud.HudKit, ShowBase):
+    teacher, offline, brains_dir = TEACHER, OFFLINE, BRAINS  # (the side panel's: city_panels)
+    FIRST_TAB = "garage" if OFFLINE else "teacher" if TEACHER else "missions"
+    GFX_TIERS = gfx_tiers.TIERS
+    VERSION = city_version.VERSION
+
     def __init__(self):
         ShowBase.__init__(self)
         self.disableMouse()
@@ -203,8 +214,10 @@ class CityWindow(ShowBase):
         gfx_tiers.detect(self, SETTINGS_DIR)
         self.pipeline = city_gfx.init(self, GFX)
         self.time_of_day = args.time
-        kart_gfx.set_time(self.time_of_day)
+        self.apply_time()
         hud.setup_app(self, send)
+        self.init_hud()
+        self.gfx_tier = GFX
         self.taskMgr.add(self.update, "update")
         if OFFLINE:
             key = args.city if args.city in city_map.CITIES else city_map.DEFAULT_CITY
@@ -215,9 +228,6 @@ class CityWindow(ShowBase):
                 self.show_login(error, teacher=TEACHER)
         else:
             self.show_login()
-
-    def stop_typing(self):  # (the engine's buttons call this as they are pressed)
-        pass
 
     # ---------- logging in ----------
     def connect(self, username, password):
@@ -376,6 +386,11 @@ class CityWindow(ShowBase):
         self.rules = welcome.get("rules") or {}
         self.design = welcome.get("design") or sim.default_design(name)
         self.begin(city_map.City(welcome["city"]), welcome.get("me"))
+        self.my_name = name
+        self.init_panels(self.design, welcome.get("lesson"), welcome.get("rules"))  # (the side panel: city_panels)
+        self.open_from_args()
+        self.needs_restart = bool(welcome.get("live_ready"))
+        send({"type": "slot", "do": "list"})  # (my saved designs)
         # the first person, car and robot drawn load their models (seconds): done now, before the city runs, so the
         # first snapshots don't wait behind them and the prediction starts in step with the server
         t0 = time.perf_counter()
@@ -385,12 +400,12 @@ class CityWindow(ShowBase):
             vis.destroy()
         print(f"City Lab: the models loaded in {time.perf_counter() - t0:.1f} s", flush=True)
         self.time_of_day = self.lesson.get("time", "day")
-        kart_gfx.set_time(self.time_of_day)
+        self.apply_time()
         if TEACHER:
-            self.accept("enter", send, [{"type": "start"}])
-            self.accept("g", send, [{"type": "grid"}])
-            self.accept("f", send, [{"type": "fix"}])
-            self.accept("p", send, [{"type": "pause"}])
+            self.key("enter", send, {"type": "start"})
+            self.key("g", send, {"type": "grid"})
+            self.key("f", send, {"type": "fix"})
+            self.key("p", send, {"type": "pause"})
             self.note("Teacher: Enter starts a street race for everyone, G sends everyone to the depot, F mends "
                       "your car, P pauses", 8)
         if welcome.get("new_profile"):
@@ -423,7 +438,13 @@ class CityWindow(ShowBase):
         self.world.jobs = city_jobs.Jobs(self.city, sim.RULES)
         design = sim.default_design(args.name or "You", (220, 60, 50), body=args.car if args.car in sim.BODIES else "coupe",
                                     look=args.look if args.look in sim.LOOKS else "woman")
+        saved = SETTINGS.get("city_design")  # (the garage's last build on this computer)
+        if isinstance(saved, dict) and not sim.check_design(saved, sim.full_limits()):
+            design = sim.fit_design(saved)
         self.world.add_person(self.me, design)
+        self.my_name = design["name"]
+        self.init_panels(design, {}, {})  # (offline: the Garage and Settings tabs)
+        self.open_from_args()
         self.parked, self.traffic = set(), {}
         self.world.park_cars(max(0, min(40, args.parked)), self.parked)
         for k in range(max(0, min(30, args.traffic))):
@@ -472,6 +493,8 @@ class CityWindow(ShowBase):
             self.predictor = self.pred_id = None  # (online_state's: offline the world itself is stepped)
         self.people, self.cars, self.robots = {}, {}, {}
         self.sparks = city_gfx.Sparks(self.render, self)
+        if getattr(self, "snd", None) is None:  # (the sounds: made once, kept when the city changes)
+            self.snd = city_sound.make(self, not args.mute and not args.offscreen)
         self.jobs_vis = city_gfx.JobsVisual(self.render, self.city)
         self.jobs = {}
         self.foot_cam = city_gfx.FootCamera(self, self.city)
@@ -512,15 +535,23 @@ class CityWindow(ShowBase):
         self.help_on = True
         # the keys
         for k, bit in (("j", sim.PUNCH), ("k", sim.KICK), ("r", sim.RESPAWN), ("e", sim.ACTION)):
-            self.accept(k, self.tap, [bit])
-        self.accept("v", self.cycle_view)
+            self.key(k, self.tap, bit)
+        self.key("v", self.cycle_view)
         if OFFLINE:
-            self.accept("n", self.cycle_time)
-        self.accept("h", self.toggle_help)
-        self.accept("wheel_up", self.wheel, [1 / 1.12])
-        self.accept("wheel_down", self.wheel, [1.12])
-        self.accept("f11", self.toggle_full)
-        self.accept("escape", self.leave_full)
+            self.key("n", self.cycle_time)
+        self.key("h", self.toggle_help)
+        self.key("i", self.toggle_panel)  # (the side panel: city_panels)
+        self.key("tab", self.toggle_panel)
+        self.key("c", self.toggle_code)
+        self.key("u", self.upload_brain)
+        if not TEACHER:
+            self.key("p", self.autopilot_key)
+        self.accept("wheel_up", self.panel_wheel, [1 / 1.12, -1])
+        self.accept("wheel_down", self.panel_wheel, [1.12, 1])
+        self.key("page_up", self.slide_panel, -1)
+        self.key("page_down", self.slide_panel, 1)
+        self.accept("f11", self.toggle_fullscreen)
+        self.accept("escape", self.escape)
         self.fps_at, self.fps_frames = time.perf_counter(), 0
         self.ready = not OFFLINE  # (offline: once the world is filled, start_offline)
 
@@ -570,31 +601,40 @@ class CityWindow(ShowBase):
             self.foot_cam.cycle()
             remember("camera", self.foot_cam.settings())
 
-    def wheel(self, factor):
+    def open_from_args(self):
+        if args.tab or args.show_code:
+            self.tab, self.show_code = args.tab, bool(args.show_code)
+            self.rebuild_panels()
+
+    def panel_shown(self, shown):
+        """The side panel covers the top right: the minimap, the cash and the chips hide under it while it's open."""
+        for part in (self.minimap.root, self.cash, self.chips_text):
+            part.hide() if shown else part.show()
+
+    def built_offline(self, design):
+        """Offline, BUILD MY DRIVER: your person and the cars you drive take the new design at once."""
+        self.world.designs[self.me] = design
+        self.sync_visuals()
+
+    def key(self, key, fn, *extra):
+        """A game key: it does nothing while you are typing in a text box or the code."""
+        self.accept(key, lambda: None if self.typing else fn(*extra))
+
+    def zoom(self, factor):
         (self.car_cam if self.in_car is not None else self.foot_cam).wheel(factor)
+
+    def apply_time(self):
+        """The time of day drawn: the sky and lights (Kart Lab's), the city's lamps and windows at dusk and night."""
+        kart_gfx.set_time(self.time_of_day)
+        if getattr(self, "city_vis", None) is not None:
+            self.city_vis.set_time(self.time_of_day)
 
     def cycle_time(self):
         self.time_of_day = TIMES[(TIMES.index(self.time_of_day) + 1) % len(TIMES)]
-        kart_gfx.set_time(self.time_of_day)
+        self.apply_time()
 
     def toggle_help(self):
         self.help_on = not self.help_on
-
-    def toggle_full(self):
-        props = WindowProperties()
-        if not self.win.getProperties().getUndecorated():
-            props.setSize(self.pipe.getDisplayWidth(), self.pipe.getDisplayHeight())
-            props.setUndecorated(True)
-            props.setOrigin(0, 0)
-        else:
-            props.setUndecorated(False)
-            props.setSize(1280, 720)
-            props.setOrigin(40, 40)
-        self.win.requestProperties(props)
-
-    def leave_full(self):
-        if self.win.getProperties().getUndecorated():
-            self.toggle_full()
 
     def launch_button(self, pressed, speed):
         """The clutch dropped (Kart Lab's): the throttle let go and pressed again within 0.35 s while the car is
@@ -639,6 +679,9 @@ class CityWindow(ShowBase):
                 return cpu_brains.drive_car(car["id"], car, self.world, self.__dict__.setdefault("demo_mem", {}), 0.37)
             return self.demo_get_in(me) if not OFFLINE else (0.0, 0.0, 0)
         if self.mouseWatcherNode is None:  # (offscreen: no keyboard)
+            return (0.0, 0.0, 0)
+        if self.typing:  # (typing in the side panel or the code: the keys are the words)
+            self.taps = 0
             return (0.0, 0.0, 0)
         behind = not self.win.getProperties().getForeground()
         if behind and not args.offscreen:  # (the window is behind another: the keys aren't for us)
@@ -792,6 +835,9 @@ class CityWindow(ShowBase):
             lift = city_gfx.ground_lift(self.city, now["x"], now["y"])
             robot = sim.kind_of(tid) == "robot"
             self.sparks.hit(now["x"], now["y"], lift + (0.4 if robot else 1.2), lost * 2, "bump" if robot else "flip")
+        me = things.get(self.me)
+        if me is not None:
+            self.snd.landed(things, prev, (me["x"], me["y"]))
 
     # ---------- the frame ----------
     def update(self, task):
@@ -866,6 +912,10 @@ class CityWindow(ShowBase):
         else:
             kart_gfx.headlights([])
         self.overlay(me, drawn, car_id)
+        self.snd.frame(now, self.me, drawn, car_id, self.city)
+        if me["cash"] > getattr(self, "cash_heard", me["cash"]):  # (paid: a job done, chips cashed, a jump)
+            self.snd.done()
+        self.cash_heard = me["cash"]
         if args.fps:
             self.fps_frames += 1
             if now - self.fps_at >= 1.0:
@@ -1064,14 +1114,29 @@ class CityWindow(ShowBase):
                 self.change_city(m["city"])
                 self.me, self.predictor = m.get("me", self.me), None
             elif kind == "lesson":
-                self.lesson = m.get("lesson") or self.lesson
+                self.took_lesson(m)
                 if self.lesson.get("time", "day") != self.time_of_day:
                     self.time_of_day = self.lesson.get("time", "day")
-                    kart_gfx.set_time(self.time_of_day)
+                    self.apply_time()
             elif kind == "design_result":
-                self.design = m.get("design") or self.design
-                if not m.get("ok"):
-                    self.note("Not built: " + "; ".join(m.get("problems") or []), 6)
+                self.design_result(m)
+            elif kind == "missions":
+                if not m.get("for"):
+                    self.took_missions(m)
+            elif kind == "ai_card_result":
+                self.card_result(m)
+            elif kind == "brain_result":
+                self.note("Brain: " + (m.get("error") or "running: P switches the autopilot") if m.get("ok") else
+                          "Brain problem: " + (m.get("error") or "it didn't load"), 6)
+            elif kind == "warnings":
+                self.took_warnings(m)
+                self.rebuild_panels(from_game=True)
+            elif kind in ("slots", "history"):
+                if self.took_slots(m):
+                    self.rebuild_panels(from_game=True)
+            elif kind == "live_update":
+                self.needs_restart = True
+                self.note("A live update is ready on the class server: press Restart server (Controls).", 12)
             elif kind == "restart_client":
                 self.restart_window()
             elif kind == "notice":
@@ -1203,6 +1268,9 @@ class CityWindow(ShowBase):
                 line2 = f"GO in {go:.0f} s"
                 if go <= 3.0:
                     big = str(int(go) + 1) if go > 0.05 else ""
+                    if big != getattr(self, "beeped", None):
+                        self.beeped = big
+                        self.snd.countdown(int(big) if big else 0)
         elif race and race["state"] == "racing" and j.get("phase") is None:
             line = ""
         self.job.setText(line)

@@ -21,7 +21,7 @@ What it does now:
   app's PDFs, through the browser's print box: "Save as PDF" keeps them), Watch a class, and changing the teacher
   password. Launching a group opens its live view by itself; the view's TEACHER DESK button goes back. The desk
   hands the page a teacher ticket for a class (CHANGE 128), so no class code is needed;
-- draws all three games from their servers' snapshots, two behind the newest so it is smooth:
+- draws all three games from their servers' snapshots (City Lab too: below), two behind the newest so it is smooth:
   - Kart Lab (`kart.js`, `scene.js`): binary snapshots (`wire.js` reads `engine/wire.py`'s frames), the track
     built from the server's own track data (`track.js` is `kart_track.py` ported line for line);
   - Robot Lab (`robot.js`): the arena from `lab_sim.py`'s constants (the cage or the no-cage gutter, the drop
@@ -35,6 +35,82 @@ What it does now:
     banner and timer; the woman, the man and Robin with the app's own skinned models and Mixamo moves on the lit
     tiers and on mesh and lines (`fightmodels.js`: `fight_model.py`'s clips, frames, blending, cartwheel and
     dressing, ported), the primitive stand-in until a model is loaded and on blocks;
+- (CHANGE 199) plays the story Missions, Mission 1 "Wake-Up Call" and Mission 2 "Lights Out", in 3D as the mission
+  window (`wake_up_call.py`) plays them, in a class whose Missions server runs every learner's program (CHANGE 198:
+  `missions_server.py`; the page never runs a mission itself). `missionscene.js` builds the valley as the window's
+  Valley does (the map from the server, 2 m a square: the hills, the grass and paving squares, the power cell, the
+  supply crate and its four tools, the rockfall, Brookfield's houses, street lamps and power supply with its blinking
+  warning light, the BROOKFIELD sign, the skid marks) and Mission 2's hill road at night as its HillRoad (the road up
+  to the radio mast, the lamp posts lit as they are repaired, each night's rockfalls, the fence, the fields; the key
+  light a dim blue moon), in Robot Lab's lights and effects, and the robots through robot.js's RobotScene (TITAN or
+  RAZORBACK holding the tool it picked up, a model a tool as the window's RobotModel). `missions.js` is the game: the
+  first screen (F1 and F2 the missions, 1 and 2 the robots; the teacher's has WATCH THE CLASS), the HUD (`hud.js`'s
+  MissionHud: energy, tool and night, lines, the three stars, the objectives, Mission 2's variables, RESET, GRAPHICS,
+  HOME VIEW, what to do now, the log), the code panel (C: the Pseudo code tab, the Python beside each line and each
+  near miss's hint from the server's `parse`, RUN or Ctrl+Enter, RESET, the phrasebook from the mission's dictionary;
+  the Code tab), each run's events played back as the window plays them (its timings and easing, the rocks flying
+  apart, the power cell lifted, a lamp coming on, the sparks and Robot Lab's sounds), the done card (the stars, the
+  energy and lines, the Solar Panel unlocked) and the flat battery's banner; everyone else's robot on the same mission,
+  dimmed, their name on a card over it, each of their runs played at the page's pace. The teacher's page lists the
+  class top right and in its Class tab, where the mission is changed for everyone. Every tier (mesh and lines with the
+  lamps' lines dimming and brightening, blocks to high, ultra with the window's smooth robots). The welcome carries
+  each mission's map, rules, robots, tools and phrasebook (`missions_server.about`), so nothing of the missions'
+  Python is copied here but their objectives' and stars' sums;
+- (CHANGE 201) plays City Lab (`city.js`), as the City Lab window (`city/city_client.py`) plays it, in a City Lab class: the
+  city from the server's welcome (`city_map.City`'s JSON) built as the window's `city_gfx.CityVisual` builds it, one mesh a
+  material (the roads, their dashes, lane edges and zebra crossings, the pavements and kerbs, the buildings in their
+  colours with their rows of windows, shop windows and the depot's and garage's doors, flat roofs with a parapet and a
+  plant room or the houses' pitched roofs, the parks and gardens, the car parks' bays and stunt ramps, the yards'
+  yellow lines, trees, lamp posts, the railing round the edge, the quay and the water, the four places' signs) and
+  the jobs as its `JobsVisual` has them (the rings at the depot, the rank, the arcade and the race line, the beam over
+  your target with its address, the chips spinning on the pavements, the race's checkpoints, the next one bright);
+  the people as Fight Lab's fighters (`fighters.js`: the woman, the man and Robin as the app's skinned models, the
+  built human and robot), the cars as Kart Lab's sports cars (`cars.js`), the robots as Robot Lab's (the scene is a
+  RobotScene, as the Missions' is: patrolling, their weapons winding up as they get cross, red when rogue, dark when
+  powered down, a tag when hurt), sparks where a punch, a kick or a zap lands; Kart Lab's lights and its day, dusk and
+  night (the headlights, the street lamps glowing). The binary snapshots (`wire.js`'s CITY_FIELDS, one record for
+  people, cars and robots) blended two behind; your own person, or the car you drive, predicted as the window predicts
+  it (`city_sim.js`: `city_sim.py`'s person and car steps and the city's questions they ask, ported line for line;
+  `city_sim_test.py` proves them the same to the last bit). The keys are the window's (on foot WASD walks, W away from
+  the camera, Shift runs, Space jumps, J punches, K kicks, B blocks, E gets in; in a car Kart Lab's, E gets out; R back
+  to the depot; V the view: behind, over the shoulder, from above, chase, bonnet; the wheel zooms), a game pad's, and a
+  phone's touch controls (in a car Kart Lab's with GET OUT, on foot a stick and the moves). The HUD (`hud.js`'s CityHud):
+  your job in words with the arrow to its target, the minimap, your cash and chips, health, km/h and damage, the hint,
+  the race's countdown, KNOCKED DOWN, PAUSED. The teacher's page: the whole city from above (V; L watches each person
+  in turn, the Camera tab too), the Controls tab (START A STREET RACE, EVERYONE TO THE DEPOT, PAUSE, MEND MY CAR, the
+  city, the traffic, the robots, the parked cars, the racers and their level, the jobs, the time of day, damage, the
+  teacher in the city or watching, designs locked) and the keys Enter, G, F and P as the window's. Every tier (mesh and
+  lines: the city's edges in the line colour, a grid on the ground on lines; ultra: the sky with clouds, the haze, the
+  glow, the detailed cars near the camera, the smooth fighters and robots, skid marks and sparks). Not yet: City Lab's
+  Garage and code panel (its lessons, docs/plans/city-lab.md step 6, bring them to the window and the page together);
+- (CHANGE 202) plays Craft Lab (`craft.js`), as the Craft Lab window (`craft/craft_client.py`) plays it, in a Craft Lab
+  class: the island comes as the window's does (a `world_head` message, the blocks and their meta zipped in binary parts
+  of kind 9, then `world`), inflated by the browser itself (DecompressionStream), its sky and torch light worked out as
+  `craft_world.light_region` works them out and each chunk meshed as `craft_mesh.py` meshes it (`craft_mesh.js`: only the
+  open faces, the corner shading, the light baked into each corner; the same bytes, `craft_sim_test.py` says so), the
+  nearest first and a few milliseconds a frame, again where a block changes. Drawn by Craft Lab's own shader on every
+  tier (the atlas's pixels, `tex/craft_atlas.png` from `make_craft.py`, nearest close to and mipmapped far off, times the
+  corner shading and the light, the sky's part with the time of day, the torches' warm, fog into the sky's colour at
+  the tier's view: mesh 72 m, lines 96, blocks 64, low 80, medium 112, high 144, ultra 224): the sun's shadows from
+  medium, waving leaves, plants and water on high and ultra, the sky through the day, the sun and the moon, the stars,
+  the clouds (low and up, two layers on ultra); mesh and lines black with every face's edges, or only the folds and
+  where the block changes, fading into the dark. The players (dressed in the armour they wear: CHANGE 203), the
+  creatures (Fluff, Bleep, Glitch, Rust Walker), the Craft Bots and things dropped as the window's `craft_models` boxes,
+  legs and arms swinging, a red flash when hurt, names over the players and Bots, a Bot's words; the held item, the block
+  you look at outlined, the crack as you dig, bits flying. Your player predicted with `craft_sim.js` (`craft_sim.py`'s
+  step, to the last bit), the rest blended two snapshots behind (`wire.js`'s CRAFT_FIELDS). The keys are the window's
+  (play.js's craft controls: WASD, the mouse once the game is clicked, Space, Shift, W twice to sprint, 1 to 9 and the
+  wheel, the left button digs, the right places or uses, Q throws one, E the inventory, F flies in creative, V the view,
+  B the Bot's brain, U and P; the teacher's T, M, G, K, N and F9), a game pad's (the right stick looks), and a phone's
+  touch controls (touch.js: a stick, a finger dragged to look, DIG, PLACE, JUMP, SNEAK, RUN, FLY, BAG and DROP). The
+  HUD and the screens (`craft_ui.js`: the hotbar, hearts, food, armour and breath, the news and the log; the inventory
+  with its crafting grid and armour slots, the workbench, chest, smelter, Bot and creative screens, a click and a
+  shift-click as the window's, sent as its `click` and `creative_take`). The Craft Bot's Garage and code panel are the
+  page's own (`schemas.json`'s craftlab, from `craft_design.py`). The teacher's page flies free (V) or follows each
+  learner (L, the Camera tab) and has the Controls tab (everyone to me, a Bot kit each, pause, saving the world, the time
+  of day, survival or creative, creatures, hunger, keeping things, falls, blasts, the teacher in the world, designs
+  locked, a new world from a seed); Craft Lab's sounds (`sfx/`'s c_ files: craft_sound.py's) and the day's and night's
+  tunes;
 - (CHANGE 187) Kart Lab on a phone or a tablet (`touch.js`): on-screen controls over the race, a steering slider
   (the thumb slid left or right, springing back), GO, BRAKE, DRIFT, your item (the button says what you hold), HANDBRAKE
   and RESET, VIEW and WATCH, and FULL SCREEN (a big button until the page is: the browser's bars gone and the phone
@@ -133,7 +209,7 @@ What it does now:
     edge, jets, spikes and ice as high's); the hall's far parts in a faint haze. The woman, the man and Robin as on
     high. Fetched only on ultra; until both have loaded (or if they don't) ultra draws high's fighters and hall.
 
-  Each game draws its own tiers (all three all seven since CHANGE 147); a tier a game doesn't have would be drawn as
+  Each game draws its own tiers (all three all seven since CHANGE 147, the Missions too since CHANGE 199, City Lab since CHANGE 201); a tier a game doesn't have would be drawn as
   its nearest (mesh and lines as blocks, ultra as high). Auto never steps into or out of mesh and lines. The line colour
   (green, amber, cyan, white, magenta or any) is kept on the computer and in a learner's profile (`line_colour`).
 
@@ -192,7 +268,11 @@ escapes; code nested more than about 1,500 deep).
 | `kart.js`, `scene.js`, `track.js`, `wire.js` | Kart Lab: its messages and controls, the track and karts, the track maths, the binary snapshots |
 | `kartfx.js`, `models/`, `make_models.py` | Kart Lab's ultra tier (CHANGE 144): the sky, the after-effects, skid marks, sparks, and the curved kart and the circuit the window draws (`kart/kart_models.py` and `kart/kart_scenery.py`, pure Python, written to `models/` by `make_models.py`: run it after either changes; the test checks it) |
 | `robot.js`, `robotfx.js` | Robot Lab: the arena, the robots, its controls; its effects, cameras and ultra tier (CHANGE 145: the window's robots and arena from `models/robot_ultra.json` and `arena_ultra.json`, written by `make_models.py` from the window's `robot_models.py` and `arena_models.py`) |
-| `fight.js`, `fightfx.js` | Fight Lab: the rings, the fighters and their poses, its controls; its effects, cameras and ultra tier (CHANGE 147: the window's fighters and hall from `models/fight_ultra.json` and `stage_ultra.json`, written by `make_models.py` from the window's `fight_models.py` and `stage_models.py`) |
+| `fight.js`, `fightfx.js` | Fight Lab: the rings and the hall, its controls; its effects, cameras and ultra tier (CHANGE 147: the window's fighters and hall from `models/fight_ultra.json` and `stage_ultra.json`, written by `make_models.py` from the window's `fight_models.py` and `stage_models.py`) |
+| `fighters.js` | (CHANGE 201) Fight Lab's fighters, built and posed: the poses (`fight_gfx.py`'s, ported), the rim lines, and FighterParts, the methods Fight Lab's and City Lab's scenes share (moved out of `fight.js`, unchanged) |
+| `cars.js` | (CHANGE 201) Kart Lab's karts and sports cars, built and drawn each frame, their lamps, headlights and smoke, the times of day: CarParts, the methods Kart Lab's and City Lab's scenes share (moved out of `scene.js`, unchanged) |
+| `city.js`, `city_sim.js` | (CHANGE 201) City Lab: the game and its scene (the city from the server's JSON, the jobs, the people, cars and robots, the cameras, the Controls tab, the prediction); `city_sim.py`'s person and car steps and the city's questions, ported line for line |
+| `missions.js`, `missionscene.js` | the Missions (CHANGE 199): the game (the first screen, the code panel, the runs from the Missions server played back, the others' robots, the done card, the teacher's Class tab) and its places (Mission 1's valley, Mission 2's hill road at night, the robots as Robot Lab's) |
 | `fightmodels.js` | Fight Lab's detailed fighters (woman, man, Robin): the app's glTF models, fetched once per body and shape when one appears (from `models/fightlab/`: Caddy serves the release's `games/fightlab/models` there), posed and dressed as `fight_model.py` does it |
 | `base3d.js` | what every scene shares: the engine, tiers and their pixel budgets, materials, labels, coordinate rules, texture coordinates in metres, merging what never moves |
 | `pbr.js` | the app's lighting: simplepbr's shader as a Babylon ShaderMaterial, the key light's shadow, the sky's reflections, the tone curve |
@@ -201,7 +281,11 @@ escapes; code nested more than about 1,500 deep).
 | `fonts/` | JetBrains Mono (OFL 1.1, `OFL.txt`), the code panel's font (CHANGE 138: the promo videos' code window, the Python highlighted as it is typed), served with the page so no font server is needed |
 | `vendor/babylon.js` | Babylon.js 9.28.0 (Apache-2.0), served from the VPS so a school need only reach one domain |
 | `vendor/babylon.glTF2FileLoader.min.js` | Babylon's glTF 2 loader, babylonjs-loaders 9.28.0 (Apache-2.0): loads Fight Lab's models |
-| `web_test.py` | the test: a desk and laptop servers for all three games, the page in headless Chrome or Edge |
+| `web_test.py` | the test: a desk and laptop servers for all four games and the Missions, the page in headless Chrome or Edge |
+| `craft.js`, `craft_sim.js`, `craft_mesh.js`, `craft_ui.js` | (CHANGE 202) Craft Lab: the game and its scene (the world from the server's parts, the chunks, the shader, the sky, the models, the prediction, the keys, the Controls tab); `craft_sim.py`'s step and the world's light, ported to the last bit; `craft_mesh.py`'s chunk meshes, byte for byte; the HUD and the screens |
+| `craft.json`, `tex/craft_atlas.png`, `make_craft.py` | (CHANGE 202) Craft Lab's blocks and items and the atlas `craft_art.py` draws (run `make_craft.py` after craft_art, craft_blocks or craft_mesh changes; the test checks it) |
+| `craft_sim_test.py`, `craft_sim_golden.json` | (CHANGE 202) `craft_sim.js` and `craft_mesh.js` against Craft Lab's own Python with node: the light, every chunk's meshes, the world's questions, hundreds of players' runs tick for tick to the last bit, compare, the prediction's corrections, the Garage's schema; the fingerprint for `craft_sim.SIM_VERSION` |
+| `city_sim_test.py`, `city_sim_golden.json` | (CHANGE 201) `city_sim.js` against City Lab's own Python with node: the city's questions, thousands of people's walks and cars' drives tick for tick to the last bit, compare, the prediction's corrections; the fingerprint for `city_sim.SIM_VERSION` |
 
 ## Try it on a laptop
 
@@ -210,9 +294,11 @@ Start a game's laptop server (`1 Kart Lab server.bat`, or `python lab_server.py`
 
     http://127.0.0.1:8090/index.html?host=ws://127.0.0.1:8782&code=TEACH99
 
-(Robot Lab 8780, Fight Lab 8781, Kart Lab 8782.) Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`
+(Robot Lab 8780, Fight Lab 8781, Kart Lab 8782, City Lab 8783 (`1 City Lab server.bat`: a learner logs in with `&code=CLUB42&name=amy`
+and a password in the form); Craft Lab 8785 (`1 Craft Lab server.bat`, the same); the Missions 8784, `python missions_server.py` in shared-world-demo,
+where a learner logs in with `&code=CLUB42&name=amy` and the teacher with `&code=TEACH99`.) Query options: `desk=ws://...` (a desk elsewhere), `game=kartlab`
 (watch it straight after logging in), `autoconnect=1`, `tier=mesh|lines|blocks|low|medium|high|ultra`, `auto=0` (no Auto),
-`cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `version=1.9.7` (a class server wants the release's
+`cam=tv|chase|overview` with `follow=<id>`, `panel=<tab>`, `speed=8` (the Missions' runs played 8 times faster), `version=1.9.7` (a class server wants the release's
 number; on the VPS the page reads `/live/version`), `models=<url>` (where Fight Lab's models are: by default
 `models/fightlab/` beside the page, then `../games/fightlab/models/` or `../../BeatEmUp/models/` when the page is
 served from higher up; `python -m http.server` in this folder can't reach them, so serve the ClubCodersAI folder
@@ -222,7 +308,7 @@ and open `/club-coders/web/index.html`, or the fighters stay stand-ins). Tab ope
 
     shared-world-demo\.venv\Scripts\python club-coders\web\web_test.py
 
-Twenty-five checks. The desk: a wrong teacher password refused; the desk screen; learners added and a group made;
+Fifty-eight checks. The desk: a wrong teacher password refused; the desk screen; learners added and a group made;
 Launch opening the class view with the desk's ticket; a learner's own page (her own password, waiting, the game
 opening by itself; her Garage drawn from the schema, her code panel: APPLY CODE changing a value, a mistake shown
 on its line, BUILD reaching the server sent as code); a note, LAUNCH LEARNERS' WINDOWS, Stop and the printed
@@ -238,6 +324,27 @@ the teacher's own garage (a weapon chosen); computer robot 2 renamed and put in 
 snapshot has it there alone); the Controls tab's Arenas rows (computer robot 2, amy's robot and the teacher's renamed
 and put in an arena, a name amy changes showing in her row, Save settings keeping who is where); Restart server and
 the page reconnecting. Fight Lab: the rings and posed
-fighters on blocks to high (ultra's models never fetched there, the Graphics tab showing seven), the detailed model, its controls, the teacher's own garage (the woman's look); its line tiers (CHANGE 147: black, the rings', the hall's, the ropes' or open edge's and every fighter's lines, each joint's own, the detailed model's on its skin, the outlines and grids on lines only, the line colour at once); ultra (the window's fighters and hall from `models/fight_ultra.json` and `stage_ultra.json`, fetched then and not before: parts, rings, thin instances, no shadow from the flat or far, the haze on far parts alone, 13 meshes a fighter, soft 4096 shadows, the glow, no SSAO). lessons.json, schemas.json,
+fighters on blocks to high (ultra's models never fetched there, the Graphics tab showing seven), the detailed model, its controls, the teacher's own garage (the woman's look); its line tiers (CHANGE 147: black, the rings', the hall's, the ropes' or open edge's and every fighter's lines, each joint's own, the detailed model's on its skin, the outlines and grids on lines only, the line colour at once); ultra (the window's fighters and hall from `models/fight_ultra.json` and `stage_ultra.json`, fetched then and not before: parts, rings, thin instances, no shadow from the flat or far, the haze on far parts alone, 13 meshes a fighter, soft 4096 shadows, the glow, no SSAO). The Missions (CHANGE 199), against a laptop Missions server: a learner's page
+draws the valley (the power cell, the crate and its tools, the rockfall, the power supply, the sign) and the first
+screen, chooses TITAN with 1, shows a near miss's hint (not corrected, RUN off), types Mission 1's five steps
+(`wake_up_call_test.STEPS`, read from its file) with the Python beside each line, runs them to three stars (17 lines,
+8 energy, the Solar Panel unlocked); another learner, a raw client, runs and his robot is drawn where his run left it,
+dimmed, his name over it; every tier (mesh and lines black with the valley's, the robots' and the lights' own lines;
+ultra's smooth robots); Mission 2 from F2, the hill road at night (the lamps dark and lit as night 1 has them, the
+moon), `lights_out_test.SOLUTION` played to three stars (the nights and the variables in the HUD, every lamp lit at
+the end); the teacher's page (WATCH THE CLASS, the class top right and in the Class tab, a learner's robot drawn, the
+mission changed for everyone). City Lab (CHANGE 201), against a laptop City Lab server: the teacher's page (the city built,
+its rings and chips, 16 cars as Kart Lab's, the teacher and a scripted window as fighters, six robots, the window's person
+walking and the traffic driving; every tier, mesh and lines black with the city's, the cars' and the fighters' own lines;
+night from the Controls tab, the headlights); a learner's page (her person walked with the keys and predicted, the server
+agreeing to the centimetre; into a parked car, driven with the keys, the car predicted with few corrections, km/h in the
+HUD; the touch controls for a car and, out of it, on foot). Craft Lab (CHANGE 202), against a laptop Craft Lab server on the
+small island from seed 2026: the teacher's page (the island meshed chunk by chunk, the teacher and a window's learner as models,
+him walking, L following him; every tier, mesh and lines black with the blocks' and the models' lines, blocks to ultra in
+Craft Lab's shader with the clouds, the sun's shadows from medium and the waving leaves on high and ultra; night from
+Controls, the stars); a learner's page over a pretend school Wi-Fi (engine/fault_relay.py, 60 ms each way and 15 ms of
+jitter: walking with the keys, predicted, the server agreeing to the centimetre; a jump; a block dug and put down again;
+planks crafted in the inventory screen from the creative box; her Craft Bot's Garage and code panel, BUILD reaching the
+server; the touch controls' stick walking her; a phone's layout). lessons.json, schemas.json, craft.json,
 tex/ and sfx/ up to date; `schema_test.py` passing. Screenshots of each game are kept in the test folder. It passes (and says so) on a computer without Chrome
 or Edge.

@@ -16,7 +16,7 @@ import os
 import sys
 
 import city_version  # noqa: F401  (the engine and the other games' folders on the path)
-from panda3d.core import (NodePath, Point3, TextNode, TransparencyAttrib, Vec3)
+from panda3d.core import (ColorBlendAttrib, NodePath, Point3, TextNode, TransparencyAttrib, Vec3)
 
 from engine import gfx_tiers
 from engine.rw_mesh import Mesh, cylinder
@@ -121,6 +121,71 @@ def box(mesh, x0, y0, x1, y1, z0, z1, colour=None, top=True, tile=0.5):
         flat(mesh, x0, y0, x1, y1, z1, colour, tile)
 
 
+LIT_SHARE = {"house": 0.45, "offices": 0.35, "office": 0.35, "shop": 0.3}   # of the windows lit at night (shops' fronts all)
+WINDOW_GLOW = (0.86, 0.54, 0.2)     # a lit window (drawn without light: it glows)
+LAMP_GLOW = (1.0, 0.86, 0.6)       # a street lamp's head, its halo and the pool of light under it
+POOL_R = 5.5                       # metres: the pool of light round a lamp's foot
+DUSK_DIM = 0.65                    # at dusk the lamps and windows are lit, a little less bright than at night
+
+
+class NightLights:
+    """(Step 7) The city at dusk and night: the street lamps' heads glow with a soft halo and pool light on the road
+    and pavement round them, and some windows light up (every shop front). These are lit pictures, not lights (the
+    renderer takes 8 lights, and the cars' headlights have 4): each is drawn without light or shadow, so it glows,
+    and they are all one node each (four things to draw however many lamps there are). Not on the mesh and lines
+    tiers."""
+
+    def __init__(self, parent, city, lit):
+        self.root = parent.attachNewNode("city at night")
+        self.root.setLightOff(2)
+        self.root.setShaderOff(2)
+        add = ColorBlendAttrib.make(ColorBlendAttrib.M_add, ColorBlendAttrib.O_incoming_alpha, ColorBlendAttrib.O_one)
+        self.parts = []
+        if lit.count:
+            windows = self.root.attachNewNode(lit.node("lit windows"))
+            windows.setColor(*WINDOW_GLOW, 1)
+            self.parts.append((windows, WINDOW_GLOW))
+        h0 = city_map.KERB_H
+        heads, halos, pools = Mesh(tile=1.0), Mesh(tile=1.0), Mesh(tile=1.0)
+        corners = [(0, 0), (1, 0), (1, 1), (0, 1)]
+        for x, y in city.lamps:
+            box(heads, x - 0.2, y - 0.2, x + 0.2, y + 0.2, h0 + 4.98, h0 + 5.0, tile=1.0)  # (the glass under the head)
+            z = h0 + 4.9
+            for k in range(3):  # (three crossed cards, each 1.8 m: a halo from every side)
+                a = math.radians(60 * k)
+                dx, dy = math.cos(a) * 0.9, math.sin(a) * 0.9
+                kart_gfx.quad(halos, [Vec3(x - dx, y - dy, z - 0.9), Vec3(x + dx, y + dy, z - 0.9),
+                                      Vec3(x + dx, y + dy, z + 0.9), Vec3(x - dx, y - dy, z + 0.9)], corners,
+                              normal=Vec3(-dy, dx, 0))
+            zz = h0 + 0.03  # (the pool lies on the pavement and spills over the road a kerb below: both see it)
+            kart_gfx.quad(pools, [Vec3(x - POOL_R, y - POOL_R, zz), Vec3(x + POOL_R, y - POOL_R, zz),
+                                  Vec3(x + POOL_R, y + POOL_R, zz), Vec3(x - POOL_R, y + POOL_R, zz)], corners,
+                          normal=Vec3(0, 0, 1))
+        if heads.count:
+            np_ = self.root.attachNewNode(heads.node("lamp glass"))
+            np_.setColor(*LAMP_GLOW, 1)
+            self.parts.append((np_, LAMP_GLOW))
+            for mesh, name, colour in ((halos, "lamp halos", (0.9, 0.75, 0.5)), (pools, "lamp pools", (0.42, 0.34, 0.22))):
+                np_ = self.root.attachNewNode(mesh.node(name))
+                np_.setTexture(kart_gfx.dot_texture())
+                np_.setAttrib(add)
+                np_.setDepthWrite(False)
+                np_.setTwoSided(True)
+                np_.setBin("fixed", 20)
+                np_.setColor(*colour, 1)
+                self.parts.append((np_, colour))
+        for np_, _ in self.parts:
+            np_.flattenStrong()
+
+    def set_time(self, t):
+        if t not in ("dusk", "night"):
+            self.root.hide()
+            return
+        self.root.show()
+        k = DUSK_DIM if t == "dusk" else 1.0
+        self.root.setColorScale(k, k, k, 1)
+
+
 class CityVisual:
     """The whole city, built once from its data (city_map.City)."""
 
@@ -128,6 +193,7 @@ class CityVisual:
         self.city = city
         self.root = parent.attachNewNode(f"city {city.key}")
         self.meshes = {k: Mesh(tile=1.0, colours=k in COLOURED) for k in MATERIALS}
+        self.lit = Mesh(tile=1.0)       # (the windows lit at dusk and night: drawn over their glass then)
         m = self.meshes
         self.ground(m)
         self.blocks(m)
@@ -149,6 +215,8 @@ class CityVisual:
             self.nodes[key] = np_
         self.signs()
         self.root.flattenStrong()
+        self.night = None if look() else NightLights(parent, city, self.lit)
+        self.set_time(kart_gfx._time[0])
         if look():  # mesh and lines: the city's edges as lines, a ground grid on lines
             extra = None
             if tier() == "lines":
@@ -275,6 +343,9 @@ class CityVisual:
                 q = Vec3(ax + ux * s1, ay + uy * s1, za) + off
                 up = Vec3(0, 0, zb - za)
                 quad(glass, p, q, q + up, p + up, n)
+                share = 1.0 if shop_row else LIT_SHARE.get(kind, 0.3)
+                if (int(p.x * 7.0) * 73856093 ^ int(p.y * 7.0) * 19349663 ^ int(za * 10) * 83492791) % 1000 < share * 1000:
+                    quad(self.lit, p + off * 0.5, q + off * 0.5, q + off * 0.5 + up, p + off * 0.5 + up, n)
                 # a sill under it
                 sill = Vec3(0, 0, 0.12)
                 quad(frames, p - sill, q - sill, q, p, n)
@@ -451,8 +522,15 @@ class CityVisual:
             if look():
                 tn.setColorScale(1, 1, 1, 1)
 
+    def set_time(self, t):
+        """Dusk and night: the street lamps glow and pool light on the pavement, windows light up."""
+        if self.night is not None:
+            self.night.set_time(t)
+
     def destroy(self):
         self.root.removeNode()
+        if self.night is not None:
+            self.night.root.removeNode()
 
 
 def ground_lift(city, x, y):

@@ -1,7 +1,7 @@
 """schemas.json for Club Coders Live: each game's design schema (the variables the code panel writes and reads back,
 and the garage's tables draw), its limits (the ranges a design is held to) and the game constants the schema's own
 rules, the garage (its colour blocks: engine/hud.py, fight_client.py) and its stats readout use, from the games' own
-files (lab_sim.py, fight_sim.py, kart_sim.py), so the page's code panel (schema.js) writes and reads the code
+files (lab_sim.py, fight_sim.py, kart_sim.py; CHANGE 202: Craft Lab's craft_design.py), so the page's code panel (schema.js) writes and reads the code
 exactly as the app does.
 
 Why a copy: the class servers send the rules (the weapons, specials, bodies...) and the limits, but not the schema
@@ -27,13 +27,14 @@ OUT = os.path.join(HERE, "schemas.json")
 # each game: its simulation module, its folder in the working folder, and the word its code's title uses
 GAMES = {"robotlab": ("Robot Lab", "lab_sim", "shared-world-demo", "ROBOT"),
          "fightlab": ("Fight Lab", "fight_sim", "BeatEmUp", "FIGHTER"),
-         "kartlab": ("Kart Lab", "kart_sim", "kart", "KART")}
+         "kartlab": ("Kart Lab", "kart_sim", "kart", "KART"),
+         "craftlab": ("Craft Lab", "craft_design", "craft", "CRAFT BOT")}  # (CHANGE 202: the Craft Bot, the engine's plain shape)
 # the old code's one-variable name (a design written as one dictionary): the app refuses it with "press RESET CODE"
-OLD_NAMES = {"robotlab": "ROBOT", "fightlab": "FIGHTER", "kartlab": None}
+OLD_NAMES = {"robotlab": "ROBOT", "fightlab": "FIGHTER", "kartlab": None, "craftlab": None}
 # CHANGE 124: the code may set up to twice the teacher's limit (sim.code_limits). Robot Lab's and Fight Lab's
 # windows check the code against that room; Kart Lab's window checks it against the teacher's limits as they are
 # (kart_client.outside_limits), and its server gives the room.
-CLIENT_CODE_ROOM = {"robotlab": True, "fightlab": True, "kartlab": False}
+CLIENT_CODE_ROOM = {"robotlab": True, "fightlab": True, "kartlab": False, "craftlab": True}  # (Craft Lab's server gives the room)
 
 # Every function a variable carries, by game, variable and attribute: the name schema.js knows it by.
 FUNCTIONS = {
@@ -89,6 +90,8 @@ def load(game):
         return None
     if folder not in sys.path:
         sys.path.insert(0, folder)
+    if game == "craftlab":
+        importlib.import_module("craft_version")  # (the engine on the path: craft_design reads engine.schema and engine.limits)
     return importlib.import_module(GAMES[game][1])
 
 
@@ -174,6 +177,9 @@ def constants(game, sim):
                 "specials": list(sim.SPECIALS), "combo_moves": list(sim.COMBO_MOVES),
                 "combo_min": sim.COMBO_MIN, "combo_max": sim.COMBO_MAX,
                 "bosses": {name: v[1] for name, v in sim.BOSS_BY_NAME.items()}}
+    if game == "craftlab":  # (the window's garage: craft_panels.Garage's own colour blocks, and the Bot's numbers)
+        panels = literals(os.path.join(game_folder(game), "craft_panels.py"), ["SWATCHES"])
+        return {"name_max": sim.NAME_MAX, "swatches": [list(c) for c in panels["SWATCHES"]], "stats_of": [1.6, 0.022, 0.9, 0.012, 0.75, 0.01]}
     return {"name_max": 12, "swatches": swatches, "bodies": list(sim.BODIES)}
 
 

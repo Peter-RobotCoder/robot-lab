@@ -51,6 +51,7 @@ export class Pads {
         rt = trigger(rt);
         const pressed = new Set([...held].filter(n => !this.was.has(n)));
         this.was = held;
-        return {x, y, lt, rt, held, pressed, name: p.id || "controller"};
+        const [rx, ry] = deadZone(ax[2] || 0, -(ax[3] || 0));  // (CHANGE 202: the right stick, Craft Lab's looking about)
+        return {x, y, lt, rt, held, pressed, rx, ry, name: p.id || "controller"};
     }
 }

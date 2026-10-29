@@ -7,6 +7,7 @@
 #   sudo robotlab-add-class class3 --game fightlab 8790 (a particular internal port)
 #   sudo robotlab-add-class class4 --game citylab      a new class playing City Lab (kartlab: Kart Lab)
 #   sudo robotlab-add-class class5 --game missions     a new class playing the story missions (Missions)
+#   sudo robotlab-add-class class6 --game craftlab     a new class playing Craft Lab
 #   sudo robotlab-add-class class1 --game fightlab      move a class to another game: learners keep their class
 #                                                       code, and the Club Coders app opens the new game next time
 #
@@ -21,7 +22,7 @@ PORT=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --game) GAME="${2:-}"; shift 2 ;;
-        -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
         *) if [ -z "$NAME" ]; then NAME="$1"; else PORT="$1"; fi; shift ;;
     esac
 done
@@ -31,12 +32,12 @@ DATA=/var/lib/robotlab
 
 [ "$(id -u)" -eq 0 ] || { echo "Please run this as root: sudo robotlab-add-class $NAME" >&2; exit 1; }
 [[ "$NAME" =~ ^class[0-9]{1,2}$ ]] || { echo "Class names are class1, class2 ... (not '$NAME')." >&2; exit 1; }
-[ -z "$GAME" ] || [[ "$GAME" =~ ^(robotlab|fightlab|kartlab|citylab|missions)$ ]] || { echo "The game can be robotlab, fightlab, kartlab, citylab or missions (not '$GAME')." >&2; exit 1; }
+[ -z "$GAME" ] || [[ "$GAME" =~ ^(robotlab|fightlab|kartlab|citylab|craftlab|missions)$ ]] || { echo "The game can be robotlab, fightlab, kartlab, citylab, craftlab or missions (not '$GAME')." >&2; exit 1; }
 [ -f "$ETC/domain" ] || { echo "Run setup.sh first." >&2; exit 1; }
 DOMAIN=$(cat "$ETC/domain")
 ADDRESS="wss://$DOMAIN/$NAME"
 [ "$NAME" != "class1" ] || ADDRESS="wss://$DOMAIN"
-title() { case "$1" in fightlab) echo "Fight Lab" ;; kartlab) echo "Kart Lab" ;; citylab) echo "City Lab" ;; missions) echo "Missions" ;; *) echo "Robot Lab" ;; esac; }
+title() { case "$1" in fightlab) echo "Fight Lab" ;; kartlab) echo "Kart Lab" ;; citylab) echo "City Lab" ;; craftlab) echo "Craft Lab" ;; missions) echo "Missions" ;; *) echo "Robot Lab" ;; esac; }
 
 # ---------- an existing class: change its game ----------
 if [ -f "$ETC/$NAME.env" ]; then
@@ -79,7 +80,7 @@ install -d -m 700 -o robotlab -g robotlab "$DATA/$NAME"
 CODE=$(python3 -c "import secrets; a='abcdefghjkmnpqrstuvwxyz23456789'; print('-'.join(''.join(secrets.choice(a) for _ in range(4)) for _ in range(2)))")
 umask 027
 cat > "$ETC/$NAME.env" <<EOF
-# $NAME: $ADDRESS (robotlab-add-class). Its game (robotlab, fightlab, kartlab, citylab or missions) and its own class code;
+# $NAME: $ADDRESS (robotlab-add-class). Its game (robotlab, fightlab, kartlab, citylab, craftlab or missions) and its own class code;
 # the teacher code is shared.
 PORT=$PORT
 GAME=$GAME

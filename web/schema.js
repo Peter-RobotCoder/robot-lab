@@ -3792,6 +3792,30 @@ function checkLook(game, body, look) {  // fight_sim.check_look
 
 export function checkDesign(game, d, limits = null) {  // each game's sim.check_design
     const C = game.consts, kind = game.title;
+    if (kind === "Craft Lab") {  // (CHANGE 202: craft_design.check_design, the Bot's points in d.points)
+        if (!isDict(d)) return ["the design must be a dictionary"];
+        const problems = [];
+        const name = pyGet(d, "name");
+        if (!isStr(name) || !pyStrip(String(name))) problems.push("name must be some text");
+        else if (cpsOf(name).length > C.name_max) problems.push(`name can be at most ${C.name_max} characters`);
+        const c = pyGet(d, "colour");
+        if (!(Array.isArray(c) && c.length === 3 && c.every(v => isInt(v) && v >= 0 && v <= 255))) {
+            problems.push("colour must be three whole numbers from 0 to 255, [red, green, blue]");
+        }
+        limits = limits || defaultLimits(game);
+        const pts = isDict(pyGet(d, "points")) ? d.points : {};
+        for (const k of game.limits.stats) {
+            const [lo, hi] = limits.points[k];
+            const v = pyGet(pts, k);
+            if (!isInt(v) || !(lo <= v && v <= hi)) problems.push(`${k} must be a whole number from ${pyStr(lo)} to ${pyStr(hi)}`);
+        }
+        const vals = game.limits.stats.map(k => pyGet(pts, k));
+        if (vals.every(isInt)) {
+            const total = vals.reduce((a, v) => a + v, 0);
+            if (total > limits.points_total) problems.push(`${total} points used: the most you can spend is ${pyStr(limits.points_total)}`);
+        }
+        return problems;
+    }
     if (kind === "Kart Lab") {
         if (!isDict(d)) return ["the design must be a dictionary"];
         const problems = [];
@@ -3981,6 +4005,11 @@ function moveMods(game, style, weapon, name) {  // fight_sim.move_mods: (damage,
 export function statsText(game, d) {
     try {
         const C = game.consts;
+        if (game.title === "Craft Lab") {  // (CHANGE 202: craft_panels.Garage.show, craft_design.stats_of)
+            const [dig, build, speed] = game.limits.stats.map(k => pyGet(d.points, k, 33)), k = C.stats_of;
+            return `a dig takes ${formatF(k[0] - dig * k[1], 2)} s x the block's hardness; a placement ${formatF(k[2] - build * k[3], 2)} s; ` +
+                `a move ${formatF(k[4] - speed * k[5], 2)} s`;
+        }
         if (game.title === "Kart Lab") {  // (kart_hud.stats_text, kart_sim.stats_of)
             const [sp, ac, gr] = game.limits.stats.map(k => pyGet(d, k, 33));
             const st = {top: 17.0 + 0.22 * sp, accel: 5.0 + 0.10 * ac, grip: 6.0 + 0.10 * gr, steer: 95.0 + 1.0 * gr};

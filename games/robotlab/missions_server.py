@@ -10,8 +10,27 @@ which mission the lesson is (lesson 1 is Mission 1, lesson 2 Mission 2: mission_
 each learner's progress (the Solar Panel, the best stars) so it follows them to any laptop, marks the lesson's
 objectives from what their windows report (a run finished, the stars, a failed run then a good one:
 mission_lessons.MISSIONS), writes the session's report for the desk (who is here, what each learner completed)
-and sends the teacher's window the class's progress every couple of seconds. There is no world to step: the
-missions run in the windows.
+and sends the teacher's window the class's progress every couple of seconds.
+
+(CHANGE 198) The server runs the missions. A window (or the page) sends its program's text; the server reads it
+with the same pseudo code (mission_pseudo.py, the mission's dictionary.json), runs it on that learner's mission
+(mission_wake_up.py, mission_lights_out.py: the same Python the window runs alone) and sends back the events, which
+the window animates as it animates its own. So the server knows where every robot is, and every window draws the
+whole class in the one valley: the others' robots, dimmed, with their names, each on its own run (they never
+bump: a learner's program never fails because of someone else's robot). Each learner's mission is kept by name, so
+a window reopened, or a dropped connection, carries on where it was. A window played alone (no server) still runs
+the mission itself.
+    window -> server   start {mission, robot}    the mission from its start (also RESET)
+                       program {mission, text}   run the program from where the robot is
+                       parse {mission, text}     the hints and the Python beside each line (for the page)
+    server -> window   state {mission, robot, state}     the learner's mission now (after start, or on coming back)
+                       ran {status, before, events, state, stars, objectives, code_lines}
+                                                 an event's state as only what changed ("d") since the one before
+                       world {robots: [...]}     every robot in the class, on joining
+                       robot {name, mission, robot, steps | gone}   someone's robot started, ran or left
+(CHANGE 199) The welcome also carries "missions": each mission's map, objectives, rules, robots and tools, its
+start, Mission 2's nights, lamps and mast, and the phrasebook (about), so the browser page (club-coders/web,
+missions.js) draws and words them from the same Python the window plays, with no copy of its own.
 """
 import argparse
 import asyncio
@@ -29,7 +48,11 @@ import lab_version
 sys.path.insert(0, lab_version.ENGINE_HOME)
 from engine import club_ticket, lifecycle  # noqa: E402
 
+import lab_missions  # noqa: E402
 import mission_lessons as ml  # noqa: E402
+import mission_lights_out  # noqa: E402
+import mission_pseudo as P  # noqa: E402
+import mission_wake_up  # noqa: E402
 
 DEMO_CODES = {"learner": "CLUB42", "teacher": "TEACH99"}
 LEARNER_CODE = os.environ.get("JOIN_CODE", DEMO_CODES["learner"])
@@ -71,6 +94,107 @@ class RateLimit:
 
 BAD_LOGINS = RateLimit()
 
+# ---------- the missions, run here (CHANGE 198) ----------
+RULES = {"wake_up_call": mission_wake_up, "lights_out": mission_lights_out}
+ROBOTS = ("TITAN", "RAZORBACK")
+MAX_TEXT = 6000         # characters in a program
+RUN_GAP = float(os.environ.get("MISSIONS_RUN_GAP", 0.25))  # seconds between one learner's runs at least
+STEP_TYPES = {"move", "turn", "bump", "use", "night", "complete", "flat", "repair", "objective", "report", "stop"}
+_DICTIONARIES = {}
+
+
+def dictionary(mid):
+    """The mission's pseudo code, as its window loads it (missions/<mission>/dictionary.json)."""
+    if mid not in _DICTIONARIES:
+        _DICTIONARIES[mid] = P.load(os.path.join(HERE, "missions", mid, "dictionary.json"))
+    return _DICTIONARIES[mid]
+
+
+_ABOUT = {}
+
+
+def about(mid):
+    """(CHANGE 199) What the page needs to draw a mission and write its HUD and phrasebook, from the mission's own
+    module and dictionary: the map, objectives, rules, robots and tools, the state it starts in, the story's number
+    and title, the part it unlocks or uses, Mission 2's nights, lamps and mast, and the phrasebook's words."""
+    if mid not in _ABOUT:
+        G, d, story = RULES[mid], dictionary(mid).dict, lab_missions.STORY_MISSIONS[mid]
+        info = {"map": G.MAP, "objectives": G.OBJECTIVES, "rules": G.RULES, "robots": G.ROBOTS, "tools": G.TOOLS,
+                "dir_names": G.DIR_NAMES, "start": G.new_mission(ROBOTS[0]).snapshot(), "number": story["number"],
+                "title": story["title"], "unlock": G.UNLOCK, "solar": getattr(G, "SOLAR", None),
+                "phrasebook": {"patterns": [{k: p.get(k) for k in ("say", "meaning", "example", "alias")}
+                                            for p in d["patterns"]],
+                               "slots": {k: s.get("describe", "") for k, s in d["slots"].items()},
+                               "synonyms": d.get("synonyms", {}), "fillers": d.get("fillers", [])}}
+        if mid == "lights_out":
+            info.update(nights=G.NIGHTS, lamps=G.LAMPS, road_y=G.ROAD_Y, mast=G.MAST)
+        _ABOUT[mid] = info
+    return _ABOUT[mid]
+
+
+def changed(before, after):
+    """What of a state changed: the event's "d" (the window rebuilds each event's whole state from these)."""
+    return {k: v for k, v in after.items() if before.get(k) != v}
+
+
+def unpack(before, events):
+    """A ran message's events with their whole states again (as the window and the tests read them)."""
+    cur, out = dict(before), []
+    for e in events:
+        cur = dict(cur, **e.get("d", {}))
+        out.append(dict({k: v for k, v in e.items() if k != "d"}, state=cur))
+    return out
+
+
+class Play:
+    """One learner's mission on the server: the mission's own Python (the window's, when it plays alone)."""
+
+    def __init__(self, mid, robot, solar=False):
+        self.mid, self.robot = mid, robot
+        G = RULES[mid]
+        self.m = G.new_mission(robot, solar=solar) if mid == "lights_out" else G.new_mission(robot)
+        self.last_run = 0.0
+
+    def run(self, text):
+        """The program read and run from where the robot is: the ran message (status "error" when a line isn't
+        understood: nothing runs, as the window's RUN stays off)."""
+        parsed = P.parse_program(text, dictionary(self.mid))
+        if parsed["program"] is None or not parsed["program"]:
+            return {"type": "ran", "mission": self.mid, "status": "error", "events": [],
+                    "errors": [{"n": r["n"], "message": r.get("message")} for r in parsed["errors"]][:20]}
+        before = self.m.snapshot()
+        result = self.m.run(parsed["program"], parsed["code_lines"])
+        prev, events = before, []
+        for e in result["events"]:
+            events.append(dict({k: v for k, v in e.items() if k != "state"}, d=changed(prev, e["state"])))
+            prev = e["state"]
+        return {"type": "ran", "mission": self.mid, "robot": self.robot, "status": result["status"], "before": before,
+                "events": events, "state": self.m.snapshot(), "stars": self.m.stars(),
+                "objectives": self.m.objectives(), "code_lines": parsed["code_lines"]}
+
+    def where(self):
+        s = self.m.s
+        return [s["x"], s["y"], s["dir"], s.get("tool")]
+
+    def steps(self, ran):
+        """What the others' windows animate of a run: each move, turn, bump, tool use... as [type, x, y, dir, tool]."""
+        out = []
+        for e in unpack(ran["before"], ran["events"]):
+            s = e["state"]
+            if e["type"] in STEP_TYPES:
+                out.append([e["type"], s["x"], s["y"], s["dir"], s.get("tool")])
+        return out[-400:]
+
+
+def parse_rows(text, mid):
+    """The program's lines read as the window's code panel reads them: what each says, the hints, the Python."""
+    r = P.parse_program(text, dictionary(mid))
+    return {"type": "parsed", "mission": mid, "ok": r["program"] is not None, "code_lines": r["code_lines"],
+            "python": r["python"],
+            "rows": [{"n": w["n"], "kind": w["kind"], "canonical": w.get("canonical"), "message": w.get("message"),
+                      "hint": w.get("hint"), "after": w.get("after"), "indent": w["indent"],
+                      "python_line": w["python_line"]} for w in r["rows"]]}
+
 
 class Player:
     def __init__(self, ws, role, name):
@@ -91,6 +215,7 @@ class MissionsServer:
         self.records = {}       # learner -> {"done": {mission id: {"time", "detail"}}, "failed": {mid: True}}
         self.progress = {}      # learner -> the window's progress file ({"parts", "missions"})
         self.presence = {}
+        self.plays = {}         # (role, slug of the name) -> Play: each person's mission, kept while they're away
         self.watchdog = lifecycle.Watchdog()
         os.makedirs(PROFILES, exist_ok=True)
         for f in os.listdir(PROFILES):
@@ -138,6 +263,7 @@ class MissionsServer:
         for store in (self.records, self.progress, self.presence):
             for k in [k for k in store if slug(k) == gone]:
                 del store[k]
+        self.plays.pop(("learner", gone), None)
         try:
             os.remove(os.path.join(PROFILES, gone + ".json"))
         except OSError:
@@ -276,9 +402,17 @@ class MissionsServer:
             self.presence.setdefault(name, {"first": now_text()})["last"] = now_text()
         await self.send(ws, {"type": "welcome", "role": role, "name": name, "lesson": self.lesson_msg()["lesson"],
                              "progress": self.progress.get(name) or {"parts": [], "missions": {}},
-                             "code": lab_version.CODE})
+                             "code": lab_version.CODE, "runs_here": True,
+                             "missions": {mid: about(mid) for mid in RULES}})
         if role == "teacher":
             await self.send(ws, self.class_msg())
+        await self.send(ws, self.world_msg(p))
+        play = self.plays.get((role, slug(name)))
+        if play is not None:  # (back: a reopened window, a dropped connection: the mission carries on where it was)
+            await self.send(ws, {"type": "state", "mission": play.mid, "robot": play.robot, "state": play.m.snapshot(),
+                                 "back": True})
+            await self.tell_others(p, {"type": "robot", "name": name, "mission": play.mid, "robot": play.robot,
+                                       "steps": [["place"] + play.where()]})
         try:
             async for raw in ws:
                 if isinstance(raw, bytes):
@@ -297,6 +431,7 @@ class MissionsServer:
                 print(f"- {name} left", flush=True)
                 if role == "learner":
                     self.save_profile(name)
+                await self.tell_others(p, {"type": "robot", "name": name, "gone": True})
 
     async def on_message(self, p, m):
         kind = m.get("type")
@@ -317,8 +452,88 @@ class MissionsServer:
         elif kind == "mission" and p.role == "learner":  # (which mission the window is on now)
             if m.get("mission") in ml.MISSION_LESSONS:
                 p.mission = m["mission"]
+        elif kind in ("start", "reset"):
+            await self.start_play(p, m)
+        elif kind == "program":
+            await self.run_play(p, m)
+        elif kind == "parse":
+            if m.get("mission") in RULES:
+                await self.send(p.ws, parse_rows(str(m.get("text", ""))[:MAX_TEXT], m["mission"]))
         elif p.role == "teacher":
             await self.teacher_command(p, m)
+
+    # ---------- the missions, run here (CHANGE 198) ----------
+    def world_msg(self, me):
+        """Every other robot in the class, where it is now (for a window joining)."""
+        here = {(q.role, slug(q.name)): q for q in self.players.values() if q is not me}
+        robots = [{"name": here[k].name, "role": k[0], "mission": play.mid, "robot": play.robot, "at": play.where()}
+                  for k, play in self.plays.items() if k in here]
+        return {"type": "world", "robots": robots}
+
+    async def tell_others(self, me, msg):
+        for q in list(self.players.values()):
+            if q is not me:
+                await self.send(q.ws, msg)
+
+    async def start_play(self, p, m):
+        """The mission from its start (the robot chosen, or RESET). Mission 2's Solar Panel is fitted when this
+        learner's progress here has it (Mission 1 finished)."""
+        mid, robot = m.get("mission"), str(m.get("robot", "")).upper()
+        if mid not in RULES or robot not in ROBOTS:
+            await self.send(p.ws, {"type": "notice", "text": "That isn't a mission and robot this server knows."})
+            return
+        solar = mission_wake_up.UNLOCK["id"] in (self.progress.get(p.name) or {}).get("parts", [])
+        play = self.plays[(p.role, slug(p.name))] = Play(mid, robot, solar)
+        p.mission = mid
+        await self.send(p.ws, {"type": "state", "mission": mid, "robot": robot, "state": play.m.snapshot(),
+                               "stars": play.m.stars(), "objectives": play.m.objectives()})
+        await self.tell_others(p, {"type": "robot", "name": p.name, "mission": mid, "robot": robot,
+                                   "steps": [["place"] + play.where()]})
+
+    async def run_play(self, p, m):
+        """A program run on this person's mission: the events back to their window, the steps to everyone else's,
+        the lesson's objectives marked from the result (the server's own, so nobody can claim a finish)."""
+        play = self.plays.get((p.role, slug(p.name)))
+        if play is None or m.get("mission") != play.mid:
+            await self.send(p.ws, {"type": "ran", "mission": m.get("mission"), "status": "no mission", "events": []})
+            return
+        if time.time() - play.last_run < RUN_GAP:
+            await self.send(p.ws, {"type": "ran", "mission": play.mid, "status": "too soon", "events": []})
+            return
+        play.last_run = time.time()
+        ran = play.run(str(m.get("text", ""))[:MAX_TEXT])
+        await self.send(p.ws, ran)
+        if ran["status"] == "error":
+            return
+        s, st = play.m.s, ran["stars"]
+        self.on_run(p, {"mission": play.mid, "status": ran["status"], "objectives": [o["done"] for o in ran["objectives"]],
+                        "complete": bool(s.get("complete")), "stars": st, "energy_left": s.get("energy"),
+                        "lines_used": s.get("linesUsed"), "robot": play.robot})
+        if s.get("complete") and p.role == "learner":
+            self.finished(p.name, play)
+        await self.tell_others(p, {"type": "robot", "name": p.name, "mission": play.mid, "robot": play.robot,
+                                   "steps": play.steps(ran)})
+        t = self.teacher()
+        if t is not None:
+            await self.send(t.ws, self.class_msg())
+
+    def finished(self, name, play):
+        """A finish kept in the learner's progress here, by the mission's own record_finish (the Solar Panel, the
+        best stars), so it follows them to any laptop."""
+        path = os.path.join(PROFILES, slug(name) + ".finish.json")
+        try:
+            os.makedirs(PROFILES, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.progress.get(name) or {"parts": [], "missions": {}}, f)
+            self.progress[name] = RULES[play.mid].record_finish(path, play.m, play.robot)
+        except OSError:
+            return
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        self.save_profile(name)
 
     async def teacher_command(self, p, m):
         kind = m.get("type")
