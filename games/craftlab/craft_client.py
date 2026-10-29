@@ -380,7 +380,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         self.hud.title.setText(f"CRAFT LAB   {'offline' if OFFLINE else 'TEACHER' if TEACHER else 'online'}: {name}")
         self.hud.keys.setText(KEYS_TEXT + ("\n" + TEACHER_KEYS if TEACHER else ""))
         if args.clean:
-            for t in (self.hud.title, self.hud.keys, self.hud.log, self.hud.news):
+            for t in (self.hud.title, self.hud.keys, self.hud.log, self.hud.news, self.full_button):
                 t.hide()
         if args.no_hand:
             self.hand_scene.hide()

@@ -50,7 +50,8 @@ SAFE_FALL, FALL_HARM = 4, 8              # a fall of more than 4 blocks: 8 Healt
 POD_EVERY, POD_ENERGY = 300.0, 60        # a Pod tops your Energy up to 60, once every 5 minutes
 DIG_SLACK = 0.7          # a dig may come this much sooner than the block's time (the window's clock)
 PULSE_RADIUS, PULSE_REACH, PULSE_HARM, PULSE_SECONDS = 2.5, 5.0, 6, 3.0   # an Overload Cell's pulse
-RIFTS, RIFT_EVERY, RIFT_MOST = (3, 6), 20.0, 3   # rifts opening at dusk; a Glitch from each every 20 s, 3 out at once
+RIFTS, RIFT_EVERY, RIFT_MOST = (1, 3), 20.0, 3   # rifts opening at dusk; a Glitch from each every 20 s, 3 out at once
+SET_BY_HAND = 30.0  # (a jump of the clock larger than this, in game seconds, between world ticks: the time was set)
 # the ids everything has on the wire (one byte): players 0 to 63, their Craft Bots 64 to 127 (craft_bot), creatures
 # 128 to 191 (craft_mobs), things dropped 192 to 254
 ITEM_BASE, ITEM_LAST = 192, 254
@@ -171,6 +172,7 @@ class Game:
         self.rift_n = 0
         self.notes = []             # (pid, what, detail): for the teaching layer (built, refined, survived...)
         self.phase_was = self.phase()
+        self.time_was = self.time   # (the clock at the last world tick: was a new phase reached by the clock or set?)
         import craft_mobs
         self.mobs = craft_mobs.Mobs(self)
         self.bots = {}              # Craft Bots: id -> craft_bot.Bot (each learner's own)
@@ -1235,7 +1237,7 @@ class Game:
 
     # ---------- Glitch rifts ----------
     def open_rifts(self):
-        """Dusk: three to six Glitch rifts tear open on the surface near the players (a crack two blocks long)."""
+        """Dusk: one to three Glitch rifts tear open on the surface near the players (a crack two blocks long)."""
         w = self.world
         rng = self.rng
         want = rng.randint(*RIFTS)
@@ -1329,6 +1331,8 @@ class Game:
                     self.pulse(*pos)
         self.step_rifts(dt)
         phase = self.phase()
+        by_clock = 0 <= self.time - self.time_was <= SET_BY_HAND
+        self.time_was = self.time
         if phase != self.phase_was:
             dark, was_dark = phase in ("dusk", "night"), self.phase_was in ("dusk", "night")
             if dark and not was_dark:  # (the time set straight to night, past dusk: dusk's things all the same)
@@ -1336,10 +1340,14 @@ class Game:
             elif was_dark and not dark:  # (straight to day, past dawn)
                 phase = "dawn"
             if phase == "dusk":
-                if self.rules["mobs"]:
+                # The world's first night, come round on the clock, is quiet: no rifts, time to build a Patch.
+                # (A dusk the teacher or a lesson sets opens them, so they can be shown any time.)
+                quiet = by_clock and self.day == 0
+                if self.rules["mobs"] and not quiet:
                     self.open_rifts()
-                self.events.append(("news", "Dusk: the Rust Walkers stir, and rifts are opening"
-                                    if self.rules["mobs"] else "Dusk"))
+                self.events.append(("news", "Dusk" if not self.rules["mobs"] else
+                                    "Dusk: the Rust Walkers stir. The first night is quiet: no rifts tonight" if quiet
+                                    else "Dusk: the Rust Walkers stir, and rifts are opening"))
             if phase == "dawn":  # (dawn: the rifts seal, and everyone who was here all night survived it)
                 for rid in list(self.rifts):
                     self.close_rift(rid)

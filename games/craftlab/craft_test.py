@@ -487,11 +487,22 @@ def mob_checks():
     p = g.add_player(0, "Dusk")
     g.mobs.age = 100
     g.time = 0.595 * g.rules["day_length"]
+    for _ in range(60 * 6):
+        g.step({})
+    check("The world's first dusk, come round on the clock, is quiet (no rifts)", g.phase() == "dusk" and not g.rifts,
+          f"{g.phase()}, {len(g.rifts)} rifts")
+    g.time = 1.595 * g.rules["day_length"]
     for _ in range(60 * 25):
         g.step({})
     kinds = {m["kind"] for m in g.mobs.mobs.values()}
-    check("At dusk Glitch rifts open (3 to 6) and send out Glitches", 3 <= len(g.rifts) <= 6 and "glitch" in kinds,
+    check("The next dusk Glitch rifts open (1 to 3) and send out Glitches", 1 <= len(g.rifts) <= 3 and "glitch" in kinds,
           f"{len(g.rifts)} rifts {kinds}")
+    g3 = game_on(W.World("small", 12), mobs=True)
+    g3.add_player(0, "Set")
+    g3.time = 0.62 * g3.rules["day_length"]
+    for _ in range(30):
+        g3.step({})
+    check("A dusk set by hand on the first day opens rifts all the same", 1 <= len(g3.rifts) <= 3, f"{len(g3.rifts)} rifts")
     rid, r = next(iter(g.rifts.items()))
     x, y, z = r["cells"][0]
     p.state.update(x=x + 0.5, y=y - 1.5, z=z + 1.0)
@@ -515,10 +526,11 @@ def mob_checks():
         m.update(x=p.state["x"] + 1.0, y=p.state["y"], z=p.state["z"])
         g.mobs.hit(mid, 12, (ex, ey, ez), p)
         hits += 1
+    gone = mid not in g.mobs.mobs  # (now: another rift's next Glitch may be given the same number)
     for _ in range(60):
         g.step({0: (0.2, 0.0, 0)})
     check("A Glitch zaps from a few blocks away; four Mk1 Zapper hits beat it, and it drops Glitch shards",
-          hurt and mid not in g.mobs.mobs and p.stats["killed"].get("glitch") == 1 and hits == 4,
+          hurt and gone and p.stats["killed"].get("glitch") == 1 and hits == 4,
           f"hurt {hurt} hits {hits}")
     g.time = (g.day + 0.94) * g.rules["day_length"]
     for _ in range(60 * 2):

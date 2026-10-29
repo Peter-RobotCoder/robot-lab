@@ -14,6 +14,10 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))  # noqa: F821 (SPECPATH is 
 GAMES = os.path.join(ROOT, "games")
 SKIP_DIRS = {"__pycache__", "brains", "profiles", "evidence", "ai_requests", "ai_changes", "build", "dist", ".venv"}
 NOT_IN_APP = {"ursina", "pygame", "tkinter", "psutil", "IPython", "pytest"}  # (older demos and tests only)
+# Panda3D's DLLs the games never load, left out of the download: the FMOD Ex audio module and its library (a
+# proprietary licence; Config.prc loads OpenAL) and the DirectX 9 display with its Cg and D3DX helpers (Config.prc
+# loads OpenGL). cg.dll and cgGL.dll stay: Panda 1.10's shader generator (setShaderAuto) writes Cg for OpenGL.
+NOT_LOADED = {"fmodex64.dll", "libp3fmod_audio.dll", "libpandadx9.dll", "cgd3d9.dll", "d3dx9_43.dll"}
 
 
 def game_datas():
@@ -59,7 +63,8 @@ def game_imports():
 datas = game_datas() + [(os.path.join(ROOT, "build", "release_config.json"), ".")]
 datas += collect_data_files("panda3d")                   # etc/Config.prc: which display and audio to load
 datas += copy_metadata("panda3d-gltf")                   # (Panda3D finds the glTF model loader through this)
-binaries = collect_dynamic_libs("panda3d")               # Panda3D loads its display and audio DLLs by name
+binaries = [b for b in collect_dynamic_libs("panda3d")  # Panda3D loads its display and audio DLLs by name
+            if os.path.basename(b[0]).lower() not in NOT_LOADED]
 hiddenimports = (collect_submodules("panda3d") + collect_submodules("direct") + collect_submodules("websockets")
                  + collect_submodules("gltf") + collect_submodules("reportlab")  # (reportlab: the PDFs after Stop)
                  + ["simplepbr", "live_format", "records",
@@ -73,6 +78,7 @@ a = Analysis(  # noqa: F821
     hiddenimports=hiddenimports,
     excludes=sorted(NOT_IN_APP),
 )
+a.binaries = [b for b in a.binaries if os.path.basename(b[0]).lower() not in NOT_LOADED]  # (nor through a hook)
 pyz = PYZ(a.pure)  # noqa: F821
 
 

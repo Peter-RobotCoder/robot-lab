@@ -22,7 +22,7 @@ import os
 import numpy as np
 from direct.gui.DirectGui import DGG, DirectButton, DirectEntry, DirectFrame
 from direct.gui.OnscreenText import OnscreenText
-from panda3d.core import (CardMaker, LineSegs, NodePath, SamplerState, TextNode, Texture, TransparencyAttrib)
+from panda3d.core import (CardMaker, LineSegs, NodePath, Point3, SamplerState, TextNode, Texture, TransparencyAttrib)
 
 import craft_blocks as B
 import craft_gfx as gfx
@@ -292,6 +292,7 @@ class Hud:
         self.picked = text(self.bottom, "", 0, 0.205, 0.034, INK, TextNode.ACenter, "bold")
         self.picked_until = 0.0
         # news (a pill at the top), the log (bottom right), the title, the keys, the dev panel
+        self.news = app.a2dTopCenter.attachNewNode("news")  # (each pill is made in here: hiding it hides them all)
         self.news_card = None
         self.news_until = 0.0
         self.news_text = ""
@@ -384,7 +385,7 @@ class Hud:
         lines = words.split("\n")
         w = min(2.6, max(len(line) for line in lines) * 0.019 + 0.12)
         h = 0.07 + 0.045 * (len(lines) - 1)
-        self.news_card = self.app.a2dTopCenter.attachNewNode("news")
+        self.news_card = self.news.attachNewNode("pill")
         card(self.news_card, -w / 2, w / 2, -0.13 - h, -0.13, h / 2 if len(lines) == 1 else 0.03, BG2[:3] + (0.9,),
              LINE, CYAN[:3] + (0.25, 0.015))
         text(self.news_card, words, 0, -0.13 - 0.047, 0.032, INK, TextNode.ACenter, "bold")
@@ -433,12 +434,15 @@ class Screen:
             self.tab = "backpack"
         self.root = DirectFrame(parent=app.aspect2d, frameColor=BG[:3] + (0.55,), frameSize=(-3, 3, -2, 2))
         self.panel = card(self.root, -1.05, 1.05, -0.95, 0.9, 0.06, BG2[:3] + (0.97,))
+        self.fit = min(1.0, app.a2dRight / 1.08, app.a2dTop / 1.03)  # (smaller in a narrow or tall window)
+        self.panel.setScale(self.fit)
         self.cursor = None
         self.cursor_view = SlotView(app.aspect2d, 0, 0)
+        self.cursor_view.frame.setScale(self.fit)
         self.cursor_view.frame["frameTexture"] = None
         self.cursor_view.frame["frameColor"] = (0, 0, 0, 0)
         self.cursor_view.frame.setBin("gui-popup", 50)
-        self.tip = text(self.root, "", 0, -0.99, 0.03, INK, TextNode.ACenter)
+        self.tip = text(self.root, "", 0, -0.99 * self.fit, 0.03, INK, TextNode.ACenter)
         self.search = None
         self.search_text = ""
         self.chip = "All"
@@ -775,9 +779,7 @@ class Screen:
     def follow_mouse(self, t=0.0):
         mw = self.app.mouseWatcherNode
         if mw is not None and mw.hasMouse():
-            m = mw.getMouse()
-            ratio = self.app.getAspectRatio()
-            self.cursor_view.frame.setPos(m.x * ratio, 0, m.y)
+            self.cursor_view.frame.setPos(self.mouse_at(mw))
         v = self.slot_under()
         self.tip.setText(B.name_of(v.item) if v is not None and v.item else "")
         if self.search is not None and self.search.get() != self.search_text:
@@ -795,14 +797,18 @@ class Screen:
         mw = self.app.mouseWatcherNode
         if mw is None or not mw.hasMouse():
             return None
-        m = mw.getMouse()
-        ratio = self.app.getAspectRatio()
-        x, y = m.x * ratio, m.y
+        m = self.mouse_at(mw)
+        half = self.fit / 2
         for v in self.inv + self.box + self.suit + self.palette:
             p = v.frame.getPos(self.app.aspect2d)
-            if abs(p.x - x) < v.size / 2 and abs(p.z - y) < v.size / 2:
+            if abs(p.x - m.x) < v.size * half and abs(p.z - m.z) < v.size * half:
                 return v
         return None
+
+    def mouse_at(self, mw):
+        """The mouse in aspect2d's units (wide or tall windows alike)."""
+        m = mw.getMouse()
+        return self.app.aspect2d.getRelativePoint(self.app.render2d, Point3(m.x, 0, m.y))
 
     def hovered(self):
         v = self.slot_under()
