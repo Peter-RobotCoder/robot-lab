@@ -37,10 +37,14 @@ class TickStats:
             self.gc_worst = max(self.gc_worst, time.perf_counter() - self._gc_start)
             self._gc_start = None
 
+    KEEP = 4096  # (CHANGE 209: with nobody connected no report empties the lists: only the latest steps are kept)
+
     def step(self, work, late):
         """One physics step: its work time and how late it started (seconds)."""
         self.work.append(work)
         self.late.append(late)
+        if len(self.work) > self.KEEP:
+            del self.work[:-self.KEEP // 2], self.late[:-self.KEEP // 2]
 
     def skip(self, steps):
         self.skipped += steps

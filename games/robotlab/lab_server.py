@@ -29,6 +29,7 @@ import re
 import time
 
 import websockets
+from panda3d.core import RenderState, TransformState
 
 import ai_pipeline
 import cpu_brains
@@ -1703,6 +1704,11 @@ class LabServer:
                     p.ctrl_at = None
             self.step_ms = step_ms(next_step - sim.STEP)
             steps += 1
+            if steps % 60 == 0:  # (CHANGE 209) once a second: Panda3D's cache of the transforms Bullet's bodies made.
+                # A window's frame loop empties it; a server has none, so it grew by 190 MB an hour until the class
+                # server ran out of memory and stopped (systemd's watchdog restarted it every 11 hours).
+                TransformState.garbageCollect()
+                RenderState.garbageCollect()
             if steps % 30 == 0:  # twice a second: missions that are checked over time, and the tournament
                 self.teaching.tick(self.arena.time)
                 for p in self.seats.expired():  # (CHANGE 164) not back in time: their robot goes
