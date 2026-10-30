@@ -41,7 +41,7 @@ sys.path.insert(0, lab_version.ENGINE_HOME)  # (the engine package, shared by ev
 from engine import club_ticket  # noqa: E402
 from engine.outbox import Outboxes  # noqa: E402
 from engine.seats import Seats, dropped  # noqa: E402
-from engine import lifecycle, tick_stats  # noqa: E402
+from engine import experience, lifecycle, tick_stats  # noqa: E402
 from engine import schema  # noqa: E402
 from engine import gfx_tiers  # noqa: E402
 import lab_teaching
@@ -1843,6 +1843,8 @@ async def main():
                     help="address to listen on (127.0.0.1 = this computer only; the class server sits behind Caddy)")
     ap.add_argument("--class-server", action="store_true", help="the real class server: real codes required")
     ap.add_argument("--lesson", help="start from saved lesson settings (JSON)")
+    ap.add_argument("--experience", type=int, help="on your own: this experience on, and the server stops when the "
+                                                   "window has gone (the window starts it: engine/experience.py)")
     args = ap.parse_args()
     CLASS_SERVER = args.class_server
     local_only = args.bind in ("127.0.0.1", "localhost", "::1")
@@ -1852,6 +1854,13 @@ async def main():
             raise SystemExit("Robot Lab server not started: " + problem)
     OPEN_SIGNUP = os.environ.get("ROBOTLAB_OPEN_SIGNUP") == "1" or not CLASS_SERVER
     server = LabServer(args.lesson)
+    solo = []
+    if args.experience and not CLASS_SERVER and local_only:  # (CHANGE 210) an experience played on your own
+        if not server.teaching.start_experience(args.experience, solo=True):
+            raise SystemExit(f"Robot Lab has no Experience {args.experience}")
+        server.lesson["teacher_robot"] = False
+        server.rebuild_arena()
+        solo = [experience.solo_watch(server.players)]
     if CLASS_SERVER:  # (the front door tells the Club Coders app which code this class runs)
         with open(os.path.join(lab_teaching.DATA, "running_code"), "w", encoding="utf-8") as f:
             f.write(lab_version.CODE)
@@ -1865,7 +1874,7 @@ async def main():
         else:
             print(f"Robot Lab laptop test server on {args.bind}:{args.port}. "
                   f"Codes: learners {LEARNER_CODE}, teacher {TEACHER_CODE}. A new username makes a profile.")
-        await lifecycle.run([server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()],
+        await lifecycle.run([server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()] + solo,
                             server.outboxes, server.players, server.teaching.save)  # (1012 at the end: CHANGE 160)
 
 

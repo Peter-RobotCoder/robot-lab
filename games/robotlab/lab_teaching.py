@@ -4,6 +4,8 @@ builds, drives and brains complete which objectives, and the robot files learner
 The server calls into this. Everything a learner achieves is saved as evidence against the learning outcomes in
 lab_missions.py, so the teacher can see (and export) who has shown what.
 """
+import asyncio
+import math
 import os
 
 import lab_version  # noqa: F401  (puts the engine on the path)
@@ -83,6 +85,7 @@ class Teaching(teaching.Teaching):
 
     def build_checks(self, p, r, new, old, by_code):
         """Mission 1's objectives a, b and c (with the GUI), and mission 2's points."""
+        self.experience_garage(p, new, old, by_code)  # (Experience 1's garage and code objectives: CHANGE 210)
         r.top_speed = 0.0
         defaults = {k: v[2] for k, v in sim.SETTINGS.items()}
         if not by_code:
@@ -129,3 +132,129 @@ class Teaching(teaching.Teaching):
 
     def missions_extra(self, r):
         return {"top_speed": round(r.top_speed, 1)}
+
+    # ---------- Experience 1, Orientation (CHANGE 210): what each objective measures, in the real arena ----------
+    def experience_value(self, p, r, oid, robot, arena, now, run):
+        b, v = run["base"], run["value"]
+        if oid == "brain":
+            return r.brain.seconds_running(now) if (r.brain and r.autopilot and not r.brain.error) else None
+        if robot is None or oid not in ("drive", "turn", "speed", "weapon", "target", "bout"):
+            return None  # (the garage and the code are counted as they are built: build_checks)
+        if b.get("robot") is not robot:  # (the objective's start, or a new robot after a rebuild: measured from here)
+            b.update(robot=robot, pos=(robot.pos.x, robot.pos.y), h=robot.np.getH(), fires=robot.fires,
+                     on=robot.weapon_on, hits=robot.hits)
+            return None
+        if oid == "drive":
+            x, y = robot.pos.x, robot.pos.y
+            step = math.hypot(x - b["pos"][0], y - b["pos"][1])
+            b["pos"] = (x, y)
+            return v + (0.0 if r.autopilot or step > 5 else step)  # (a jump back to the start square isn't driving)
+        if oid == "turn":
+            h = robot.np.getH()
+            step = abs((h - b["h"] + 180) % 360 - 180)
+            b["h"] = h
+            return v + (0.0 if r.autopilot else step)
+        if oid == "speed":
+            return max(v, abs(robot.speed) * 3.6)
+        if oid == "weapon":  # (a wedge or hammer fires; a spinner or drum is switched on or off)
+            used = max(0, robot.fires - b["fires"]) + (robot.weapon_on != b["on"])
+            b["fires"], b["on"] = robot.fires, robot.weapon_on
+            return v + used
+        if oid == "target":
+            got = max(0, robot.hits - b["hits"])
+            b["hits"] = robot.hits
+            return v + got
+        if oid == "bout":
+            winner, _ = self.server.result(robot.arena)
+            final = robot.arena.final
+            if final is None or b.get("judged") is final:
+                return None
+            b["judged"] = final
+            if winner is robot:
+                others = [x for x in robot.arena.robots if x is not robot and not x.house]
+                if others and all(x.knocked_out for x in others):
+                    self.experience_bonus(p.name, "bout")
+                return 1.0
+            self.experience_say(p.name, "Not this time." + (" Press REMATCH to go again." if self.solo else
+                                                            " Win the next one."))
+        return None
+
+    def x_built(self, name, oid, kinds=None):
+        """A build counts towards the garage objective (the kinds of variable it changed) or the code one."""
+        if self.experience is None:
+            return
+        run = self.xrun(self.record(name))
+        o = self.x_objective(run)
+        if o is None or o["id"] != oid:
+            return
+        self.x_measuring(run)
+        if kinds is None:
+            run["value"] = 1.0
+        else:
+            have = set(run["base"].get("kinds", [])) | kinds
+            run["base"]["kinds"] = sorted(have)
+            run["value"] = float(len(have & {"string", "integer", "list"}))
+
+    def experience_garage(self, p, new, old, by_code):
+        if by_code:
+            if teaching.design_changes(old, new, sim.schema()):
+                self.x_built(p.name, "code")
+            return
+        kinds = set()
+        if new.get("name") != old.get("name", p.name):
+            kinds.add("string")
+        if any(new["settings"].get(k) != (old.get("settings") or {}).get(k) for k in new.get("settings", {})) or \
+                any(new["points"].get(k) != (old.get("points") or {}).get(k) for k in new.get("points", {})):
+            kinds.add("integer")
+        if new.get("colour") != old.get("colour", p.start_colour):
+            kinds.add("list")
+        self.x_built(p.name, "garage", kinds)
+
+    def experience_begin(self, p, r, oid, robot, arena, run):
+        if oid == "bout" and self.solo:
+            self.solo_battle(r, run)
+
+    def experience_actions(self, p, r, oid, run):
+        robot = p.robot
+        if oid == "bout" and self.solo and robot is not None and robot.arena.final is not None and \
+                self.server.result(robot.arena)[0] is not robot:
+            return [["rematch", "REMATCH"]]
+        return []
+
+    def experience_action(self, p, r, action, run):
+        o = self.x_objective(run)
+        if action == "rematch" and self.solo and o is not None and o["id"] == "bout":
+            self.solo_battle(r, run)
+
+    def experience_ended(self, p, r, oid, run):
+        if oid == "bout" and self.solo:
+            self.solo_practice(run)
+
+    def experience_reset(self, p, r, run):
+        if self.solo:
+            self.solo_practice(run)
+
+    def solo_battle(self, r, run):
+        """On your own: a battle against the computer robot, its brain on (easy), with the real countdown."""
+        L = self.server.lesson
+        run["base"].setdefault("was", {k: L.get(k) for k in ("mode", "cpu_level", "time_limit")})
+        run["base"].pop("judged", None)
+        L.update(mode="battle", cpu_level="easy", time_limit=60)
+        if r.autopilot:  # (this one's you)
+            r.autopilot = False
+        self.server.rebuild_arena(intro=True)
+        self.tell_everyone()
+
+    def solo_practice(self, run):
+        was = run["base"].pop("was", None)
+        if was:
+            self.server.lesson.update(was)
+            self.server.rebuild_arena()
+            self.tell_everyone()
+
+    def tell_everyone(self):
+        """The lesson changed under the windows (a battle on your own): they are told as the teacher's changes are."""
+        try:
+            asyncio.get_running_loop().create_task(self.server.broadcast_lesson())
+        except RuntimeError:  # (no loop running: a test calling this directly)
+            pass

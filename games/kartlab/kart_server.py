@@ -38,7 +38,7 @@ sys.path.insert(0, kart_version.ENGINE_HOME)
 from engine import club_ticket, gfx_tiers, predict, rw_sound, schema, wire  # noqa: E402
 from engine.outbox import Outboxes  # noqa: E402
 from engine.seats import Seats, dropped  # noqa: E402
-from engine import lifecycle, tick_stats  # noqa: E402
+from engine import experience, lifecycle, tick_stats  # noqa: E402
 
 import ai_pipeline  # noqa: E402
 import cpu_brains  # noqa: E402
@@ -345,6 +345,7 @@ class KartServer:
             L["track"] = "club"
         if self.track.name != kart_track.TRACKS[L["track"]]["name"]:
             self.track = kart_track.load(L["track"])
+            self.track_name = kart_track.TRACKS[L["track"]]["name"]  # (CHANGE 210: an experience's track, and back)
         practice = L.get("mode", "practice") == "practice"
         laps = 99 if practice else max(1, min(9, int(L.get("laps", 3))))
         race = sim.Race(self.track, SCHEMA, laps)
@@ -1198,7 +1199,12 @@ class KartServer:
             if kid in race.karts:
                 th, st, bt = cpu_brains.drive(level, race.karts[kid], race)
                 inputs[kid] = (th, st, bt | kart_items.cpu_use(race.karts[kid], race))  # (CHANGE 159: its item)
+        # (CHANGE 210) an experience counts a drift's mini-turbo and an item used as they happen: the karts as they
+        # were before the tick, to compare (the step makes each kart a new dict, so these are left as they were)
+        before = dict(race.karts) if self.teaching.experience is not None else None
         race.step_all(inputs)
+        if before is not None:
+            self.teaching.experience_step(race, before)
 
     def check_race(self):
         """A race in a league has finished: score it and start the next one in a moment (or crown the champion)."""
@@ -1451,6 +1457,8 @@ async def main():
     ap.add_argument("--level", default=None, choices=list(cpu_brains.LEVELS))
     ap.add_argument("--laps", type=int, default=None)
     ap.add_argument("--autostart", type=float, default=None, help="seconds after the first window joins, start a race")
+    ap.add_argument("--experience", type=int, help="on your own: this experience on, and the server stops when the "
+                                                   "window has gone (the window starts it: engine/experience.py)")
     args = ap.parse_args()
     CLASS_SERVER = args.class_server
     local_only = args.bind in ("127.0.0.1", "localhost", "::1")
@@ -1467,6 +1475,13 @@ async def main():
             server.lesson["hazards"]["cpu_karts"] = True
         server.lesson.update(overrides)
         server.rebuild()
+    solo = []
+    if args.experience and not CLASS_SERVER and local_only:  # (CHANGE 210) an experience played on your own
+        if not server.teaching.start_experience(args.experience, solo=True):
+            raise SystemExit(f"Kart Lab has no Experience {args.experience}")
+        server.lesson["teacher_kart"] = False
+        server.rebuild()
+        solo = [experience.solo_watch(server.players)]
     if CLASS_SERVER:  # (the club desk tells the Club Coders app which code this class runs)
         os.makedirs(DATA, exist_ok=True)
         with open(os.path.join(DATA, "running_code"), "w", encoding="utf-8") as f:
@@ -1483,7 +1498,7 @@ async def main():
         await server.broadcast_lesson()
 
     tasks = [server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()] + \
-        ([autostart()] if args.autostart is not None else [])
+        ([autostart()] if args.autostart is not None else []) + solo
     async with websockets.serve(server.handler, args.bind, args.port, compression=None, ping_interval=5,
                                 ping_timeout=10, max_queue=8):
         tick_stats.start_up()  # (CHANGE 160)

@@ -13,6 +13,8 @@ import os
 import time
 import re
 
+from engine.experience import ExperienceMixin, max_xp
+
 
 
 class Game:
@@ -59,6 +61,8 @@ class Record:
         self.brain = None          # the game's Autopilot
         self.brain_features = set()
         self.autopilot = False
+        self.xrun = None           # the experience being played (engine/experience.py), not kept
+        self.xbest = {}            # each experience's best result: kept in the profile
 
 
 def tidy_words(text, most):
@@ -77,7 +81,7 @@ def tidy_words(text, most):
     return "\n".join(out).strip()[:most]
 
 
-class Teaching:
+class Teaching(ExperienceMixin):
     record_class = Record
     reflections = {}  # mission id -> the words a reflection needs to count (the game's)
 
@@ -98,6 +102,7 @@ class Teaching:
             for name, data in saved.get("learners", {}).items():
                 r = self.record(name)
                 r.done, r.text = data.get("done", {}), data.get("text", {})
+                r.xbest = data.get("experience") if isinstance(data.get("experience"), dict) else {}
             self.cards = saved.get("cards", [])
 
     def record(self, name):
@@ -113,6 +118,8 @@ class Teaching:
         saved = prof.get("record", {})
         r.done = {**saved.get("done", {}), **r.done}
         r.text = {**saved.get("text", {}), **r.text}
+        if isinstance(prof.get("experience"), dict):  # (each experience's best: CHANGE 210)
+            r.xbest = {**prof["experience"], **(r.xbest or {})}
         if r.prediction is None:
             r.prediction = saved.get("prediction")
         self.restore_record(r, saved)
@@ -132,6 +139,8 @@ class Teaching:
         r = self.record(name)
         prof["record"] = {"done": r.done, "text": r.text, "prediction": r.prediction, **self.record_extra(r)}
         prof["autopilot"] = r.autopilot
+        if r.xbest:
+            prof["experience"] = r.xbest
         self.g.profiles.save(prof)
 
     @property
@@ -203,7 +212,7 @@ class Teaching:
             if unit is None or unit not in self.g.units(world):
                 continue
             self.tick_checks(p, r, unit, world, now)
-
+        self.experience_tick(now)  # (an experience's objectives: CHANGE 210)
 
     # ---------- messages from learners and the teacher ----------
     def on_message(self, p, m):
@@ -225,6 +234,8 @@ class Teaching:
                 self.reflected(p, r, mission, text)
                 self.save()
             return [(p.ws, self.missions_msg(p))]
+        if kind == "experience":  # (CHANGE 210: skip, start again, a rematch; the teacher's start and stop)
+            return self.experience_message(p, m)
         if kind == "code_viewed":
             r.code_viewed = True
             return []
@@ -435,8 +446,12 @@ class Teaching:
         missions = [{"id": k, "title": words(v[1]), "text": words(v[2]), "outcomes": v[3], "check": v[4],
                      "done": k in r.done, "detail": r.done.get(k, {}).get("detail", "")}
                     for k, v in self.objectives(self.lesson_number).items()]
-        return {"type": "missions", "lesson": self.lesson_number,
-                "title": words(self.g.missions.LESSONS[self.lesson_number]["title"]),
+        title = words(self.g.missions.LESSONS[self.lesson_number]["title"])
+        if self.experience is not None:  # (CHANGE 210) the Mission tab is the experience's objectives, in order
+            missions = self.experience_missions(r)
+            title = f"Experience {self.experience}: {self.experience_def()['title']}"
+        return {"type": "missions", "lesson": self.lesson_number, "experience": self.experience,
+                "title": title,
                 "missions": missions, "prediction": r.prediction, **self.missions_extra(r),
                 "text": r.text, "brain": bool(r.brain), "autopilot": r.autopilot,
                 "brain_error": r.brain.error if r.brain else None,
@@ -474,7 +489,7 @@ class Teaching:
                   "goal": str(c["card"].get("goal", ""))[:120]} for c in self.cards if str(c.get("time", "")) >= since]
         totals = {name: self.card_data(name)["outcomes"] for name in self.records}  # (each learner so far, this game)
         return {"since": since, "present": present, "done": done, "cards": cards, "lesson": self.lesson_number,
-                "totals": totals}
+                "totals": totals, "experiences": self.experience_report(since)}
 
     def teacher_update(self):
         t = self.server.teacher()
@@ -493,10 +508,17 @@ class Teaching:
                         # (CHANGE 97) every lesson's objectives as learners see them, with the teacher's edits
                         "edited": {str(n): {k: list(v) for k, v in self.objectives(n, everything=True).items()}
                                    for n in self.g.missions.LESSONS},
-                        "edits": self.mission_edits()})]
+                        "edits": self.mission_edits()}), (t.ws, self.experience_class_msg())]
 
     def learner_updates(self):
-        return [(p.ws, self.missions_msg(p)) for p in self.server.learners()]
+        out = [(p.ws, self.missions_msg(p)) for p in self.server.learners()]
+        told = getattr(self, "x_told", set())
+        for p in self.server.learners():  # (CHANGE 210) an experience's run, every second; once "off" when it ends
+            if self.experience is not None or p.name in told:
+                out.append((p.ws, self.experience_msg(p)))
+                told = (told | {p.name}) if self.experience is not None else (told - {p.name})
+        self.x_told = told
+        return out
 
     # ---------- mods: designs, the world and rules changed by approved AI requests ----------
     def apply_mods(self, files):
@@ -772,7 +794,8 @@ class Teaching:
 
     # ---------- saving ----------
     def save(self):
-        data = {"learners": {n: {"done": r.done, "text": r.text} for n, r in self.records.items()},
+        data = {"learners": {n: {"done": r.done, "text": r.text, **({"experience": r.xbest} if r.xbest else {})}
+                             for n, r in self.records.items()},
                 "cards": self.cards}
         with open(self.evidence_file + ".tmp", "w") as f:  # (written whole, then swapped in: a server stopped
             json.dump(data, f, indent=2)                    # part-way through can't leave half a file behind)
@@ -790,6 +813,12 @@ class Teaching:
                     lesson, title, _, outcomes, _ = self.mission_info(mid)
                     w.writerow([n, lesson, mid, title, " ".join(outcomes),
                                 " || ".join(self.g.missions.OUTCOMES[o][2] for o in outcomes), info["time"], info["detail"]])
+                for n, best in sorted((r.xbest or {}).items()):  # (CHANGE 210) each experience finished
+                    d = self.experience_def(int(n)) or {}
+                    last = best.get("last") or {}
+                    w.writerow([r.name, f"Experience {n}", "", d.get("title", ""), "", "", last.get("when", ""),
+                                f"Finished {best.get('finished', 0)}x; best {best.get('best_xp', 0)} of "
+                                f"{max_xp(d) if d else '?'} XP, {best.get('rank', '')}, {best.get('best_stars', 0)} stars"])
         return path
 
     # ---------- the game's own: what completes which objective ----------

@@ -155,6 +155,59 @@ MISSIONS = {
 REFLECTIONS = {"2e": 8, "5b": 20}  # missions answered in writing: the fewest words that count
 
 
+# ---------- experiences ----------
+# (CHANGE 210) A game-style first session played in the real game (engine/experience.py): CC-01 the coach, one
+# objective at a time, XP and ranks over Kart Lab's own window, garage, code panel, brains and races. kart_teaching's
+# Teaching measures each objective from the real kart on the real track. The teacher starts it for a class
+# (Controls); on your own the app's EXPERIENCES button opens Kart Lab with --experience 1 (its server on your laptop).
+# The lesson it is played in: the Club Circuit, open for practice, no computer karts until the race (they'd take the
+# item boxes and bump a beginner off the road), every power-up on, everything in the garage and the brains on.
+EXPERIENCES = {
+    1: dict(
+        title="Orientation", coach="CC-01",
+        intro="CC-01 here, your coach. This is Kart Lab, the real thing: your kart, the Club Circuit, the code. Nine "
+              "objectives, one at a time, and XP for each.",
+        lesson=dict(mode="practice", track="club", laps=2, cpu_karts=3, cpu_level="easy", designs_locked=False,
+                    tyres=False, hazards=hazards("bumping"),
+                    items={n: True for n in ("boost", "oil", "shot", "homing", "shield")},  # (kart_items.ITEMS)
+                    tools=tools(*ALL_TOOLS, "brains")),
+        objectives=[
+            dict(id="drive", title="Engines on", xp=10, goal=30, unit="m", hint="Drive 30 metres",
+                 say="Systems online. Let's see you move: hold the up arrow (or W) to go, left and right to steer."),
+            dict(id="speed", title="Flat out", xp=10, goal=60, unit="km/h", hint="Reach 60 km/h",
+                 say="Open it up: find a straight, hold the throttle and watch your speed, bottom right."),
+            dict(id="lap", title="Learn the track", xp=25, goal=8, unit="gates", hint="Drive all the way round",
+                 say="The track has 8 gates round it. Drive a whole lap, through every one: the map, bottom left, "
+                     "shows where you are. Off the road? R puts you back on the track."),
+            dict(id="drift", title="Drift boost", xp=25, goal=2, hint="Earn 2 mini-turbos",
+                 say="The racer's trick: hold Shift as you steer through a bend. The DRIFT bar fills, bottom right; "
+                     "let go once it's past the first mark and you get a mini-turbo. Two of them."),
+            dict(id="item", title="Power-up", xp=15, hint="Drive through an item box, then use the item",
+                 say="See the boxes across the road? Drive through one for a power-up (it shows on the right), then "
+                     "press Space to use it."),
+            dict(id="garage", title="Variables", xp=45, goal=3, hint="Change a string, an integer and a list, then "
+                                                                     "BUILD MY KART",
+                 say="Your kart is made of VARIABLES. Press I and open the Garage: give it a new name (a STRING), "
+                     "move speed, acceleration or grip (an INTEGER) and click a colour (a LIST), then press BUILD "
+                     "MY KART.", outcomes=["VAR", "DATA"]),
+            dict(id="code", title="Hack the code", xp=30, hint="Change a value in the code (C) and build from there",
+                 say="Everything in the Garage is Python code. Press C: that's your kart, every variable with its "
+                     "type. Change a value, press APPLY CODE, then BUILD MY KART in the code panel.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="brain", title="Brains", xp=30, goal=8, unit="s", hint="Autopilot on for 8 seconds",
+                 say="A BRAIN is Python that drives for you. Press U to upload brains/my_brain.py, then P to switch "
+                     "autopilot on, and watch it drive.", outcomes=["SEL", "FUNC"]),
+            dict(id="race", title="First race", xp=60, hint="Finish a race (first place scores a bonus)",
+                 say="Last one: a real race. Your teacher starts the races: when the countdown ends, it's real. "
+                     "Get to the flag.",
+                 solo="Ready for a real one? Three computer karts on the grid, two laps, the real countdown. "
+                      "Autopilot's off: this one's you. Get to the flag, and first place scores a bonus."),
+        ],
+        bonus=dict(id="race", title="Race winner", xp=25),
+        finish="Orientation complete. You drove it, coded it, gave it a brain and raced it. Welcome to Club Coders!"),
+}
+
+
 def points_words(text, limits):
     """A mission's words with the teacher's own numbers in them: the missions are written for 100 points to share
     and 10 to 60 for each (the standard limits), and the teacher can change both (the Limits tab)."""

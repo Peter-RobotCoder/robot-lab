@@ -87,9 +87,10 @@ class Server:
         assert st.wait_port(self.port), "the server didn't start"
         with open(os.path.join(st.ROOT, folder, script), encoding="utf-8") as f:
             source = f.read()
-        teaching = os.path.join(st.ROOT, "engine", "teaching.py")
-        with open(teaching, encoding="utf-8") as f:
-            source_all = source + f.read()
+        source_all = source
+        for shared in ("teaching.py", "experience.py"):  # (the engine's teaching, and its experiences: CHANGE 210)
+            with open(os.path.join(st.ROOT, "engine", shared), encoding="utf-8") as f:
+                source_all += f.read()
         self.kinds, self.fields, self.keys = kinds_of(source_all), fields_of(source_all), nested_of(source_all)
 
     def connect(self, who):

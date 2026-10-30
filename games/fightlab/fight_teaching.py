@@ -4,6 +4,7 @@ builds, fights and brains complete which objectives, and the fighter files learn
 The server calls into this. Everything a learner achieves is saved as evidence against the learning outcomes in
 fight_missions.py, so the teacher can see (and export) who has shown what.
 """
+import math
 import os
 
 import fight_version  # noqa: F401  (puts the engine on the path)
@@ -83,6 +84,7 @@ class Teaching(teaching.Teaching):
 
     def build_checks(self, p, r, new, old, by_code):
         """Mission 1's objectives a, b and c (with the GUI), and mission 2's points and combo."""
+        self.experience_garage(p, new, old, by_code)  # (Experience 1's garage and code objectives: CHANGE 210)
         f = p.fighter
         r.finishers_at_build = f.finishers if f else 0
         defaults = {k: v[2] for k, v in sim.SETTINGS.items()}
@@ -137,4 +139,156 @@ class Teaching(teaching.Teaching):
             self.complete(p.name, "3c", "Brain calls its own helper function")
         if "memory" in r.brain_features:
             self.complete(p.name, "3d", "Brain keeps state in me.memory")
+
+    # ---------- Experience 1, Orientation (CHANGE 210): what each objective measures, in the real ring ----------
+    # Twice a second (engine/experience.py's experience_tick), from the learner's own fighter as the server has it.
+    # The fighting objectives count only what the learner does themselves (not their autopilot), measured from the
+    # objective's start, or from a new fighter after a rebuild (a build makes a new Fighter, its counts at nothing).
+    FIGHT_OBJECTIVES = ("footwork", "sidestep", "strikes", "combo", "moves", "bout")
+
+    def experience_value(self, p, r, oid, f, stage, now, run):
+        b, v = run["base"], run["value"]
+        if oid == "brain":
+            return r.brain.seconds_running(now) if (r.brain and r.autopilot and not r.brain.error) else None
+        if f is None or oid not in self.FIGHT_OBJECTIVES or f not in stage.fighters():
+            return None  # (the garage and the code are counted as they are built: build_checks)
+        enemy = f.ring.enemy_of(f)
+        if b.get("unit") is not f:  # (the objective's start, or a new fighter after a rebuild: measured from here)
+            b.update(unit=f, pos=(f.x, f.y), round=self.angle_round(f, enemy), hits=f.hits, finishers=f.finishers,
+                     connected=dict(f.connected))
+            return None
+        mine = not r.autopilot  # (what the learner does, not their brain)
+        if oid == "footwork":
+            step = math.hypot(f.x - b["pos"][0], f.y - b["pos"][1])
+            b["pos"] = (f.x, f.y)
+            return v + (step if mine and step < 2.0 else 0.0)  # (a jump back to the start spot isn't walking)
+        if oid == "sidestep":  # (how far round the other fighter: the angle from them to you)
+            a = self.angle_round(f, enemy)
+            step = 0.0 if a is None or b["round"] is None else abs((a - b["round"] + 180) % 360 - 180)
+            b["round"] = a
+            return v + (step if mine and step < 120 else 0.0)  # (a new round's start spot isn't a sidestep)
+        if oid == "strikes":
+            got = max(0, f.hits - b["hits"])
+            b["hits"] = f.hits
+            return v + (got if mine else 0)
+        if oid == "combo":  # (whole combos landed: the last move of the combo list, reached by chaining)
+            got = max(0, f.finishers - b["finishers"])
+            b["finishers"] = f.finishers
+            return v + (got if mine else 0)
+        if oid == "moves":  # (the kinds landed or blocked: a kick (S, forward + S, X + S), a jump kick, the special)
+            kinds = {"kick": ("kick", "high", "low"), "jump kick": ("jump_kick",), "special": (f.special,)}
+            have = set(b.get("kinds", []))
+            for kind, moves in kinds.items():
+                if mine and any(f.connected.get(m, 0) > b["connected"].get(m, 0) for m in moves):
+                    have.add(kind)
+            b["kinds"], b["connected"] = sorted(have), dict(f.connected)
+            return float(len(have))
+        if oid == "bout":  # (a match over in the learner's ring, judged once: won, or not this time)
+            ring = f.ring
+            if not ring.match_over or b.get("judged") is ring:
+                return None
+            b["judged"] = ring
+            if self.bout_winner(ring, stage) is f:
+                if enemy is not None and enemy.knocked_out:
+                    self.experience_bonus(p.name, "bout")
+                return 1.0
+            self.experience_say(p.name, "Not this time." + (" Press REMATCH to go again." if self.solo else
+                                                            " Win the next one."))
+        return None
+
+    @staticmethod
+    def angle_round(f, enemy):
+        """Where f is, round the other fighter (degrees), or None with nobody to go round."""
+        if enemy is None:
+            return None
+        return math.degrees(math.atan2(f.y - enemy.y, f.x - enemy.x))
+
+    @staticmethod
+    def bout_winner(ring, stage):
+        """The fighter who won the ring's match (the rounds it takes to win), or None."""
+        return next((g for g in ring.fighters if g.wins >= stage.rounds_to_win), None)
+
+    def x_built(self, name, oid, kinds=None):
+        """A build counts towards the garage objective (the kinds of variable it changed) or the code one."""
+        if self.experience is None:
+            return
+        run = self.xrun(self.record(name))
+        o = self.x_objective(run)
+        if o is None or o["id"] != oid:
+            return
+        self.x_measuring(run)
+        if kinds is None:
+            run["value"] = 1.0
+        else:
+            have = set(run["base"].get("kinds", [])) | kinds
+            run["base"]["kinds"] = sorted(have)
+            run["value"] = float(len(have & {"string", "integer", "list"}))
+
+    def experience_garage(self, p, new, old, by_code):
+        """A learner's build, as Mission 1's objectives a to d see it: with the Garage, the kinds of variable it
+        changed (the name a string; a setting or a point an integer; the colour or the combo a list); from the code
+        panel, any value changed."""
+        if by_code:
+            if teaching.design_changes(old, new, sim.schema()):
+                self.x_built(p.name, "code")
+            return
+        kinds = set()
+        if new.get("name") != old.get("name", p.name):
+            kinds.add("string")
+        if any(new["settings"].get(k) != (old.get("settings") or {}).get(k) for k in new.get("settings", {})) or \
+                any(new["points"].get(k) != (old.get("points") or {}).get(k) for k in new.get("points", {})):
+            kinds.add("integer")
+        if new.get("colour") != old.get("colour", p.start_colour) or new.get("combo") != old.get("combo"):
+            kinds.add("list")
+        self.x_built(p.name, "garage", kinds)
+
+    def experience_begin(self, p, r, oid, f, stage, run):
+        if oid == "footwork" and r.autopilot:  # (the start: you fight, not your brain from last time)
+            self.autopilot_off(p, r)
+        if oid == "bout" and self.solo:
+            self.solo_bout(p, r, run)
+
+    def experience_actions(self, p, r, oid, run):
+        f = p.fighter
+        if oid == "bout" and self.solo and f is not None and f.ring.match_over and \
+                self.bout_winner(f.ring, self.server.stage) is not f:
+            return [["rematch", "REMATCH"]]
+        return []
+
+    def experience_action(self, p, r, action, run):
+        o = self.x_objective(run)
+        if action == "rematch" and self.solo and o is not None and o["id"] == "bout":
+            self.solo_bout(p, r, run)
+
+    def experience_ended(self, p, r, oid, run):
+        if oid == "bout" and self.solo:
+            self.solo_practice(run)
+
+    def experience_reset(self, p, r, run):
+        if self.solo:
+            self.solo_practice(run)
+
+    def autopilot_off(self, p, r):
+        r.autopilot = False
+        self.attach(p)
+        self.save_profile(p.name)
+
+    def solo_bout(self, p, r, run):
+        """On your own: a bout against the computer fighter, its brain on (Easy), with the real countdown (the
+        lesson's battle mode, as the teacher's Battle button gives: ROUND 1, 3, 2, 1, GO!)."""
+        L = self.server.lesson
+        run["base"].setdefault("was", {k: L.get(k) for k in ("mode", "cpu_level")})
+        run["base"].pop("judged", None)
+        L.update(mode="battle", cpu_level="easy")
+        if r.autopilot:  # (this one's you)
+            self.autopilot_off(p, r)
+        self.server.rebuild_stage()
+        self.server.lesson_dirty = True  # (the windows are told, as the teacher's changes are: the physics loop)
+
+    def solo_practice(self, run):
+        was = run["base"].pop("was", None)
+        if was:
+            self.server.lesson.update(was)
+            self.server.rebuild_stage()
+            self.server.lesson_dirty = True
 

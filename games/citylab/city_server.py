@@ -34,7 +34,7 @@ sys.path.insert(0, city_version.ENGINE_HOME)
 from engine import club_ticket, gfx_tiers, predict, rw_sound, schema, wire  # noqa: E402
 from engine.outbox import Outboxes  # noqa: E402
 from engine.seats import Seats, dropped  # noqa: E402
-from engine import lifecycle, tick_stats  # noqa: E402
+from engine import experience, lifecycle, tick_stats  # noqa: E402
 
 import ai_pipeline  # noqa: E402
 import cpu_brains  # noqa: E402
@@ -819,12 +819,20 @@ class CityServer:
     async def start_race(self):
         """(Enter) The teacher's street race: everyone into a car on the line (a car each, parked there), the
         computer's racers too, and the countdown runs."""
+        problem = self.line_up_race()
+        if problem:
+            await self.notice_teacher(problem)
+            return
+        await self.broadcast_lesson()
+
+    def line_up_race(self):
+        """start_race's work, with nothing to await (CHANGE 210: an experience on your own lines its race up from the
+        teaching layer's tick, as the teacher's Enter does). Returns None, or why there is no race."""
         w = self.world
         jobs = w.jobs
         L = self.lesson
         if jobs.race is not None and jobs.race["state"] == "racing":
-            await self.notice_teacher("A race is already running.")
-            return
+            return "A race is already running."
         L["mode"] = "race"
         w.practice = False
         lx, ly = jobs.race_line()
@@ -872,7 +880,7 @@ class CityServer:
         jobs.changed = True
         w.events.append((w.tick, "THE STREET RACE: on the line, 3, 2, 1..."))
         self.jobs_version = None
-        await self.broadcast_lesson()
+        return None
 
     async def update_lesson(self, update):
         L = self.lesson
@@ -1365,6 +1373,8 @@ async def main():
     ap.add_argument("--robots", type=int, default=None, help="robots about")
     ap.add_argument("--level", default=None, choices=list(cpu_brains.LEVELS))
     ap.add_argument("--autostart", type=float, default=None, help="seconds after the first window joins, start a street race")
+    ap.add_argument("--experience", type=int, help="on your own: this experience on, and the server stops when the "
+                                                   "window has gone (the window starts it: engine/experience.py)")
     args = ap.parse_args()
     CLASS_SERVER = args.class_server
     local_only = args.bind in ("127.0.0.1", "localhost", "::1")
@@ -1383,6 +1393,13 @@ async def main():
             server.lesson["hazards"]["robots"] = True
         server.lesson.update(overrides)
         server.rebuild()
+    solo = []
+    if args.experience and not CLASS_SERVER and local_only:  # (CHANGE 210) an experience played on your own
+        if not server.teaching.start_experience(args.experience, solo=True):
+            raise SystemExit(f"City Lab has no Experience {args.experience}")
+        server.lesson["teacher_player"] = False
+        server.rebuild()
+        solo = [experience.solo_watch(server.players)]
     if CLASS_SERVER:
         os.makedirs(DATA, exist_ok=True)
         with open(os.path.join(DATA, "running_code"), "w", encoding="utf-8") as f:
@@ -1395,7 +1412,7 @@ async def main():
         await server.start_race()
 
     tasks = [server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()] + \
-        ([autostart()] if args.autostart is not None else [])
+        ([autostart()] if args.autostart is not None else []) + solo
     async with websockets.serve(server.handler, args.bind, args.port, compression=None, ping_interval=5,
                                 ping_timeout=10, max_queue=8):
         tick_stats.start_up()

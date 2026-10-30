@@ -227,6 +227,7 @@ class Learner:
         self.ws.send(json.dumps({"type": "hello", "name": name, "code": "CLUB42", "password": name + "-pass-1",
                                  "version": ""}))
         self.notes = []
+        self.experience = None  # (CHANGE 210) the last "experience" message: the page draws it in the test
         threading.Thread(target=self.read, daemon=True).start()
 
     def read(self):
@@ -237,6 +238,8 @@ class Learner:
                     t = json.loads(m)
                     if t.get("type") in ("notice", "ai_card_result", "design_result"):
                         self.notes.append(t)
+                    elif t.get("type") == "experience":
+                        self.experience = t
         except Exception:
             pass
 
@@ -1645,6 +1648,45 @@ def main():
             os.remove(path)  # (the restart after this starts with the mission's own settings)
             no_errors()
         check("Robot Lab's Controls: every robot renamed and put in an arena from its row, kept by Save settings", arena_rows)
+
+        def experience_page():  # (CHANGE 210) Experience 1 in a class, on the page
+            if "amy" not in servers:
+                return
+            amy = servers["amy"]
+            tab("controls")
+            chrome.wait_for("!!document.querySelector('button[data-xpstart=\"1\"]')", 10, "START 1: Orientation on Controls")
+            chrome.js("document.querySelector('button[data-xpstart=\"1\"]').click()")
+            chrome.wait_for("!document.getElementById('xp-class').hidden && document.getElementById('xp-class').textContent.includes('amy')"
+                            " && document.getElementById('xp-class').textContent.includes('Wake up')", 15,
+                            "the teacher's box: the class, each learner's objective")
+            chrome.wait_for("!!document.getElementById('xp-stop')", 10, "END EXPERIENCE 1 on Controls")
+            end = time.time() + 10
+            while time.time() < end and not ((amy.experience or {}).get("say") or [0, ""])[1]:  # (the coach has spoken)
+                time.sleep(0.2)
+            assert (amy.experience or {}).get("objective") == "Wake up", f"amy wasn't told the experience: {amy.experience}"
+            chrome.js(f"window.__experience().took({json.dumps(amy.experience)})")  # (a learner's page draws what amy is sent)
+            chrome.wait_for("document.getElementById('xp-top').textContent.includes('OBJECTIVE 1 OF 9') && "
+                            "document.getElementById('xp-coach').textContent.includes('CC-01 here')", 10,
+                            "a learner's boxes: the objective, and the coach's words typed out")
+            chrome.screenshot(os.path.join(work, "robotlab_experience.png"))
+            for i in range(9):
+                amy.send({"type": "experience", "do": "skip"})
+                time.sleep(0.15)
+            end = time.time() + 10
+            while time.time() < end and not (amy.experience or {}).get("result"):
+                time.sleep(0.2)
+            chrome.js(f"window.__experience().took({json.dumps(amy.experience)})")
+            chrome.wait_for("!document.getElementById('xp-card').hidden && document.getElementById('xp-card').textContent.includes('START AGAIN')",
+                            10, "the result card")
+            chrome.screenshot(os.path.join(work, "robotlab_experience_card.png"))
+            chrome.wait_for("document.getElementById('xp-class').textContent.includes('FINISHED')", 10, "the teacher sees amy finished")
+            chrome.js("document.getElementById('xp-stop').click()")
+            chrome.wait_for("document.getElementById('xp-class').hidden && !!document.querySelector('button[data-xpstart]')", 10,
+                            "END: the box goes, START is back")
+            chrome.js("window.__experience().took({type: 'experience', on: false})")
+            no_errors()
+        check("Experience 1 in a Robot Lab class on the page: START from Controls, the teacher's box of the class, a "
+              "learner's boxes (the objective, the coach typed out, the result card), END", experience_page)
 
         def robot_parity():  # (CHANGE 143) what the Robot Lab window does that the page didn't
             if "amy" not in servers:

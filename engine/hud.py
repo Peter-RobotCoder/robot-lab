@@ -1175,7 +1175,8 @@ class HudKit:
         if not m:
             label(f, "Waiting for missions...", 0.82, y, 0.03, GREY)
             return
-        title = label(f, f"MISSION {m['lesson']}: {m['title']}", 0.82, y, 0.034, YELLOW, wrap=26)
+        title = label(f, m["title"].upper() if m.get("experience") else f"MISSION {m['lesson']}: {m['title']}", 0.82, y,
+                      0.034, YELLOW, wrap=26)  # (an experience's objectives, numbered: CHANGE 210)
         y -= 0.045 * title.textNode.getNumRows() + 0.005
         label(f, "Objectives. Click one to see what to do; a done one shows what you did.", 0.82, y, 0.021, GREY)
         y -= 0.045
@@ -1183,7 +1184,7 @@ class HudKit:
         # down its explanation and guidance. The teacher's Learner view shows everything.
         for i, mm in enumerate(m["missions"]):
             tick = "DONE" if mm["done"] else ("TEACHER" if mm["check"] == "teacher" else "TO DO")
-            letter = f"{'abcdefgh'[i]}. " if i < 8 else ""
+            letter = f"{'abcdefgh'[i]}. " if i < 8 and not m.get("experience") else ""
             text = f"[{tick}]  {letter}{mm['title']}" if preview else f"{letter}{mm['title']}"  # (CHANGE 123)
             if preview:
                 label(f, text, 0.82, y, 0.03, GREEN if mm["done"] else WHITE)

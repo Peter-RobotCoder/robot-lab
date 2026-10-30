@@ -4,6 +4,8 @@
 Learner:  python city_client.py                       (log in with a username and password in the window)
 Teacher:  python city_client.py --teacher --name "Mr P"
 Offline:  python city_client.py --offline              the city on this laptop, no server
+On your own: python city_client.py --experience 1    Experience 1, Orientation (CHANGE 210): City Lab's own server
+                                                      starts on this laptop, out of sight, and the window logs in to it
 Class server: add --host wss://... Learners come through the Club Coders app (a ticket from the club desk); the
 teacher's code comes from --code or CITYLAB_TEACHER_CODE; on a laptop test server it is the demo code.
 
@@ -63,6 +65,8 @@ ap.add_argument("--host", default=None, help="server address (default: this comp
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
 ap.add_argument("--ticket", help=argparse.SUPPRESS)  # (from the club desk: the app has logged this person in)
 ap.add_argument("--offline", action="store_true", help="the city on this laptop, no server")
+ap.add_argument("--experience", type=int, help="play this experience on your own: City Lab's own server starts on "
+                                               "this laptop (engine/experience.py; the app's EXPERIENCES button)")
 ap.add_argument("--no-predict", action="store_true", help="draw your own person or car from the server's snapshots only")
 ap.add_argument("--no-interp", action="store_true", help="draw each snapshot as it arrives")
 ap.add_argument("--city", default=None, help="harbour, village or metro (offline)")
@@ -115,6 +119,16 @@ if args.ticket:  # the club desk has logged this person in: their name and role 
     args.name = peek.get("name") or args.name
     args.teacher = args.teacher or peek.get("role") == "teacher"
 TEACHER = args.teacher
+from engine import experience  # noqa: E402
+SOLO = None  # (CHANGE 210) an experience on your own: City Lab's server on this laptop, started by this window
+if args.experience and not TEACHER and not OFFLINE:
+    SOLO = experience.solo_start(HERE, "city_server.py", "citylab", args.experience, "CITYLAB_DATA", city_version.FROZEN)
+    # (the window never stops it: the server saves and stops by itself 30 s after the window has gone, and a window
+    # that reopens itself, a Graphics choice, finds it still there with the run kept: engine/experience.py)
+    if not experience.solo_ready(SOLO):
+        raise SystemExit("City Lab's server on this laptop didn't start: " + experience.solo_last_words(SOLO))
+    args.host, args.code, args.ticket = SOLO["host"], None, None  # (a laptop server: the demo learner code, LOCAL)
+    args.name, args.password = args.name or experience.SOLO_NAME, experience.SOLO_PASSWORD
 if args.host == "class":  # the class server's address, from the teacher's settings
     args.host = load_json(TEACHER_SETTINGS).get("server") or city_version.ONLINE_SERVER
 elif args.host is None:  # a learner's last choice on the login screen, or this computer
@@ -137,6 +151,8 @@ net = None  # the connection to the server, made when you log in
 from engine import gfx_tiers  # noqa: E402
 GFX = gfx_tiers.resolve(SETTINGS_DIR, args.gfx, gfx_tiers.TIERS)
 title = f"City Lab - {'OFFLINE' if OFFLINE else 'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if SOLO:
+    title = f"City Lab - EXPERIENCE {args.experience}"
 loadPrcFileData("", hud.window_arg(args.window, args.x if args.x is not None else (40 if TEACHER or OFFLINE else 1360))
                 + f"window-title {title}\n" + gfx_tiers.prc_for(GFX))
 if args.offscreen:
@@ -158,6 +174,7 @@ import kart_gfx  # noqa: E402
 from engine import gamepad, interp, predict, wire  # noqa: E402
 from engine import net as net_module  # noqa: E402
 from engine.net import Net  # noqa: E402
+from engine.experience_hud import ExperienceHud  # noqa: E402  (CHANGE 210)
 
 SCHEMA = wire.Schema("city", sim.SCHEMA_FIELDS)
 SNAP_SPEC = {"entities": ["id", {"x": "lerp", "y": "lerp", "z": "lerp", "yaw": "angle", "v": "lerp", "u": "lerp"}]}
@@ -178,6 +195,11 @@ CAR_KEYS = ("W go   S brake   A D steer   Shift drift   B handbrake   E get out 
 TIMES = ("day", "dusk", "night")
 DRAW_PEOPLE, DRAW_CARS, DRAW_ROBOTS = 110.0, 160.0, 90.0  # (metres from the camera each kind is drawn within)
 GET_IN_REACH = sim.ENTER_REACH + sim.CAR_R
+# (CHANGE 210) where an experience is drawn (engine/experience_hud.py), clear of this window's own HUD: its objective
+# under the job's two lines and the arrow to the target (top middle, down to -0.31 while it is on: x_layout) and above
+# the XP it flashes (the engine's, from 0.46 up the middle); the coach's words over the "E: get in" hint and the key
+# list (bottom middle, up to 0.24)
+X_TOP, X_BOTTOM = -0.32, 0.26
 
 
 def between(a, b, f):
@@ -378,7 +400,8 @@ class CityWindow(city_panels.CityPanels, hud.HudKit, ShowBase):
             self.login_panel = None
             self.entries = {}
         props = WindowProperties()
-        props.setTitle(f"City Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
+        props.setTitle(f"City Lab - EXPERIENCE {args.experience}" if SOLO else
+                       f"City Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
         if self.win is not None and not args.offscreen:
             self.win.requestProperties(props)
         self.online_state()
@@ -388,6 +411,8 @@ class CityWindow(city_panels.CityPanels, hud.HudKit, ShowBase):
         self.begin(city_map.City(welcome["city"]), welcome.get("me"))
         self.my_name = name
         self.init_panels(self.design, welcome.get("lesson"), welcome.get("rules"))  # (the side panel: city_panels)
+        if getattr(self, "xhud", None) is None:  # (CHANGE 210) an experience, drawn over the city when one is on:
+            self.xhud = ExperienceHud(self, send, TEACHER, top=X_TOP, bottom=X_BOTTOM)  # under the job and its arrow
         self.open_from_args()
         self.needs_restart = bool(welcome.get("live_ready"))
         send({"type": "slot", "do": "list"})  # (my saved designs)
@@ -1123,6 +1148,13 @@ class CityWindow(city_panels.CityPanels, hud.HudKit, ShowBase):
             elif kind == "missions":
                 if not m.get("for"):
                     self.took_missions(m)
+            elif kind in ("experience", "experience_class") and getattr(self, "xhud", None) is not None:  # (CHANGE 210)
+                was = self.xhud.on
+                self.xhud.took(m)
+                if was != self.xhud.on:
+                    self.x_layout(self.xhud.on)
+                    if TEACHER and self.tab == "teacher":  # (its Controls row: START or END)
+                        self.rebuild_panels(from_game=True)
             elif kind == "ai_card_result":
                 self.card_result(m)
             elif kind == "brain_result":
@@ -1145,6 +1177,17 @@ class CityWindow(city_panels.CityPanels, hud.HudKit, ShowBase):
                 self.ping_ms = (time.time() - m["t"]) * 1000
             elif kind == "closed":
                 self.connection_lost(m)
+
+    def x_layout(self, on):
+        """(CHANGE 210) While an experience is drawn, three of this window's own things make room for it, and go back
+        after: the news moves from the bottom left (where the coach's words would cross a long line) to the top left
+        under the view's name; the arrow to the target goes up a touch, so the objective's box fits under it and
+        clear of the XP that flashes under that; the race's 3, 2, 1 and GO! go down from where the box is."""
+        for i, t in enumerate(self.log):
+            t.reparentTo(self.a2dTopLeft if on else self.a2dBottomLeft)
+            t.setPos(0.05, -0.18 - 0.045 * i if on else 0.36 - 0.05 * i)
+        self.compass.np.setZ(-0.25 if on else -0.28)
+        self.countdown.setPos(0, 0.1 if on else 0.45)
 
     def change_city(self, data):
         """Another city from the server: drawn again, everything in it forgotten until its snapshots come."""

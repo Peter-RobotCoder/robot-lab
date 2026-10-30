@@ -928,3 +928,37 @@ body.touch #craftscreen .cr-panel { max-height: 98vh; padding: 10px 12px; gap: 8
 #touchpad.craft .tp-cmoves [data-btn="place"] { grid-area: place; color: var(--cc-cyan); border-color: rgba(62, 233, 255, 0.6); background: rgba(15, 20, 38, 0.86); box-shadow: 0 0 12px rgba(62, 233, 255, 0.25); }
 #touchpad.craft .tp-cmoves [data-btn="jump"] { grid-area: jump; color: var(--cc-lime); border-color: rgba(182, 255, 59, 0.6); background: rgba(15, 20, 38, 0.86); box-shadow: 0 0 12px rgba(182, 255, 59, 0.22); }
 #touchpad.craft .tp-cmoves [data-btn="dig"] { grid-area: dig; color: var(--cc-magenta); border-color: rgba(255, 79, 216, 0.6); background: rgba(15, 20, 38, 0.86); box-shadow: 0 0 12px rgba(255, 79, 216, 0.25); font-size: 16px; }
+
+/* (CHANGE 210) an experience over the game (experience.js): the objective, the XP bar and rank, the coach, the toasts,
+   the result card; the teacher's view of the class */
+.xpbox { background: var(--panel); border-radius: 8px; padding: 8px 14px; z-index: 3; }
+#xp-top, #xp-class { left: 50%; top: 150px; transform: translateX(-50%); width: min(620px, 92vw); text-align: center; }
+#xp-top button, #xp-class button, #xp-card button { pointer-events: auto; }
+.xpbox .xphead { color: var(--yellow); font-weight: 600; letter-spacing: 0.03em; }
+.xpbox .xphint { margin: 2px 0 6px; }
+.xpbar { height: 7px; background: #262a35; border-radius: 4px; overflow: hidden; margin: 0 8%; }
+.xpbar span { display: block; height: 100%; background: var(--blue); transition: width 0.4s; }
+.xprank { font-size: 12px; color: var(--grey); margin-top: 4px; }
+.xpskip { float: right; padding: 2px 8px; font-size: 12px; }
+.xpacts { justify-content: center; margin-top: 6px; }
+#xp-coach { left: 50%; bottom: 128px; transform: translateX(-50%); width: min(640px, 92vw); min-height: 3.6em; }
+#xp-coach .xpcoach { color: var(--blue); font-size: 13px; }
+#xp-toasts { left: 50%; top: 34%; transform: translateX(-50%); text-align: center; z-index: 4; }
+.xptoast { font-size: 26px; font-weight: 700; color: var(--green); text-shadow: 0 2px 6px #000; margin: 4px 0; }
+.xptoast.rank { color: var(--yellow); }
+.xptoast.grey { color: var(--grey); }
+.xpcard { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 94vw); background: rgba(5, 8, 15, 0.95);
+          border-radius: 12px; padding: 20px 26px; text-align: center; z-index: 6; }
+.xpcard h2 { color: var(--yellow); margin: 0; }
+.xpcard .xpdone { color: var(--yellow); margin-bottom: 4px; }
+.xpstars span { font-size: 54px; color: #444a57; margin: 0 6px; }
+.xpstars span.on { color: var(--yellow); }
+.xpcard .xpscore { font-size: 20px; margin: 4px 0 10px; }
+.xpcard ul { list-style: none; padding: 0; columns: 2; text-align: left; color: var(--grey); margin: 0 0 10px; }
+.xpcard li.done { color: var(--green); }
+.xpcard .row { justify-content: center; }
+#xp-class table { width: 100%; font-size: 13px; border-collapse: collapse; text-align: left; margin-top: 4px; }
+#xp-class td { padding: 2px 6px; }
+#xp-class td.ok { color: var(--green); }
+body.touch #xp-top, body.touch #xp-class { top: 64px; font-size: 13px; }
+body.touch #xp-coach { bottom: 236px; font-size: 13px; }

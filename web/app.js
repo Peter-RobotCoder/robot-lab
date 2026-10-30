@@ -36,6 +36,7 @@ import {hideHud} from "./hud.js";
 import {makeDraggable} from "./drag.js";
 import {Snapshots} from "./interp.js";  // (CHANGE 175: the window's blending, delay following the network)
 import {openBrainEditor, closeBrainEditor, brainEditorChanged, uploadMyBrain, brainsOn} from "./brain.js";
+import {ExperienceView} from "./experience.js";  // (CHANGE 210: an experience over any game)
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -399,6 +400,12 @@ function startGame(m) {
     return state.game;
 }
 
+let experienceView = null;
+function xview() {  // (CHANGE 210) made on first use: its boxes over the game, for every game
+    if (!experienceView) experienceView = new ExperienceView(msg => send(msg));
+    return experienceView;
+}
+
 function onMessage(data) {
     const now = performance.now();
     if (data instanceof ArrayBuffer) {
@@ -410,6 +417,7 @@ function onMessage(data) {
     const game = state.game;
     switch (m.type) {
         case "welcome": {
+            if (experienceView) { experienceView.took({type: "experience", on: false}); experienceView.took({type: "experience_class", on: false}); }
             const again = state.reconnects > 0;  // (a reconnect to the same class: CHANGE 143's Show learners)
             state.connected = true;
             state.reconnects = 0;
@@ -485,6 +493,13 @@ function onMessage(data) {
                 if (["outcomes", "cards", "learners"].includes(state.tab)) renderPanelSoon();
             }
             return;
+        case "experience":
+        case "experience_class": {  // (CHANGE 210) an experience: the learner's run, or the teacher's view of the class
+            const was = xview().on;
+            xview().took(m);
+            if (state.role === "teacher" && was !== xview().on && state.tab === "controls") renderPanelSoon();
+            return;
+        }
         case "missions":
             if (m.for) { state.viewing = m; if (state.tab === "learners") renderPanelSoon(); return; }
             // our own: the mission, the cards, my card (a learner's window, or the teacher's own)
@@ -1097,7 +1112,7 @@ const appApi = {
     get canvas() { return $("view"); }, get engine() { return engine; }, params,
     send, toast, addEvent, renderPanel, updatePills, pushSnap, samplePair, renderTime, esc,
     keyHelp: () => renderKeyHelp(),  // (CHANGE 201: City Lab's keys change as you get in and out of a car)
-    missionRow: () => missionRow(appApi), wireMissionRow: body => wireMissionRow(appApi, body),
+    missionRow: () => missionRow(appApi) + xview().rowHtml(), wireMissionRow: body => { wireMissionRow(appApi, body); xview().wire(body); },
     restartRow: () => restartRow(appApi), wireRestartRow: body => wireRestartRow(appApi, body),
     twice: (key, text, then) => twice(appApi, key, text, then), keepPrefs: p => keepPrefs(p),
     sendBinary: buf => { if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.send(buf); },
@@ -1370,6 +1385,7 @@ window.addEventListener("error", e => { window.__errors.push(String(e.message));
 window.addEventListener("unhandledrejection", e => { window.__errors.push(String(e.reason)); toast("Problem: " + e.reason, false, 8000); });
 window.__state = state;  // (the tests read it, and send through the page)
 window.__app = appApi;
+window.__experience = () => xview();  // (CHANGE 210: the tests read the experience's boxes)
 window.__refresh = refresh;  // (CHANGE 161: the tests read the screen's refresh)
 
 async function main() {

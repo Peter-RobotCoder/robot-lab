@@ -163,6 +163,54 @@ STORY_MISSIONS = {
 }
 
 
+# ---------- experiences ----------
+# (CHANGE 210) A game-style first session played in the real game (engine/experience.py): CC-01 the coach, one
+# objective at a time, XP and ranks over Robot Lab's own window or page, garage, code panel, brains and battles.
+# lab_teaching.Teaching measures each objective. The teacher starts it for a class (Controls); on your own the app's
+# EXPERIENCES button opens Robot Lab with --experience 1 (its server on your laptop).
+EXPERIENCES = {
+    1: dict(
+        title="Orientation", coach="CC-01",
+        intro="CC-01 here, your coach. This is Robot Lab, the real thing: your robot, the arena, the code. Nine "
+              "objectives, one at a time, and XP for each.",
+        lesson=dict(mode="practice", cpu_robots=1, cpu_level="none", designs_locked=False,
+                    hazards={"pit": False, "floor_flipper": False, "saws": False, "spikes": False, "house_robots": []},
+                    tools=tools("forward_speed", "reverse_speed", "turn_speed", "acceleration", "size",
+                                "name_and_colour", "code_view", "stats_readout", "weapon_toggle", "brains")),
+        objectives=[
+            dict(id="drive", title="Wake up", xp=10, goal=4, unit="m", hint="Drive 4 metres",
+                 say="Systems online. Let's see you move: drive forward with the arrow keys."),
+            dict(id="turn", title="Steering", xp=10, goal=360, unit="degrees", hint="Turn right round",
+                 say="Good. Now turn on the spot: hold left or right until you've spun right round."),
+            dict(id="speed", title="Full speed", xp=20, goal=12, unit="km/h", hint="Reach 12 km/h",
+                 say="Open it up: find a straight run, hold forward and see how fast this thing goes."),
+            dict(id="weapon", title="Weapons check", xp=15, goal=3, hint="Use your weapon 3 times",
+                 say="Every robot starts with its weapon off. Space fires it, or switches a spinner on and off."),
+            dict(id="target", title="Target practice", xp=30, goal=3, hint="Land 3 hits on Sparky 1",
+                 say="See Sparky 1, the computer robot? Its brain is off: it's your target. Get alongside it and "
+                     "hit it: a wedge flips from underneath, so fire as you touch. Practice means no damage."),
+            dict(id="garage", title="Variables", xp=45, goal=3, hint="Change a string, an integer and a list, then "
+                                                                     "REBUILD MY ROBOT",
+                 say="Your robot is made of VARIABLES. Press I and open the Garage: give it a new name (a STRING), "
+                     "slide an INTEGER setting and click a colour (a LIST), then press REBUILD MY ROBOT.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="code", title="Hack the code", xp=30, hint="Change a value in the code (C) and rebuild from there",
+                 say="Everything in the Garage is Python code. Press C: that's your robot, every variable with its "
+                     "type. Change a value, press APPLY CODE, then REBUILD MY ROBOT in the code panel.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="brain", title="Brains", xp=30, goal=8, unit="s", hint="Autopilot on for 8 seconds",
+                 say="A BRAIN is Python that drives for you. Press U to upload brains/my_brain.py, then P to switch "
+                     "autopilot on, and watch it drive.", outcomes=["SEL", "FUNC"]),
+            dict(id="bout", title="First battle", xp=60, hint="Win a battle (a knockout scores a bonus)",
+                 say="Last one: win a battle. Your teacher starts the battles: when the countdown ends, it's real.",
+                 solo="Ready for a real one? A battle against Sparky 1, brain on this time. Autopilot's off: this "
+                      "one's you. Knock it out, or have more armour left when the time's up."),
+        ],
+        bonus=dict(id="bout", title="Knockout bonus", xp=25),
+        finish="Orientation complete. You drove it, coded it and gave it a brain. Welcome to Club Coders!"),
+}
+
+
 def points_words(text, limits):
     """A mission's words with the teacher's own numbers in them: the missions are written for 100 points to share
     and 5 to 50 for each (the standard limits), and the teacher can change both (the Limits tab)."""

@@ -45,6 +45,15 @@ on the page with the keyboard, a game pad or a phone's touch controls, their per
 predicts them (`city_sim.js` is `city_sim.py`'s person and car steps, ported line for line: `city_sim_test.py` in
 `club-coders/web` proves them the same to the last bit, and `city_sim.SIM_VERSION`'s fingerprint is kept there).
 
+Experience 1, Orientation (30 October 2026, CHANGE 210): a game-style first session played in the real city
+(engine/experience.py). CC-01 the coach talks a learner through nine objectives, one at a time, each worth XP, with
+ranks and a result card: walk 10 m, land four hits on a robot, get into a car, drive 100 m on the road, deliver a
+parcel from the DEPOT, change a string, an integer and a list in the Garage and build, change a value in the code
+panel and build from there, autopilot on for 15 s, and finish a street race (first place scores a bonus). The
+teacher starts it for the class from Controls (and sees everyone's objective, XP and rank at the top of the window);
+on your own, `city_client.py --experience 1` starts City Lab's server on this laptop and plays it there, the street
+race lined up with the computer's racers and the real countdown. `experience_test.py` plays it through.
+
 ## Run it
 
 Double-click, in this folder (it uses Robot Lab's `.venv`):
@@ -95,4 +104,5 @@ of jitter); `CITYLAB_PREDICT_LOG=1` prints each correction of the prediction and
 | `city_mods.py`, `ai_pipeline.py` | the mod files (drivers, the city, the rules) and AI requests (step 6) |
 | `city_gfx.py` | the city drawn (one mesh a material), the people (Fight Lab's models), the cars (Kart Lab's), the robots and sparks (Robot Lab's), the cameras on foot and in a car, the health bar |
 | `city_client.py` | the window: offline, it runs the world itself; online, it predicts your person or car and blends the rest |
+| `experience_test.py` | Experience 1 played through: in the server, over the network, and the window on your own (`--quick`: no window) |
 | `city_test.py` | the tests: `quick` for the simulation, `server` with the server, `online` with two windows over pretend Wi-Fi, `window` with the window offline, nothing for everything |

@@ -52,6 +52,8 @@ ap.add_argument("--teacher", action="store_true")
 ap.add_argument("--host", default=None,
                 help="server address (default: this computer); 'class' = the one in teacher_settings.json")
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
+ap.add_argument("--experience", type=int, help="play this experience on your own: Fight Lab's own server starts on "
+                                               "this laptop (engine/experience.py; the app's EXPERIENCES button)")
 ap.add_argument("--window", help="the window: 1280x720, 1600x900 ... 3840x2160 or full "
                                  "(else this computer's last choice; CHANGE 126)")
 ap.add_argument("--gfx", choices=["auto", "mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="auto",
@@ -92,6 +94,17 @@ BRAINS = (os.path.join(os.path.dirname(sys.executable), "brains", "fightlab") if
 
 
 
+from engine import experience  # noqa: E402
+SOLO = None  # (CHANGE 210) an experience on your own: Fight Lab's server on this laptop, started by this window
+if args.experience and not args.teacher:
+    SOLO = experience.solo_start(HERE, "fight_server.py", "fightlab", args.experience, "FIGHTLAB_DATA",
+                                 fight_version.FROZEN)
+    # (the window never stops it: the server saves and stops by itself 30 s after the window has gone, and a window
+    # that reopens itself, a Graphics choice, finds it still there with the run kept: engine/experience.py)
+    if not experience.solo_ready(SOLO):
+        raise SystemExit("Fight Lab's server on this laptop didn't start: " + experience.solo_last_words(SOLO))
+    args.host, args.code = SOLO["host"], None
+    args.name, args.password = args.name or experience.SOLO_NAME, experience.SOLO_PASSWORD
 if args.host == "class":  # the class server's address, from the teacher's settings
     args.host = load_json(TEACHER_SETTINGS).get("server") or fight_version.ONLINE_SERVER or fight_version.LOCAL_SERVER
 elif args.host is None:  # a learner's last choice on the login screen, or this computer
@@ -122,6 +135,8 @@ name = args.name or ("Teacher" if TEACHER else "")
 net = None  # the connection to the server, made when you log in
 
 title = f"Fight Lab - {'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if SOLO:
+    title = f"Fight Lab - EXPERIENCE {args.experience}"
 if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
@@ -153,6 +168,7 @@ from engine.net import Net  # noqa: E402
 from engine import interp  # noqa: E402
 from engine import ahead  # noqa: E402  (CHANGE 167: your fighter's footwork drawn at once)
 from engine import gamepad  # noqa: E402  (CHANGE 170: a controller fights)
+from engine.experience_hud import ExperienceHud  # noqa: E402  (CHANGE 210)
 
 CODE_ROWS = 19     # lines of code the code panel shows at once (longer code scrolls)
 CODE_PANEL = (-0.86, 0.12, -0.85, 0.36)  # the code panel in its first place: left, right, bottom, top
@@ -190,6 +206,13 @@ PRESS_KEYS = {"a": "punch", "s": "kick", "d": "special", "w": "throw", "space": 
 # shoulder throw, right trigger the cartwheel kick (the user mod)
 PAD_PRESS = {"west": "punch", "south": "kick", "east": "special", "north": "jump", "rb": "throw", "rt": "cartwheel"}
 PAD_ORDER = ("west", "south", "east", "north", "rb", "rt")
+# (CHANGE 210) where an experience is drawn (engine/experience_hud.py), clear of Fight Lab's own HUD. The box with the
+# objective and the XP: under the names and health bars (which come down to 0.78), between the rings box (which ends
+# at x -0.62) and the side panel (from x 0.78), a little smaller to fit there. The coach's words: above the training
+# readout (-0.77), the energy meters and the key list, and beside the side panel when it is open (as the fight HUD
+# moves beside it), clear of the events at the bottom left; the toasts and the result card go with them.
+XHUD_TOP, XHUD_BOTTOM, XHUD_X, XHUD_SCALE = -0.25, 0.27, 0.08, 0.94
+XHUD_X_PANEL = -0.19  # (the coach's words with the side panel open: their box's right edge at 0.76)
 ATTACK_ANIMS = {"punch", "kick", "low", "high", "jump_kick", "throw", "blast", "uppercut", "spin_kick", "slam",
                 "cartwheel"}
 
@@ -391,7 +414,8 @@ class Lab(hud.HudKit, ShowBase):
             self.login_panel = None
         self.entries, self.typing = {}, None
         props = WindowProperties()
-        props.setTitle(f"Fight Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
+        props.setTitle(f"Fight Lab - EXPERIENCE {args.experience}" if SOLO else
+                       f"Fight Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
         if self.win is not None and not args.offscreen:
             self.win.requestProperties(props)
         self.started = True
@@ -485,6 +509,11 @@ class Lab(hud.HudKit, ShowBase):
         self.key("page_up", self.slide_panel, -1)
         self.key("page_down", self.slide_panel, 1)
         self.hud()
+        if getattr(self, "xhud", None) is None:  # (CHANGE 210) an experience, drawn over the ring when one is on
+            self.xhud = ExperienceHud(self, send, TEACHER, top=XHUD_TOP, bottom=XHUD_BOTTOM)
+            self.xhud.top_node.setPos(XHUD_X, 0, 0)
+            self.xhud.top_node.setScale(XHUD_SCALE)
+            self.place_xhud()
         self.try_starting = None  # (teacher: a test server on this laptop is starting: see try_here)
         if TRY:
             self.begin_try()
@@ -594,6 +623,12 @@ class Lab(hud.HudKit, ShowBase):
         self.help = label(self.aspect2d, keys, -1.74, -0.975, 0.021 * min(1.15, self.text_scale()), GREY)
         self.panel_floor = -0.94  # (the side panel stops above the key list: CHANGE 104)
         self.layout_rings()
+
+    def place_xhud(self):
+        """(CHANGE 210) The experience's coach, toasts and result card beside the side panel while it is open."""
+        if getattr(self, "xhud", None) is not None:
+            for node in (self.xhud.bottom_node, self.xhud.root):
+                node.setX(XHUD_X_PANEL if self.tab else 0.0)
 
     def toggle_rings(self):
         self.rings_small = not self.rings_small
@@ -717,6 +752,7 @@ class Lab(hud.HudKit, ShowBase):
         elif self.typing and self.typing not in self.entries:  # the box being typed in has gone
             self.typing = None
         self.fight_hud.place(-0.5 if self.tab else 0.0)
+        self.place_xhud()
         self.cam.set_shift(0.14 if self.tab else 0.0)  # keep the fight clear of the side panel
 
     # ---------- which fighter the garage and code panel are editing ----------
@@ -1369,6 +1405,7 @@ class Lab(hud.HudKit, ShowBase):
             label(f, "saved settings: mission " + ", ".join(str(n) for n in saved), 1.74, y - 0.037, 0.015, GREY,
                   TextNode.ARight)
         y -= 0.06
+        y = self.xhud.controls_row(f, 0.82, y)  # (CHANGE 210: Experience 1 for the class, or its end)
         label(f, "Fights", 0.82, y, 0.028, YELLOW)
         for i, mode in enumerate(("practice", "battle")):
             button(f, mode.title(), 1.04 + i * 0.19, y + 0.008, self.set_lesson, [{"mode": mode}], 0.028,
@@ -2670,6 +2707,10 @@ class Lab(hud.HudKit, ShowBase):
                 if sig != self.sig.get("missions"):
                     self.sig["missions"] = sig
                     rebuild = rebuild or self.tab in ("missions", "ai", "card")
+            elif kind in ("experience", "experience_class"):  # (CHANGE 210)
+                was = getattr(self.xhud, "m", None) is not None
+                self.xhud.took(m)
+                rebuild = rebuild or (TEACHER and self.tab == "teacher" and was != (self.xhud.m is not None))
             elif kind == "teaching":
                 self.teaching = m
                 sig = json.dumps(m, sort_keys=True)

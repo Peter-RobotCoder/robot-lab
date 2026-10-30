@@ -7,8 +7,9 @@ as Kart Lab's window has them.
                 change, the idea, the variables, the test, the prediction, the three promises), My card (the
                 outcomes shown and what was done each session), Settings (text size, the look, the window,
                 the graphics)
-    the teacher Controls (the mission, the city, the traffic, the robots, the parked cars, the computer's racers and
-                their level, the jobs, the time of day, damage, START A STREET RACE, what learners can change),
+    the teacher Controls (the mission, Experience 1 started or ended for the class (CHANGE 210), the city, the
+                traffic, the robots, the parked cars, the computer's racers and their level, the jobs, the time of
+                day, damage, START A STREET RACE, what learners can change),
                 My driver (the teacher's own garage), User mods, Warnings, Limits, Settings. The class's Learners,
                 Outcomes, AI cards and Changes are on the teacher's page (club-coders/web), which speaks the same
                 messages to every game's server.
@@ -482,6 +483,8 @@ class CityPanels(lesson_tabs.LessonTabs):
             label(f, "saved settings: mission " + ", ".join(str(n) for n in saved), 1.74, y - 0.037, 0.015, GREY,
                   TextNode.ARight)
         y -= 0.06
+        if getattr(self, "xhud", None) is not None:  # (CHANGE 210: Experience 1 for the class, or its end)
+            y = self.xhud.controls_row(f, 0.82, y)
         check(f, "Show learners their Mission tab (pauses the city)", 0.84, y, L.get("show_missions"),
               lambda v: self.set_lesson({"show_missions": bool(v)}), 0.024)
         y -= 0.05

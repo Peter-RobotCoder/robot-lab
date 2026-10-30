@@ -50,6 +50,8 @@ ap.add_argument("--teacher", action="store_true")
 ap.add_argument("--host", default=None,
                 help="server address (default: this computer); 'class' = the one in teacher_settings.json")
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
+ap.add_argument("--experience", type=int, help="play this experience on your own: Kart Lab's own server starts on "
+                                               "this laptop (engine/experience.py; the app's EXPERIENCES button)")
 ap.add_argument("--window", help="the window: 1280x720, 1600x900 ... 3840x2160 or full "
                                  "(else this computer's last choice; CHANGE 126)")
 ap.add_argument("--gfx", choices=["auto", "mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="auto",
@@ -103,6 +105,16 @@ TEACHER = args.teacher
 BRAINS = (os.path.join(os.path.dirname(sys.executable), "brains", "kartlab") if kart_version.FROZEN  # (the built
           else os.path.join(HERE, "brains"))  # app keeps each game's brains folder beside the exe: brains\kartlab)
 
+from engine import experience  # noqa: E402
+SOLO = None  # (CHANGE 210) an experience on your own: Kart Lab's server on this laptop, started by this window
+if args.experience and not args.teacher and not args.offline:
+    SOLO = experience.solo_start(HERE, "kart_server.py", "kartlab", args.experience, "KARTLAB_DATA", kart_version.FROZEN)
+    # (the window never stops it: the server saves and stops by itself 30 s after the window has gone, and a window
+    # that reopens itself, a Graphics choice, finds it still there with the run kept: engine/experience.py)
+    if not experience.solo_ready(SOLO):
+        raise SystemExit("Kart Lab's server on this laptop didn't start: " + experience.solo_last_words(SOLO))
+    args.host, args.code = SOLO["host"], None
+    args.name, args.password = args.name or experience.SOLO_NAME, experience.SOLO_PASSWORD
 if args.host == "class":  # the class server's address, from the teacher's settings
     args.host = load_json(TEACHER_SETTINGS).get("server") or kart_version.ONLINE_SERVER or kart_version.LOCAL_SERVER
 elif args.host is None:  # a learner's last choice on the login screen, or this computer
@@ -128,6 +140,8 @@ name = args.name or ("Teacher" if TEACHER else "")
 net = None  # the connection to the server, made when you log in
 
 title = f"Kart Lab - {'OFFLINE' if OFFLINE else 'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if SOLO:
+    title = f"Kart Lab - EXPERIENCE {args.experience}"
 if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
@@ -156,6 +170,10 @@ import kart_track  # noqa: E402
 from engine import gamepad, interp, predict, wire  # noqa: E402  (gamepad: a controller, CHANGE 170)
 from engine.net import Net  # noqa: E402
 from engine import net as net_module  # noqa: E402
+from engine.experience_hud import ExperienceHud  # noqa: E402  (CHANGE 210)
+XHUD_TOP, XHUD_BOTTOM = -0.13, 0.17  # (CHANGE 210) where the experience sits: from the top and the bottom middle
+XHUD_HALF = {"top": 0.72, "bottom": 0.95}  # ...and its boxes' half widths (the objective's, the coach's words': as
+#                                            engine/experience_hud.py draws them), for fit_experience
 try:
     import kart_missions as km  # noqa: E402  (the lessons' words: which objectives are reflections, the AI card's targets)
 except ImportError:  # (the teaching layer isn't here yet: the engine's defaults)
@@ -496,7 +514,8 @@ class Lab(hud.HudKit, ShowBase):
             self.login_panel = None
         self.entries, self.typing = {}, None
         props = WindowProperties()
-        props.setTitle(f"Kart Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
+        props.setTitle(f"Kart Lab - EXPERIENCE {args.experience}" if SOLO else
+                       f"Kart Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
         if self.win is not None and not args.offscreen:
             self.win.requestProperties(props)
         self.common_start()
@@ -512,6 +531,10 @@ class Lab(hud.HudKit, ShowBase):
         self.my_id = welcome.get("kart")
         self.set_track(self.lesson.get("track", args.track), self.lesson.get("laps", 3))
         self.hud()
+        if getattr(self, "xhud", None) is None:  # (CHANGE 210) an experience, drawn over the track when one is on:
+            # its objective box higher than the engine puts it, clear of the banner and the experience's own START
+            # THE RACE button under it; the coach's words in the bottom middle, between the map and the boost bar
+            self.xhud = ExperienceHud(self, send, TEACHER, top=XHUD_TOP, bottom=XHUD_BOTTOM)
         self.start_monitor()
         self.restore_prefs(welcome.get("prefs") or {})
         self.needs_restart = bool(welcome.get("live_ready"))
@@ -1292,6 +1315,8 @@ class Lab(hud.HudKit, ShowBase):
             label(f, "saved settings: mission " + ", ".join(str(n) for n in saved), 1.74, y - 0.037, 0.015, GREY,
                   TextNode.ARight)
         y -= 0.06
+        if getattr(self, "xhud", None) is not None:
+            y = self.xhud.controls_row(f, 0.82, y)  # (CHANGE 210: Experience 1 for the class, or its end)
         y = self.race_controls(f, y)
         check(f, "Lock designs", 0.84, y, L.get("designs_locked"), lambda v: self.set_lesson({"designs_locked": bool(v)}),
               0.026)
@@ -2480,6 +2505,10 @@ class Lab(hud.HudKit, ShowBase):
                 if sig != self.sig.get("missions"):
                     self.sig["missions"] = sig
                     rebuild = rebuild or self.tab in ("missions", "ai", "card")
+            elif kind in ("experience", "experience_class") and getattr(self, "xhud", None) is not None:  # (CHANGE 210)
+                was = self.xhud.m is not None
+                self.xhud.took(m)
+                rebuild = rebuild or (TEACHER and self.tab == "teacher" and was != (self.xhud.m is not None))
             elif kind == "teaching":
                 self.teaching = m
                 sig = json.dumps(m, sort_keys=True)
@@ -2939,6 +2968,7 @@ class Lab(hud.HudKit, ShowBase):
                 text = "PAUSED     " + text
         self.screen.status(text)
         self.overlay.layout()
+        self.fit_experience()
         waiting = (r["phase"] == sim.FLAGS_GRID and self.local is None and now > self.note_until)
         self.overlay.note("Waiting for the teacher to start the race" if waiting else
                           self.note_text if now < self.note_until else "", self.note_big and now < self.note_until)
@@ -2947,6 +2977,27 @@ class Lab(hud.HudKit, ShowBase):
             names = {k["id"]: k["name"] for k in (self.roster or {}).get("karts", [])}
             who = f", watching {names.get(self.watch, self.watch)}  (L next)"
         self.overlay.set_view(f"view: {self.cam_rig.name}  (V to change){who}" + ("   typing - Esc to stop" if self.typing else ""))
+
+    def fit_experience(self):
+        """(CHANGE 210) The experience's two boxes in the room the racing screen leaves them, every frame: the coach's
+        words between the map (bottom left) and the drift bar (bottom right), the objective between the title (top
+        left) and the right-hand readouts. With the side panel open those readouts move in from under it, and a
+        narrow window has less room anyway: there the box goes smaller and to the middle of the room left (scaled
+        about the screen's edge, so it stays as far from the top or the bottom)."""
+        xh = getattr(self, "xhud", None)
+        if xh is None or self.screen is None:
+            return
+        a = self.getAspectRatio()
+        right = a - self.screen.inset
+        room = {"bottom": (-a + 0.05 + kart_gfx.Hud.MINI + 0.03, right - 0.05 - kart_gfx.Hud.BAR_W - 0.04),
+                "top": (-a + 0.5, right - 0.04)}  # (the title, KART LAB - LEARNER: name, takes about 0.45)
+        for key, node in (("top", xh.top_node), ("bottom", xh.bottom_node)):
+            lo, hi = room[key]
+            half = XHUD_HALF[key]
+            x, s = (0.0, 1.0) if lo <= -half and half <= hi else ((lo + hi) / 2, max(0.5, min(1.0, (hi - lo) / (2 * half))))
+            if abs(node.getX() - x) > 1e-4 or abs(node.getSx() - s) > 1e-4:
+                node.setX(x)
+                node.setScale(s)
 
     def laps(self, me, now):
         """Your lap times: told as you cross the line; offline, the best on each track is kept on this computer."""

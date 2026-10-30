@@ -151,6 +151,60 @@ MISSIONS = {
 REFLECTIONS = {"2e": 8, "5b": 20}  # missions answered in writing: the fewest words that count
 
 
+# ---------- experiences ----------
+# (CHANGE 210) A game-style first session played in the real game (engine/experience.py): CC-01 the coach, one
+# objective at a time, XP and ranks over City Lab's own window or page, streets, cars, robots, jobs, garage, code
+# panel, brains and street race. city_teaching.Teaching measures each objective. The teacher starts it for a class
+# (Controls); on your own the app's EXPERIENCES button opens City Lab with --experience 1 (its server on your laptop).
+EXPERIENCES = {
+    1: dict(
+        title="Orientation", coach="CC-01",
+        intro="CC-01 here, your coach. This is City Lab, the real thing: the streets, the cars, the robots, the "
+              "code. Nine objectives, one at a time, and XP for each.",
+        lesson=dict(mode="practice", hazards=hazards("traffic", "robots"), traffic=4, robots=6, parked=10, racers=2,
+                    cpu_level="easy", designs_locked=False, jobs={k: True for k in ("delivery", "taxi", "race", "roundup")},
+                    tools=tools(*ALL_TOOLS, "traffic", "brains"), brains=True),
+        objectives=[
+            dict(id="walk", title="Wake up", xp=10, goal=10, unit="m", hint="Walk 10 metres",
+                 say="Systems online. Let's see you move: WASD or the arrow keys walk (W is away from the camera), "
+                     "and Shift runs."),
+            dict(id="robot", title="Robot trouble", xp=15, goal=4, hint="Land 4 punches or kicks on a robot",
+                 say="See the robots on the pavements? Get close and they get cross and zap you. Fight back: J "
+                     "punches, K kicks, B blocks. Land four hits on one."),
+            dict(id="car", title="Wheels", xp=10, hint="Get into a car (E beside one)",
+                 say="Enough fighting. Walk up to a parked car and press E to get in. Any car: they're all for taking."),
+            dict(id="drive", title="On the road", xp=20, goal=100, unit="m", hint="Drive 100 metres on the road",
+                 say="W goes, S brakes (then reverses), A and D steer. Drive 100 metres, and only the road counts: the "
+                     "game models a car on the pavement or the grass as slower, so stay on the tarmac.",
+                 outcomes=["ABS"]),
+            dict(id="delivery", title="First job", xp=30, hint="Deliver a parcel from the DEPOT",
+                 say="Time to earn. Drive or walk into the DEPOT's ring for a parcel. The arrow at the top points to "
+                     "the address: stop by the beam of light. Lost? R takes you back to the depot.",
+                 outcomes=["ABS"]),
+            dict(id="garage", title="Variables", xp=45, goal=3, hint="Change a string, an integer and a list, then "
+                                                                     "BUILD MY DRIVER",
+                 say="You and your car are made of VARIABLES. Press I and open the Garage: give your driver a new name "
+                     "(a STRING), move speed, acceleration or grip (INTEGERS) and click a colour (a LIST), then press "
+                     "BUILD MY DRIVER.", outcomes=["VAR", "DATA"]),
+            dict(id="code", title="Hack the code", xp=30, hint="Change a value in the code (C) and build from there",
+                 say="Everything in the Garage is Python code. Press C: that's your driver and car, every variable with "
+                     "its type. Change a value, press APPLY CODE, then BUILD MY DRIVER in the code panel.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="brain", title="Brains", xp=30, goal=15, unit="s", hint="Autopilot on for 15 seconds",
+                 say="A BRAIN is Python that plays for you. Press U to upload brains/my_brain.py, then P to switch "
+                     "autopilot on, and watch it head for the DEPOT.", outcomes=["SEL", "FUNC"]),
+            dict(id="race", title="First street race", xp=60, hint="Finish a street race (first place scores a bonus)",
+                 say="Last one: a street race. Your teacher starts them, or stop a car on the STREET RACE line to open "
+                     "one: round the bright rings and back to the line.",
+                 solo="Ready for a real one? You're on the line with the computer's racers, and autopilot's off: this "
+                      "one's you. Round the bright rings and back to the line. First place scores a bonus."),
+        ],
+        bonus=dict(id="race", title="Winner's bonus", xp=25),
+        finish="Orientation complete. You walked it, drove it, earned in it, coded it and gave it a brain. Welcome "
+               "to Club Coders!"),
+}
+
+
 def points_words(text, limits):
     """A mission's words with the teacher's own numbers in them: the missions are written for 100 points to share
     and 10 to 60 for each (the standard limits), and the teacher can change both (the Limits tab)."""

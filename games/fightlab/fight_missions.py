@@ -152,6 +152,65 @@ MISSIONS = {
 REFLECTIONS = {"2e": 8, "5b": 20}  # missions answered in writing: the fewest words that count
 
 
+# ---------- experiences ----------
+# (CHANGE 210) A game-style first session played in the real game (engine/experience.py): SENSEI the coach, one
+# objective at a time, XP and ranks over Fight Lab's own window, garage, code panel, brains and bouts.
+# fight_teaching.Teaching measures each objective. The teacher starts it for a class (Controls); on your own the
+# app's EXPERIENCES button opens Fight Lab with --experience 1 (its server on your laptop).
+# The lesson it is played in: a ring each with a computer sparring partner whose brain is off (Empty: it stands
+# still), practice (nobody loses health), no hazards (ropes round the ring, so nobody falls out while learning),
+# and a bout of one 60-second round. What it changes is put back when it ends.
+EXPERIENCES = {
+    1: dict(
+        title="Orientation", coach="SENSEI",
+        intro="SENSEI here, your coach. This is Fight Lab, the real thing: your fighter, the ring, the code. Nine "
+              "objectives, one at a time, and XP for each.",
+        lesson=dict(mode="practice", cpu_opponents=True, cpu_level="empty", cpu_fighter="sparring",
+                    teacher_fighter=False, designs_locked=False, matches=[], rings=0, round_time=60, rounds_to_win=1,
+                    hazards=hazards(),
+                    tools=tools("walk_speed", "sidestep_speed", "jump_height", "attack_speed", "size",
+                                "name_and_colour", "body_choice", "code_view", "stats_readout", "fighting_style",
+                                "brains")),
+        objectives=[
+            dict(id="footwork", title="Footwork", xp=10, goal=4, unit="m", hint="Move 4 metres",
+                 say="Let's see you move. The arrow keys walk: left and right go across the screen, towards the "
+                     "other fighter and away."),
+            dict(id="sidestep", title="Sidestep", xp=10, goal=90, unit="degrees",
+                 hint="Sidestep a quarter of the way round",
+                 say="Now the move that makes this 3D: the up and down arrows SIDESTEP round the other fighter. A "
+                     "sidestep dodges straight attacks. Circle a quarter of the way round."),
+            dict(id="strikes", title="Target practice", xp=20, goal=3, hint="Land 3 hits on the computer fighter",
+                 say="See the computer fighter in your ring? Its brain is off: it's your target. Walk in close and "
+                     "hit it: A punches, S kicks. Practice means nobody loses health."),
+            dict(id="combo", title="Combo", xp=20, goal=1, hint="Land your whole combo: A, then A again as each "
+                                                                "hit lands",
+                 say="Your combo is a LIST of moves: punch, punch, kick. Press A, then press A again each time a hit "
+                     "lands, to go down the list. Land the whole list.", outcomes=["DATA"]),
+            dict(id="moves", title="Move set", xp=25, goal=3, hint="Land a kick, a jump kick and your special",
+                 say="Three more. S kicks (forward + S is the high kick that launches them). Space jumps: A or S in "
+                     "the air is a jump kick. D is your special move: it needs half a bar of ENERGY."),
+            dict(id="garage", title="Variables", xp=45, goal=3, hint="Change a string, an integer and a list, then "
+                                                                     "BUILD MY FIGHTER",
+                 say="Your fighter is made of VARIABLES. Press I and open the Garage: give it a new name (a STRING), "
+                     "slide an INTEGER setting and click a colour (a LIST), then press BUILD MY FIGHTER.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="code", title="Hack the code", xp=30, hint="Change a value in the code (C) and build from there",
+                 say="Everything in the Garage is Python code. Press C: that's your fighter, every variable with its "
+                     "type. Change a value, then press BUILD MY FIGHTER in the code panel.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="brain", title="Brains", xp=30, goal=8, unit="s", hint="Autopilot on for 8 seconds",
+                 say="A BRAIN is Python that fights for you. Press U to upload brains/my_brain.py, then P to switch "
+                     "autopilot on, and watch it fight.", outcomes=["SEL", "FUNC"]),
+            dict(id="bout", title="First bout", xp=60, hint="Win a bout (a knockout scores a bonus)",
+                 say="Last one: win a bout. Your teacher starts the bouts: when the countdown ends, it's real.",
+                 solo="Ready for a real one? A bout against the computer fighter, brain on this time. Autopilot's "
+                      "off: this one's you. Knock it out, or have more health left when the time's up."),
+        ],
+        bonus=dict(id="bout", title="Knockout bonus", xp=25),
+        finish="Orientation complete. You fought it, coded it and gave it a brain. Welcome to Club Coders!"),
+}
+
+
 def missions_for(lesson):
     return {k: v for k, v in MISSIONS.items() if v[0] == lesson}
 

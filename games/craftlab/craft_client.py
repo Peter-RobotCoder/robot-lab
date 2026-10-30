@@ -47,6 +47,8 @@ ap.add_argument("--host", default=None, help="server address (default: this comp
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
 ap.add_argument("--ticket", help=argparse.SUPPRESS)
 ap.add_argument("--offline", action="store_true", help="your own world on this laptop, no server")
+ap.add_argument("--experience", type=int, help="play this experience on your own: Craft Lab's own server starts on "
+                                               "this laptop (engine/experience.py; the app's EXPERIENCES button)")
 ap.add_argument("--sandbox", "--creative", dest="creative", action="store_true",
                 help="offline: Sandbox mode (fly, every block, nothing hurts; --creative: its old name)")
 ap.add_argument("--seed", type=int, default=None, help="offline: a new world from this seed")
@@ -92,6 +94,18 @@ if args.ticket:
     args.name = peek.get("name") or args.name
     args.teacher = args.teacher or peek.get("role") == "teacher"
 TEACHER = args.teacher
+from engine import experience  # noqa: E402
+SOLO = None  # (CHANGE 210) an experience on your own: Craft Lab's server on this laptop, started by this window
+if args.experience and not TEACHER and not OFFLINE:  # (not --offline: that is this window's own world, no server)
+    SOLO = experience.solo_start(HERE, "craft_server.py", "craftlab", args.experience, "CRAFTLAB_DATA",
+                                 craft_version.FROZEN)
+    if not experience.solo_ready(SOLO):
+        experience.solo_stop(SOLO)
+        raise SystemExit("Craft Lab's server on this laptop didn't start: " + experience.solo_last_words(SOLO))
+    # (not stopped when this window closes: the server stops by itself once the window has gone (solo_watch), after
+    # it has kept your island and your profile, which a stop from here would lose)
+    args.host, args.code, args.ticket = SOLO["host"], None, None
+    args.name, args.password = args.name or experience.SOLO_NAME, experience.SOLO_PASSWORD
 if args.host is None:
     args.host = craft_version.SERVER
 LOCAL = args.host.startswith(("ws://127.0.0.1", "ws://localhost"))
@@ -106,6 +120,8 @@ net = None
 from engine import gfx_tiers  # noqa: E402
 GFX = gfx_tiers.resolve(SETTINGS_DIR, None if args.gfx == "auto" else args.gfx, gfx_tiers.TIERS)
 title = f"Craft Lab - {'OFFLINE' if OFFLINE else 'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if SOLO:
+    title = f"Craft Lab - EXPERIENCE {args.experience}"
 loadPrcFileData("", hud.window_arg(args.window, 40) + f"window-title {title}\n" + gfx_tiers.prc_for(GFX)
                 + "exclude-texture-scale *atlas*\n")
 if args.offscreen:
@@ -133,6 +149,7 @@ import craft_world  # noqa: E402
 from engine import gamepad, interp, predict, wire  # noqa: E402
 from engine import net as net_module  # noqa: E402
 from engine.net import Net  # noqa: E402
+from engine.experience_hud import ExperienceHud  # noqa: E402  (CHANGE 210)
 
 if OFFLINE:  # (this computer's own mods: its blocks drawn in the atlas, its blueprints built)
     for _msg in craft_mods.use_mods():
@@ -152,6 +169,9 @@ KEYS_TEXT = ("WASD walk   mouse look   Space jump   Shift run   Ctrl careful   l
 TEACHER_KEYS = ("Teacher: T time of day   M creatures   G everyone to me   K a Bot kit for everyone   N Sandbox/Challenge "
                 "for everyone   F9 pause")
 PLACE_GAP = 0.22
+# (CHANGE 210) The experience's boxes (engine/experience_hud.py) clear of the lab visor: the top one under the news
+# pill, the coach's above the Toolbelt and the key list; slid left (top, bottom) while a panel is open on the right
+XHUD_TOP, XHUD_BOTTOM, XHUD_SLIDE = -0.25, 0.36, (-0.36, -0.55)
 TIMES = {"dawn": 0.95, "day": 0.3, "dusk": 0.62, "night": 0.8}
 
 
@@ -454,12 +474,14 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             self.bot_panel.say(self.brain_status())
         self.panel_kind = kind
         self.capture(False)
+        self.place_xhud()
 
     def close_panel(self):
         if self.bot_panel is not None:
             self.bot_panel.destroy()
             self.bot_panel = None
             self.panel_kind = None
+            self.place_xhud()
             if self.screen is None and self.menu is None:
                 self.capture(True)
 
@@ -733,6 +755,17 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             self.capture(False)
         elif self.screen is None and self.menu is None and self.bot_panel is None:
             self.capture(True)
+        self.place_xhud()
+
+    def place_xhud(self):
+        """(CHANGE 210) The experience's boxes over the island: centred, or slid left out of the way of a panel on the
+        right (the side panel of lesson tabs, the Bot's Garage, Code or Brain) so the panel's buttons stay clear."""
+        x = getattr(self, "xhud", None)
+        if x is None:
+            return
+        right = bool(getattr(self, "tab", None)) or getattr(self, "bot_panel", None) is not None
+        x.top_node.setX(XHUD_SLIDE[0] if right else 0.0)
+        x.bottom_node.setX(XHUD_SLIDE[1] if right else 0.0)
 
     def restart_window(self):
         """Reopen this window (Controls: Reopen mine), logged in as the same person."""
@@ -990,7 +1023,8 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
             self.login_panel.destroy()
             self.login_panel = None
         props = WindowProperties()
-        props.setTitle(f"Craft Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
+        props.setTitle(f"Craft Lab - EXPERIENCE {args.experience}" if SOLO else
+                       f"Craft Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
         if self.win is not None and not args.offscreen:
             self.win.requestProperties(props)
         self.lesson = welcome.get("lesson") or {}
@@ -1003,6 +1037,9 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         self.online_state()
         self.day_t = float(end.get("time", 0.3))
         self.begin(world, welcome.get("me"))
+        if getattr(self, "xhud", None) is None:  # (CHANGE 210) an experience, drawn over the island when one is on
+            self.xhud = ExperienceHud(self, send, TEACHER, XHUD_TOP, XHUD_BOTTOM)
+            self.place_xhud()
         self.me_state = sim.new_player(*world.spawn)
         for m in early:  # (what came in while the world did: the inventory, the state...)
             if m.get("type") not in ("binary", "world_head"):
@@ -1198,7 +1235,7 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         kind = m.get("type")
         now = time.perf_counter()
         if kind == "inventory":
-            self.inventory = m
+            self.inventory = m if "inv" in m else None  # (a teacher with no player in the world gets an empty one)
             if m.get("open") and (self.screen is None or self.screen.kind != m["open"]):
                 self.open_screen(m)
             elif self.screen is not None:
@@ -1252,6 +1289,11 @@ class CraftWindow(craft_tabs.CraftTabs, hud.HudKit, ShowBase):
         elif kind == "missions":
             if not m.get("for"):
                 self.took_missions(m)
+        elif kind in ("experience", "experience_class") and getattr(self, "xhud", None) is not None:  # (CHANGE 210)
+            was = self.xhud.m is not None
+            self.xhud.took(m)
+            if TEACHER and self.tab == "teacher" and was != (self.xhud.m is not None):
+                self.rebuild_panels(from_game=True)  # (the Controls tab's START or END)
         elif kind == "ai_card_result":
             self.card_result(m)
         elif kind == "warnings":

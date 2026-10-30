@@ -144,6 +144,63 @@ MISSIONS = {
 REFLECTIONS = {"5c": 20}
 
 
+# ---------- experiences ----------
+# (CHANGE 210) A game-style first session played in the real game (engine/experience.py): CC-01, the club's coach,
+# one objective at a time, XP and ranks over Craft Lab's own window or page, island, blueprints, Bot garage, code
+# panel and brains. craft_teaching.Teaching measures each objective from the player's own stats. The teacher starts
+# it for a class (Controls); on your own the app's EXPERIENCES button opens Craft Lab with --experience 1 (its server
+# on your laptop). Played in the day, held (no dusk arriving half-way), with no creatures and no Energy drain until
+# the last objective; on your own that one brings the dusk and its Glitch rifts (the teacher's T and M in a class).
+EXPERIENCES = {
+    1: dict(
+        title="Orientation", coach="CC-01",
+        intro="CC-01 here, your coach. This is Craft Lab, the real island: your hands, your Craft Bot, your code. "
+              "Nine objectives, one at a time, XP for each.",
+        lesson=dict(mode="practice", game_mode="challenge", time="day", designs_locked=False, hazards=hazards(),
+                    tools=tools(*ALL_TOOLS, "brains"), brains=True),
+        objectives=[
+            dict(id="walk", title="Boot up", xp=10, goal=5, unit="m", hint="Walk 5 metres (WASD; the mouse looks)",
+                 say="Systems online. WASD walks and the mouse looks about: take a walk."),
+            dict(id="place", title="Put it down", xp=10, goal=2, unit="blocks", hint="Put 2 blocks down (right button)",
+                 say="Your Toolbelt is along the bottom: 1 to 8 choose. Hold your Rubble and right-click the ground "
+                     "to put a block down. Two blocks, and keep 2 Rubble for later."),
+            dict(id="climb", title="Jump up", xp=15, goal=2, unit="blocks", hint="Climb 2 blocks (Space jumps)",
+                 say="Space jumps. Jump up onto your blocks, or up a hill: two blocks higher than you were."),
+            dict(id="chop", title="Chop a log", xp=20, goal=2, unit="logs",
+                 hint="Chop 2 logs (hold the left button on a trunk)",
+                 say="Everything here starts with a log. Look at a tree's trunk and hold the left button: the ring "
+                     "round the crosshair fills as you chop. Walk over what drops to pick it up.",
+                 outcomes=["ALG"]),
+            dict(id="fabricator", title="Fabricator", xp=30, goal=3, unit="steps",
+                 hint="BLUEPRINTS (I): Boards, a FABRICATOR, then put it down",
+                 say="Press I for your Backpack and open BLUEPRINTS. BUILD Boards from your logs, then a FABRICATOR "
+                     "(6 Boards, 2 Rubble). Hold it and right-click to put it down.", outcomes=["ALG", "DATA"]),
+            dict(id="garage", title="Variables", xp=45, goal=3,
+                 hint="Change a string, an integer and a list, then BUILD MY BOT",
+                 say="Your Craft Bot is made of VARIABLES. Press B, then GARAGE: a new bot_name (a STRING), points "
+                     "moved between dig, build and speed (INTEGERS), a colour (a LIST), then BUILD MY BOT.",
+                 outcomes=["VAR", "DATA"]),
+            dict(id="code", title="Hack the code", xp=30, hint="Change a value in the CODE, then BUILD MY BOT from it",
+                 say="The Garage is Python underneath. Press B, then CODE: your Bot, every variable with its type. "
+                     "Change a value there and press BUILD MY BOT from the code.", outcomes=["VAR", "DATA"]),
+            dict(id="brain", title="Brains", xp=30, goal=3, unit="blocks",
+                 hint="BOT DOCK down, right-click it, U then P: your Bot digs 3",
+                 say="A BRAIN is Python that drives your Bot. Here's a Bot kit: put the BOT DOCK down facing a hill "
+                     "and right-click it. U uploads brains/my_bot.py, P switches the autopilot on.",
+                 outcomes=["ITER", "FUNC"]),
+            dict(id="glitch", title="Glitch hunt", xp=60, hint="Defeat a Glitch (not knocked out: a bonus)",
+                 say="Last one. When your teacher brings the dusk with creatures on, Glitch rifts open: magenta "
+                     "cracks in the ground. Defeat a Glitch that comes out of one.",
+                 solo="Last one: I'm bringing the dusk. Glitch rifts are opening, magenta cracks in the ground. "
+                      "Find one and defeat a Glitch that comes out: the left button hits it.",
+                 outcomes=["TEST"]),
+        ],
+        bonus=dict(id="glitch", title="Still standing bonus", xp=25),
+        finish="Orientation complete. You walked it, built it, coded your Bot and gave it a brain. Welcome to "
+               "Club Coders!"),
+}
+
+
 def points_words(text, limits):
     total = limits["points_total"]
     lo, hi = min(v[0] for v in limits["points"].values()), max(v[1] for v in limits["points"].values())

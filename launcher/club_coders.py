@@ -68,32 +68,33 @@ LIVE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or SETTINGS_DIR, "ClubCod
 # robots, effects and look) and reopens itself (a Graphics choice) carrying its state in WAKE_UP_CALL_REOPEN, which
 # is how the downloaded app knows to run it again (which_game).
 GAMES = {
-    "robotlab": {"title": "Robot Lab", "client": "lab_client.py", "login_env": "ROBOTLAB_LOGIN",
+    "robotlab": {"title": "Robot Lab", "client": "lab_client.py", "server": "lab_server.py", "login_env": "ROBOTLAB_LOGIN",
                  "reopen_env": "ROBOTLAB_REOPENED",
                  "local": "ws://127.0.0.1:8780", "dev": "shared-world-demo"},
-    "fightlab": {"title": "Fight Lab", "client": "fight_client.py", "login_env": "FIGHTLAB_LOGIN",
+    "fightlab": {"title": "Fight Lab", "client": "fight_client.py", "server": "fight_server.py", "login_env": "FIGHTLAB_LOGIN",
                  "reopen_env": "FIGHTLAB_REOPENED",
                  "local": "ws://127.0.0.1:8781", "dev": "BeatEmUp"},
-    "kartlab": {"title": "Kart Lab", "client": "kart_client.py", "login_env": "KARTLAB_LOGIN",
+    "kartlab": {"title": "Kart Lab", "client": "kart_client.py", "server": "kart_server.py", "login_env": "KARTLAB_LOGIN",
                 "reopen_env": "KARTLAB_REOPENED",
                 "local": "ws://127.0.0.1:8782", "dev": "kart"},
-    "citylab": {"title": "City Lab", "client": "city_client.py", "login_env": "CITYLAB_LOGIN",  # (CHANGE 194)
+    "citylab": {"title": "City Lab", "client": "city_client.py", "server": "city_server.py",  # (CHANGE 194)
+                "login_env": "CITYLAB_LOGIN",
                 "reopen_env": "CITYLAB_REOPENED",
                 "local": "ws://127.0.0.1:8783", "dev": "city"},
     # (CHANGE 200) Craft Lab, the block-building island: a class game, and on your own from the first screen
     # (CRAFT LAB, no login: its window with --offline keeps its own world on this computer)
-    "craftlab": {"title": "Craft Lab", "client": "craft_client.py", "login_env": "CRAFTLAB_LOGIN",
+    "craftlab": {"title": "Craft Lab", "client": "craft_client.py", "server": "craft_server.py", "login_env": "CRAFTLAB_LOGIN",
                  "reopen_env": "CRAFTLAB_REOPENED",
                  "local": "ws://127.0.0.1:8785", "dev": "craft"},
     "missions": {"title": "Missions", "client": "wake_up_call.py", "login_env": "WAKE_UP_CALL_REOPEN",
                  "reopen_env": "MISSIONS_REOPENED", "folder": "robotlab",
                  "local": "ws://127.0.0.1:8784", "dev": "shared-world-demo"},
-    # (CHANGE 197) Experience 1, the orientation: one player, no server, played from the first screen by anyone
-    "experience": {"title": "Experience 1", "client": "experience_1.py", "login_env": "EXPERIENCE_1_REOPEN",
-                   "reopen_env": "EXPERIENCE_1_REOPENED", "folder": "robotlab",
-                   "local": None, "dev": "shared-world-demo", "offline": True},
 }
 CLASS_GAMES = tuple(g for g, d in GAMES.items() if not d.get("offline"))  # the games a class is launched into
+# (CHANGE 210) Experiences: each game's Experience 1, Orientation, played on your own from the EXPERIENCES button. It
+# is the game itself (its own window, with --experience 1), on the game's own server started on this computer by the
+# window (engine/experience.py): the downloaded app runs that server as `Club Coders.exe --serve <game>`.
+EXPERIENCE_GAMES = ("robotlab", "fightlab", "kartlab", "citylab", "craftlab")
 PASS_ON = ("--offscreen", "--screenshot", "--after", "--name", "--password", "--gfx", "--window")
 GFX_CHOICES = ("auto", "mesh", "lines", "low", "medium", "high", "ultra")  # the Graphics button on the first screen
 # (auto: the game picks; Kart Lab, Robot Lab, City Lab and Craft Lab draw all seven, CHANGE 144, 145, 194 and 200:
@@ -294,8 +295,8 @@ def which_game(argv):
     reopens everyone's windows) runs this same program again, and carries its login in its own variable."""
     if not FROZEN:
         return None, None
-    if len(argv) >= 2 and argv[0] == "--game" and argv[1] in GAMES:
-        return argv[1], argv[2:]
+    if len(argv) >= 2 and argv[0] in ("--game", "--serve") and argv[1] in GAMES:
+        return argv[1], argv[2:] if argv[0] == "--game" else argv
     for game, g in GAMES.items():
         if os.environ.get(g["login_env"]):
             return game, argv
@@ -303,6 +304,8 @@ def which_game(argv):
 
 
 def run_as_game(game, argv):
+    if argv[:1] == ["--serve"]:  # (CHANGE 210) an experience on your own: the game's server, started by its window
+        return run_server(game, argv[2:])
     """Become the game: its folder goes first on the import path and its window's file runs as the program.
     The class's code is the app's own, or a checked live update: the one the front door named (CLUBCODERS_CODE),
     or the one the class server asked a window to reopen with (the game's REOPENED variable)."""
@@ -321,6 +324,18 @@ def run_as_game(game, argv):
         except Exception as e:  # (not used: the game runs the app's own code, and says it doesn't match the class)
             print(f"Live update {wanted} not used: {e}", flush=True)
     script = os.path.join(folder, GAMES[game]["client"])
+    sys.path.insert(0, folder)
+    sys.argv = [script] + list(argv)
+    runpy.run_path(script, run_name="__main__")
+
+
+def run_server(game, argv):
+    """Become the game's server, on this computer only (a window's experience on your own: engine/experience.py)."""
+    sys.dont_write_bytecode = True
+    import tempfile
+    sys.pycache_prefix = tempfile.mkdtemp(prefix="clubcoders_pyc_")
+    folder = game_dir(game)
+    script = os.path.join(folder, GAMES[game]["server"])
     sys.path.insert(0, folder)
     sys.argv = [script] + list(argv)
     runpy.run_path(script, run_name="__main__")
@@ -539,6 +554,10 @@ def launcher(args, passed_on):
                 self.taskMgr.doMethodLater(args.snap, lambda t: self.finish(), "snap")
             if args.test_missions:  # (tests: the Missions button pressed, as a learner would)
                 self.taskMgr.doMethodLater(0.5, lambda t: self.open_missions(), "auto")
+            elif args.test_experience in EXPERIENCE_GAMES:  # (tests: EXPERIENCES, then a game's Experience 1)
+                self.screen = "experiences"
+                self.taskMgr.doMethodLater(0.5, lambda t: self.open_alone(args.test_experience, ["--experience", "1"]),
+                                           "auto")
             elif args.login:
                 self.taskMgr.doMethodLater(0.5, lambda t: self.log_in(*args.login), "auto")
             elif args.teacher_password:
@@ -615,8 +634,8 @@ def launcher(args, passed_on):
             y = -0.22 if self.local else -0.36
             label(f, "On your own, no login:", -0.86, y, 0.036, grey, TextNode.ARight)
             button(f, "MISSIONS: Wake-Up Call, Lights Out", -0.39, y, self.open_missions, (), 0.045, (0.15, 0.45, 0.65, 1))
-            button(f, "EXPERIENCE 1: Orientation", 0.39, y, self.open_alone, ["experience"], 0.045,
-                   (0.55, 0.35, 0.1, 1))  # (CHANGE 197: the first session, in Robot Lab's arena)
+            button(f, "EXPERIENCES", 0.39, y, self.show, ["experiences"], 0.045,
+                   (0.55, 0.35, 0.1, 1))  # (CHANGE 210: each game's first session, in the game itself)
             button(f, "CRAFT LAB", 0.92, y, self.open_alone, ["craftlab", ["--offline"]], 0.045,
                    (0.2, 0.5, 0.25, 1))  # (CHANGE 200: your own island, kept on this computer)
             if test_build() or self.local:  # (the laptop test servers: the club's own test builds and the source files)
@@ -632,6 +651,17 @@ def launcher(args, passed_on):
                 button(f, "Download the new Club Coders", 0, -0.58, webbrowser.open, [DOWNLOAD_PAGE], 0.045, go_col)
             if "user" in self.fields and not keep.get("user"):
                 self.fields["pass" if self.field("user") else "user"].setFocus()
+
+        def draw_experiences(self, f, keep):
+            """(CHANGE 210) Each game's Experience 1, Orientation: the game itself, on your own (its window starts the
+            game's server on this computer), a coach, objectives one at a time, XP and ranks."""
+            label(f, "EXPERIENCES", 0, 0.62, 0.09, yellow)
+            label(f, "Your first session in each game, on your own: the real game, with a coach, objectives one at a "
+                     "time, XP and ranks. Your best result is kept on this computer.", 0, 0.45, 0.04, wrap=48)
+            for i, game in enumerate(EXPERIENCE_GAMES):
+                button(f, f"{GAMES[game]['title']}:  Experience 1, Orientation", 0, 0.24 - i * 0.14, self.open_alone,
+                       [game, ["--experience", "1"]], 0.05, (0.55, 0.35, 0.1, 1))
+            button(f, "Back", 0, -0.58, self.show, ["home"], 0.045)
 
         def draw_change_password(self, f, keep):
             label(f, "CHOOSE YOUR OWN PASSWORD", 0, 0.6, 0.07, yellow)
@@ -1299,6 +1329,7 @@ def _main():
     ap.add_argument("--snap", type=float, help="close this window after this many seconds (tests)")
     ap.add_argument("--test-stop", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--test-missions", action="store_true", help=argparse.SUPPRESS)  # (tests: press MISSIONS at once)
+    ap.add_argument("--test-experience", help=argparse.SUPPRESS)  # (tests: press this game's EXPERIENCE 1 at once)
     ap.add_argument("--test-screen", help=argparse.SUPPRESS)  # (tests: start on this screen, e.g. teacher_password)
     ap.add_argument("--test-newer", help=argparse.SUPPRESS)   # (tests: as if this newer version were out)
     ap.add_argument("--offscreen", action="store_true")

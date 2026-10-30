@@ -40,11 +40,12 @@ function missionTab(app, body) {
     if (!m) { body.innerHTML = `<p class="note">Waiting for your mission from the class server…</p>`; return; }
     S.openObjective = S.openObjective ?? null;
     const reflect = new Set(words(app).reflections);
-    let html = `<h2>Mission ${esc(m.lesson)}: ${esc(m.title || "")}</h2><div class="objectives">`;
+    let html = m.experience ? `<h2>${esc(m.title || "")}</h2><div class="objectives">`  // (CHANGE 210: an experience's objectives)
+                            : `<h2>Mission ${esc(m.lesson)}: ${esc(m.title || "")}</h2><div class="objectives">`;
     for (const o of m.missions || []) {
         const open = S.openObjective === o.id;
         html += `<div class="objective ${o.done ? "done" : ""}">
-          <button class="objhead" data-obj="${esc(o.id)}"><span class="tick">${o.done ? "✓" : "○"}</span> ${esc(o.id)}. ${esc(o.title)}</button>`;
+          <button class="objhead" data-obj="${esc(o.id)}"><span class="tick">${o.done ? "✓" : "○"}</span> ${m.experience ? "" : esc(o.id) + ". "}${esc(o.title)}</button>`;
         if (open) {
             html += `<div class="objbody">${esc(o.text || "").replace(/\n/g, "<br>")}`;
             if (o.done && o.detail) html += `<div class="note ok">${esc(o.detail)}</div>`;

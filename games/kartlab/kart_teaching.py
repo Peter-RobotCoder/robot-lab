@@ -4,10 +4,14 @@ builds, laps and brains complete which objectives, and the kart files learners' 
 The server calls into this. Everything a learner achieves is saved as evidence against the learning outcomes in
 kart_missions.py, so the teacher can see (and export) who has shown what.
 """
+import asyncio
+import copy
+import math
 import os
 
 import kart_version  # noqa: F401  (puts the engine on the path)
 import kart_brain
+import kart_track
 import kart_missions as km
 import kart_mods
 import kart_profiles
@@ -104,6 +108,7 @@ class Teaching(teaching.Teaching):
 
     def build_checks(self, p, r, new, old, by_code):
         """Mission 1's objectives a, b and c (with the GUI), and mission 2's points."""
+        self.experience_garage(p, new, old, by_code)  # (Experience 1's garage and code objectives: CHANGE 210)
         r.best_lap = None
         r.laps_at_build = len(self.lap_times(p))
         r.lap_times_seen = r.laps_at_build
@@ -181,3 +186,136 @@ class Teaching(teaching.Teaching):
     def restore_record(self, r, saved):
         if r.best_lap is None and isinstance(saved.get("best_lap"), (int, float)):
             r.best_lap = float(saved["best_lap"])
+
+    # ---------- Experience 1, Orientation (CHANGE 210): what each objective measures, on the real track ----------
+    def experience_value(self, p, r, oid, unit, race, now, run):
+        b, v = run["base"], run["value"]
+        if oid == "brain":
+            return r.brain.seconds_running(now) if (r.brain and r.autopilot and not r.brain.error) else None
+        k = race.karts.get(unit.kid) if unit is not None else None
+        if k is None or oid not in ("drive", "speed", "lap", "race"):
+            return None  # (the drift and the item are counted as they happen, experience_step; the garage and the
+            #              code as they are built, build_checks)
+        if b.get("race") is not race:  # (the objective's start, or a new race after a rebuild (a build, someone
+            #                              joining): the kart is back on the grid, so it is measured from here)
+            b.update(race=race, pos=(k["x"], k["y"]), gates=k["lap"] * kart_track.GATES + k["cp"])
+            return None
+        if oid == "drive":
+            step = math.hypot(k["x"] - b["pos"][0], k["y"] - b["pos"][1])
+            b["pos"] = (k["x"], k["y"])
+            return v + (0.0 if r.autopilot or step > 25 else step)  # (R putting you back on the track isn't driving)
+        if oid == "speed":
+            return v if r.autopilot else max(v, abs(k["v"]) * 3.6)
+        if oid == "lap":  # (the gates the race counts round a lap: the start line, then 2 to 8 in order)
+            gates = k["lap"] * kart_track.GATES + k["cp"]
+            got = max(0, gates - b["gates"])
+            b["gates"] = gates
+            return v + (0 if r.autopilot else got)
+        # the race: over for you when you cross the line after the last lap (the computer karts may race on)
+        if race.practice or unit.kid not in race.finish or b.get("judged") is race:
+            return None
+        b["judged"] = race
+        place = sorted(race.finish, key=race.finish.get).index(unit.kid) + 1
+        self.experience_toast(run, f"YOU FINISHED {race.ordinal(place).upper()}", "rank")
+        if place == 1:
+            self.experience_bonus(p.name, "race")
+        return 1.0
+
+    def experience_step(self, race, before):
+        """Every tick while an experience is on (the server's step, after the race's): a drift's mini-turbo and an
+        item used each happen inside one tick, too quick for the half-second measuring, so they are counted as they
+        happen. before: each kart's state before the tick (kart id -> the race's dict)."""
+        for p in self.server.learners():
+            unit = self.g.unit(p)
+            old, new = (before.get(unit.kid), race.karts.get(unit.kid)) if unit is not None else (None, None)
+            if old is None or new is None or self.record(p.name).autopilot:
+                continue
+            # a mini-turbo: a drift with the charge past the first mark, let go (not stopped by a barrier, which
+            # takes the charge with no boost), so the charge has paid out as a boost
+            if old["charge"] >= sim.MINI_TURBO and new["charge"] == 0 and new["boost"] and \
+                    not new["flags"] & (sim.FLAG_DRIFT_L | sim.FLAG_DRIFT_R):
+                self.experience_count(p.name, "drift")
+            if old.get("item") and not new.get("item"):  # (only USE empties a kart's hands inside a tick)
+                self.experience_count(p.name, "item")
+
+    def x_built(self, name, oid, kinds=None):
+        """A build counts towards the garage objective (the kinds of variable it changed) or the code one."""
+        if self.experience is None:
+            return
+        run = self.xrun(self.record(name))
+        o = self.x_objective(run)
+        if o is None or o["id"] != oid:
+            return
+        self.x_measuring(run)
+        if kinds is None:
+            run["value"] = 1.0
+        else:
+            have = set(run["base"].get("kinds", [])) | kinds
+            run["base"]["kinds"] = sorted(have)
+            run["value"] = float(len(have & {"string", "integer", "list"}))
+
+    def experience_garage(self, p, new, old, by_code):
+        if by_code:
+            if teaching.design_changes(old, new, sim.schema()):
+                self.x_built(p.name, "code")
+            return
+        kinds = set()
+        if new.get("name") != old.get("name", p.name):
+            kinds.add("string")
+        if any(new.get(k) != old.get(k, sim.default_design()[k]) for k in sim.STATS):
+            kinds.add("integer")
+        if new.get("colour") != old.get("colour", p.start_colour):
+            kinds.add("list")
+        self.x_built(p.name, "garage", kinds)
+
+    def experience_begin(self, p, r, oid, unit, race, run):
+        if oid == "race" and self.solo:
+            self.solo_race(r, run)
+
+    def experience_actions(self, p, r, oid, run):
+        # on your own there is no teacher to press Enter: a race left on the grid (a build during the countdown
+        # puts everyone back on it) is started from the experience box
+        if oid == "race" and self.solo and self.server.race.phase == sim.FLAGS_GRID:
+            return [["start", "START THE RACE"]]
+        return []
+
+    def experience_action(self, p, r, action, run):
+        o = self.x_objective(run)
+        if action == "start" and self.solo and o is not None and o["id"] == "race":
+            self.solo_race(r, run)
+
+    def experience_ended(self, p, r, oid, run):
+        if oid == "race" and self.solo:
+            self.solo_practice(run)
+
+    def experience_reset(self, p, r, run):
+        if self.solo:
+            self.solo_practice(run)
+
+    def solo_race(self, r, run):
+        """On your own: a race against three computer karts (easy), two laps, with the real countdown."""
+        L = self.server.lesson
+        run["base"].setdefault("was", {k: copy.deepcopy(L.get(k)) for k in ("mode", "hazards", "cpu_karts",
+                                                                             "cpu_level")})
+        run["base"].pop("judged", None)
+        L.update(mode="race", cpu_karts=3, cpu_level="easy", hazards=dict(L["hazards"], cpu_karts=True))
+        r.autopilot = False  # (this one's you; the rebuild takes the brain off the kart)
+        self.server.rebuild()
+        self.server.race.start()
+        self.server.race_version = None
+        self.tell_everyone()
+
+    def solo_practice(self, run):
+        was = run["base"].pop("was", None)
+        if was:
+            self.server.lesson.update(was)
+            self.server.rebuild()
+            self.server.race_version = None
+            self.tell_everyone()
+
+    def tell_everyone(self):
+        """The lesson changed under the windows (a race on your own): they are told as the teacher's changes are."""
+        try:
+            asyncio.get_running_loop().create_task(self.server.broadcast_lesson())
+        except RuntimeError:  # (no loop running: a test calling this directly)
+            pass

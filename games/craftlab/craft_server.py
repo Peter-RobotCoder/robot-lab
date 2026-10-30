@@ -35,7 +35,7 @@ sys.path.insert(0, craft_version.ENGINE_HOME)
 from engine import club_ticket, gfx_tiers, predict, rw_sound, schema, wire  # noqa: E402
 from engine.outbox import Outboxes  # noqa: E402
 from engine.seats import Seats, dropped  # noqa: E402
-from engine import lifecycle, tick_stats  # noqa: E402
+from engine import experience, lifecycle, tick_stats  # noqa: E402
 
 import ai_pipeline  # noqa: E402
 import craft_blocks as B  # noqa: E402
@@ -502,6 +502,8 @@ class CraftServer:
                     self.teacher_design = p.design
                 self.keep_player(p)
                 self.teaching.save()
+                if self.teaching.solo and not self.players:  # (on your own, the server stops soon after the window
+                    self.save_world()                        # has gone: the island kept for next time. CHANGE 210)
                 if role == "learner" and dropped(ws) and p.pid is not None:
                     self.seats.hold(craft_profiles.slug(name), p)
                     print(f"- {name} dropped: their place is kept {self.seats.seconds:.0f} s", flush=True)
@@ -734,10 +736,7 @@ class CraftServer:
             await self.news("PAUSED" if self.paused else "GO!")
         elif kind == "kit":  # (K: a Bot dock and a stack of boards for everyone, to start Bot lessons quickly)
             for q in g.players.values():
-                items.add(q.inv, B.ITEM_ID["dock"], 1)
-                items.add(q.inv, B.ITEM_ID["boards"], 50)
-                items.add(q.inv, B.ITEM_ID["glowstick"], 16)
-                g.inv_changed(q.pid)
+                self.bot_kit(q)
             await self.news("The teacher gave everyone a Bot dock, Boards and Glowsticks")
         elif kind == "new_world":
             try:
@@ -769,6 +768,14 @@ class CraftServer:
             self.teaching.apply_lesson(L.get("lesson_number", 1))
             self.rebuild()
             await self.broadcast_lesson()
+
+    def bot_kit(self, q):
+        """A Bot kit for one player (their craft_game.Player): a Bot dock, 50 Boards and 16 Glowsticks. The teacher's
+        K gives everyone one; Experience 1's Brains objective gives one to a learner with no Bot yet (CHANGE 210)."""
+        items.add(q.inv, B.ITEM_ID["dock"], 1)
+        items.add(q.inv, B.ITEM_ID["boards"], 50)
+        items.add(q.inv, B.ITEM_ID["glowstick"], 16)
+        self.game.inv_changed(q.pid)
 
     async def news(self, text):
         self.game.events.append(("news", text))
@@ -1265,6 +1272,8 @@ async def main():
     ap.add_argument("--sandbox", "--creative", dest="sandbox", action="store_true",
                     help="the learners in Sandbox mode (--creative: its old name)")
     ap.add_argument("--mobs", action="store_true", help="creatures at night")
+    ap.add_argument("--experience", type=int, help="on your own: this experience on, and the server stops when the "
+                                                   "window has gone (the window starts it: engine/experience.py)")
     args = ap.parse_args()
     CLASS_SERVER = args.class_server
     local_only = args.bind in ("127.0.0.1", "localhost", "::1")
@@ -1289,11 +1298,17 @@ async def main():
     if args.mobs:
         server.lesson["hazards"]["mobs"] = True
     server.rebuild()
+    solo = []
+    if args.experience and not CLASS_SERVER and local_only:  # (CHANGE 210) an experience played on your own
+        if not server.teaching.start_experience(args.experience, solo=True):
+            raise SystemExit(f"Craft Lab has no Experience {args.experience}")
+        server.rebuild()
+        solo = [experience.solo_watch(server.players)]
     if CLASS_SERVER:
         os.makedirs(DATA, exist_ok=True)
         with open(os.path.join(DATA, "running_code"), "w", encoding="utf-8") as f:
             f.write(craft_version.CODE)
-    tasks = [server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()]
+    tasks = [server.physics_loop(), server.send_loop(), server.watch_live(), server.watch_desk()] + solo
     async with websockets.serve(server.handler, args.bind, args.port, compression=None, ping_interval=5,
                                 ping_timeout=10, max_queue=8, max_size=2 ** 20):
         tick_stats.start_up()

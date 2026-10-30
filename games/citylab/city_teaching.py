@@ -4,10 +4,13 @@ builds, jobs and brains complete which objectives, and the driver files learners
 The server calls into this. Everything a learner achieves is saved as evidence against the learning outcomes in
 city_missions.py, so the teacher can see (and export) who has shown what.
 """
+import asyncio
+import math
 import os
 
 import city_version  # noqa: F401  (puts the engine on the path)
 import city_brain
+import city_jobs
 import city_missions as cm
 import city_mods
 import city_profiles
@@ -108,6 +111,7 @@ class Teaching(teaching.Teaching):
 
     def build_checks(self, p, r, new, old, by_code):
         """Mission 1's objectives a, b, c and d, and mission 2's points."""
+        self.experience_garage(p, new, old, by_code)  # (Experience 1's garage and code objectives: CHANGE 210)
         r.best_delivery = None
         r.built_at = self.server.world.tick
         pts, was_pts = new.get("points", {}), old.get("points", sim.default_design()["points"])
@@ -182,3 +186,146 @@ class Teaching(teaching.Teaching):
     def restore_record(self, r, saved):
         if r.best_delivery is None and isinstance(saved.get("best_delivery"), (int, float)):
             r.best_delivery = float(saved["best_delivery"])
+
+    # ---------- Experience 1, Orientation (CHANGE 210): what each objective measures, in the real city ----------
+    # Each one is read from the world as the game has it: the person's record and the car they are in (city_sim),
+    # the punches and kicks that landed (World.landed), the surface under the car (city_map), the jobs finished
+    # (city_jobs.Jobs.done), the builds (build_checks) and the brain's time on autopilot. run["base"] keeps what an
+    # objective measures from; a new world (the teacher chose another city) starts it again from there.
+    X_MEASURED = ("walk", "robot", "car", "drive", "delivery", "race")
+
+    def experience_value(self, p, r, oid, unit, world, now, run):
+        b, v = run["base"], run["value"]
+        if oid == "brain":
+            return r.brain.seconds_running(now) if (r.brain and r.autopilot and not r.brain.error) else None
+        if unit is None or oid not in self.X_MEASURED:
+            return None  # (the garage and the code are counted as they are built: build_checks)
+        me = world.people.get(unit.pid)
+        if me is None:
+            return None
+        car = world.cars.get(me["link"] - 1) if me["link"] else None
+        if b.get("world") is not world or b.get("pid") != unit.pid:  # (the objective's start, or a new city)
+            b.update(world=world, pid=unit.pid, since=world.tick, pos=(me["x"], me["y"]), car=None,
+                     landed=world.landed.get(unit.pid, 0))
+            return None
+        if oid == "walk":  # on foot, by the learner (not the autopilot): a jump back to the depot (R) isn't walking
+            step = math.hypot(me["x"] - b["pos"][0], me["y"] - b["pos"][1])
+            b["pos"] = (me["x"], me["y"])
+            return v + (0.0 if r.autopilot or car is not None or step > 5 else step)
+        if oid == "robot":  # the punches and kicks that landed (a robot powered down, then rebooted, still counts)
+            landed = world.landed.get(unit.pid, 0)
+            got = max(0, landed - b["landed"])
+            b["landed"] = landed
+            return v + got
+        if oid == "car":
+            return 1.0 if car is not None and not r.autopilot else None
+        if oid == "drive":  # metres driven on the road: the pavement, the grass and the car park don't count
+            if car is None or r.autopilot:
+                b["car"] = None
+                return None
+            at = (car["x"], car["y"])
+            if b.get("car") != car["id"]:  # (into a car, or another one: measured from here)
+                b["car"], b["cpos"] = car["id"], at
+                return None
+            step = math.hypot(at[0] - b["cpos"][0], at[1] - b["cpos"][1])
+            b["cpos"] = at
+            return v + (step if step <= 5 and world.city.surface(at[0], at[1]) == "road" else 0.0)
+        mine = [d for d in getattr(world.jobs, "done", []) if d["pid"] == unit.pid and d["tick"] >= b["since"]]
+        if oid == "delivery":  # (late still counts: the job is done, for less)
+            return 1.0 if any(d["kind"] == "delivery" for d in mine) else None
+        if oid == "race":
+            finished = [d for d in mine if d["kind"] == "race"]
+            if finished:
+                if any(d["place"] == 1 for d in finished):
+                    self.experience_bonus(p.name, "race")
+                return 1.0
+            job = world.jobs.mine.get(unit.pid)
+            if job is not None and job["kind"] == city_jobs.RACE:
+                b["racing"] = True
+            elif b.pop("racing", False):  # (the race ended before this learner was back at the line)
+                self.experience_say(p.name, "Not this time: the race ended before you were back at the line." +
+                                    (" Press REMATCH to go again." if self.solo else " Try the next one."))
+        return None
+
+    def x_built(self, name, oid, kinds=None):
+        """A build counts towards the garage objective (the kinds of variable it changed) or the code one."""
+        if self.experience is None:
+            return
+        run = self.xrun(self.record(name))
+        o = self.x_objective(run)
+        if o is None or o["id"] != oid:
+            return
+        self.x_measuring(run)
+        if kinds is None:
+            run["value"] = 1.0
+        else:
+            have = set(run["base"].get("kinds", [])) | kinds
+            run["base"]["kinds"] = sorted(have)
+            run["value"] = float(len(have & {"string", "integer", "list"}))
+
+    def experience_garage(self, p, new, old, by_code):
+        """BUILD MY DRIVER: from the code panel with a change in it (the code objective), or from the Garage (the
+        garage objective: the kinds of variable it changed, a build at a time)."""
+        if by_code:
+            if teaching.design_changes(old, new, sim.schema()):
+                self.x_built(p.name, "code")
+            return
+        kinds = set()
+        if any(new.get(k) != old.get(k, p.name if k == "name" else None) for k in ("name", "body", "look")):
+            kinds.add("string")  # (driver_name, car and look are all STRING VARIABLES in the Garage)
+        was_pts = old.get("points") or {}
+        if any(new.get("points", {}).get(k) != was_pts.get(k) for k in sim.STATS):
+            kinds.add("integer")
+        if new.get("colour") != old.get("colour", p.start_colour):
+            kinds.add("list")
+        self.x_built(p.name, "garage", kinds)
+
+    def experience_begin(self, p, r, oid, unit, world, run):
+        if oid == "race" and self.solo:
+            self.solo_race(p, r, run)
+
+    def experience_actions(self, p, r, oid, run):
+        if oid == "race" and self.solo and self.server.world.jobs.race is None:
+            return [["rematch", "REMATCH"]]  # (no race running, and this one not finished: another, on the line)
+        return []
+
+    def experience_action(self, p, r, action, run):
+        o = self.x_objective(run)
+        if action == "rematch" and self.solo and o is not None and o["id"] == "race" \
+                and self.server.world.jobs.race is None:
+            self.solo_race(p, r, run)
+
+    def experience_ended(self, p, r, oid, run):
+        if oid == "race" and self.solo:
+            self.solo_practice(run)
+
+    def experience_reset(self, p, r, run):
+        if self.solo:
+            self.solo_practice(run)
+
+    def solo_race(self, p, r, run):
+        """On your own: the street race the teacher's Enter starts (city_server.line_up_race): you in a car on the
+        line, the computer's racers (easy) beside you, the real countdown. The lesson's mode goes back after it."""
+        L = self.server.lesson
+        run["base"].setdefault("was", {"mode": L.get("mode", "practice")})
+        run["base"].pop("racing", None)
+        if r.autopilot:  # (this one's you)
+            r.autopilot = False
+            self.attach(p)
+        self.server.rebuild()  # (the last race's racers, gone off as traffic, back to the lesson's number)
+        self.server.line_up_race()
+        self.tell_everyone()
+
+    def solo_practice(self, run):
+        was = run["base"].pop("was", None)
+        if was:
+            self.server.lesson.update(was)
+            self.server.rebuild()
+            self.tell_everyone()
+
+    def tell_everyone(self):
+        """The lesson changed under the windows (a race on your own): they are told as the teacher's changes are."""
+        try:
+            asyncio.get_running_loop().create_task(self.server.broadcast_lesson())
+        except RuntimeError:  # (no loop running: a test calling this directly)
+            pass

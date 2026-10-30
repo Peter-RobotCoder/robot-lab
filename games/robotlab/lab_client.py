@@ -57,6 +57,8 @@ ap.add_argument("--host", default=None,
                 help="server address (default: this computer, or the class server in the downloaded game); "
                      "'class' = the one in teacher_settings.json")
 ap.add_argument("--code", help="class code (the demo codes on a laptop test server)")
+ap.add_argument("--experience", type=int, help="play this experience on your own: Robot Lab's own server starts on "
+                                               "this laptop (engine/experience.py; the app's EXPERIENCES button)")
 ap.add_argument("--window", help="the window: 1280x720, 1600x900 ... 3840x2160 or full "
                                  "(else this computer's last choice; CHANGE 126)")
 ap.add_argument("--gfx", choices=["auto", "mesh", "lines", "basic", "low", "medium", "high", "ultra"], default="auto",
@@ -99,6 +101,16 @@ BRAINS = (os.path.join(os.path.dirname(sys.executable), "brains", "robotlab") if
 
 
 
+from engine import experience  # noqa: E402
+SOLO = None  # (CHANGE 210) an experience on your own: Robot Lab's server on this laptop, started by this window
+if args.experience and not args.teacher:
+    SOLO = experience.solo_start(HERE, "lab_server.py", "robotlab", args.experience, "ROBOTLAB_DATA", lab_version.FROZEN)
+    # (the window never stops it: the server saves and stops by itself 30 s after the window has gone, and a window
+    # that reopens itself, a Graphics choice, finds it still there with the run kept: engine/experience.py)
+    if not experience.solo_ready(SOLO):
+        raise SystemExit("Robot Lab's server on this laptop didn't start: " + experience.solo_last_words(SOLO))
+    args.host, args.code = SOLO["host"], None
+    args.name, args.password = args.name or experience.SOLO_NAME, experience.SOLO_PASSWORD
 if args.host == "class":  # the class server's address, from the teacher's settings
     args.host = load_json(TEACHER_SETTINGS).get("server") or lab_version.ONLINE_SERVER
 elif args.host is None:  # a learner's last choice on the login screen, or this computer / the built-in server
@@ -127,6 +139,8 @@ name = args.name or ("Teacher" if TEACHER else "")
 net = None  # the connection to the server, made when you log in
 
 title = f"Robot Lab - {'TEACHER' if TEACHER else 'LEARNER'}" + (f" ({name})" if name else "")
+if SOLO:
+    title = f"Robot Lab - EXPERIENCE {args.experience}"
 if TRY:
     title += " - TRYING ON THIS LAPTOP"
 x = args.x if args.x is not None else (40 if TEACHER else 1360)
@@ -155,6 +169,7 @@ from engine.net import Net  # noqa: E402
 from engine import interp  # noqa: E402
 from engine import ahead  # noqa: E402  (CHANGE 166: the robots drawn where they are now)
 from engine import gamepad  # noqa: E402  (CHANGE 170: a controller drives your robot)
+from engine.experience_hud import ExperienceHud  # noqa: E402  (CHANGE 210)
 from rw_camera import GameCamera  # noqa: E402
 from rw_gfx import ArenaVisual, RobotVisual  # noqa: E402
 
@@ -489,6 +504,8 @@ class Lab(hud.HudKit, ShowBase):
         for key, factor, step in (("wheel_up", 0.88, -1), ("wheel_down", 1 / 0.88, 1)):
             self.key(key, self.wheel, factor, step)
         self.hud()
+        if getattr(self, "xhud", None) is None:  # (CHANGE 210) an experience, drawn over the arena when one is on
+            self.xhud = ExperienceHud(self, send, TEACHER)
         self.try_starting = None  # (teacher: a test server on this laptop is starting: see try_here)
         if TRY:
             self.begin_try()
@@ -1544,6 +1561,7 @@ class Lab(hud.HudKit, ShowBase):
             label(f, "saved settings: mission " + ", ".join(str(n) for n in saved), 1.74, y - 0.037, 0.015, GREY,
                   TextNode.ARight)
         y -= 0.065
+        y = self.xhud.controls_row(f, 0.82, y)  # (CHANGE 210: Experience 1 for the class, or its end)
         y = self.restart_row(f, y)  # (near the top, so Restart server is always in reach: asked for 6 October)
         y -= 0.065
         label(f, "Match", 0.82, y, 0.03, YELLOW)
@@ -2999,6 +3017,10 @@ class Lab(hud.HudKit, ShowBase):
                     rebuild = rebuild or self.tab in ("missions", "ai", "card")
                 elif self.tab == "missions" and getattr(self, "top_speed_text", None):
                     self.top_speed_text.setText(f"fastest so far {m['top_speed']:.1f} km/h")
+            elif kind in ("experience", "experience_class"):  # (CHANGE 210)
+                was = getattr(self.xhud, "m", None) is not None
+                self.xhud.took(m)
+                rebuild = rebuild or (TEACHER and self.tab == "teacher" and was != (self.xhud.m is not None))
             elif kind == "teaching":
                 self.teaching = m
                 sig = json.dumps(m, sort_keys=True)

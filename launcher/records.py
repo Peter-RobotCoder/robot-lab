@@ -123,6 +123,10 @@ def learner_card(record, name, sessions, lm, out_dir=RECORDS):
         story.append(table(rows, [180, 70, 250]))
     else:
         story.append(Paragraph("No missions were completed in this session.", st["base"]))
+    for x in (report.get("experiences") or {}).get(name, []):  # (CHANGE 210: an experience finished this session)
+        story.append(Paragraph(f"<b>Experience {esc(x.get('n', ''))}: {esc(x.get('title', ''))}</b> finished: "
+                               f"{esc(x.get('xp', 0))} XP, rank {esc(x.get('rank', ''))}, {esc(x.get('stars', 0))} of 3 stars",
+                               st["green"]))
     note = (record.get("notes") or {}).get(name)
     if note:
         story.append(Paragraph("<b>Teacher's note:</b> " + esc(note), st["green"]))

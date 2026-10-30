@@ -5,10 +5,10 @@ is open, so you can click in it).
     a learner   Mission (the lesson's missions, each objective ticked as it is done, the guidance, the written
                 answers), AI card (a request to the teacher: My Craft Bot, The world, The rules), My card (the outcomes
                 shown, what was done each session), Settings (text size, the look, the window)
-    the teacher Controls (the mission, show the learners their Mission tab, Challenge or Sandbox, creatures,
-                Energy, the time of day, the rules: keep your things, Overload Cells, falls hurt; everyone to me, a Bot kit
-                each, pause; locking designs, what learners can change, user mods, the restart row), User mods,
-                Warnings, Limits, Settings. The class's Learners, Outcomes, AI cards and Changes are on the
+    the teacher Controls (the mission, Experience 1 for the class or its end (CHANGE 210), show the learners their
+                Mission tab, Challenge or Sandbox, creatures, Energy, the time of day, the rules: keep your things,
+                Overload Cells, falls hurt; everyone to me, a Bot kit each, pause; locking designs, what learners can
+                change, user mods, the restart row), User mods, Warnings, Limits, Settings. The class's Learners, Outcomes, AI cards and Changes are on the
                 teacher's page.
 
 The Craft Bot's own panels (craft_panels.py: the Garage, the code, the brain) open from the Backpack's Bot tab (B).
@@ -114,6 +114,8 @@ class CraftTabs(lesson_tabs.LessonTabs):
             button(f, str(n), 1.0 + i * 0.09, y + 0.008, send, [{"type": "lesson_number", "n": n}], 0.028,
                    ON if L.get("lesson_number") == n else OFF)
         y -= 0.06
+        if getattr(self, "xhud", None) is not None:  # (CHANGE 210: Experience 1 for the class, or its end)
+            y = self.xhud.controls_row(f, 0.82, y)
         check(f, "Show learners their Mission tab (pauses the game)", 0.84, y, L.get("show_missions"),
               lambda v: self.set_lesson({"show_missions": bool(v)}), 0.024)
         y -= 0.05
