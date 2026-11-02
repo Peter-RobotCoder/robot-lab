@@ -120,6 +120,13 @@ MISSIONS = {
            ["EVAL", "TEST"], "auto"),
     "2e": (2, "AI rebalance", "Ask the AI to change your robot's points or settings for a reason you can "
                              "explain, then test whether it worked.", ["AIREVIEW", "TEST"], "auto"),
+    # (CHANGE 211) the first arena mission written in code: pseudo code or Python, both sides of the Brain panel (K)
+    "3f": (3, "Code mission: escape or attack",
+           "Press K for the Brain panel. Write what your robot should do, in pseudo code on the left or Python on "
+           "the right (each side writes the other), and press RUN: your code drives. Make it ESCAPE: an enemy comes "
+           "within 5 metres and your code keeps you from being hit for 20 seconds. Or make it ATTACK: your code lands "
+           "3 hits. Try: turn away from enemy, drive forward, if enemy distance less than 3, attack.",
+           ["SEL", "ALG"], "auto"),
     "3a": (3, "A brain that runs", "Edit brains/my_brain.py, press U to upload it and P to switch it on. "
                                   "It must run for 20 seconds without an error.", ["FUNC", "VAR"], "auto"),
     "3b": (3, "Make a decision", "Your brain uses if, elif or else.", ["SEL"], "auto"),
@@ -238,9 +245,10 @@ LESSON_TASKS = {
     2: "Design a robot on a budget. Share exactly 100 points between speed, attack, armour and control in the "
        "code, prove the game rejects bad designs (invalid and boundary test data), then fight and use the "
        "evidence to justify the design.",
-    3: "Write a Python brain that drives the robot by itself. It must run without errors, make decisions with "
-       "if / elif / else, use a function of your own and remember a state between ticks. Upload it (U), switch "
-       "autopilot on (P) and watch it fight.",
+    3: "Write a brain that drives the robot by itself. Start in the Brain panel (K): pseudo code beside its Python, "
+       "either side typed, to make your robot escape an enemy or attack it. Then in Python in brains/my_brain.py: it "
+       "must run without errors, make decisions with if / elif / else, use a function of your own and remember a "
+       "state between ticks. Upload it (U), switch autopilot on (P) and watch it fight.",
     4: "Improve the game itself with AI. Write a safe, precise request to change a game rule, predict what it "
        "will do, then review the AI's code: does it work, was it tested, can you explain it? Then find a "
        "mistake hidden in AI-written code.",

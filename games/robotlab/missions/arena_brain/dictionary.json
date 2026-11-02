@@ -1,0 +1,217 @@
+{
+  "name": "Club Coders pseudo code dictionary",
+  "version": 1,
+  "mission": "Robot Lab: a brain in pseudo code (the arena)",
+  "notes": "Robot Lab's own pseudo code (CHANGE 211): the lines of a robot brain, read again 60 times a second. Each line is one line of Python inside brain(me, enemies) (brain_pseudo.py puts the start and the end round them: the enemy nearest, throttle, steer and attack, and the return). A line's Python can be typed in the Python column as well: brain_pseudo.to_pseudo() reads it back with the patterns' own Python.",
+  "patterns": [
+    {
+      "id": "forward",
+      "say": "drive forward",
+      "python": "throttle = 1",
+      "meaning": "Full speed ahead (until another line says otherwise).",
+      "example": "drive forward"
+    },
+    {
+      "id": "slow",
+      "say": "drive slowly",
+      "python": "throttle = 0.4",
+      "meaning": "Forward at under half speed: easier to aim.",
+      "example": "drive slowly"
+    },
+    {
+      "id": "back",
+      "say": "drive back",
+      "python": "throttle = -1",
+      "meaning": "Full speed in reverse.",
+      "example": "drive back"
+    },
+    {
+      "id": "stop",
+      "say": "stop",
+      "python": "throttle = 0",
+      "meaning": "Stop driving.",
+      "example": "stop"
+    },
+    {
+      "id": "turn",
+      "say": "turn [dir]",
+      "python": "steer = {dir}",
+      "meaning": "Steer left or right while you drive (on the spot if you're stopped).",
+      "example": "turn left"
+    },
+    {
+      "id": "straight",
+      "say": "go straight",
+      "python": "steer = 0",
+      "meaning": "Stop steering.",
+      "example": "go straight"
+    },
+    {
+      "id": "towards",
+      "say": "turn towards enemy",
+      "python": "steer = me.angle_to(enemy) / 30",
+      "meaning": "Steer to face the nearest enemy: the further round it is, the harder you steer.",
+      "example": "turn towards enemy"
+    },
+    {
+      "id": "away",
+      "say": "turn away from enemy",
+      "python": "steer = -me.angle_to(enemy) / 30",
+      "meaning": "Steer to put the nearest enemy behind you: for escaping.",
+      "example": "turn away from enemy"
+    },
+    {
+      "id": "attack",
+      "say": "attack",
+      "python": "attack = True",
+      "meaning": "Fire your weapon (a spinner or drum spins while this is on).",
+      "example": "attack"
+    },
+    {
+      "id": "no_attack",
+      "say": "stop attacking",
+      "python": "attack = False",
+      "meaning": "Weapon off.",
+      "example": "stop attacking"
+    },
+    {
+      "id": "if_sensor",
+      "say": "if [sensor]",
+      "python": "if {sensor}:",
+      "opens": true,
+      "block": "if",
+      "end_python": "# end of if",
+      "meaning": "Ask a sensor. Do the lines below (down to else or end) only if the answer is yes.",
+      "example": "if enemy in front"
+    },
+    {
+      "id": "if_compare",
+      "say": "if [reading] [cmp] [v]",
+      "python": "if {reading} {cmp} {v}:",
+      "opens": true,
+      "block": "if",
+      "end_python": "# end of if",
+      "meaning": "Compare a reading with a number: the lines below happen only if it's true.",
+      "example": "if enemy distance less than 3"
+    },
+    {
+      "id": "else",
+      "say": "else",
+      "python": "else:",
+      "middle": "if",
+      "meaning": "Inside an if: the lines from here to end happen only when the if's answer was no.",
+      "example": "else"
+    },
+    {
+      "id": "end",
+      "say": "end",
+      "python": "# end",
+      "closes": true,
+      "meaning": "Closes the most recent if or else.",
+      "example": "end"
+    }
+  ],
+  "slots": {
+    "dir": {
+      "kind": "choice",
+      "values": ["left", "right"],
+      "python": { "left": "1", "right": "-1" },
+      "describe": "left or right"
+    },
+    "sensor": {
+      "kind": "choice",
+      "values": ["enemy in front", "enemy behind", "enemy on left", "enemy on right", "weapon ready", "upside down"],
+      "python": {
+        "enemy in front": "abs(me.angle_to(enemy)) < 20",
+        "enemy behind": "abs(me.angle_to(enemy)) > 120",
+        "enemy on left": "me.angle_to(enemy) > 0",
+        "enemy on right": "me.angle_to(enemy) < 0",
+        "weapon ready": "me.weapon_ready",
+        "upside down": "me.upside_down"
+      },
+      "describe": "a sensor: enemy in front, enemy behind, enemy on left, enemy on right, weapon ready or upside down"
+    },
+    "reading": {
+      "kind": "choice",
+      "values": ["enemy distance", "wall distance", "armour", "speed", "enemy armour"],
+      "python": {
+        "enemy distance": "me.distance_to(enemy)",
+        "wall distance": "me.distance_to_wall",
+        "armour": "me.armour",
+        "speed": "me.speed",
+        "enemy armour": "enemy.armour"
+      },
+      "describe": "a reading: enemy distance or wall distance (metres), armour or enemy armour (0 to 100), speed (km/h)"
+    },
+    "cmp": {
+      "kind": "choice",
+      "values": ["less than", "more than"],
+      "python": { "less than": "<", "more than": ">" },
+      "describe": "less than or more than"
+    },
+    "v": { "kind": "number", "min": 0, "max": 100, "describe": "a number from 0 to 100" }
+  },
+  "fillers": ["please", "the", "a", "an", "then", "now", "and", "robot", "my", "your", "to", "it", "is", "of", "at", "are", "go", "metres", "meters", "m", "percent", "kmh"],
+  "symbols": [["<", "less than"], [">", "more than"]],
+  "synonyms": {
+    "move forward": "drive forward",
+    "forwards": "forward",
+    "ahead": "forward",
+    "charge": "drive forward",
+    "move back": "drive back",
+    "reverse": "drive back",
+    "backward": "back",
+    "backwards": "back",
+    "slow": "slowly",
+    "brake": "stop",
+    "halt": "stop",
+    "steer": "turn",
+    "toward": "towards",
+    "face enemy": "turn towards enemy",
+    "chase enemy": "turn towards enemy",
+    "aim at enemy": "turn towards enemy",
+    "away enemy": "away from enemy",
+    "run away": "turn away from enemy",
+    "escape": "turn away from enemy",
+    "flee": "turn away from enemy",
+    "fire": "attack",
+    "hit": "attack",
+    "spin": "attack",
+    "weapon on": "attack",
+    "weapon off": "stop attacking",
+    "stop firing": "stop attacking",
+    "otherwise": "else",
+    "end if": "end",
+    "endif": "end",
+    "done": "end",
+    "enemy ahead": "enemy in front",
+    "enemy close": "enemy distance less than 3",
+    "enemy near": "enemy distance less than 3",
+    "enemy far": "enemy distance more than 6",
+    "closer than": "distance less than",
+    "nearer than": "distance less than",
+    "further than": "distance more than",
+    "farther than": "distance more than",
+    "enemy left": "enemy on left",
+    "enemy right": "enemy on right",
+    "left of": "on left",
+    "right of": "on right",
+    "enemy behind me": "enemy behind",
+    "wall close": "wall distance less than 2",
+    "health": "armour",
+    "armor": "armour",
+    "fewer than": "less than",
+    "smaller than": "less than",
+    "under": "less than",
+    "below": "less than",
+    "greater than": "more than",
+    "bigger than": "more than",
+    "over": "more than",
+    "above": "more than",
+    "flipped": "upside down"
+  },
+  "number_words": {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50
+  }
+}

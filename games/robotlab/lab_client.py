@@ -16,6 +16,7 @@ Panels:    M missions   G garage   I AI request card   C your robot as code (edi
            J user mods (learners' ideas in the game: tick the ones you'd like, the teacher switches them on)
            T teacher panels (the teacher's Learner view shows and changes what a learner sees)   H help
 Brain:     U upload brains/my_brain.py   P autopilot on/off (your brain drives)
+           K the Brain panel: a brain in pseudo code and Python side by side (type in either), RUN to drive with it
 Camera:    V change view (third person, first person, zoomed arena follow, full arena, centre camera)
            O full arena   mouse wheel or + / - zoom in and out (every view)
            drag with the right mouse button (or Q / E) to swing the view round and tilt it   Home resets the view
@@ -71,6 +72,7 @@ ap.add_argument("--no-ahead", action="store_true", help="draw the robots as sent
 ap.add_argument("--x", type=int, help="window position (left edge)")
 ap.add_argument("--tab", help=argparse.SUPPRESS)
 ap.add_argument("--show-code", action="store_true", help=argparse.SUPPRESS)  # (tests: open the code panel)
+ap.add_argument("--brain", help=argparse.SUPPRESS)  # (tests: "open" the Brain panel and type Python in it; "run" then RUN)
 ap.add_argument("--card", help=argparse.SUPPRESS)
 ap.add_argument("--view-tab", help=argparse.SUPPRESS)  # (tests: the Learner view opens on this tab)  # (tests: the teacher's AI cards tab opens on "edit" or a card's id)
 ap.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
@@ -160,6 +162,7 @@ from panda3d.core import (Filename, KeyboardButton, MouseButton, Point3, TextNod
                           WindowProperties)
 
 import cpu_brains  # noqa: E402
+import lab_brain_panel  # noqa: E402  (CHANGE 211: the Brain panel, K)
 import lab_missions as lm  # noqa: E402
 import lab_sim as sim  # noqa: E402
 import rw_fx  # noqa: E402
@@ -216,7 +219,7 @@ def send(msg):
         net.send(msg)
 
 
-class Lab(hud.HudKit, ShowBase):
+class Lab(lab_brain_panel.BrainPanel, hud.HudKit, ShowBase):
     VERSION, LIVE_ID = lab_version.VERSION, lab_version.live_id()
     UNIT, CPU_VIEW = "robot", "Computer robot"
     FIRST_TAB = "teacher" if TEACHER else "missions"
@@ -403,6 +406,7 @@ class Lab(hud.HudKit, ShowBase):
             self.login_panel.destroy()
             self.login_panel = None
         self.entries, self.typing = {}, None
+        self.brain_init(send, TEACHER)  # (CHANGE 211: the Brain panel, K)
         props = WindowProperties()
         props.setTitle(f"Robot Lab - {'TEACHER' if TEACHER else 'LEARNER'} ({name})")
         if self.win is not None and not args.offscreen:
@@ -483,6 +487,8 @@ class Lab(hud.HudKit, ShowBase):
         self.key("h", self.toggle_help)
         self.key("u", self.upload_brain)
         self.key("p", self.autopilot_key)
+        self.key("k", self.toggle_brain)  # (CHANGE 211) the Brain panel: pseudo code and Python side by side
+        self.accept("control-enter", lambda: self.brain_run() if self.typing in ("brain_pseudo", "brain_python") else None)
         self.key("v", self.cam.cycle)
         self.key("l", self.cycle_focus)  # (CHANGE 183) the camera follows the next robot
         if TEACHER:
@@ -547,6 +553,21 @@ class Lab(hud.HudKit, ShowBase):
                 print(f"SELFTEST objectives: {done}; code panel rows {self.code_rows()}", flush=True)
             for secs, fn in ((2, gui), (3.5, hack), (4.5, resize), (5.5, report)):
                 self.taskMgr.doMethodLater(secs, fn, f"selftest {fn.__name__}")
+        if args.brain:  # (tests, CHANGE 211) the Brain panel opened, a line of Python typed on its right, then RUN
+            def brain_open(t):
+                self.toggle_brain()
+                self.brain_focus("python")
+                self.brain_y["lines"].append("if me.armour < 30:")
+                self.brain_y["lines"].append("    steer = -me.angle_to(enemy) / 30")
+                self.brain_y["lines"].append("# end of if")
+                self.brain_eds["python"].changed()
+
+            def brain_run(t):
+                self.brain_run()
+                print("BRAIN pseudo: " + " | ".join(self.brain_p["lines"]), flush=True)
+            self.taskMgr.doMethodLater(2, brain_open, "test brain open")
+            if args.brain == "run":
+                self.taskMgr.doMethodLater(3, brain_run, "test brain run")
 
     def restore_prefs(self, prefs):
         """A learner's camera view and half-typed AI card, from their profile."""
@@ -2878,6 +2899,8 @@ class Lab(hud.HudKit, ShowBase):
             self.userExit()
         if self.panel_bar and self.last_aspect != self.getAspectRatio():
             self.place_panel()
+        if getattr(self, "brain_eds", None) is not None:
+            self.brain_tick()  # (CHANGE 211: the Brain panel's other side written as the typing pauses)
         # (the learner view's report line is refreshed in send_perf, once a second)
         if not self.started:  # still on the log-in screen
             return task.cont
@@ -3061,6 +3084,7 @@ class Lab(hud.HudKit, ShowBase):
                 rebuild = rebuild or self.tab == "ai"
             elif kind == "brain_result":
                 self.banner_note(("Brain: " + m["error"]) if m["ok"] else "Brain problem: " + m["error"], 5)
+                self.brain_result(m)
             elif kind == "restart_client":
                 self.restart_window()
             elif kind == "missions_file":  # the missions as a file the teacher can edit (CHANGE 97)
@@ -3255,6 +3279,8 @@ class Lab(hud.HudKit, ShowBase):
             if throttle < 0:  # reversing: left and right arc the robot the other way, as a car does (CHANGE 113)
                 steer = -steer
             control = (throttle, steer, fire)
+        if self.state.get("winner"):  # (CHANGE 211: the battle is won and every robot is switched off: drawn still too)
+            control = (0.0, 0.0, False)
         # a change goes at once; otherwise the control is repeated 30 times a second, numbered, so a message lost or
         # held up on the way is made good by the next one (and the server ignores one that arrives out of order)
         if control != self.last_control or now - self.last_send > 1 / 30:
@@ -3461,10 +3487,11 @@ class Lab(hud.HudKit, ShowBase):
                                  f"  gfx {self.gfx_tier}")
         self.feed.setText("\n".join(st["events"]))
         self.show_intro(st.get("intro"), now)
+        self.banner.setPos(*((0, 0.74) if st["winner"] and now >= getattr(self, "note_until", 0) else (-0.3, 0.1)))
         if now < getattr(self, "note_until", 0):
             self.banner.setText(self.note_text)
             self.banner.setScale(0.075 if getattr(self, "note_big", False) else 0.045)
-        elif st["winner"]:
+        elif st["winner"]:  # (CHANGE 211: at the top, in the middle, under the battle's clock)
             self.banner.setScale(0.08)
             self.banner.setText(st["winner"] + ("\nPress Restart in Controls" if TEACHER else ""))
         elif st["paused"]:

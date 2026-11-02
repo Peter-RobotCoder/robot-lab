@@ -1646,6 +1646,12 @@ export class RobotGame {
         return id === undefined ? null : id;
     }
 
+    // (CHANGE 211) the battle in the arena watched is won: every robot is switched off, so no keys go (play.js)
+    battleWon() {
+        const arena = this.last ? this.arenaOf(this.last) : null;
+        return !!(arena && arena.winner);
+    }
+
     // the robot the camera follows: the one picked with L (while it is still in the arena watched), else your own
     followId() {
         const sc = this.scene, my = this.myId();
@@ -1953,6 +1959,8 @@ export class RobotGame {
             big = "PAUSED";
         }
         $("countdown").innerHTML = big;
+        // (CHANGE 211: the winner's words at the top, in the middle, as the window's; every robot is switched off)
+        $("countdown").classList.toggle("won", !!(big && arena && arena.winner && m.intro == null && !(this.activateAt && performance.now() - this.activateAt < 1200)));
         const tl = arena && arena.time_left !== null && arena.time_left !== undefined ? arena.time_left : m.time_left;
         const clock = tl !== null && tl !== undefined ? `${Math.floor(tl / 60)}:${String(Math.floor(tl % 60)).padStart(2, "0")}` : "";
         const T = S.tournament;  // (the window's top line: the tournament's title, CHANGE 143)

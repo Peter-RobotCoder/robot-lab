@@ -258,6 +258,8 @@ body.light #panel .warn { color: #b25f00; }
 .karthud #kh-pit { display: none; position: absolute; top: 58%; left: 0; right: 0; text-align: center; font-size: 34px; font-weight: 800; color: var(--yellow); text-shadow: 0 2px 6px #000; }
 body.fightscreen #places, body.fightscreen #race { display: none; }  /* (a player's fight screen has its own bars and banner) */
 #race .big .sub { font-size: 16px; font-weight: 400; color: #fff; }
+#race .big.won { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); text-align: center; white-space: nowrap; }  /* (Robot Lab's winner: top middle, CHANGE 211) */
+body.touch #race .big.won { position: static; transform: none; }
 
 /* the window's Settings: four text sizes and the light look (CHANGE 134) */
 body.text-1 #panel, body.text-1 .hud { font-size: 13px; }
@@ -644,6 +646,89 @@ body.light #missioncode { --c-bg: #ffffff; --c-edge: #c5ccd8; --c-text: #1f1f1f;
 #mc-book .mc-says b, #mc-book .mc-py-way { color: var(--c-f); font: 500 12.5px "JetBrains Mono", Consolas, monospace; }
 #mc-book .mc-values { color: var(--c-text); }
 #mc-whole { flex: 1; overflow: auto; background: var(--c-box); border: 1px solid var(--c-boxedge); border-radius: 8px; }
+
+/* Robot Lab's Brain panel (braincode.js, CHANGE 211): the Missions' code panel's look, with both columns typed in. The
+   brain's start and end (greyed) frame the Python; the Python is coloured in a <pre> (#bc-hl) under its textarea, whose
+   own text is transparent (the garage code panel's way), indented under the def as the whole brain has it */
+#btn-brain { padding: 4px 12px; font-size: 13px; background: #2f8f4a; }
+#braincode { --c-bg: rgba(10, 14, 30, 0.95); --c-edge: rgba(62, 233, 255, 0.35); --c-text: #e6ebff; --c-dim: #9aa6c8; --c-ln: #4c587c;
+             --c-box: rgba(4, 7, 18, 0.7); --c-boxedge: rgba(62, 233, 255, 0.12); --c-gutedge: rgba(76, 88, 124, 0.35); --c-k: #ff4fd8;
+             --c-f: #3ee9ff; --c-s: #ffb02e; --c-n: #b6ff3b; --c-c: #7f8bb0; --c-t: #3ee9ff; --c-p: #c3cbe8; --c-caret: #b6ff3b; --c-errnum: #e5484d;
+             --c-sel: rgba(62, 233, 255, 0.26);
+             position: fixed; left: 12px; top: 52px; bottom: 12px; width: min(900px, calc(100vw - 24px)); z-index: 6; color: var(--c-text);
+             background: var(--c-bg); border: 2px solid var(--c-edge); border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+             padding: 0 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+body.light #braincode { --c-bg: #ffffff; --c-edge: #c5ccd8; --c-text: #1f1f1f; --c-dim: #616161; --c-ln: #6e7681; --c-box: #ffffff; --c-boxedge: #e1e4ea;
+    --c-gutedge: #eceef2; --c-k: #0000ff; --c-f: #795e26; --c-s: #a31515; --c-n: #098658; --c-c: #008000; --c-t: #267f99; --c-p: #1f1f1f; --c-caret: #000000;
+    --c-errnum: #e51400; --c-sel: rgba(0, 96, 192, 0.2); }
+#braincode[hidden] { display: none; }
+#braincode header { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; font-size: 14px; letter-spacing: 0.03em; cursor: move; touch-action: none; user-select: none; }
+#braincode header .dots { display: flex; gap: 7px; margin-right: 2px; }
+#braincode header .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+#braincode header .dots i:nth-child(2) { background: #febc2e; }
+#braincode header .dots i:nth-child(3) { background: #28c840; }
+#braincode header .spacer { flex: 1; }
+#braincode header button { padding: 2px 9px; background: transparent; color: var(--c-dim); cursor: pointer; }
+#bc-file { font: 500 12.5px "JetBrains Mono", Consolas, monospace; color: var(--c-dim); letter-spacing: 0; white-space: pre; }
+#braincode .bcol { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow: auto; }
+#braincode .note { font-size: 12.5px; color: var(--c-dim); }
+#braincode .bc-heads { display: flex; padding-left: 46px; font-size: 11.5px; color: var(--c-dim); letter-spacing: 0.04em; }
+#braincode .bc-heads span { flex: 1 1 0; padding-left: 10px; }
+#braincode .bc-box { flex: none; height: min(440px, 60vh); min-height: 220px; display: flex; flex-direction: column; background: var(--c-box);
+                     border: 1px solid var(--c-boxedge); border-radius: 8px; overflow: hidden; }
+#braincode .bc-row { display: flex; min-height: 0; }  /* (the columns on 50% each, so every row splits alike, padding and all) */
+#braincode .bc-fixed { flex: none; }
+#braincode .bc-main { flex: 1; border-top: 1px dashed var(--c-gutedge); border-bottom: 1px dashed var(--c-gutedge); }
+#braincode .bc-gut { flex: none; width: 46px; overflow: hidden; border-right: 1px solid var(--c-gutedge); }
+#braincode pre, #braincode textarea { margin: 0; border: 0; white-space: pre; tab-size: 4; letter-spacing: 0;
+    font: 400 13px/20px "JetBrains Mono", Consolas, "Cascadia Mono", "Courier New", monospace; font-variant-ligatures: none; }
+#bc-gutter { padding: 4px 8px 4px 0; text-align: right; color: var(--c-ln); user-select: none; }
+#bc-gutter b { color: #fff; background: var(--c-errnum); border-radius: 3px; padding: 0 3px; font-weight: 700; }
+#braincode .bc-side { flex: 1 1 50%; min-width: 0; overflow: hidden; padding: 8px 10px 4px; color: var(--c-ln); font-size: 11.5px; }
+#bc-start, #bc-end { flex: 1 1 50%; min-width: 0; overflow: hidden; padding: 8px 10px 4px; border-left: 1px solid var(--c-gutedge); opacity: 0.55; user-select: none; }
+#braincode .bc-endrow .bc-side, #bc-end { padding: 4px 10px 8px; }
+#bc-pseudo { flex: 1 1 50%; min-width: 0; resize: none; outline: none; background: transparent; color: var(--c-text); caret-color: var(--c-caret);
+             padding: 4px 10px; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+#bc-pseudo::-webkit-scrollbar { display: none; }
+#bc-pseudo::selection { background: var(--c-sel); }
+#braincode .bc-edit { position: relative; flex: 1 1 50%; min-width: 0; display: flex; overflow: hidden; border-left: 1px solid var(--c-gutedge); }
+#bc-hl { position: absolute; left: 0; top: 0; min-width: 100%; z-index: 1; color: var(--c-text); pointer-events: none; padding: 4px 10px 4px calc(10px + 4ch); }
+#bc-hl .err { color: var(--red); }
+#bc-python { position: relative; z-index: 2; flex: 1; min-width: 0; resize: none; outline: none; background: transparent; color: transparent;
+             caret-color: var(--c-caret); padding: 4px 10px 4px calc(10px + 4ch); overflow-x: hidden; overflow-y: auto;
+             scrollbar-width: thin; scrollbar-color: rgba(76, 88, 124, 0.6) transparent; }
+#bc-python::selection { background: var(--c-sel); color: transparent; }
+#braincode .mpy .k { color: var(--c-k); }
+#braincode .mpy .f { color: var(--c-f); }
+#braincode .mpy .s { color: var(--c-s); }
+#braincode .mpy .n { color: var(--c-n); }
+#braincode .mpy .c { color: var(--c-c); }
+#braincode .mpy .t { color: var(--c-t); }
+#braincode .mpy .p { color: var(--c-p); }
+#bc-problems { font-size: 13px; min-height: 1.3em; white-space: pre-wrap; }
+#bc-problems .bad, #bc-result.bad { color: var(--red); }
+#bc-problems .hint { color: var(--yellow); }
+#bc-problems .ok, #bc-result.ok { color: var(--green); }
+#bc-result { font-size: 13px; min-height: 1.3em; color: var(--c-dim); }
+#braincode .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#bc-run { padding: 6px 24px; font-weight: 700; }
+#bc-run:disabled, #bc-stop:disabled { background: #383f4d; color: #8b93a5; cursor: default; filter: none; }
+#bc-runinfo { font-size: 13px; color: var(--c-dim); white-space: pre; }
+#bc-book { background: rgba(255, 255, 255, 0.04); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: var(--c-dim); }
+#bc-book h3 { color: var(--yellow); font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+#bc-book h3 small { color: var(--c-dim); font-weight: 400; }
+#bc-book p { margin: 6px 0 0; }
+#bc-book .mc-says { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+#bc-book .mc-says div { display: flex; flex-direction: column; }
+#bc-book .mc-says b { color: var(--c-f); font: 500 12.5px "JetBrains Mono", Consolas, monospace; }
+#bc-book .mc-values { color: var(--c-text); }
+@media (max-width: 600px) {  /* (a phone: the two columns kept side by side, smaller) */
+    #braincode { left: 6px; top: 46px; bottom: 6px; width: calc(100vw - 12px); padding: 0 8px 8px; }
+    #braincode pre, #braincode textarea { font-size: 11px; line-height: 17px; }
+    #braincode .bc-heads { font-size: 10px; }
+    #braincode .bc-box { height: 50vh; }
+    #bc-book .mc-says { grid-template-columns: 1fr; }
+}
 #missiondone { width: min(760px, calc(100vw - 24px)); z-index: 7; padding: 22px 30px; }
 #missiondone h1 { color: var(--yellow); font-size: 36px; margin: 0; }
 #missiondone .md-stars { font-size: 52px; letter-spacing: 12px; }

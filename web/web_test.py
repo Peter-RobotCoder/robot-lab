@@ -1760,6 +1760,74 @@ def main():
             no_errors()
         check("Restart server (pressed twice): the page reconnects by itself", restart)
 
+        def brain_panel():  # (CHANGE 211) a Robot Lab learner's Brain panel: pseudo code and Python side by side
+            if "robotlab" not in servers:
+                return
+            chrome.wait_for("window.__state.connected === true", 30, "the teacher's page connected")
+            chrome.js("window.__app.send({type: 'lesson', lesson: {tools: {brains: true}}})")  # (Mission 1 has brains off)
+            chrome.wait_for("((window.__state.lesson || {}).tools || {}).brains === true", 10, "brains switched on")
+            chrome.call("Page.navigate", url="about:blank")
+            time.sleep(1.0)
+            chrome.call("Page.navigate", url=f"http://127.0.0.1:{http_port}/index.html?host=ws://127.0.0.1:{robot_port}"
+                                             "&code=CLUB42&name=cora&auto=0&tier=low")
+            chrome.wait_for("!!window.__app && !!document.getElementById('cpass')", 20, "the page")
+            time.sleep(1.0)
+            chrome.js("document.getElementById('cpass').value = 'cora-pass-1'; document.getElementById('connect').click()")
+            chrome.wait_for("window.__state && window.__state.connected === true && window.__state.game && window.__state.game.id === 'robotlab'"
+                            " && window.__state.role === 'learner' && !!window.__state.myMissions", 30, "cora's login to the Robot Lab class")
+            chrome.wait_for("!document.getElementById('btn-brain').hidden", 10, "BRAIN (K) at the top")
+            chrome.js("window.dispatchEvent(new KeyboardEvent('keydown', {key: 'k'})); window.dispatchEvent(new KeyboardEvent('keyup', {key: 'k'}))")
+            v = "document.getElementById"
+            chrome.wait_for(f"!{v}('braincode').hidden && {v}('bc-pseudo').value.includes('turn towards enemy')"
+                            f" && {v}('bc-python').value.includes('steer = me.angle_to(enemy)')", 10,
+                            "K opens the panel on the starter, its Python beside it")
+            got = chrome.js(f"[{v}('bc-start').textContent, {v}('bc-end').textContent, document.querySelectorAll('#bc-book .mc-says b').length,"
+                            f" document.activeElement.id, {v}('bc-hl').querySelectorAll('span').length]")
+            assert got[0].startswith("def brain(me, enemies):") and "return throttle, steer, attack" in got[1], got
+            assert got[2] >= 10 and got[3] == "bc-pseudo" and got[4] > 5, f"the phrasebook, the cursor, the Python coloured: {got}"
+            # a key typed in the panel doesn't drive the robot (keys.typing, as the garage's code panel)
+            chrome.js(f"{v}('bc-pseudo').dispatchEvent(new KeyboardEvent('keydown', {{key: 'ArrowUp', bubbles: true}}))")
+            assert chrome.js("window.__app.keys.down.size") == 0, "a key typed in the Brain panel reached the robot"
+
+            def type_in(side, text):
+                chrome.js(f"{{ const t = {v}('bc-{side}'); t.focus(); t.value = {json.dumps(text)}; t.dispatchEvent(new Event('input')); }}")
+            # pseudo code typed: its Python appears; a near miss shows its hint and RUN stays off
+            type_in("pseudo", "turn twards enemy")
+            chrome.wait_for(f"{v}('bc-problems').textContent.includes('Did you mean: turn towards enemy?')", 10, "the near miss's hint")
+            assert chrome.js(f"{v}('bc-run').disabled") is True, "RUN on with a line it can't read"
+            pseudo = "turn away from enemy\ndrive forward\nif enemy distance less than 3\n  attack\nend"
+            type_in("pseudo", pseudo)
+            chrome.wait_for(f"{v}('bc-problems').textContent.includes('All 5 lines understood.') && !{v}('bc-run').disabled", 10,
+                            "five lines understood, RUN on")
+            py = chrome.js(f"{v}('bc-python').value").split("\n")
+            assert len(py) == 5 and py[1] == "throttle = 1" and py[2] == "if me.distance_to(enemy) < 3:" and py[3] == "    attack = True", py
+            assert chrome.js(f"{v}('bc-pseudo').value") == pseudo, "the pseudo code was changed while it was typed in"
+            # Python typed: the pseudo code appears; Python the phrasebook doesn't know is shown on its line
+            type_in("python", "throttle = 1\nattack = True\nfoo()")
+            chrome.wait_for(f"{v}('bc-problems').textContent.includes(\"Line 3: this Python isn't one the phrasebook knows\")"
+                            f" && {v}('bc-gutter').innerHTML.includes('<b>3</b>')", 10, "the Python it doesn't know, on line 3")
+            assert chrome.js(f"{v}('bc-pseudo').value") == "drive forward\nattack\nfoo()", chrome.js(f"{v}('bc-pseudo').value")
+            type_in("python", "throttle = 1\nif me.distance_to(enemy) < 3:\n    attack = True\n# end")
+            chrome.wait_for(f"{v}('bc-pseudo').value === 'drive forward\\nif enemy distance less than 3\\n  attack\\nend'"
+                            f" && !{v}('bc-run').disabled", 10, "the pseudo code from the Python")
+            assert chrome.js(f"{v}('bc-python').value") == "throttle = 1\nif me.distance_to(enemy) < 3:\n    attack = True\n# end", \
+                "the Python was changed while it was typed in"
+            chrome.screenshot(os.path.join(work, "robotlab_brain_panel.png"))
+            # RUN: the pseudo code is her brain, autopilot on; STOP switches it off
+            chrome.js(f"{v}('bc-run').click()")
+            chrome.wait_for(f"{v}('bc-result').className === 'ok' && {v}('bc-result').textContent.includes('Running')"
+                            " && window.__state.myMissions.autopilot === true && !!window.__state.myMissions.brain", 15, "RUN: her code drives")
+            assert "attack" in (chrome.js("window.__state.myMissions.brain_pseudo") or ""), "the pseudo code run isn't kept"
+            chrome.wait_for(f"!{v}('bc-stop').disabled", 5, "STOP on while her code drives")
+            chrome.js(f"{v}('bc-stop').click()")
+            chrome.wait_for(f"window.__state.myMissions.autopilot === false && {v}('bc-stop').disabled", 10, "STOP: autopilot off")
+            chrome.js("document.activeElement.blur();"  # (out of the Python: K typed there is a k)
+                      "window.dispatchEvent(new KeyboardEvent('keydown', {key: 'k'})); window.dispatchEvent(new KeyboardEvent('keyup', {key: 'k'}))")
+            chrome.wait_for(f"{v}('braincode').hidden", 5, "K closes it")
+            no_errors()
+        check("Robot Lab: a learner's Brain panel (K): pseudo code typed and its Python appears, Python typed and its pseudo "
+              "code appears (a near miss's hint, Python it doesn't know), RUN (her code drives) and STOP", brain_panel)
+
         def fight_lab():
             if FIGHT is None:
                 print("    (Fight Lab isn't beside this folder: not tested)")
@@ -1834,6 +1902,11 @@ def main():
             chrome.wait_for("window.__state.draft.body === 'woman' && !!document.querySelector('button[data-look=\"outfit\"]')", 5,
                             "the detailed body's look in the garage")
             chrome.screenshot(os.path.join(work, "fightlab_garage.png"))
+            # (the teacher's own fighter built from there, its fighter not in the class: Pete, 1 November 2026)
+            chrome.js("(() => { const n = document.getElementById('dz-name'); n.value = 'Sensei Two'; n.dispatchEvent(new Event('input'));"
+                      " document.getElementById('dz-build').click(); })()")
+            chrome.wait_for("(window.__state.myDesign || {}).name === 'Sensei Two' && window.__state.myDesign.body === 'woman'", 10,
+                            "the teacher's own fighter built from the Learners tab")
             tab("camera")
             time.sleep(2.0)
             chrome.screenshot(os.path.join(work, "fightlab.png"))

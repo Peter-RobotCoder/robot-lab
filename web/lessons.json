@@ -1206,6 +1206,14 @@
      "ALG"
     ]
    ],
+   "3f": [
+    3,
+    "Code mission: escape or attack",
+    [
+     "SEL",
+     "ALG"
+    ]
+   ],
    "4a": [
     4,
     "Change the rules with AI",
@@ -1311,7 +1319,7 @@
   "tasks": {
    "1": "Your robot is a set of variables. Change a string (its name), integers (turn speed and size) and a list (its colour) with the GUI, then hack the code to change them there, where every variable can be seen. Finish with a first safe AI request for a change in the game, then check what the AI did.",
    "2": "Design a robot on a budget. Share exactly 100 points between speed, attack, armour and control in the code, prove the game rejects bad designs (invalid and boundary test data), then fight and use the evidence to justify the design.",
-   "3": "Write a Python brain that drives the robot by itself. It must run without errors, make decisions with if / elif / else, use a function of your own and remember a state between ticks. Upload it (U), switch autopilot on (P) and watch it fight.",
+   "3": "Write a brain that drives the robot by itself. Start in the Brain panel (K): pseudo code beside its Python, either side typed, to make your robot escape an enemy or attack it. Then in Python in brains/my_brain.py: it must run without errors, make decisions with if / elif / else, use a function of your own and remember a state between ticks. Upload it (U), switch autopilot on (P) and watch it fight.",
    "4": "Improve the game itself with AI. Write a safe, precise request to change a game rule, predict what it will do, then review the AI's code: does it work, was it tested, can you explain it? Then find a mistake hidden in AI-written code.",
    "5": "Bring everything together for the class tournament: a final design and an uploaded brain, one new feature of your own made with AI, then evaluate what worked using evidence from the battles and explain your code to the group."
   },

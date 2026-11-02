@@ -37,6 +37,7 @@ import {makeDraggable} from "./drag.js";
 import {Snapshots} from "./interp.js";  // (CHANGE 175: the window's blending, delay following the network)
 import {openBrainEditor, closeBrainEditor, brainEditorChanged, uploadMyBrain, brainsOn} from "./brain.js";
 import {ExperienceView} from "./experience.js";  // (CHANGE 210: an experience over any game)
+import {BrainCode} from "./braincode.js";  // (CHANGE 211: Robot Lab's Brain panel, K)
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -366,6 +367,7 @@ function showLogin() {
     $("login").style.display = "flex";
     $("toggle").hidden = true;
     $("hudbtn").hidden = true;
+    $("btn-brain").hidden = true;  // (CHANGE 211)
     touch.hide();  // (CHANGE 187)
     $("panel").classList.remove("open");
 }
@@ -404,6 +406,12 @@ let experienceView = null;
 function xview() {  // (CHANGE 210) made on first use: its boxes over the game, for every game
     if (!experienceView) experienceView = new ExperienceView(msg => send(msg));
     return experienceView;
+}
+
+let brainCodeView = null;
+function brainCode() {  // (CHANGE 211) Robot Lab's Brain panel: made on first use, its box when it first opens
+    if (!brainCodeView) brainCodeView = new BrainCode(appApi);
+    return brainCodeView;
 }
 
 function onMessage(data) {
@@ -463,6 +471,7 @@ function onMessage(data) {
             $("btn-lobby").textContent = "BACK TO THE LOBBY";
             renderKeyHelp();
             brainEditorChanged(appApi);
+            brainCode().changed(true);  // (CHANGE 211: BRAIN (K) for a Robot Lab learner)
             updatePills();
             renderPanel();
             return;
@@ -479,6 +488,7 @@ function onMessage(data) {
             updatePills();
             renderPanelSoon();
             renderCode(appApi);  // (the code view may have been switched on or off)
+            brainCode().changed();  // (brains switched off: the Brain panel closes, CHANGE 211)
             return;
         case "roster":
             state.roster = m;
@@ -503,6 +513,7 @@ function onMessage(data) {
         case "missions":
             if (m.for) { state.viewing = m; if (state.tab === "learners") renderPanelSoon(); return; }
             // our own: the mission, the cards, my card (a learner's window, or the teacher's own)
+            if (brainCodeView) brainCodeView.missions(m);  // (autopilot on or off, the pseudo code last run: CHANGE 211)
             if (JSON.stringify(m) !== state.myMissionsKey) {
                 state.myMissionsKey = JSON.stringify(m);
                 state.myMissions = m;
@@ -519,8 +530,11 @@ function onMessage(data) {
             if (m.ok && state.card) { state.card.goal = state.card.variables = state.card.test = state.card.predict = ""; keepPrefs({card: state.card}); }
             if (state.tab === "aicard") renderPanel();
             return;
-        case "brain_result":
-            toast(m.ok ? "Your brain is uploaded." : `Brain not used: ${m.error || ""}`, false, 6000);
+        case "brain_result":  // (the Brain panel shows it while it's open: CHANGE 211)
+            if (!(brainCodeView && brainCodeView.result(m))) toast(m.ok ? "Your brain is uploaded." : `Brain not used: ${m.error || ""}`, false, 6000);
+            return;
+        case "brain_code":  // (CHANGE 211) the class server's reading of the Brain panel's pseudo code or Python
+            brainCode().took(m);
             return;
         case "session":
             state.session = m.session || null;
@@ -1079,6 +1093,7 @@ function keyList() {
     // (a key already in the game's rows, alone or as "Tab/I", "I or Tab"..., isn't listed twice)
     const has = k => list.some(([x]) => String(x).split(/\s*(?:\/|,| or | and )\s*/).includes(k));
     if (state.role !== "learner" && g.id === "kartlab" && !has("Enter")) list.push(["Enter", "start the race"], ["G", "everyone to the grid"], ["T", "the next track"]);
+    if (state.role === "learner" && g.id === "robotlab" && !has("K")) list.push(["K", "the Brain panel: your robot's brain in pseudo code and Python"]);  // (CHANGE 211)
     if (state.role !== "learner" && g.fixMine && !has("F") && !has("Shift+F")) list.push([g.id === "fightlab" ? "Shift+F" : "F", "fix your own " + (g.id === "robotlab" ? "robot" : g.id === "fightlab" ? "fighter" : "kart")]);  // (CHANGE 182)
     for (const [k, what] of [["U", "upload your brain"], ["P", "autopilot on or off (your brain drives)"], ["N", "sound on or off"],
                              ["I", "the panel (or Tab)"], ["C", "your code"], ["H", "the key list over the game: shown or hidden"]]) {
@@ -1122,6 +1137,7 @@ const appApi = {
     // (CHANGE 143) the brain editor (learner.js's Brain button), a panel dragged and kept (Robot Lab's health bars), and
     // the Settings' Wheel zoom: wheelZoom(e) is the factor a wheel turn zooms by (under 1: in), turned round when inverted
     openBrainEditor: () => openBrainEditor(appApi), uploadMyBrain: () => uploadMyBrain(appApi, pickBrain),
+    openBrainCode: () => toggleBrainCode(),  // (CHANGE 211: Robot Lab's Brain panel, learner.js's BRAIN (K))
     makeDraggable: (el, key, opts) => makeDraggable(el, key, opts),
     get invertZoom() { return !!state.invertZoom; }, get invertScroll() { return !!state.invertScroll; },
     wheelZoom: e => { const f = e.deltaY > 0 ? 1 / 0.88 : 0.88; return state.invertZoom ? 1 / f : f; },
@@ -1230,10 +1246,11 @@ function applyTouch() {  // (shown over Kart Lab, City Lab and Craft Lab, playin
 keys.onKey = (k, e) => {
     if (!state.connected || deskShown()) return;
     const g = state.game, teacher = state.role !== "learner";
-    const onPage = !(e.target && e.target.closest && e.target.closest("button, a, #panel, #codepanel, #brainpanel"));  // (Enter on a button presses it)
+    const onPage = !(e.target && e.target.closest && e.target.closest("button, a, #panel, #codepanel, #brainpanel, #braincode"));  // (Enter on a button presses it)
     if (g && g.onKey && g.onKey(k, e)) return;  // (a game's own keys first: the Missions' C, R, 1 and 2, F1 and F2: CHANGE 199)
     if (k === "i") { $("panel").classList.toggle("open"); if ($("panel").classList.contains("open")) renderPanel(); }
     else if (k === "c" && g) toggleCode(appApi);
+    else if (k === "k" && g && g.id === "robotlab" && !teacher) toggleBrainCode();  // (CHANGE 211, the window's K)
     else if (k === "p") { if (brainsOn(appApi)) send({type: "autopilot"}); }
     else if (k === "u" && g) uploadMyBrain(appApi, pickBrain);
     else if (k === "h") toggleKeyHelp();
@@ -1286,6 +1303,13 @@ function weaponLocked(g) {
     if (r && TOGGLE_WEAPONS.includes((r.design || {}).weapon || "wedge")) toast("Weapon on/off is switched off for this mission: ask your teacher", false, 3000);
 }
 
+// (CHANGE 211) K, BRAIN (K) at the top or in the Mission tab: Robot Lab's Brain panel, for a learner while brains are on
+function toggleBrainCode() {
+    const view = brainCode();
+    if (!view.shown && !brainsOn(appApi)) return;  // (the teacher hasn't switched brains on: said so)
+    view.toggle();
+}
+
 function pickBrain() {
     const input = document.createElement("input");
     input.type = "file";
@@ -1316,6 +1340,7 @@ function leaveToLobby() {
     state.showCode = false;
     renderCode(appApi);
     closeBrainEditor();
+    brainCode().close();
     sound.stopAll();
     renderKeyHelp();
     showLogin();
@@ -1328,7 +1353,7 @@ function leaveToLobby() {
 // (CHANGE 143) the Settings' Mouse wheel: Inverted slides the panel and scrolls the code the other way up, as the window's
 function invertedWheel(e) {
     if (!state.invertScroll || e.ctrlKey) return;
-    const el = e.target.closest && e.target.closest("#panelbody, #code-text, #brain-text");
+    const el = e.target.closest && e.target.closest("#panelbody, #code-text, #brain-text, #bc-pseudo, #bc-python");
     if (!el) return;
     e.preventDefault();
     const k = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? el.clientHeight : 1;
@@ -1355,6 +1380,7 @@ function setupUi() {
     $("hudbtn").onclick = () => hudMini.toggleClean();  // (CHANGE 187)
     $("btn-desk").onclick = () => showDesk();
     $("btn-lobby").onclick = () => leaveToLobby();  // (CHANGE 143)
+    $("btn-brain").onclick = () => toggleBrainCode();  // (CHANGE 211)
     document.addEventListener("wheel", invertedWheel, {passive: false, capture: true});
     window.addEventListener("pointerup", () => { state.dragging = false; });
     for (const kind of ["pointerdown", "keydown", "focusin", "change"]) {  // (a drop-down in use: see renderPanel)

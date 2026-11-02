@@ -29,6 +29,7 @@ class Record(teaching.Record):
     def __init__(self, name):
         super().__init__(name)
         self.top_speed = 0.0       # fastest forward speed since the last build, km/h
+        self.code_run = None       # Mission 3 f: the code driving now (CHANGE 211), not kept
 
 
 def apply_mods(t, files):
@@ -114,6 +115,33 @@ class Teaching(teaching.Teaching):
             self.complete(p.name, "3a", f"Brain ran for {r.brain.seconds_running(now):.0f} s without an error")
         if self.lesson_number == 5 and not arena.practice and r.built and r.brain and not r.brain.error:
             self.complete(p.name, "5a", "Entered the final battle with their own design and brain")
+        self.code_mission(p, r, robot, arena, now)
+
+    def code_mission(self, p, r, robot, arena, now):
+        """(CHANGE 211) Mission 3 f, escape or attack in code: while the learner's code drives (autopilot on, the same
+        brain and robot throughout), 3 hits landed is ATTACK; 20 seconds with no hit taken, an enemy having come
+        within ESCAPE_NEAR metres, is ESCAPE. Taking a hit starts the 20 seconds again."""
+        if "3f" in r.done or self.lesson_number != 3:
+            return
+        driving = r.brain is not None and r.autopilot and not r.brain.error
+        run = r.code_run
+        if not driving or run is None or run["robot"] is not robot or run["brain"] is not r.brain:
+            r.code_run = run = ({"robot": robot, "brain": r.brain, "since": now, "hits": robot.hits,
+                                 "taken": robot.times_hit, "near": False} if driving else None)
+            if run is None:
+                return
+        if robot.times_hit != run["taken"]:  # (hit: the escape starts again from here)
+            run.update(since=now, taken=robot.times_hit, near=False)
+        enemies = [e for e in arena.robots if e is not robot and not e.knocked_out and not e.house]
+        if any((e.pos - robot.pos).length() < self.ESCAPE_NEAR for e in enemies):
+            run["near"] = True
+        landed = robot.hits - run["hits"]
+        if landed >= 3:
+            self.complete(p.name, "3f", f"ATTACK: their code landed {landed} hits")
+        elif run["near"] and now - run["since"] >= 20:
+            self.complete(p.name, "3f", "ESCAPE: their code kept them from being hit for 20 s with an enemy close by")
+
+    ESCAPE_NEAR = 5.0
 
     def predicted(self, p, r):
         r.top_speed = 0.0

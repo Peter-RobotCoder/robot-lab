@@ -526,6 +526,7 @@ class Robot:
         self.weapon_on = False  # (a weapon that toggles: see TOGGLE_WEAPONS. Every robot starts with it off)
         self.damage_dealt = self.damage_taken = 0.0
         self.hits = 0
+        self.times_hit = 0  # (hits taken, in practice too: CHANGE 211)
         self.knocked_out = False
         self.upside_down_since = None
         self.fire_until = -10.0
@@ -746,9 +747,10 @@ class Robot:
 
     # ---------- every tick ----------
     def tick(self, enemies, now):
-        if self.knocked_out or self.arena.frozen:  # (frozen: the countdown before a battle. Nobody moves or fires)
+        over = self.arena.final is not None  # (CHANGE 211: the battle is won: every robot switches off)
+        if self.knocked_out or self.arena.frozen or over:  # (frozen: the countdown before a battle. Nobody moves or fires)
             throttle, steer, attack = 0.0, 0.0, False
-            if self.arena.frozen:
+            if self.arena.frozen or over:
                 self.weapon_on = False
         elif self.brain:
             throttle, steer, attack = self.brain(self, enemies, self.arena)
@@ -903,6 +905,7 @@ class Robot:
             self.knocked_out = False
             self.damage_dealt = self.damage_taken = 0.0
             self.hits = 0
+            self.times_hit = 0
             self.weapon_on = False
 
     def repair(self):
@@ -1426,6 +1429,7 @@ class Arena:
         if attacker:
             damage *= RULES["damage_multiplier"]
             attacker.hits += 1
+        victim.times_hit += 1
         if self.practice:  # count it, but nobody loses armour
             self.events.append((now, f"{text} (practice)"))
             return

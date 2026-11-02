@@ -259,7 +259,10 @@ export class Controller {
             return;
         }
         let msg, press = null;
-        if (this.kind === "robot") msg = this.robotControl();
+        if (this.kind === "robot") {
+            msg = this.robotControl();
+            if (game.battleWon && game.battleWon()) msg = {throttle: 0, steer: 0, fire: false};  // (CHANGE 211: every robot switched off)
+        }
         else if (this.kind === "fight") {
             msg = this.fightControl();
             // (CHANGE 182: Shift+F is the teacher's fix, app.js's, not a cartwheel)

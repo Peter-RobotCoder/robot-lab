@@ -32,6 +32,7 @@ import websockets
 from panda3d.core import RenderState, TransformState
 
 import ai_pipeline
+import brain_pseudo
 import cpu_brains
 import lab_brain
 import lab_profiles
@@ -1024,6 +1025,22 @@ class LabServer:
                 return
             await self.upload_brain(p, str(m.get("source", "")))
             return
+        if kind == "brain_code":  # (CHANGE 211) the page's Brain panel: its pseudo code or Python read, as the window reads its own
+            await self.send(p.ws, await asyncio.to_thread(brain_code_msg, m))
+            return
+        if kind == "brain_run" and p.role == "learner":  # (CHANGE 211) the Brain panel's RUN: the pseudo code as a brain
+            if not self.lesson.get("tools", {}).get("brains", True):
+                await self.send(p.ws, {"type": "notice", "text": "Brains aren't switched on for this mission yet."})
+                return
+            pseudo = str(m.get("pseudo", ""))[:6000]
+            parsed = await asyncio.to_thread(brain_pseudo.read, pseudo)
+            if parsed["source"] is None:
+                first = parsed["errors"][0]
+                await self.send(p.ws, {"type": "brain_result", "ok": False,
+                                       "error": f"Line {first['n']}: {first.get('message', 'not understood')}"})
+                return
+            await self.upload_brain(p, parsed["source"], pseudo=pseudo, autopilot=True)
+            return
         if kind in ("mod_vote", "arena_vote") and p.role == "learner":  # a tick on the learner's Mods tab
             votes, key, known = (self.mod_votes, m.get("mod"), sim.USER_MODS) if kind == "mod_vote" else \
                 (self.arena_votes, m.get("item"), ARENA_ITEMS)
@@ -1088,7 +1105,7 @@ class LabServer:
         elif p.role == "teacher":
             await self.teacher_command(m)
 
-    async def upload_brain(self, p, source):
+    async def upload_brain(self, p, source, pseudo=None, autopilot=None):
         now = time.monotonic()
         if now - getattr(p, "brain_at", -BRAIN_UPLOAD_GAP) < BRAIN_UPLOAD_GAP:
             await self.send(p.ws, {"type": "brain_result", "ok": False,
@@ -1103,7 +1120,7 @@ class LabServer:
             if not isinstance(loaded, Exception):
                 loaded[0].close()
             return
-        reply = self.teaching.upload_brain(p, source, loaded)
+        reply = self.teaching.upload_brain(p, source, loaded, pseudo=pseudo, autopilot=autopilot)
         await self.deliver([(p.ws, reply), (p.ws, self.teaching.missions_msg(p))] + self.teaching.teacher_update())
 
     async def teacher_command(self, m):
@@ -1755,6 +1772,12 @@ class LabServer:
                     sent_version[ws] = self.roster_version
                 await self.outboxes.send(ws, state, "state")
             await asyncio.sleep(0)  # (send() rarely yields: let the receiving side run before the next physics step)
+
+
+def brain_code_msg(m):
+    """(CHANGE 211) The page's Brain panel asks: its pseudo code, or its Python column, read (brain_pseudo)."""
+    return brain_pseudo.code_msg("python" if m.get("side") == "python" else "pseudo", m.get("text", ""),
+                                 with_phrasebook=bool(m.get("phrasebook")))
 
 
 def number(v, default=0.0):

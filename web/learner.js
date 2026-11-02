@@ -73,7 +73,8 @@ function missionTab(app, body) {
         html += `<h3>Your brain</h3><p class="note">${m.brain ? "A brain is uploaded." : "No brain uploaded yet."}
           ${m.autopilot ? " Autopilot is ON (P turns it off)." : ""}</p>`;
         if (m.brain_error) html += `<p class="note bad">${esc(m.brain_error)}</p>`;
-        html += `<div class="row">${app.openBrainEditor ? `<button id="btn-brain-edit" class="go">Edit my brain</button>` : ""}
+        html += `<div class="row">${app.openBrainCode && app.game && app.game.id === "robotlab" ? `<button id="btn-brain-code" class="go" title="Your brain in pseudo code and Python, side by side">BRAIN (K)</button>` : ""}
+          ${app.openBrainEditor ? `<button id="btn-brain-edit" class="go">Edit my brain</button>` : ""}
           <label class="filebtn">Upload a brain (.py)<input type="file" id="brain-file" accept=".py,.txt" hidden></label>
           <button id="btn-autopilot">${m.autopilot ? "Autopilot off" : "Autopilot on"}</button></div>`;
     }
@@ -92,6 +93,7 @@ function missionTab(app, body) {
         if (!Number.isFinite(value)) return app.toast("Type the lap time you predict, in seconds (for example 42)");
         app.send({type: "prediction", value});
     };
+    if ($("btn-brain-code")) $("btn-brain-code").onclick = () => app.openBrainCode();  // (Robot Lab's Brain panel: braincode.js, CHANGE 211)
     if ($("btn-brain-edit")) $("btn-brain-edit").onclick = () => app.openBrainEditor();  // (the page's brain editor: app.js, brain.js)
     if ($("brain-file")) $("brain-file").onchange = e => uploadBrain(app, e.target.files[0]);
     if ($("btn-autopilot")) $("btn-autopilot").onclick = () => app.send({type: "autopilot"});

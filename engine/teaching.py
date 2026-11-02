@@ -360,8 +360,10 @@ class Teaching(ExperienceMixin):
         return None
 
     # ---------- brains ----------
-    def upload_brain(self, p, source, loaded=None):
-        """loaded: (brain, fname) or a BrainError, when the server has already loaded it away from the game loop."""
+    def upload_brain(self, p, source, loaded=None, pseudo=None, autopilot=None):
+        """loaded: (brain, fname) or a BrainError, when the server has already loaded it away from the game loop.
+        pseudo: the pseudo code it was written as (CHANGE 211: the Brain panel), kept with it. autopilot: True to
+        switch autopilot on with it (the Brain panel's RUN)."""
         r = self.record(p.name)
         try:
             if isinstance(loaded, Exception):
@@ -373,13 +375,71 @@ class Teaching(ExperienceMixin):
             r.brain.close()
         r.brain = self.g.brain.Autopilot(fn, fname)
         r.brain_features = self.g.missions.brain_features(source)
+        if autopilot is not None:
+            r.autopilot = bool(autopilot)
         if p.name in self.profiles:  # kept, so it's still there next lesson
             self.profiles[p.name]["brain"] = source
+            if pseudo is not None:
+                self.profiles[p.name]["brain_pseudo"] = pseudo
             self.save_profile(p.name)
+        if p.role == "learner":
+            self.keep_code(p.name, source, pseudo)
         self.brain_checks(p, r)
         self.attach(p)
+        if autopilot:
+            return {"type": "brain_result", "ok": True, "error": "Running: your code is driving (P or STOP to take over)."}
         return {"type": "brain_result", "ok": True,
                 "error": "Uploaded. Press P to switch autopilot " + ("off." if r.autopilot else "on.")}
+
+    # ---------- every version of a learner's code (CHANGE 211) ----------
+    # Each brain a learner uploads or runs is kept, in the order they came, one line of JSON each in
+    # code/<their profile's name>.jsonl: nothing to press (a learner never loses a version by forgetting to save),
+    # and the same code twice in a row is kept once. For the end-of-season card: the first and the latest, how many,
+    # what they used. Deleting the learner deletes the file.
+    MAX_CODE_VERSIONS = 500
+
+    def code_file(self, name):
+        base = os.path.splitext(os.path.basename(self.g.profiles.path_for(name)))[0]
+        return os.path.join(self.g.data, "code", base + ".jsonl")
+
+    def code_versions(self, name):
+        try:
+            with open(self.code_file(name), encoding="utf-8") as f:
+                return [json.loads(line) for line in f if line.strip()]
+        except (OSError, ValueError):
+            return []
+
+    def keep_code(self, name, source, pseudo=None):
+        path = self.code_file(name)
+        versions = self.code_versions(name)
+        if versions and versions[-1].get("source") == source and versions[-1].get("pseudo") == pseudo:
+            return
+        entry = {"time": now_text(), "lesson": self.lesson_number, "via": "pseudo" if pseudo is not None else "file",
+                 "source": source, "features": sorted(self.g.missions.brain_features(source))}
+        if pseudo is not None:
+            entry["pseudo"] = pseudo
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if len(versions) >= self.MAX_CODE_VERSIONS:  # (the first is always kept: where they started)
+                versions = versions[:1] + versions[-(self.MAX_CODE_VERSIONS - 2):]
+                with open(path, "w", encoding="utf-8") as f:
+                    f.writelines(json.dumps(v) + "\n" for v in versions + [entry])
+            else:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
+
+    def code_summary(self, name):
+        """For a learner's card: how many versions, the first and the latest (when and how long), what they used."""
+        versions = self.code_versions(name)
+        if not versions:
+            return None
+        lines = lambda v: len([x for x in (v.get("pseudo") or v["source"]).split("\n") if x.strip()])  # noqa: E731
+        used = sorted({f for v in versions for f in v.get("features", [])})
+        return {"versions": len(versions), "first": {"time": versions[0]["time"], "lines": lines(versions[0])},
+                "latest": {"time": versions[-1]["time"], "lines": lines(versions[-1]), "via": versions[-1]["via"]},
+                "used": used}
 
     def attach(self, p):
         """Give a learner's robot or fighter their brain when autopilot is on (also after a rebuild)."""
@@ -454,6 +514,7 @@ class Teaching(ExperienceMixin):
                 "title": title,
                 "missions": missions, "prediction": r.prediction, **self.missions_extra(r),
                 "text": r.text, "brain": bool(r.brain), "autopilot": r.autopilot,
+                "brain_pseudo": (self.profiles.get(p.name) or {}).get("brain_pseudo"),  # (the Brain panel's: CHANGE 211)
                 "brain_error": r.brain.error if r.brain else None,
                 "cards": [c for c in self.cards if c["learner"] == p.name],
                 "review_questions": self.g.missions.REVIEW_QUESTIONS, "card": self.card_data(p.name)}
@@ -473,7 +534,8 @@ class Teaching(ExperienceMixin):
                                              "detail": str(info.get("detail", ""))[:160]})  # (what exactly: CHANGE 96)
         history = [{"date": day, "missions": sorted(ms, key=lambda m: m["time"])} for day, ms in sorted(days.items(),
                                                                                                         reverse=True)]
-        return {"outcomes": outcomes, "outcome_names": {o: v[0] for o, v in self.g.missions.OUTCOMES.items()}, "history": history}
+        return {"outcomes": outcomes, "outcome_names": {o: v[0] for o, v in self.g.missions.OUTCOMES.items()}, "history": history,
+                "code": self.code_summary(name)}  # (CHANGE 211: every version of their code is kept)
 
     def session_report(self, since, present):
         """What happened in the live session, for the club desk: who was here, what each learner completed
@@ -541,6 +603,8 @@ class Teaching(ExperienceMixin):
         self.g.profiles.delete(name)
         if os.path.exists(self.design_file(name)):
             os.remove(self.design_file(name))
+        if os.path.exists(self.code_file(name)):  # (every version of their code: CHANGE 211)
+            os.remove(self.code_file(name))
         self.cards = [c for c in self.cards if c["learner"] != name]
         self.forget_history(name)
         for f in os.listdir(self.cards_dir):
